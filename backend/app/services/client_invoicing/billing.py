@@ -89,6 +89,12 @@ _SAP_PREFIX = re.compile(r"^SAP[\s:-]*(\d+)$", re.IGNORECASE)
 TITLE_PREFIX = re.compile(r"^\s*zam[óo]wienie\s+(nr\.?\s*)?", re.IGNORECASE)
 #: Reszta tytułu jest numerem, gdy to jeden wyraz z cyfrą (jak ``number_from_title``).
 _TITLE_NUMBER = re.compile(r"[\w./-]{2,40}")
+#: Znak kancelaryjny przed numerem („L.dz. KIR/DAZ/…”, „LDZ.dz.KIR/…”): faktura go nie podaje.
+_REGISTRY_PREFIX = re.compile(r"^\s*l\.?\s*dz\.?(?:\s*dz\.?)?\s*", re.IGNORECASE)
+#: Numer grupy z dopiskiem po myślniku („4500000777- Wsparcie on-site”); „1234567-9” to jeden numer.
+_DESCRIBED_NUMBER = re.compile(r"^([\w./]*\d[\w./]*)\s*[-–—]\s+\S")
+#: Krótszy początek („2026 — opis”) związałby fakturę po dacie.
+_DESCRIBED_NUMBER_MIN = 6
 
 
 def money(value: Decimal) -> Decimal:
@@ -223,7 +229,42 @@ class OrderRef:
             and any(ch.isdigit() for ch in bare)
         ):
             found.append(bare)
+        for value in self._cleaned(bare):
+            if value not in found:
+                found.append(value)
         return tuple(found)
+
+    def _cleaned(self, bare: str) -> list[str]:
+        """Numer zapisany z ozdobnikiem, którego faktura nie powtarza (audyt 25.11.2026).
+
+        Znak kancelaryjny „L.dz.” zdejmujemy zawsze. Dopisek po myślniku i dwa
+        numery sklejone ukośnikiem („OIT/0001/2025/IT/OIT/0002/2026/IT”) czytamy
+        tylko w numerze grupy: to pole na numer, a tytuł samodzielnego zamówienia
+        bywa opisem, z którego numeru nie bierzemy.
+        """
+
+        found: list[str] = []
+        unprefixed = _REGISTRY_PREFIX.sub("", bare).strip()
+        if unprefixed != bare and _is_number(unprefixed):
+            found.append(unprefixed)
+        if self.group_id is None:
+            return found
+        described = _DESCRIBED_NUMBER.match(self.number)
+        if described and len(described.group(1)) >= _DESCRIBED_NUMBER_MIN:
+            found.append(described.group(1))
+        prefix = self.number.split("/", 1)[0]
+        if prefix.isalpha() and len(prefix) >= 2 and f"/{prefix}/" in self.number:
+            first, *rest = self.number.split(f"/{prefix}/")
+            found.extend(
+                part
+                for part in [first, *(f"{prefix}/{tail}" for tail in rest)]
+                if _is_number(part)
+            )
+        return found
+
+
+def _is_number(value: str) -> bool:
+    return bool(_TITLE_NUMBER.fullmatch(value)) and any(ch.isdigit() for ch in value)
 
 
 def _consultant(order: ClientOrder) -> str:

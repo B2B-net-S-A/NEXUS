@@ -180,6 +180,20 @@
   u tego klienta, która w miesiącu usługi nie ma pozycji zamówienia. Pozycję sprawdzamy po zamówieniach (`member_ids`), nie po tekście linii:
   kosztowe mają nazwiska po przecinku, a wspólna pula „N os.”. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
   6 miesięcy nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.
+- **Ten sam alert, dwie luki więcej** (`services/client_invoicing/unknown_refs.py`, audyt luk z 25.11.2026: ponad 20 osób z faktur Nordei
+  bez żadnego kontraktu; prawie 50 faktur jednego klienta z nieznanym numerem bez żadnej karty):
+  (1) **osoba bez kontraktu** — pozycja ma znacznik „Contractor”/„Konsultant” z imieniem i nazwiskiem, a u klienta (z rodziną scaleń)
+  nie ma kontraktu tej osoby ani jej numeru osoby (`client_external_ids`, `client_person_no`). Skrót podwójnego nazwiska, literówka
+  (≤ 2 znaki w nazwisku przy tym samym imieniu) i apostrof („O’Neill” = „ONeill”) to ta sama osoba. Nazwisko, które pozycja podaje też
+  po „Contact:”, to błąd w treści faktury i nie alarmuje. Osobę porównujemy z nazwiskiem po znaczniku, nie z całą pozycją, bo
+  „Nordea Contact” bywa naszym kontraktorem i zasłaniałby lukę. Bez znacznika nie zgadujemy osoby z wolnego tekstu.
+  (2) **nieznany numer zamówienia** — faktura czeka z powodem `unknown_order_number`, a `line_gaps` nie wskazał dla niej osoby
+  (osoba ma pozycję albo pozycja nie nazywa osoby). Karta podaje numer z faktury (`named_order_numbers`).
+  Typ alertu zostaje `invoice_without_order_line` (bez migracji): w obu przypadkach faktura nie ma pozycji zamówienia w NEXUSIE.
+- **Numer zamówienia z ozdobnikiem** (`OrderRef.variants`, 25.11.2026): znak kancelaryjny „L.dz.”/„LDZ.dz.” zdejmujemy zawsze;
+  w numerze GRUPY czytamy też numer przed dopiskiem po myślniku („4500000777- Wsparcie on-site”, min. 6 znaków, łącznik bez spacji
+  należy do numeru) i dwa numery sklejone ukośnikiem („OIT/…/ITVM/OIT/…/ITVM”). Tytuł samodzielnego zamówienia z opisem numeru nie daje
+  (jak `number_from_title`). Przed zmianą kilkanaście faktur trzech klientów czekało jako „nieznany numer” mimo zamówienia w NEXUSIE.
 
 ## Zamówienia MD w obcej walucie (08.11.2026)
 

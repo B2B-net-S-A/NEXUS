@@ -164,6 +164,38 @@ def test_descriptive_title_gives_no_bare_number(title):
     assert OrderRef(1, None, 5, title).variants() == (title,)
 
 
+@pytest.mark.parametrize(
+    ("ref", "invoice_text"),
+    [
+        # Numer grupy z dopiskiem po myślniku (audyt 25.11.2026, Wedel).
+        (OrderRef(1, 10, None, "4500000777- Wsparcie on-site"), "zamówienie: 4500000777"),
+        # Znak kancelaryjny przed numerem — w grupie i w tytule (KIR).
+        (OrderRef(1, None, 5, "LDZ.dz.ABC/DAZ/BK/00001/6/2026/ZAM"), "Zamówienie:ABC/DAZ/BK/00001/6/2026/ZAM"),
+        (OrderRef(1, None, 6, "L.dz. ABC/DAZ/MD/00002/6/2026/ZAM"), "nr ABC/DAZ/MD/00002/6/2026/ZAM"),
+        # Dwa numery sklejone ukośnikiem w jednym polu grupy (Alior).
+        (OrderRef(1, 11, None, "OIT/0001/2025/IT/OIT/0002/2026/IT"), "Zamówienie nr OIT/0001/2025/IT"),
+        (OrderRef(1, 11, None, "OIT/0001/2025/IT/OIT/0002/2026/IT"), "Zamówienie nr OIT/0002/2026/IT"),
+    ],
+)
+def test_decorated_order_number_is_found_by_the_number_alone(ref, invoice_text):
+    assert numbers_found([invoice_text], [ref]) == {ref.key}
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        # Opis w tytule samodzielnego zamówienia dalej nie daje numeru.
+        OrderRef(1, None, 5, "4500000777- Wsparcie on-site"),
+        # Krótki początek przed myślnikiem związałby fakturę po dacie.
+        OrderRef(1, 10, None, "2026 - opis zamówienia"),
+        # Łącznik bez spacji należy do numeru.
+        OrderRef(1, 10, None, "1234567-9"),
+    ],
+)
+def test_number_with_dash_stays_whole_outside_group_or_when_short(ref):
+    assert ref.variants() == (ref.number,)
+
+
 # ── Dopasowanie ───────────────────────────────────────────────────────────────
 
 
