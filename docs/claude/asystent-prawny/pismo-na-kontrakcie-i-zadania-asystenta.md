@@ -52,8 +52,12 @@ kod, dane osób do modelu tylko jako znaczniki.
   (`letter_service.verification_passages`): umowa i aneksy z „Aktualnej umowy”
   oraz umowy ramowe klienta pocięte na paragrafy i ustępy, przepisy z korpusu.
   `missing` / `mismatch`, pytanie o formę albo „…” we wzorze = `blocked`.
-- **Akcje:** „Zatwierdzam” (`POST …/legal-letter/approve`, cytaty jeszcze raz;
-  409 przy blokadzie) → dopiero wtedy „Otwórz w oknie maila” (`SendEmailV2`
+- **Akcje:** „Zatwierdzam” (`POST …/legal-letter/approve`, cytaty jeszcze raz,
+  a w piśmie modelu także daty i kwoty spoza obliczeń kodu —
+  `letter_service._review_issues` → `assistant.code_issues` na tekście po
+  poprawkach, z wartościami kodu, nagłówkiem i „Dotyczy” jako znacznikami;
+  409 przy blokadzie, to samo przy `/docx`; front odblokowuje przycisk po
+  edycji, a werdykt daje serwer przy kliknięciu) → dopiero wtedy „Otwórz w oknie maila” (`SendEmailV2`
   z `defaultSubject`/`defaultBody`; treść idzie przez `plainTextToHtml`) i „DOCX
   do Dokumentów kontraktu” (`POST …/legal-letter/docx`, potem zwykłe „Dodaj
   plik” do folderu **„Pisma asystenta”**, typ `other` — szkic pisma nie może
@@ -75,7 +79,9 @@ kod, dane osób do modelu tylko jako znaczniki.
   lustro w `entrypoint.sh` przez `hr_schema_bundle`, sonda w `/api/health/deep`)
   trzyma tylko zamknięcia: `done` po „Zatwierdzam” (odpowiedź, porozumienie,
   cofnięcie), `dismissed` po „Pomiń”. Klucz niesie dzień wypowiedzenia —
-  nowe wypowiedzenie na tym samym kontrakcie to nowe zadanie.
+  nowe wypowiedzenie na tym samym kontrakcie to nowe zadanie. `created_at`
+  każdego dostawcy ma strefę (Europe/Warsaw); naiwna data obok `checked_at`
+  zgodności dawała 500 w `merge_rows` (przegląd 25.11).
 - **Dostawca F** „szkic odpowiedzi na wypowiedzenie czeka”: kontrakt B2B
   z `agreement_termination_party = consultant` i trybem `notice`, umowa
   jeszcze trwa (`agreement_last_day ≥ dziś`). Jedno zadanie na wypowiedzenie:

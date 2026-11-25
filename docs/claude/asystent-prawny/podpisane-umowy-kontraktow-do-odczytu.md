@@ -38,6 +38,13 @@ kalendarzowego” i dopuszcza mail. **Asystent, Jarvis i pismo na kontrakcie
 - Usunięcie dokumentu kasuje fragmenty kaskadą, a punkty w Qdrancie zadanie
   po commicie.
 
+## Okres wypowiedzenia słownie
+
+`termination._number` czyta liczebniki z „-naście”/„-dzieści” i pary
+„dwudziestu jeden” („czternastu dni” → 14, „dwunastu miesięcy” → 12); do
+25.11 takie zapisy dawały brak okresu albo pierwszą cyfrę („czternastu” → 4).
+Liczba w nawiasie („trzydziestu (30) dni”) nie przerywa dopasowania.
+
 ## Wektory bez danych osoby (przegląd bezpieczeństwa 25.11.2026)
 
 Fragment umowy idzie do Voyage (embedding) z danymi Partnera kontraktu jako

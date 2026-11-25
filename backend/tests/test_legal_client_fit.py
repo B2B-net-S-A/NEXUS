@@ -449,3 +449,17 @@ def test_ai_feature_is_registered() -> None:
 
     assert AIFeatureKey.legal_client_fit.value == "legal_client_fit"
     assert model_for(AIFeatureKey.legal_client_fit) == "claude-sonnet-5-5"
+
+
+def test_quote_verified_uses_the_document_kind_and_strict_pieces() -> None:
+    # Przegląd kodu 25.11: próbka weryfikatora musi pasować do rodzaju fragmentu,
+    # a kawałki przy „(…)” muszą być dłuższe niż jedno słowo.
+    text = (
+        "1. Klient może naliczyć karę umowną. "
+        "2. Kara umowna nie przekracza wynagrodzenia miesięcznego Partnera."
+    )
+    for kind in ("client", "template", "contract"):
+        assert engine.quote_verified("Kara umowna nie przekracza wynagrodzenia", text, kind)
+    assert not engine.quote_verified(
+        "Klient (…) kara umowna (…) przekracza wynagrodzenia", text, "client"
+    )

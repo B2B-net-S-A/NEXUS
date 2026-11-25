@@ -8,8 +8,9 @@ Dostawca sam pilnuje zakresu (jak trasy ``/api/legal/client-fit``, czyli
 treść umów ramowych): sekcja Delivery do odczytu, „Stawki i kwoty: podgląd”
 i — dla Delivery Leada — wyłącznie klienci z przypisania. Bez tego zadanie
 ujawniałoby treść wymogów z umowy klienta komuś, kto nie może jej otworzyć.
-Jedno zadanie na klienta (klucz ``client_fit_gap:<id>``), tylko przy wyniku
-ostatniego sprawdzenia, który ekran też pokazuje.
+Jedno zadanie na klienta (klucz ``client_fit_gap:<id>:<chwila sprawdzenia>``),
+tylko przy wyniku ostatniego sprawdzenia, który ekran też pokazuje; „Pomiń”
+wycisza to jedno sprawdzenie, nowe z luką wraca na pasek.
 """
 
 from __future__ import annotations
@@ -42,6 +43,14 @@ ACTION_LABEL = "Zobacz i przygotuj aneks"
 def annex_href(client_id: int) -> str:
     """Kreator „Nowy aneks” (inna zmiana) z oknem ustaleń klienta."""
     return f"/contracts/b2b-generator?tab=annexes&new=annex_custom&zgodnosc={client_id}"
+
+
+def fit_task_key(client_id: int, check: LegalClientFitCheck) -> str:
+    """Klucz zadania = klient + to sprawdzenie (chwila wyniku). „Pomiń” wycisza
+    tylko ten wynik; kolejne sprawdzenie z luką daje nowe zadanie."""
+    moment = check.checked_at or check.requested_at
+    stamp = int(moment.timestamp()) if moment is not None else 0
+    return f"client_fit_gap:{client_id}:{stamp}"
 
 
 def _contracts_phrase(count: int) -> str:
@@ -147,7 +156,7 @@ async def client_fit_tasks(db: AsyncSession, user: User) -> list[LegalTaskRow]:
         )
         tasks.append(
             LegalTaskRow(
-                key=f"client_fit_gap:{client_id}",
+                key=fit_task_key(client_id, check),
                 kind="client_fit_gap",
                 severity="gap" if gaps else "warn",
                 title=title,

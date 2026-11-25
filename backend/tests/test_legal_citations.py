@@ -160,3 +160,76 @@ def test_contract_passage_ref_may_name_the_document_first() -> None:
         "Zgodnie z § 8 ust. 2 Umowy wypowiedzenie wymaga formy pisemnej.", (signed,)
     )
     assert check.status == c.STATUS_OK
+
+
+# ── przegląd kodu 25.11: podjednostki, rodzaj dokumentu, kawałki cytatu ─────
+
+KC_111_DIVIDED = c.SourcePassage(
+    "law", "art. 111 § 1", "§ 1. Termin oznaczony w dniach kończy się z upływem ostatniego dnia.", act_key="kc"
+)
+KC_111_PAR2 = c.SourcePassage(
+    "law", "art. 111 § 2", "§ 2. Jeżeli początkiem terminu jest zdarzenie…", act_key="kc"
+)
+KC_112 = c.SourcePassage(
+    "law", "art. 112", "Art. 112. Termin oznaczony w tygodniach kończy się z upływem dnia.", act_key="kc"
+)
+CLIENT_9 = c.SourcePassage(
+    "client",
+    "§ 9",
+    "§ 9. 1. Wypowiedzenie Umowy wymaga formy pisemnej pod rygorem nieważności.",
+    label="Umowa ramowa",
+)
+TEMPLATE_9 = c.SourcePassage(
+    "template",
+    "§ 9",
+    "§ 9. 1. Wypowiedzenie Umowy wymaga formy pisemnej pod rygorem nieważności.",
+    label="Wzór",
+)
+
+
+def test_missing_paragraph_of_a_divided_article_is_missing() -> None:
+    # Art. 111 ma w źródle § 1 i § 2 — § 7 nie istnieje, nadrzędny artykuł nie pokrywa.
+    check = _one("Zgodnie z art. 111 § 7 KC termin biegnie dalej.", (KC_111, KC_111_DIVIDED, KC_111_PAR2))
+    assert check.status == c.STATUS_MISSING
+
+
+def test_paragraph_of_an_undivided_article_is_not_ok() -> None:
+    check = _one("Zgodnie z art. 112 § 3 KC termin biegnie dalej.", (KC_112,))
+    assert check.status != c.STATUS_OK
+    quoted = _one("Art. 112 § 3 KC: „Termin oznaczony w tygodniach”.", (KC_112,))
+    assert quoted.status != c.STATUS_OK
+
+
+def test_missing_ust_of_a_contract_paragraph_is_missing() -> None:
+    assert _one("Zgodnie z § 9 ust. 8 Umowy.").status == c.STATUS_MISSING
+    # Ustęp, który stoi w tekście paragrafu, dalej się znajduje.
+    assert _one("Zgodnie z § 9 ust. 2 Umowy.").status == c.STATUS_OK
+
+
+def test_framework_agreement_reference_reads_only_client_passages() -> None:
+    text_ramowa = "„Wypowiedzenie Umowy wymaga formy pisemnej” (§ 9 ust. 1 umowy ramowej)."
+    assert _one(text_ramowa, (UMOWA_9,)).status == c.STATUS_MISSING
+    assert _one(text_ramowa, (CLIENT_9,)).status == c.STATUS_OK
+    text_umowa = "„Wypowiedzenie Umowy wymaga formy pisemnej” (§ 9 ust. 1 Umowy)."
+    assert _one(text_umowa, (CLIENT_9,)).status == c.STATUS_MISSING
+    assert _one(text_umowa, (TEMPLATE_9,)).status == c.STATUS_MISSING
+    text_wzor = "„Wypowiedzenie Umowy wymaga formy pisemnej” (§ 9 ust. 1 wzoru)."
+    assert _one(text_wzor, (UMOWA_9,)).status == c.STATUS_MISSING
+    assert _one(text_wzor, (TEMPLATE_9,)).status == c.STATUS_OK
+
+
+def test_short_pieces_around_an_omission_do_not_match() -> None:
+    # Przykład z przeglądu: kawałki „Klient” i „kara umowna” pozwalały
+    # przeskoczyć „nie” i odwrócić sens zapisu.
+    source = "1. Klient może naliczyć karę umowną. 2. Kara umowna nie przekracza wynagrodzenia."
+    assert not c.quote_matches("Klient (…) kara umowna (…) przekracza wynagrodzenia", source)
+    assert not c.quote_matches("kara (…) wynagrodzenia", source)
+
+
+def test_quote_pieces_must_hit_word_boundaries() -> None:
+    source = "Kara umowna nie przekracza wynagrodzenia miesięcznego."
+    assert not c.quote_matches("mowna nie przekracza wynagrodzenia", source)
+    assert c.quote_matches("umowna nie przekracza wynagrodzenia", source)
+    assert c.quote_matches(
+        "Kara umowna nie przekracza (…) wynagrodzenia miesięcznego", source
+    )

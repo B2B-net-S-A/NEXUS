@@ -84,7 +84,8 @@ i aneksach (np. aneks DORA) — i ile aktywnych umów B2B tego klienta to dotycz
   `framework-contracts/search`).
 - Dostawca zadań `task_provider.client_fit_tasks(db, user)` pilnuje tego samego
   zakresu sam (sekcja Delivery, `amounts_view`, portfel DL); jedno zadanie na
-  klienta, klucz `client_fit_gap:<id>`, link do kreatora aneksu
+  klienta, klucz `client_fit_gap:<id>:<chwila sprawdzenia>` (przegląd 25.11:
+  „Pomiń” wycisza tylko to sprawdzenie, nowe z luką wraca), link do kreatora aneksu
   `/contracts/b2b-generator?tab=annexes&new=annex_custom&zgodnosc=<id>`.
   `LegalTaskRow` to lokalna kopia (TODO scalania), rejestrację w
   `TASK_PROVIDERS` robi sesja scalająca; G nie zmienia `ContractsListV2.tsx`.

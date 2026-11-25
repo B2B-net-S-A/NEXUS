@@ -71,6 +71,10 @@ zmian (autor „Asystent NEXUS”) i komentarzami z powodem i podstawą.
   powtarzalnym tekście `SequenceMatcher` jest sześcienny (8000 tokenów =
   minuty). Znaki spoza XML 1.0 w zmianach (`\x0b`, `\x00`) — 422 przy
   `/render`.
+- **`/render` sprawdza każdy cytat sam** (`recheck_changes`): przepis z korpusu
+  (`get_provision` po `ref` „kc art. 77 § 1” albo „art. 77 § 1 KC”), umowa
+  ramowa klienta kontraktu, sam dokument; `state` z przeglądarki się nie liczy.
+  Rodzaj, którego serwer nie wczyta (orzeczenie, wzór), jest `missing` → 422.
 - Testy: `tests/test_legal_redline_engine.py` (wstawka w środku akapitu,
   skreślenie przez trzy przebiegi, komentarz, tabela, pola, nasze wzory,
   otwarcie w `python-docx` i konwersja LibreOffice, gdy jest),

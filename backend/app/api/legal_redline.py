@@ -19,6 +19,7 @@ Reguła: ``docs/claude/asystent-prawny/popraw-dokument-docx-ze-sledzeniem-zmian.
 
 import hashlib
 import json
+import logging
 import re
 from dataclasses import replace
 from pathlib import PurePath
@@ -56,6 +57,8 @@ from app.services.legal_redline.model import (
     RedlineError,
 )
 from app.services.legal_redline.tracked import apply_changes
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -409,6 +412,94 @@ def _parse_changes(raw: str) -> list[ChangeIO]:
     return parsed
 
 
+def _law_target(ref: str) -> Optional[tuple[str, str]]:
+    """(klucz aktu, jednostka) z ``ref`` cytatu: „kc art. 77 § 1” (``search_law``)
+    albo „art. 77 § 1 KC”."""
+    from app.services.legal import citations, corpus  # noqa: PLC0415
+
+    head, _sep, rest = ref.strip().partition(" ")
+    if head.lower() in corpus.act_keys() and rest.lower().startswith("art"):
+        return head.lower(), rest.strip()
+    found = next(
+        (
+            c
+            for c in citations.extract(ref)
+            if c.kind == citations.KIND_LAW and c.act_key
+        ),
+        None,
+    )
+    return (found.act_key, found.ref) if found else None
+
+
+async def _source_passage(
+    db: AsyncSession,
+    source: ChangeSource,
+    document: SourcePassage,
+    contract: Optional[Contract],
+    client_cache: dict[str, list[SourcePassage]],
+) -> Optional[SourcePassage]:
+    """Fragment źródła z bazy dla cytatu; ``None`` = nie da się sprawdzić (blokada)."""
+    from app.services.legal import corpus, letter_service  # noqa: PLC0415
+
+    if source.ref == proposals.DOCUMENT_REF:
+        return document
+    try:
+        if source.kind == "law":
+            target = _law_target(source.ref)
+            if target is None:
+                return None
+            hit = await corpus.get_provision(
+                db, target[0], target[1], nearest_parent=True
+            )
+            return corpus.as_passage(hit) if hit is not None else None
+        if source.kind == "client" and contract is not None:
+            if "client" not in client_cache:
+                client_cache["client"] = await letter_service.client_passages(
+                    db, contract.client_id
+                )
+            return next(
+                (p for p in client_cache["client"] if p.ref == source.ref), None
+            )
+    except Exception as exc:  # noqa: BLE001 — bez źródła cytat jest bez pokrycia
+        logger.warning(
+            "legal_redline: źródło cytatu nieczytelne (%s)", type(exc).__name__
+        )
+    return None
+
+
+async def recheck_changes(
+    db: AsyncSession,
+    items: list[ChangeIO],
+    document: SourcePassage,
+    *,
+    contract: Optional[Contract],
+) -> list[RedlineChange]:
+    """Każdy cytat każdej zmiany sprawdzony ze źródłem z bazy (przepis z korpusu,
+    umowa ramowa klienta, sam dokument). Rodzaj, którego serwer nie umie
+    wczytać (orzeczenie, wzór), jest ``missing``. Zmiana bez pokrycia → 422."""
+    out: list[RedlineChange] = []
+    client_cache: dict[str, list[SourcePassage]] = {}
+    for item in items:
+        change = _change_in(item)
+        checked: list[ChangeSource] = []
+        for source in change.sources:
+            passage = await _source_passage(
+                db, source, document, contract, client_cache
+            )
+            if passage is None:
+                checked.append(replace(source, state="missing"))
+                continue
+            checked.extend(verify_sources([source], [replace(passage, ref=source.ref)]))
+        change = replace(change, sources=tuple(checked))
+        if change.blocked:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Zmiana {change.id} ma cytat bez pokrycia w źródle — popraw ją albo usuń cytat.",
+            )
+        out.append(change)
+    return out
+
+
 OUTPUT_SUFFIX = " — poprawki asystenta"
 
 
@@ -439,9 +530,10 @@ async def render_redline(
 ):
     """Przyjęte zmiany → DOCX ze śledzeniem zmian (autor „Asystent NEXUS”) i komentarzami.
 
-    Cytat bez pokrycia blokuje zmianę (422). Cytaty z samego dokumentu
-    sprawdzamy tu jeszcze raz — wynik z ``/redline`` mógł przyjść z przeglądarki
-    zmieniony. ``sha256`` z ``/redline`` pilnuje, że to ten sam plik.
+    Cytat bez pokrycia blokuje zmianę (422). Każdy cytat sprawdzamy tu jeszcze
+    raz ze źródłem z bazy (``recheck_changes``), a ``state`` z przeglądarki się
+    nie liczy — wynik z ``/redline`` mógł przyjść zmieniony. ``sha256``
+    z ``/redline`` pilnuje, że to ten sam plik.
     """
     items = _parse_changes(changes)
     source = await _load_source(
@@ -464,20 +556,7 @@ async def render_redline(
         text="\n".join(p.text for p in paragraphs),
         label="Dokument",
     )
-    redline: list[RedlineChange] = []
-    for item in items:
-        change = _change_in(item)
-        own = [s for s in change.sources if s.ref == proposals.DOCUMENT_REF]
-        if own:
-            checked = verify_sources(own, [document])
-            others = [s for s in change.sources if s.ref != proposals.DOCUMENT_REF]
-            change = replace(change, sources=tuple(checked + others))
-        if change.blocked:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Zmiana {change.id} ma cytat bez pokrycia w źródle — popraw ją albo usuń cytat.",
-            )
-        redline.append(change)
+    redline = await recheck_changes(db, items, document, contract=source.contract)
     try:
         data = await run_in_threadpool(
             apply_changes, source.data, redline, when=local_now().replace(tzinfo=None)

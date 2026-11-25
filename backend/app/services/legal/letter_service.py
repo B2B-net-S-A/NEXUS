@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional, Sequence
@@ -48,7 +49,7 @@ from app.services.legal.letters import (
     NoticeRule,
     Recipient,
 )
-from app.services.legal.pseudonymize import Entity
+from app.services.legal.pseudonymize import Entity, mask
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ async def _client_contracts(
 
 
 def _client_url(fc: ClientFrameworkContract) -> str:
-    return f"/clients/{fc.client_id}?tab=contracts"
+    return f"/clients/{fc.client_id}?tab=umowy-ramowe"
 
 
 async def client_passages(
@@ -606,6 +607,92 @@ def _model_entities(
     return [e for e in pairs if e.value.strip()]
 
 
+def _letter_dates(
+    ctx: LetterContext, kind: LetterKind, request: LetterRequest, today: date
+) -> tuple[Optional[date], DeadlineFacts, Optional[date]]:
+    """Dzień doręczenia, fakty terminu i koniec umowy — liczy kod (szkic i przegląd)."""
+    delivered = _delivered_on(ctx, request)
+    if kind.key == KIND_TERMINATION_NOTICE and delivered is None:
+        delivered = today
+    facts = _deadline_facts(ctx, delivered)
+    end = facts.end
+    if kind.key == KIND_TERMINATION_AGREEMENT:
+        end = (
+            request.termination_date
+            or end
+            or (ctx.contract.agreement_last_day if ctx.partner_notice else None)
+        )
+    return delivered, facts, end
+
+
+def _penalty_terms(
+    request: LetterRequest, today: date
+) -> tuple[str, Any, list[Entity]]:
+    """Kwota kary słownie, termin zapłaty i ich znaczniki dla modelu."""
+    from app.services.b2b_contract_generator.number_words import rate_in_words
+
+    words = rate_in_words(request.penalty_amount, "pl")
+    due = deadlines.term_end(
+        today, request.payment_days, deadlines.UNIT_DAYS, shift_free_days=True
+    )
+    extra = [
+        Entity("KWOTA_KARY", letters.amount_text(request.penalty_amount, words)),
+        Entity("TERMIN_ZAPLATY", deadlines.polish_date(due.end)),
+    ]
+    return words, due, extra
+
+
+def _letter_entities(
+    ctx: LetterContext,
+    kind: LetterKind,
+    *,
+    delivered: Optional[date],
+    end: Optional[date],
+    period: Optional[str],
+    extra: Sequence[Entity] = (),
+) -> list[Entity]:
+    return _model_entities(
+        ctx,
+        delivered=delivered,
+        end=end if kind.key == KIND_NOTICE_REPLY else None,
+        period=period if kind.key == KIND_NOTICE_REPLY else None,
+        extra=extra,
+        to_client=kind.recipient == "client",
+    )
+
+
+_LETTER_HEAD = re.compile(r"^[^\n,]{2,60}, \d{1,2} \S+ \d{4} r\.$")
+
+
+def _review_issues(
+    ctx: LetterContext, kind: LetterKind, request: LetterRequest, text: str
+) -> list[str]:
+    """Daty i kwoty w tekście pisma modelu, których nie policzył kod.
+
+    Wartości kodu (terminy, daty umowy, kwota kary, „Dotyczy”) i nagłówek
+    „Warszawa, <data>” są znacznikami jak w szkicu, więc zostaje to, co wpisał
+    model albo człowiek — ``assistant.code_issues``, ta sama reguła co przy szkicu.
+    """
+    today = business_today()
+    delivered, _facts, end = _letter_dates(ctx, kind, request, today)
+    period = letters.period_label(ctx.rule) if ctx.rule else None
+    extra: list[Entity] = []
+    if kind.key == KIND_PENALTY_NOTE and request.penalty_amount:
+        extra = _penalty_terms(request, today)[2]
+    entities = _letter_entities(
+        ctx, kind, delivered=delivered, end=end, period=period, extra=extra
+    )
+    entities += [
+        Entity("DATA_PISMA", deadlines.polish_date(today)),
+        Entity("DOTYCZY", subject_for(kind.key, ctx)),
+    ]
+    lines = (text or "").strip().split("\n")
+    if lines and _LETTER_HEAD.match(lines[0].strip()):
+        lines = lines[1:]
+    masked, mapping = mask("\n".join(lines), entities)
+    return assistant.code_issues(masked, mapping)
+
+
 async def build_letter(
     db: AsyncSession,
     contract: Contract,
@@ -625,17 +712,7 @@ async def build_letter(
             "(„Zapisz rozwiązanie umowy”: tryb wypowiedzenie, strona konsultant)."
         )
     today = business_today()
-    delivered = _delivered_on(ctx, request)
-    if kind.key == KIND_TERMINATION_NOTICE and delivered is None:
-        delivered = today
-    facts = _deadline_facts(ctx, delivered)
-    end = facts.end
-    if kind.key == KIND_TERMINATION_AGREEMENT:
-        end = (
-            request.termination_date
-            or end
-            or (ctx.contract.agreement_last_day if ctx.partner_notice else None)
-        )
+    delivered, facts, end = _letter_dates(ctx, kind, request, today)
     warning = letters.form_warning(
         kind.key,
         ctx.rule,
@@ -682,16 +759,7 @@ async def build_letter(
     if kind.key == KIND_PENALTY_NOTE:
         if not request.penalty_amount or request.penalty_amount <= 0:
             raise LetterUnavailable("Podaj kwotę kary umownej z umowy.")
-        from app.services.b2b_contract_generator.number_words import rate_in_words
-
-        words = rate_in_words(request.penalty_amount, "pl")
-        due = deadlines.term_end(
-            today, request.payment_days, deadlines.UNIT_DAYS, shift_free_days=True
-        )
-        extra = [
-            Entity("KWOTA_KARY", letters.amount_text(request.penalty_amount, words)),
-            Entity("TERMIN_ZAPLATY", deadlines.polish_date(due.end)),
-        ]
+        words, due, extra = _penalty_terms(request, today)
         facts = DeadlineFacts(
             (
                 Fact("Kwota", letters.amount_text(request.penalty_amount, words)),
@@ -716,13 +784,8 @@ async def build_letter(
         kind=kind.draft_kind or "letter",
         instruction=instruction,
         passages=passages,
-        entities=_model_entities(
-            ctx,
-            delivered=delivered,
-            end=end if kind.key == KIND_NOTICE_REPLY else None,
-            period=period if kind.key == KIND_NOTICE_REPLY else None,
-            extra=extra,
-            to_client=kind.recipient == "client",
+        entities=_letter_entities(
+            ctx, kind, delivered=delivered, end=end, period=period, extra=extra
         ),
         user_id=user_id,
         on_date=today,
@@ -783,8 +846,9 @@ async def review_text(
 
     Pismo ze wzoru składa się od nowa z danych NEXUSA (tekst od ekranu się nie
     liczy, wzór poprawia się w Generatorze). Pismo modelu to tekst człowieka
-    po poprawkach: cytaty sprawdzamy z tekstem źródeł z bazy, pytanie o formę
-    musi mieć odpowiedź.
+    po poprawkach: cytaty sprawdzamy z tekstem źródeł z bazy, daty i kwoty
+    spoza obliczeń kodu blokują (``_review_issues``), pytanie o formę musi mieć
+    odpowiedź.
     """
     kind = letters.KINDS_BY_KEY.get(request.kind)
     if kind is None:
@@ -812,13 +876,14 @@ async def review_text(
         original_confirmed=request.original_confirmed,
     )
     checks = await verify_letter_text(db, contract, text) if text.strip() else []
+    issues = _review_issues(ctx, kind, request, text) if text.strip() else []
     approval = letters.approval_state(
         check_statuses=[c.status for c in checks],
-        issues=[],
+        issues=issues,
         warning=warning,
         has_text=bool(text.strip()),
     )
-    return TextReview(kind, text, checks, warning, [], approval)
+    return TextReview(kind, text, checks, warning, issues, approval)
 
 
 def text_docx(text: str) -> bytes:

@@ -13,6 +13,14 @@ Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0779
   kontraktu po „Zatwierdzam” człowieka (części D–F).
 - **Każdy cytat sprawdza kod** (`citations.verify`) z tekstem źródła; cytat
   bez pokrycia (`missing`, `mismatch`) ustawia `blocked` i blokuje zatwierdzenie.
+  Po przeglądzie 25.11: jednostka nadrzędna pokrywa podjednostkę tylko, gdy
+  źródło jej nie dzieli i w jej tekście stoi ślad podjednostki („§ 7”, „8.”,
+  „2)”) — „art. 111 § 7 KC” przy § 1–6 i „§ 9 ust. 8 Umowy” bez ust. 8 to
+  `missing` (korpus: `get_provision(nearest_parent=True)` nie oddaje artykułu
+  z podziałem). „umowy ramowej” czyta tylko fragmenty `client`, „Umowy” —
+  `contract`, „wzoru” — `template` (`citations.document_kinds`). Kawałki
+  cytatu przy „(…)” mają ≥ 3 wyrazy albo ≥ 15 znaków, w granicach słów
+  i w kolejności — „Klient (…) kara umowna (…) przekracza” nie przeskoczy „nie”.
 - **Terminy, daty, kwoty liczy kod** (`deadlines`), model dostaje je jako
   znaczniki (`[DATA_ROZWIAZANIA]`). Data, kwota albo „14 dni” wpisane przez
   model to `issues` i `blocked` (`assistant.code_issues`).
@@ -20,7 +28,8 @@ Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0779
   z powrotem po stronie NEXUSA. Bez tego PESEL, NIP, e-mail, telefon i rachunek
   i tak są wyłapywane automatem (cyfra kontrolna PESEL i NIP).
 - **LEX i Gofin nigdy do modelu** (licencje): fragment z adresem `lex.pl`
-  albo `gofin.pl` odpada w `assistant.allowed_passages`.
+  albo `gofin.pl` odpada w `assistant.allowed_passages` (także z portem,
+  zapytaniem i fragmentem: `sip.lex.pl:443/x`, `gofin.pl#x`).
 - **Próg do prawnika:** kara umowna, spór z klientem, rozwiązanie ze skutkiem
   natychmiastowym → `lawyer_review` (etykieta w UI). Odpowiedź `/draft` niesie
   `disclaimer`: szkic nie jest poradą prawną.

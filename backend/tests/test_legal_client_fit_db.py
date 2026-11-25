@@ -184,7 +184,7 @@ async def test_tasks_for_delivery_lead_only_at_assigned_clients(monkeypatch) -> 
         assert [t.client_id for t in lead] == [mine]
         assert {mine, other} <= {t.client_id for t in admin}
         task = lead[0]
-        assert task.key == f"client_fit_gap:{mine}" and task.severity == "gap"
+        assert task.key.startswith(f"client_fit_gap:{mine}:") and task.severity == "gap"
         assert task.href.endswith(f"zgodnosc={mine}")
         assert "luki: 1" in task.detail
     finally:

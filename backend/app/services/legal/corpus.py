@@ -225,7 +225,9 @@ async def get_provision(
 
     ``nearest_parent=True``: gdy jednostki nie ma (np. „pkt 3” w artykule,
     który ma tylko tekst), oddaje najbliższą nadrzędną — weryfikator cytatów
-    porównuje wtedy cytat z jej tekstem.
+    porównuje wtedy cytat z jej tekstem (i szuka w nim śladu podjednostki).
+    Nadrzędna z podziałem w korpusie, w którym cytowanej podjednostki nie ma,
+    nie wraca — cytat jest wtedy ``missing``.
     """
     key = ref_to_key(ref)
     if key is None:
@@ -236,7 +238,17 @@ async def get_provision(
     for parent in _ancestors(key):
         hit, _exact = await _by_keys(db, act_key, _key_variants(parent), on_date)
         if hit is not None:
-            return hit
+            # Jednostka podzielona w korpusie, a cytowanej podjednostki w podziale
+            # nie ma („art. 111 § 7” przy § 1–6) — nadrzędna nie pokrywa cytatu.
+            divided = await db.scalar(
+                select(LegalProvision.id)
+                .where(
+                    LegalProvision.version_id == hit.version_id,
+                    LegalProvision.ref_key.like(f"{hit.ref_key} %"),
+                )
+                .limit(1)
+            )
+            return None if divided is not None else hit
     return None
 
 

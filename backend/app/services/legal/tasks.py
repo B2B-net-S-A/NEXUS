@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 from typing import Awaitable, Callable, Literal, Optional, Sequence
 
 from sqlalchemy import func, select
@@ -25,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.financial_access import can_read_client_finance
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType
@@ -124,7 +125,11 @@ def notice_rows(
             href=letter_href(contract.id),
             client_id=contract.client_id,
             contract_id=contract.id,
-            created_at=datetime.combine(signed_on, time(12)),
+            # Ze strefą firmy: dostawca zgodności daje ``checked_at`` ze strefą,
+            # a ``merge_rows`` sortuje oba razem (naiwna data = TypeError, 500).
+            created_at=datetime.combine(
+                signed_on, time(12), tzinfo=ZoneInfo(DEFAULT_TZ)
+            ),
         )
     return list(out.values())
 
@@ -202,7 +207,14 @@ def merge_rows(
             if row.key in closed or row.key in seen:
                 continue
             seen[row.key] = row
-    return sorted(seen.values(), key=lambda r: r.created_at, reverse=True)
+    return sorted(seen.values(), key=lambda r: _aware(r.created_at), reverse=True)
+
+
+def _aware(moment: datetime) -> datetime:
+    """Naiwna data dostawcy = czas firmy (Europe/Warsaw), żeby sortowanie nie padało."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=ZoneInfo(DEFAULT_TZ))
+    return moment
 
 
 async def collect(

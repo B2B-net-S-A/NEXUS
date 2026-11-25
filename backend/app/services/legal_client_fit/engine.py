@@ -125,7 +125,10 @@ def quote_verified(quote: str, passage_text: str, kind: str) -> bool:
     probe = SourcePassage(
         kind=kind, ref="§ 1", text=_QUOTE_CHARS.sub("'", passage_text)
     )
-    checks = citations.verify(f"§ 1 umowy „{probe_quote}”", [probe])
+    # Słowo dokumentu zgodne z rodzajem fragmentu: weryfikator zawęża „umowy
+    # ramowej” do ``client``, „wzoru” do ``template``, „umowy” do ``contract``.
+    word = citations.DOCUMENT_WORD.get(kind, "umowy")
+    checks = citations.verify(f"§ 1 {word} „{probe_quote}”", [probe])
     return (
         len(checks) == 1
         and checks[0].citation.quote is not None

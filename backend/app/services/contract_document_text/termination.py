@@ -35,20 +35,55 @@ DELIVERY_IN_PERSON = "in_person"
 DELIVERY_POST = "post"
 DELIVERY_EMAIL = "email"
 
-_WORD_NUMBERS = {
-    "jed": 1,
-    "dw": 2,
-    "trz": 3,
-    "czt": 4,
-    "cze": 4,
-    "pie": 5,
-    "sze": 6,
+# Liczebniki słownie na tekście bez polskich znaków (``fold``): kolejność ma
+# znaczenie — „-naście”/„-dzieści” przed jednościami („czternastu” to 14, nie 4).
+_TEENS = re.compile(
+    r"^(jede|dwa|dwu|trzy|czter|piet|szes|siedem|osiem|dziewiet)nas[ct]"
+)
+_TEEN_VALUES = {
+    "jede": 11,
+    "dwa": 12,
+    "dwu": 12,
+    "trzy": 13,
+    "czter": 14,
+    "piet": 15,
+    "szes": 16,
+    "siedem": 17,
+    "osiem": 18,
+    "dziewiet": 19,
 }
+_TENS: tuple[tuple[str, int], ...] = (
+    ("dwadziesc", 20),
+    ("dwudziest", 20),
+    ("trzydzies", 30),
+    ("czterdzies", 40),
+    ("piecdziesi", 50),
+    ("szescdziesi", 60),
+    ("siedemdziesi", 70),
+    ("osiemdziesi", 80),
+    ("dziewiecdziesi", 90),
+    ("dziesie", 10),
+)
+_UNITS: tuple[tuple[str, int], ...] = (
+    ("jed", 1),
+    ("dw", 2),
+    ("trz", 3),
+    ("czter", 4),
+    ("piec", 5),
+    ("szes", 6),
+    ("siedem", 7),
+    ("siedm", 7),
+    ("osiem", 8),
+    ("osm", 8),
+    ("dziewie", 9),
+)
+_NUMBER_WORD = (
+    r"(?:jed|dw|trz|czter|piec|piet|szes|siedem|siedm|osiem|osm|dziew|dzies)\w*"
+)
 
-# Na tekście bez polskich znaków (``fold``).
 _DURATION = re.compile(
-    r"(?<![\w/])(\d{1,3}|jed\w*?|dw\w*?|trz\w*?|czter\w*?|piec\w*?|szesc\w*?)"
-    r"\s*-?\s*(?:\(\s*[a-z]+\s*\)\s*)?"
+    rf"(?<![\w/])(\d{{1,3}}|{_NUMBER_WORD}(?:\s+{_NUMBER_WORD})?)"
+    r"\s*-?\s*(?:\(\s*[a-z0-9]+\s*\)\s*)?"
     r"(miesi\w*|dni\w*|dzien\w*|tygod\w*)"
 )
 _COMPOUND = re.compile(r"\b(jedno|dwu|trzy)(miesiec\w*|tygodn\w*)")
@@ -112,16 +147,35 @@ def _clause(sentence: Sentence) -> Clause:
     return Clause(sentence.text, sentence.section, sentence.point, sentence.offset)
 
 
+def _word_value(word: str) -> Optional[int]:
+    teen = _TEENS.match(word)
+    if teen:
+        return _TEEN_VALUES[teen.group(1)]
+    for prefix, value in (*_TENS, *_UNITS):
+        if word.startswith(prefix):
+            return value
+    return None
+
+
 def _number(token: str) -> Optional[int]:
+    """„14”, „czternastu”, „dwudziestu jeden” → liczba; nieczytelne → ``None``."""
     if token.isdigit():
         return int(token)
-    if "dziest" in token or "nasci" in token:
-        # „trzydziestu”, „czternastu” — dziesiątki słownie stoją przy cyfrach
-        # w nawiasie, a pierwsza litera dałaby zły okres.
+    values = [_word_value(word) for word in token.split()]
+    if not values or any(v is None for v in values):
         return None
-    for prefix, value in _WORD_NUMBERS.items():
-        if token.startswith(prefix):
-            return value
+    if len(values) == 1:
+        return values[0]
+    tens, unit = values
+    # „dwudziestu jeden” — dziesiątki + jedności; inne pary to nie liczba.
+    if (
+        tens is not None
+        and unit is not None
+        and tens >= 20
+        and tens % 10 == 0
+        and unit < 10
+    ):
+        return tens + unit
     return None
 
 

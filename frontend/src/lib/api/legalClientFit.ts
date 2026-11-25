@@ -112,9 +112,8 @@ export function useClientFit(
     queryFn: () => legalClientFitApi.get(clientId as number),
     enabled: typeof clientId === "number" && clientId > 0,
     staleTime: 30_000,
-    // 403 (brak podglądu kwot u klienta) nie przejdzie po ponowieniu.
-    retry: (count, error) =>
-      (error as { response?: { status?: number } })?.response?.status !== 403 && count < 1,
+    // Bez własnego `retry`: globalnie react-query nie ponawia (QueryProvider),
+    // a chwilowe 502/503/504 powtarza interceptor axios — 403 nie wraca.
     refetchInterval: (query) =>
       poll && isClientFitRunning(query.state.data) ? CLIENT_FIT_POLL_MS : false,
   });

@@ -277,19 +277,33 @@ def normalize_for_quote(text: str) -> str:
     return text.strip().lower()
 
 
+#: Kawałek cytatu przy „(…)”: co najmniej tyle wyrazów albo znaków. Krótsze
+#: („Klient (…) kara umowna (…) przekracza”) pozwalały przeskoczyć „nie”.
+PIECE_MIN_WORDS = 3
+PIECE_MIN_CHARS = 15
+
+
 def quote_matches(quote: str, source: str) -> bool:
-    """Wszystkie kawałki cytatu (rozdzielone „(…)”) stoją w źródle po kolei."""
+    """Wszystkie kawałki cytatu (rozdzielone „(…)”) stoją w źródle po kolei,
+    w granicach słów; przy pominięciu każdy kawałek ma ``PIECE_MIN_WORDS``
+    wyrazów albo ``PIECE_MIN_CHARS`` znaków."""
     haystack = normalize_for_quote(source)
     position = 0
     pieces = [normalize_for_quote(p).strip(" ,.;:") for p in _ELLIPSIS.split(quote)]
     pieces = [p for p in pieces if p]
     if not pieces:
         return False
+    if len(pieces) > 1 and any(
+        len(p.split()) < PIECE_MIN_WORDS and len(p) < PIECE_MIN_CHARS for p in pieces
+    ):
+        return False
     for piece in pieces:
-        found = haystack.find(piece, position)
-        if found < 0:
+        found = re.compile(rf"(?<!\w){re.escape(piece)}(?!\w)").search(
+            haystack, position
+        )
+        if found is None:
             return False
-        position = found + len(piece)
+        position = found.end()
     return True
 
 
@@ -304,7 +318,8 @@ def _candidates(
             p for p in passages if p.kind == KIND_LAW and p.act_key == citation.act_key
         ]
     else:
-        pool = [p for p in passages if p.kind in CONTRACT_PASSAGE_KINDS]
+        kinds = document_kinds(citation.document)
+        pool = [p for p in passages if p.kind in kinds]
     out = []
     for passage in pool:
         key = passage_key(passage)
@@ -313,17 +328,60 @@ def _candidates(
     return out
 
 
+#: Słowo dokumentu po „§ 5” → rodzaje fragmentów, które go pokrywają.
+#: „umowy ramowej” to umowa klienta, „Umowy” — umowa B2B kontraktu, „wzoru” —
+#: wzór; aneks, regulamin, zamówienie i porozumienie bez zawężenia.
+DOCUMENT_WORD: dict[str, str] = {
+    "contract": "umowy",
+    "client": "umowy ramowej",
+    "template": "wzoru",
+}
+
+
+def document_kinds(document: Optional[str]) -> frozenset[str]:
+    word = (document or "").lower()
+    if "ramow" in word:
+        return frozenset({"client"})
+    if re.search(r"(^|\s)umow", word):
+        return frozenset({"contract"})
+    if re.search(r"(^|\s)wzor", word):
+        return frozenset({"template"})
+    return CONTRACT_PASSAGE_KINDS
+
+
+def _part_marker(token: str) -> Optional[re.Pattern[str]]:
+    """Ślad podjednostki w tekście jednostki nadrzędnej („§ 7”, „8.”, „2)”, „b)”)."""
+    match = re.match(r"^(§|ust\.|pkt|lit\.)(.+)$", token)
+    if not match:
+        return None
+    label, number = match.group(1), re.escape(display_number(match.group(2)))
+    if label == "§":
+        return re.compile(rf"§\s*{number}(?![\w¹²³⁴⁵⁶⁷⁸⁹⁰])", re.I)
+    if label == "ust.":
+        return re.compile(rf"(?:^|[\s(:;])(?:ust\.\s*)?{number}\.(?=\s)", re.I)
+    return re.compile(rf"(?:^|[\s(:;])(?:{label[:3]}\.?\s*)?{number}\)", re.I)
+
+
 def _find(
     key: str, candidates: Sequence[tuple[str, SourcePassage]]
 ) -> Optional[SourcePassage]:
-    """Jednostka o tym kluczu, a gdy jej nie ma — najbliższa nadrzędna."""
+    """Jednostka o tym kluczu, a gdy jej nie ma — najbliższa nadrzędna, ale tylko
+    gdy źródło nie dzieli jej na podjednostki, a w jej tekście stoi ślad każdej
+    brakującej podjednostki (art. 111 z § 1–6 nie pokrywa „art. 111 § 7”)."""
     exact = next((p for k, p in candidates if k == key), None)
     if exact is not None:
         return exact
     parents = [(k, p) for k, p in candidates if key.startswith(k + " ")]
-    if parents:
-        return max(parents, key=lambda kp: len(kp[0]))[1]
-    return None
+    if not parents:
+        return None
+    parent_key, parent = max(parents, key=lambda kp: len(kp[0]))
+    if any(k.startswith(parent_key + " ") for k, _p in candidates):
+        return None  # podział jest w źródle, a cytowanej podjednostki w nim nie ma
+    for token in key[len(parent_key) :].split():
+        marker = _part_marker(token)
+        if marker is None or not marker.search(parent.text or ""):
+            return None
+    return parent
 
 
 def _check(citation: Citation, passages: Sequence[SourcePassage]) -> CitationCheck:
