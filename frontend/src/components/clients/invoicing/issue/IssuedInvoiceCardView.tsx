@@ -40,6 +40,7 @@ import {
 } from "@/lib/api/issued-invoices";
 import { formatDayMonthPl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 
 import { CollectiveCorrectionBox } from "./CollectiveCorrectionBox";
@@ -137,6 +138,9 @@ function patchFrom(card: IssuedInvoiceCard, form: FormState): InvoicePatch {
  * Przyjęta (numer KSeF) → UPO → Zapłacona, edycja szkicu, wysyłka
  * z potwierdzeniem, pliki, korekta.
  */
+/** Najkrótszy powód wysyłki mimo uwag (jak `CHECKS_REASON_MIN` w backendzie). */
+const CHECKS_REASON_MIN = 5;
+
 export function IssuedInvoiceCardView({ invoiceId }: { invoiceId: number }) {
   const query = useIssuedCard(invoiceId);
   const settings = useIssueSettings(null, query.isSuccess);
@@ -169,7 +173,7 @@ function CardBody({
 }) {
   const { showToast } = useToast();
   const router = useRouter();
-  const { askConfirm, confirmDialog } = useConfirmV2();
+  const { askConfirm, askReason, confirmDialog } = useConfirmV2();
   const update = useUpdateIssued(card.id);
   const send = useSendIssued();
   const check = useCheckIssued();
@@ -209,15 +213,33 @@ function CardBody({
     });
 
   const doSend = async () => {
-    const ok = await askConfirm({
-      title: "Wysłać fakturę do KSeF?",
-      description: card.invoice_number
-        ? `Faktura ${card.invoice_number} idzie do KSeF ponownie, z tym samym numerem. Po przyjęciu nie da się jej zmienić — tylko skorygować.`
-        : "Faktura dostanie teraz kolejny numer z serii i trafi do KSeF. Po przyjęciu nie da się jej zmienić — tylko skorygować.",
-      confirmLabel: "Wyślij do KSeF",
-    });
-    if (!ok) return;
-    send.mutate(card.id, {
+    const description = card.invoice_number
+      ? `Faktura ${card.invoice_number} idzie do KSeF ponownie, z tym samym numerem. Po przyjęciu nie da się jej zmienić — tylko skorygować.`
+      : "Faktura dostanie teraz kolejny numer z serii i trafi do KSeF. Po przyjęciu nie da się jej zmienić — tylko skorygować.";
+    let checksReason: string | undefined;
+    if (card.checks.length) {
+      const reason = await askReason({
+        title: "Wysłać mimo uwag kontroli?",
+        description: `${countPl(card.checks.length, "uwaga", "uwagi", "uwag")} kontroli przed wysyłką. ${description}`,
+        confirmLabel: "Wyślij mimo uwag",
+        field: {
+          label: "Dlaczego faktura jest poprawna?",
+          placeholder: "np. klient chce datę sprzedaży z protokołu",
+          minLength: CHECKS_REASON_MIN,
+          maxLength: 256,
+        },
+      });
+      if (reason === null) return;
+      checksReason = reason;
+    } else {
+      const ok = await askConfirm({
+        title: "Wysłać fakturę do KSeF?",
+        description,
+        confirmLabel: "Wyślij do KSeF",
+      });
+      if (!ok) return;
+    }
+    send.mutate({ id: card.id, checksReason }, {
       onSuccess: (result) =>
         showToast(
           result.status === "accepted"
@@ -416,6 +438,27 @@ function CardBody({
       </header>
 
       <Steps steps={steps} />
+
+      {editable && card.checks.length ? (
+        <section
+          className="rounded-lg border border-warning/40 bg-warning-muted px-4 py-2 text-sm"
+          aria-label="Kontrola przed wysyłką"
+        >
+          <p className="font-medium text-foreground">
+            Kontrola przed wysyłką:{" "}
+            {countPl(card.checks.length, "uwaga", "uwagi", "uwag")}
+          </p>
+          <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+            {card.checks.map((check) => (
+              <li key={check}>{check}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Popraw szkic albo wyślij mimo uwag — NEXUS zapyta o powód i zapisze
+            go w historii faktury.
+          </p>
+        </section>
+      ) : null}
 
       {editable && disabledReason ? (
         <section

@@ -240,7 +240,8 @@ describe("mutacje", () => {
     const del = renderHook(() => useDeleteIssued(), { wrapper });
     await del.result.current.mutateAsync(5);
     const send = renderHook(() => useSendIssued(), { wrapper });
-    await send.result.current.mutateAsync(5);
+    await send.result.current.mutateAsync({ id: 5 });
+    await send.result.current.mutateAsync({ id: 5, checksReason: "Klient prosił" });
     const check = renderHook(() => useCheckIssued(), { wrapper });
     await check.result.current.mutateAsync(5);
     const corr = renderHook(() => useCreateCorrection(), { wrapper });
@@ -248,6 +249,7 @@ describe("mutacje", () => {
     expect(apiMock.delete).toHaveBeenCalledWith("/api/finance/issued-invoices/5");
     expect(apiMock.post.mock.calls).toEqual([
       ["/api/finance/issued-invoices/5/send"],
+      ["/api/finance/issued-invoices/5/send", { checks_reason: "Klient prosił" }],
       ["/api/finance/issued-invoices/5/check"],
       ["/api/finance/issued-invoices/5/correction", { reason: "Zła cena" }],
     ]);
@@ -257,7 +259,7 @@ describe("mutacje", () => {
     const { wrapper, invalidate } = setup();
     apiMock.post.mockRejectedValueOnce({ response: { status: 502 } });
     const { result } = renderHook(() => useSendIssued(), { wrapper });
-    await expect(result.current.mutateAsync(5)).rejects.toEqual({ response: { status: 502 } });
+    await expect(result.current.mutateAsync({ id: 5 })).rejects.toEqual({ response: { status: 502 } });
     expect(invalidate).not.toHaveBeenCalled();
   });
 

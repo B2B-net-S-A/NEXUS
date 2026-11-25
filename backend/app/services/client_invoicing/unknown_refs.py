@@ -112,6 +112,12 @@ def marked_people(text: str) -> list[str]:
     ]
 
 
+def contractor_and_contacts(text: str) -> tuple[list[str], list[str]]:
+    """(osoby po „Contractor”, osoby klienta po „Contact:”) — bez odsiewania."""
+
+    return _names_after(_MARKER, text), _names_after(_CONTACT, text)
+
+
 def _edits(a: str, b: str) -> int:
     if abs(len(a) - len(b)) > _SAME_SURNAME_EDITS:
         return _SAME_SURNAME_EDITS + 1
@@ -192,6 +198,18 @@ async def _known(db: AsyncSession, members: set[int]) -> _Known:
         ),
         person_numbers=frozenset(str(value).upper() for value in numbers),
     )
+
+
+async def known_for_client(db: AsyncSession, client_id: int) -> _Known:
+    """Osoby z kontraktem i numery osób klienta (z jego scalonymi duplikatami)."""
+
+    return await _known(db, await clients.family(db, [client_id]))
+
+
+def people_without_contract(item: str, known: _Known) -> list[str]:
+    """Osoby po znaczniku w tekście pozycji, które nie mają kontraktu u klienta."""
+
+    return _people_without_contract(item, known)
 
 
 def _people_without_contract(item: str, known: _Known) -> list[str]:
@@ -288,8 +306,11 @@ def describe(ref: UnknownRef, client_name: str) -> tuple[str, str]:
 
 __all__ = [
     "UnknownRef",
+    "contractor_and_contacts",
     "describe",
+    "known_for_client",
     "marked_people",
+    "people_without_contract",
     "same_person",
     "unknown_refs",
 ]

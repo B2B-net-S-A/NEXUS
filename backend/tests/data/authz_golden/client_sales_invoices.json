@@ -40,6 +40,7 @@
   "GET /api/finance/sales-invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/buyer-numbers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/credits": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/sales-invoices/form-checks": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/overdue": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/overdue/month-close": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/overdue/reminder": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

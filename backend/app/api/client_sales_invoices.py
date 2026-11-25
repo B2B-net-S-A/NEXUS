@@ -63,6 +63,7 @@ from app.services.client_invoicing import (
     overdue_export,
     payment_reminders,
     payments,
+    sale_checks,
     sync,
     views,
 )
@@ -394,6 +395,20 @@ async def finance_invoices(
         "invoices": payload["invoices"],
         "summary": summary,
     }
+
+
+@finance_router.get("/form-checks")
+async def finance_form_checks(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+) -> dict[str, Any]:
+    """Kontrola formalna faktur z KSeF wystawionych poza NEXUSEM (eBI24) za miesiąc."""
+
+    await _module_open(db, current_user)
+    period = _period(year, month)
+    return await sale_checks.ksef_report(db, year=period[0], month=period[1])
 
 
 @finance_router.get("/to-invoice")
