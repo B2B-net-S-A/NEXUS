@@ -387,7 +387,7 @@ async def update_question(
         if field in data:
             setattr(iq, field, data[field])
     if "ideal_answer" in data and (data["ideal_answer"] or "").strip() != answer_before:
-        # 0778: odpowiedź poprawiona w Bazie pytań nie jest już propozycją AI;
+        # 0777: odpowiedź poprawiona w Bazie pytań nie jest już propozycją AI;
         # ten sam tekst odesłany z formularza źródła nie zmienia.
         iq.ideal_answer_source = source_after_human_edit(data["ideal_answer"])
 

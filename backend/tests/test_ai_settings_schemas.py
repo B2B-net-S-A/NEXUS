@@ -141,7 +141,7 @@ class TestFeatureKeyEnum:
             "contract_partner_read",
             # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem.
             "sales_potential_assessment",
-            # 0778: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
+            # 0777: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
             "interview_answer_proposal",
         }
 
