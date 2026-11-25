@@ -159,6 +159,12 @@ def _list_items(node: Any) -> list[list]:
 def _split_title(text: str, fallback: dict[str, Any]) -> tuple[str, str]:
     """„Stanowisko – Imię Nazwisko” z h1; przy Blind CV sam tytuł stanowiska."""
     name = str(fallback.get("name") or "").strip()
+    if name:
+        # „Stanowisko– Imię Nazwisko” bez spacji przy myślniku (#31319): nazwisko
+        # z zapisu generatora odcinamy z końca razem z myślnikiem
+        tail = re.search(r"\s*[–—-]\s*" + re.escape(name) + r"\s*$", text, re.I)
+        if tail and text[: tail.start()].strip():
+            return text[: tail.start()].strip(), name
     parts = _TITLE_SEPARATOR.split(text)
     if len(parts) >= 2:
         if name and parts[-1].strip().casefold() == name.casefold():

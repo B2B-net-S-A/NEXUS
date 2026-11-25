@@ -80,3 +80,25 @@ def test_role_paragraphs_after_languages_without_experience_heading():
     assert [(e["position"], e["company"], e["dates"]) for e in cj["experience"]] == [
         ("Quality Engineer", "Comscore", "03.2026 - Present")
     ]
+
+
+@pytest.mark.parametrize(
+    "h1",
+    [
+        "Analityk Biznesowo-Systemowy– Jan Przykładowy",
+        "Analityk Biznesowo-Systemowy –Jan Przykładowy",
+        "Analityk Biznesowo-Systemowy - Jan Przykładowy",
+    ],
+)
+def test_title_dash_without_spaces_does_not_keep_the_name(h1):
+    """#31319: „Stanowisko– Imię Nazwisko” bez spacji przed półpauzą — nazwisko zostawało
+    w tytule i stało w PDF dwa razy."""
+    from app.services.cv_new_content import cv_json_from_editor_html
+
+    cj = cv_json_from_editor_html(
+        f"<h1>{h1}</h1>", language="pl", blind=False, fallback={"name": "Jan Przykładowy"}
+    ).cv_json
+    assert (cj["position"], cj["name"]) == (
+        "Analityk Biznesowo-Systemowy",
+        "Jan Przykładowy",
+    )
