@@ -848,21 +848,35 @@ async def waiting_for_number(db: AsyncSession, number: str) -> int:
 
 
 async def save_buyer_number(
-    db: AsyncSession, invoice: ClientSalesInvoice, *, client_id: Optional[int] = None
+    db: AsyncSession,
+    invoice: ClientSalesInvoice,
+    *,
+    client_id: Optional[int] = None,
+    extra: bool = False,
+    source: str = "manual",
+    actor_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """Numer nabywcy u klienta z faktury i od razu reszta faktur tego nabywcy.
 
     Nie czekamy na ``rematch_pending``: idzie po kolejce paczkami, więc starsze
     faktury tego nabywcy doszłyby do niego dopiero po kilku przebiegach.
+    ``extra=True`` dopisuje numer jako dodatkowy, gdy klient ma już inny
+    (spółka grupy, ``client_buyer_numbers``); automat podaje ``source="auto"``.
     """
 
     check = await clients.add_buyer_number(
-        db, invoice.client_id or client_id, buyer_number(invoice)
+        db,
+        invoice.client_id or client_id,
+        buyer_number(invoice),
+        extra=extra,
+        source=source,
+        actor_id=actor_id,
     )
     result: dict[str, Any] = {
         "state": check.state,
         "number": check.number,
         "client_id": check.client_id,
+        "extra": check.extra,
         "saved": check.state == "add",
         "retried": 0,
         "matched": 0,

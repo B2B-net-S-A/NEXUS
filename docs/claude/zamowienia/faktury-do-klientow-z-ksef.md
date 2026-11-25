@@ -181,6 +181,32 @@
   kosztowe mają nazwiska po przecinku, a wspólna pula „N os.”. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
   6 miesięcy nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.
 
+## Dodatkowe numery nabywcy — spółki grupy klienta (0779, 25.11.2026)
+
+- **Klient ma jedno `clients.nip`, a spółki jego grupy fakturują się pod własnym numerem** (oddział, spółka leasingowa,
+  fundusz emerytalny, oddział zagraniczny). Audyt 25.11.2026: 22 faktury spółek grupy jednego klienta (ok. 452 tys. zł
+  i 8 tys. EUR) czekały w „Nieznani nabywcy”, bo dopisanie numeru odmawiało (`differs`). Decyzja Artura z 25.11.2026:
+  tabela `client_buyer_numbers` (numer w postaci `normalize_buyer_number`, UNIQUE, `source` `manual`/`auto`, `added_by`),
+  nie ukryte duplikaty klienta (zaśmiecałyby wyszukiwanie, liczniki i scalanie).
+- `nip_registry` czyta ją obok `clients.nip` i scalonych duplikatów: dodatkowy numer prowadzi do klienta kanonicznego,
+  ten sam numer u innego klienta to nadal `ambiguous_buyer`, więc dopisanie odmawia `taken` jak dotąd, a formularz
+  klienta (`number_taken_by`) traktuje cudzy numer dodatkowy jako zajęty.
+- Dopisanie jako dodatkowy tylko jawnie: `add_buyer_number(..., extra=True)` / `save_buyer_number(..., extra=True)`.
+  Bez `extra` klient z innym numerem dalej daje `differs`; z `extra` u klienta bez numeru numer idzie do `clients.nip`.
+  Finanse: „Nieznani nabywcy” → „Dopisz jako dodatkowy” przy podpowiedzi z innym numerem i „Jako dodatkowy numer”
+  w „Przypisz do…”; okno faktury przy `differs` ma „Przypisz i dopisz jako dodatkowy” albo „Dopisz jako dodatkowy bez
+  przypisywania”. Wpis w Historii zdarzeń jak przy zwykłym numerze (`client.registry_number_added`, `details.extra`).
+- **Automat dopisuje sam** (decyzja Artura z 25.11.2026: „Automatically”): reguła NIP-u nabywcy z osób na fakturze, gdy
+  wszystkie osoby wskazują klienta z innym numerem, woła `save_buyer_number(..., extra=True, source="auto")`.
+- Przegląd i cofnięcie: lista „Dodatkowe numery klientów” pod „Nieznani nabywcy” (`GET/DELETE
+  /api/finance/sales-invoices/buyer-numbers`), z rozróżnieniem „dopisany przez Finanse / przez automat”. Usunięcie
+  nie odpina faktur już przypisanych; kolejne z tym numerem wracają do „Nieznani nabywcy”
+  (`client.registry_number_removed`).
+- Poczta zamówień (`order_mail_ingest`) czyta tylko `clients.nip`: dodatkowe numery działają w fakturach z KSeF,
+  nie w rozpoznawaniu klienta z PDF-u zamówienia (poza zakresem 0779).
+- Testy: `tests/test_client_invoicing_unknown_buyers.py` (sekcja „Dodatkowe numery”), lustro DDL
+  `tests/test_client_buyer_numbers.py`.
+
 ## Zamówienia MD w obcej walucie (08.11.2026)
 
 - **„Do faktury” idzie w walucie stawki z zamówienia, bez kursu.** `md_rate_revenue` linii jest zawsze w PLN/MD (materializator

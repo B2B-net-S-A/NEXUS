@@ -6474,6 +6474,21 @@ _COLUMN_STATEMENTS = [
     # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
     # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
     "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
+    # 0779: dodatkowe numery nabywcy klienta (spółki grupy, decyzja Artura 25.11.2026).
+    # Lustro 1:1 z `app/services/client_invoicing/buyer_numbers_schema.py` —
+    # pilnuje `test_client_buyer_numbers.py`.
+    """CREATE TABLE IF NOT EXISTS client_buyer_numbers (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        number VARCHAR(32) NOT NULL,
+        source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        added_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_buyer_numbers_number UNIQUE (number),
+        CONSTRAINT ck_client_buyer_numbers_source CHECK (source IN ('manual', 'auto'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_buyer_numbers_client_id "
+    "ON client_buyer_numbers (client_id)",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "

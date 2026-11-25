@@ -153,16 +153,26 @@ describe("AssignInvoiceDialog", () => {
     expect(within(dialog).getByText(new RegExp(`Nabywca Fikcyjny · ${label} ${number}`))).toBeInTheDocument();
   });
 
-  it("does not offer the number when the client already has another one", async () => {
+  it("offers the number as an extra one when the client already has another (group company)", async () => {
     mockOptions(check({ state: "differs", existing: "2222222222" }));
+    post.mockResolvedValue({
+      data: { ...UNKNOWN, buyer_number: { saved: true, extra: true, retried: 2, matched: 1 } },
+    });
     const { dialog } = await openAndPick();
 
     expect(within(dialog).getByText(/Klient ma już inny numer \(2222222222\)/)).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /dopisz/ })).not.toBeInTheDocument();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Przypisz" }));
+    expect(within(dialog).getByRole("button", { name: "Tylko przypisz" })).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Przypisz i dopisz jako dodatkowy" }));
 
     await waitFor(() =>
-      expect(post).toHaveBeenCalledWith(`/api/finance/sales-invoices/${UNKNOWN.id}/assign`, assigned(false)),
+      expect(post).toHaveBeenCalledWith(`/api/finance/sales-invoices/${UNKNOWN.id}/assign`, {
+        ...assigned(true),
+        buyer_number_extra: true,
+      }),
+    );
+    expect(showToast).toHaveBeenCalledWith(
+      "Faktura przypisana, dodatkowy numer dopisany do klienta. Faktury tego nabywcy (2) są już u tego klienta, z zamówieniem: 1.",
+      "success",
     );
   });
 
@@ -206,12 +216,13 @@ describe("AssignInvoiceDialog", () => {
     );
   });
 
-  it("does not offer adding the number without assigning when the client has another one", async () => {
+  it("adds an extra number without assigning when the client has another one and no orders", async () => {
     get.mockImplementation(async (_url: string, config?: { params?: { client_id?: number } }) => ({
       data: config?.params?.client_id
         ? { client_id: 7, options: [], buyer_number: check({ state: "differs", existing: "2222222222" }) }
         : { client_id: null, options: [] },
     }));
+    post.mockResolvedValue({ data: { ...UNKNOWN, buyer_number: { saved: true, extra: true, retried: 0, matched: 0 } } });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -222,8 +233,15 @@ describe("AssignInvoiceDialog", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Wybierz klienta" }));
 
     expect(await within(dialog).findByText("Klient nie ma zamówień w tym miesiącu.")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /Dopisz/ })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Przypisz" })).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Dopisz jako dodatkowy bez przypisywania" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(`/api/finance/sales-invoices/${UNKNOWN.id}/buyer-number`, {
+        client_id: 7,
+        extra: true,
+      }),
+    );
+    expect(showToast).toHaveBeenCalledWith("Dodatkowy numer dopisany do klienta.", "success");
   });
 
   it("does not ask for a client when the invoice already has one", async () => {

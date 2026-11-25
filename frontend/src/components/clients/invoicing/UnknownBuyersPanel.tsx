@@ -21,8 +21,11 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   useAssignUnknownBuyer,
+  useExtraBuyerNumbers,
+  useRemoveExtraBuyerNumber,
   useSkipUnknownBuyer,
   useUnknownBuyers,
+  type ExtraBuyerNumber,
   type UnknownBuyer,
 } from "@/lib/api/client-invoicing";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
@@ -39,8 +42,8 @@ const numberLabel = (buyer: UnknownBuyer) =>
     ? `${BUYER_NUMBER_LABELS[buyer.kind ?? "nip"]} ${buyer.number}`
     : "bez numeru";
 
-const assignedMessage = (retried: number, matched: number) =>
-  `Numer dopisany do klienta. Faktury tego nabywcy (${retried}) są już u tego klienta, z zamówieniem: ${matched}.`;
+const assignedMessage = (retried: number, matched: number, extra = false) =>
+  `${extra ? "Dodatkowy numer" : "Numer"} dopisany do klienta. Faktury tego nabywcy (${retried}) są już u tego klienta, z zamówieniem: ${matched}.`;
 
 /** Finanse → „Nieznani nabywcy”: faktury bez klienta po numerze nabywcy, ze wszystkich miesięcy. */
 export function UnknownBuyersPanel() {
@@ -51,13 +54,13 @@ export function UnknownBuyersPanel() {
   const [skipping, setSkipping] = useState<UnknownBuyer | null>(null);
   const { askConfirm, confirmDialog } = useConfirmV2();
 
-  const assignTo = (buyer: UnknownBuyer, clientId: number, onDone?: () => void) => {
+  const assignTo = (buyer: UnknownBuyer, clientId: number, onDone?: () => void, extra = false) => {
     if (!buyer.number) return;
     assign.mutate(
-      { number: buyer.number, clientId },
+      { number: buyer.number, clientId, extra },
       {
         onSuccess: ({ buyer_number: saved }) => {
-          showToast(assignedMessage(saved.retried, saved.matched), "success");
+          showToast(assignedMessage(saved.retried, saved.matched, saved.extra), "success");
           onDone?.();
         },
         onError: (err) =>
@@ -76,6 +79,17 @@ export function UnknownBuyersPanel() {
     if (ok) assignTo(buyer, buyer.suggestion.client_id);
   };
 
+  // Spółka grupy klienta (oddział, spółka leasingowa): klient ma już inny numer.
+  const confirmExtra = async (buyer: UnknownBuyer) => {
+    if (!buyer.suggestion) return;
+    const ok = await askConfirm({
+      title: `Dopisać jako dodatkowy numer klienta ${buyer.suggestion.client_name}?`,
+      description: `Klient ma już inny numer. ${numberLabel(buyer)} zostanie dopisany obok niego jako numer spółki z grupy klienta, a ${invoiceWord(buyer.invoices)} tego nabywcy dopasują się od razu. Numer można usunąć z listy „Dodatkowe numery klientów”.`,
+      confirmLabel: "Dopisz jako dodatkowy",
+    });
+    if (ok) assignTo(buyer, buyer.suggestion.client_id, undefined, true);
+  };
+
   if (query.isLoading) {
     return <p className="py-6 text-sm text-muted-foreground">Wczytywanie nabywców…</p>;
   }
@@ -84,8 +98,11 @@ export function UnknownBuyersPanel() {
   }
   if (query.isSuccess && query.data.buyers.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-        Wszyscy nabywcy z KSeF są przypisani do klientów.
+      <div className="space-y-3">
+        <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+          Wszyscy nabywcy z KSeF są przypisani do klientów.
+        </div>
+        <ExtraBuyerNumbersSection />
       </div>
     );
   }
@@ -167,10 +184,20 @@ export function UnknownBuyersPanel() {
                         >
                           Przypisz
                         </Button>
+                      ) : buyer.suggestion?.state === "differs" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={assign.isPending}
+                          title={`Dopisz jako dodatkowy numer klienta ${buyer.suggestion.client_name}`}
+                          onClick={() => void confirmExtra(buyer)}
+                        >
+                          Dopisz jako dodatkowy
+                        </Button>
                       ) : null}
                       <Button
                         size="sm"
-                        variant={buyer.suggestion?.state === "add" ? "ghost" : "outline"}
+                        variant={buyer.suggestion ? "ghost" : "outline"}
                         onClick={() => setPicking(buyer)}
                       >
                         Przypisz do…
@@ -195,15 +222,85 @@ export function UnknownBuyersPanel() {
           key={picking.number}
           buyer={picking}
           pending={assign.isPending}
-          onAssign={(clientId) => assignTo(picking, clientId, () => setPicking(null))}
+          onAssign={(clientId, extra) => assignTo(picking, clientId, () => setPicking(null), extra)}
           onClose={() => setPicking(null)}
         />
       ) : null}
       {skipping ? (
         <SkipBuyerDialog key={skipping.number} buyer={skipping} onClose={() => setSkipping(null)} />
       ) : null}
+      <ExtraBuyerNumbersSection />
       {confirmDialog}
     </div>
+  );
+}
+
+const SOURCE_LABELS: Record<ExtraBuyerNumber["source"], string> = {
+  manual: "dopisany przez Finanse",
+  auto: "dopisany przez automat",
+};
+
+/** Dodatkowe numery klientów (spółki grupy): przegląd i usunięcie, także tych od automatu. */
+function ExtraBuyerNumbersSection() {
+  const { showToast } = useToast();
+  const query = useExtraBuyerNumbers();
+  const remove = useRemoveExtraBuyerNumber();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+
+  if (query.isError) {
+    return (
+      <QueryStateNotice
+        state="error"
+        description={apiErrorMessage(query.error, "Nie udało się pobrać dodatkowych numerów klientów.")}
+        onRetry={() => query.refetch()}
+      />
+    );
+  }
+  const numbers = query.isSuccess ? (query.data?.numbers ?? []) : [];
+  if (numbers.length === 0) return null;
+
+  const confirmRemove = async (row: ExtraBuyerNumber) => {
+    const label = `${BUYER_NUMBER_LABELS[row.kind]} ${row.number}`;
+    const ok = await askConfirm({
+      title: `Usunąć ${label} u klienta ${row.client_name ?? ""}?`,
+      description:
+        "Faktury już przypisane zostają u klienta. Kolejne faktury z tym numerem trafią do „Nieznani nabywcy”.",
+      confirmLabel: "Usuń numer",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    remove.mutate(row.id, {
+      onSuccess: () => showToast("Dodatkowy numer usunięty.", "success"),
+      onError: (err) => showToast(apiErrorMessage(err, "Nie udało się usunąć numeru."), "error"),
+    });
+  };
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">Dodatkowe numery klientów ({numbers.length})</h3>
+      <p className="text-xs text-muted-foreground">
+        Spółki z grupy klienta (oddział, spółka leasingowa, fundusz), których faktury trafiają do tego klienta.
+      </p>
+      <ul className="divide-y divide-border rounded-lg border border-border bg-card text-sm">
+        {numbers.map((row) => (
+          <li key={row.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+            <span className="min-w-0 flex-1 truncate font-medium">{row.client_name ?? `Klient ${row.client_id}`}</span>
+            <span className="tabular-nums">
+              {BUYER_NUMBER_LABELS[row.kind]} {row.number}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {SOURCE_LABELS[row.source]}
+              {row.created_at ? ` ${formatIsoDatePl(row.created_at.slice(0, 10))}` : ""} ·{" "}
+              {invoiceWord(row.invoices)}
+            </span>
+            <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => void confirmRemove(row)}>
+              Usuń
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {confirmDialog}
+    </section>
   );
 }
 
@@ -215,7 +312,7 @@ function PickClientDialog({
 }: {
   buyer: UnknownBuyer;
   pending: boolean;
-  onAssign: (clientId: number) => void;
+  onAssign: (clientId: number, extra: boolean) => void;
   onClose: () => void;
 }) {
   const [client, setClient] = useState<ClientRef | null>(null);
@@ -231,13 +328,24 @@ function PickClientDialog({
           <Button variant="ghost" onClick={onClose}>
             Anuluj
           </Button>
-          <Button disabled={!client || pending} onClick={() => client && onAssign(client.id)}>
+          <Button
+            variant="outline"
+            disabled={!client || pending}
+            onClick={() => client && onAssign(client.id, true)}
+          >
+            Jako dodatkowy numer
+          </Button>
+          <Button disabled={!client || pending} onClick={() => client && onAssign(client.id, false)}>
             {pending ? "Zapisywanie…" : "Przypisz"}
           </Button>
         </>
       }
     >
       <ClientSinglePicker value={client} onChange={setClient} queryKey="unknown-buyer-assign-clients" />
+      <p className="mt-2 text-xs text-muted-foreground">
+        Klient ma już inny numer, a to spółka z jego grupy? Wybierz „Jako dodatkowy numer”: oba numery będą
+        prowadzić do tego klienta.
+      </p>
     </AppModal>
   );
 }

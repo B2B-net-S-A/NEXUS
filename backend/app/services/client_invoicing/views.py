@@ -28,10 +28,11 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client, ClientStatus
+from app.models.client_buyer_number import ClientBuyerNumber
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.services.client_identity import (
     client_display_name,
@@ -692,7 +693,7 @@ async def buyer_number_view(
     )
     waiting = (
         await matching.waiting_for_number(db, check.number)
-        if check.state == "add"
+        if check.state in ("add", "differs")
         else 0
     )
     waits_itself = (
@@ -851,6 +852,43 @@ async def unknown_buyers(db: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def extra_buyer_numbers(db: AsyncSession) -> list[dict[str, Any]]:
+    """Dodatkowe numery nabywcy (0779) z nazwą klienta i liczbą faktur u niego."""
+
+    rows = list(
+        await db.scalars(
+            select(ClientBuyerNumber).order_by(
+                ClientBuyerNumber.created_at.desc(), ClientBuyerNumber.id.desc()
+            )
+        )
+    )
+    known = await clients.names(db, [row.client_id for row in rows])
+    number = func.coalesce(
+        ClientSalesInvoice.buyer_nip, ClientSalesInvoice.buyer_foreign_id
+    )
+    counts: dict[str, int] = {}
+    if rows:
+        found = await db.execute(
+            select(number, func.count())
+            .where(number.in_([row.number for row in rows]))
+            .group_by(number)
+        )
+        counts = {key: int(count) for key, count in found.all()}
+    return [
+        {
+            "id": row.id,
+            "client_id": row.client_id,
+            "client_name": known.get(row.client_id),
+            "number": row.number,
+            "kind": _number_kind(row.number) or "nip",
+            "source": row.source,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "invoices": counts.get(row.number, 0),
+        }
+        for row in rows
+    ]
+
+
 async def waiting_for_number_view(
     db: AsyncSession, number: Optional[str]
 ) -> dict[str, Any]:
@@ -885,6 +923,7 @@ __all__ = [
     "client_summary",
     "client_view",
     "credits_view",
+    "extra_buyer_numbers",
     "invoice_detail",
     "line_payload",
     "month_view",
