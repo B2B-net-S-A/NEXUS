@@ -393,6 +393,7 @@ from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
 from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
+from app.api import legal_redline as legal_redline_api
 from app.api import contract_partner_reads as contract_partner_reads_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
@@ -1914,6 +1915,8 @@ app.include_router(
 app.include_router(
     contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
+# Asystent prawny — „Popraw dokument” (DOCX ze śledzeniem zmian, część D planu).
+app.include_router(legal_redline_api.router, prefix="/api/legal", tags=["legal"])
 # Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
 app.include_router(
     contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]

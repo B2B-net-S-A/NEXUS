@@ -45,6 +45,10 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/job-intake/category-suggestion",
     # Asystent prawny: sprawdzenie cytatów z tekstem źródła, bez zapisu (0779).
     "/api/legal/verify",
+    # Asystent prawny „Popraw dokument”: plik w ciele, nic się nie zapisuje —
+    # odczyt jak pobranie dokumentu kontraktu (zapis idzie przez „Dodaj plik”).
+    "/api/legal/redline",
+    "/api/legal/redline/render",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

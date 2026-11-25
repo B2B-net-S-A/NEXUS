@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CloudDownload, Download, Folder, Loader2, MoreHorizontal } from "lucide-react";
+import { CloudDownload, Download, FileDiff, Folder, Loader2, MoreHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,6 +19,7 @@ import { CALM_EMPTY, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { sharePointBadge } from "@/lib/contract-docs-sharepoint";
 import type { DocumentFolder } from "@/lib/contract-document-folders";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { isDocxName } from "@/lib/legal-redline";
 import { cn } from "@/lib/utils";
 
 import { DocIcon } from "./DocIcon";
@@ -66,6 +67,8 @@ interface Props {
   onMove: (documentIds: number[], folderId: number | null) => void;
   onNewFolder: (documentIds: number[]) => void;
   onDelete: (item: DocItem) => void;
+  /** „Popraw dokument” (asystent prawny) — tylko dla plików DOCX. */
+  onRedline?: (item: DocItem) => void;
   onError: (message: string) => void;
 }
 
@@ -98,6 +101,7 @@ export function DocumentItemRow({
   onMove,
   onNewFolder,
   onDelete,
+  onRedline,
   onError,
 }: Props) {
   const { busy, open, download } = useDocumentFileActions(contractId, onError);
@@ -258,6 +262,12 @@ export function DocumentItemRow({
               </DropdownMenuTrigger>
               <DropdownMenuContent className="min-w-52">
                 <DropdownMenuItem onSelect={() => void open(item)}>Otwórz podgląd</DropdownMenuItem>
+                {onRedline && isDocxName(doc.filename) && (
+                  <DropdownMenuItem onSelect={() => deferMenuAction(() => onRedline(item))}>
+                    <FileDiff className="size-4 text-muted-foreground" aria-hidden="true" />
+                    Popraw dokument…
+                  </DropdownMenuItem>
+                )}
                 {item.movable ? (
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>Przenieś do folderu</DropdownMenuSubTrigger>

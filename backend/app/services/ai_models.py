@@ -78,6 +78,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F54 | sales_potential_assessment       | claude-sonnet-5-5 (z 5)  |
 | F56 | legal_assistant                  | claude-sonnet-5-5 (z 5)  |
 | F57 | legal_template_draft             | claude-sonnet-5-5 (z 5)  |
+| F58 | legal_redline                    | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -686,6 +687,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "ramowej), bez osobnego pomiaru. Kod nakłada zmiany na DOCX, sprawdza pola "
         "i szablon; zatwierdza administrator. Dodatek: bez modelu działa ścieżka "
         "„wgraj Word → pola → zapis”.",
+    ),
+    AIFeatureKey.legal_redline: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LEGAL_REDLINE_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F58 (asystent prawny, część D „Popraw dokument”, 25.11.2026, POZA badaniem "
+        "16.09; numer z planu `docs/asystent-prawny-plan.md` — F21 rejestru jest zajęte, numer "
+        "w tabeli nadaje sesja scalająca). Proza prawnicza z cytatami ze źródeł, jak recenzje "
+        "z cytatami F22/F24 (Sonnet 5.5), więc ten sam model bez osobnego pomiaru. Kod sprawdza "
+        "każdy cytat ze źródłem i kotwicę w dokumencie; zmianę przyjmuje człowiek. Dodatek: bez "
+        "modelu działa ręczna lista zmian i porównanie dwóch wersji.",
     ),
 }
 

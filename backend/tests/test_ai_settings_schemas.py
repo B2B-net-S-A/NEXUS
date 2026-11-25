@@ -145,6 +145,8 @@ class TestFeatureKeyEnum:
             "legal_assistant",
             # 0780: szkic wzoru własnego Generatora Umów (asystent prawny).
             "legal_template_draft",
+            # 0785: asystent prawny — propozycje zmian w umowie DOCX.
+            "legal_redline",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

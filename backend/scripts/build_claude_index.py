@@ -133,7 +133,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
         "asystent-prawny",
         "Asystent prawny do umów B2B",
         "Asystent w tle ekranów kontraktów i Generatora: źródła (prawo, umowy, orzecznictwo), "
-        "weryfikacja cytatów, `/api/legal`.",
+        "weryfikacja cytatów, wzory własne, „Popraw dokument”, `/api/legal`.",
     ),
     (
         "rada",

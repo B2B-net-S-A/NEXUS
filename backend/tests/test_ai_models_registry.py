@@ -194,6 +194,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.legal_assistant: ("F56", "claude-sonnet-5-5"),
     # F57 — 25.11.2026: szkic wzoru własnego Generatora (model F50).
     AIFeatureKey.legal_template_draft: ("F57", "claude-sonnet-5-5"),
+    # F58 — 25.11.2026: asystent prawny, „Popraw dokument” (model F22/F24).
+    AIFeatureKey.legal_redline: ("F58", "claude-sonnet-5-5"),
 }
 
 

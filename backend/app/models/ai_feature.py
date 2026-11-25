@@ -236,6 +236,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0780 (25.11.2026): asystent prawny — szkic wzoru własnego Generatora Umów
     # z opisu albo zmiany istniejącego wzoru (wzór bez danych osób).
     legal_template_draft = "legal_template_draft"
+    # 0785 (25.11.2026): asystent prawny — propozycje zmian w umowie DOCX
+    # („Popraw dokument”, część D planu); człowiek przyjmuje każdą zmianę.
+    legal_redline = "legal_redline"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -297,6 +300,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
     AIFeatureKey.legal_assistant: "Asystent prawny — szkic pisma z cytatami sprawdzonymi z tekstem przepisu i umowy",
     AIFeatureKey.legal_template_draft: "Generator Umów — szkic wzoru własnego z asystentem prawnym",
+    AIFeatureKey.legal_redline: "Asystent prawny — propozycje zmian w umowie (Popraw dokument)",
 }
 
 
@@ -571,6 +575,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Polecenie osoby tworzącej wzór (co zmienić)",
         "(bez kandydatów, kontraktorów, klientów i stawek; kwoty słownie, daty i formy "
         "Pan/Pani liczy kod)",
+    ],
+    AIFeatureKey.legal_redline: [
+        "Tekst umowy z pliku DOCX z danymi osób i firm zamienionymi na znaczniki "
+        "([PARTNER], [NIP], [EMAIL]…); podmiana z powrotem po stronie NEXUSA",
+        "Polecenie użytkownika i fragmenty źródeł (przepisy z korpusu, bez LEX i Gofin)",
     ],
 }
 
