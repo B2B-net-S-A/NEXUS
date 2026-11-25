@@ -56,6 +56,14 @@ kalendarzowego” i dopuszcza mail. **Asystent, Jarvis i pismo na kontrakcie
   próbnym), okres w miesiącach bez sposobu liczenia, oba sposoby naraz,
   brak zapisu, brak treści. Termin policzy wtedy człowiek — nie zgadujemy.
   Brak zapisu o formie albo doręczeniu to `notes`, nie domysł.
+- Pomiar 25.11.2026 na kopii stagingu, klient z największą liczbą kontraktów
+  (332): reguła dla 291, w tym 116 × „koniec miesiąca” z mailem (dzisiejszy
+  wzór) i ok. 160 × „od kolejnego miesiąca” 1–3 mies. bez maila (starsze
+  wzory). `None`: 14 bez pliku umowy w „Aktualnej umowie”, 13 bez zapisu
+  w treści (część to inny dokument oznaczony jako umowa albo tekst z ubytkami
+  słów z PDF-u), 10 bez pliku na dysku, 3 okres bez sposobu liczenia, 1 kilka
+  okresów. Tryby wyliczone w jednym zdaniu („a. … b. … d. w trybie
+  natychmiastowym”) są oceniane punkt po punkcie.
 
 ## Dostęp
 
