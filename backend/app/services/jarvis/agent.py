@@ -37,6 +37,7 @@ from app.services.ai_models import fallbacks_for, model_for
 from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import store
 from app.services.jarvis import web as jarvis_web
+from app.services.jarvis import nexus_sources
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
 from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.jarvis.tools import (
@@ -129,6 +130,8 @@ class _TurnState:
     entities: set[tuple[str, int]] = field(default_factory=set)
     # Żeton blokady tury (`store.TurnClaim`) — przedłużany z każdym krokiem.
     claim: Optional[store.TurnClaim] = None
+    # Dokumenty NEXUSA, z których czytały narzędzia tej tury (ramka źródeł).
+    nexus_sources: list[dict[str, str]] = field(default_factory=list)
 
 
 # ── pomocniki ──────────────────────────────────────────────────────────────
@@ -748,6 +751,14 @@ async def _steps(
             blocks = texts or [{"type": "text", "text": TRUNCATED_NOTE.strip()}]
         if not blocks and not paused:
             blocks = [{"type": "text", "text": "…"}]
+        if (
+            state.nexus_sources
+            and not paused
+            and not any(b["type"] == "tool_use" for b in blocks)
+        ):
+            # Ostatni krok tury: źródła z NEXUSA idą przy odpowiedzi, razem
+            # z ewentualnymi z internetu (front dzieli je na dwie grupy).
+            sources = [*state.nexus_sources, *sources]
         stored = list(blocks)
         if sources:
             stored.append({"type": jarvis_web.SOURCES_BLOCK, "items": sources})
@@ -966,6 +977,10 @@ async def _handle_tool(
             found = collect_entities(tool, args, shaped)
             state.entities |= found
             await _link_now(state, found)
+            if tool.name in nexus_sources.TOOLS:
+                nexus_sources.merge(
+                    state.nexus_sources, nexus_sources.collect(tool.name, args, shaped)
+                )
         return _tool_result(use_id, content, is_error=not ok)
 
     # write — propozycja albo, gdy narzędzie ma ``undo``, wykonanie od razu

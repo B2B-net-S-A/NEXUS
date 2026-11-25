@@ -391,6 +391,7 @@ from app.api import contract_client_reassign as contract_client_reassign_api
 from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
 from app.api import contract_partner_reads as contract_partner_reads_api
+from app.api import contract_document_text as contract_document_text_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
@@ -1890,6 +1891,9 @@ app.include_router(
     tags=["rejection-emails"],
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
+# Treść podpisanych dokumentów kontraktu (asystent prawny E, 0782) — przed
+# routerem kontraktów, choć ścieżki się nie gryzą (`documents/search`).
+app.include_router(contract_document_text_api.router, prefix="/api", tags=["contracts"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
 # Multiposting (0360): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
 app.include_router(job_portals_api.router, prefix="/api", tags=["job-portals"])
@@ -4287,6 +4291,7 @@ async def api_health_deep_check(request: Request):
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.contract_partner_read import ContractPartnerRead
+    from app.models.contract_document_chunk import ContractDocumentChunk
     from app.models.client_order_cost_step import (
         ClientOrderCostReview,
         ClientOrderCostStep,
@@ -5016,6 +5021,9 @@ async def api_health_deep_check(request: Request):
         ("contract_document_rate_reads", ContractDocumentRateRead),
         # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
         ("contract_partner_reads", ContractPartnerRead),
+        # 0782: treść podpisanych dokumentów kontraktu (asystent prawny,
+        # Jarvis); sonda ``contract_documents`` sprawdza kolumny ``text_*``.
+        ("contract_document_chunks", ContractDocumentChunk),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
         ("client_order_cost_steps", ClientOrderCostStep),
         ("client_order_cost_reviews", ClientOrderCostReview),

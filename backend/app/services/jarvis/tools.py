@@ -534,6 +534,54 @@ def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
     }
 
 
+_CONTRACT_DOCUMENT_KEYS = (
+    "id",
+    "filename",
+    "doc_type",
+    "in_current_folder",
+    "readable",
+    "pages",
+    "total_chunks",
+    "note",
+)
+_CONTRACT_DOCUMENT_PASSAGE_KEYS = (
+    "document_id",
+    "ref",
+    "filename",
+    "first_chunk",
+    "last_chunk",
+    "text",
+)
+
+
+def _shape_contract_document_search(data: Any, _args: dict[str, Any]) -> Any:
+    """Jak umowy ramowe: fragmenty w całości, limit znaków pilnuje serwer
+    (``framework_contract_text.PASSAGE_BUDGET``)."""
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        **pick(data, ("contract_id", "retrieval", "note")),
+        "passages": [
+            pick(p, _CONTRACT_DOCUMENT_PASSAGE_KEYS)
+            for p in data.get("passages") or []
+        ],
+        "documents": [
+            pick(d, _CONTRACT_DOCUMENT_KEYS)
+            for d in (data.get("documents") or [])[:MAX_LIST_ITEMS]
+        ],
+    }
+
+
+def _shape_contract_document_text(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        **pick(data, ("contract_id", "next_chunk", "note")),
+        "document": pick(data.get("document"), _CONTRACT_DOCUMENT_KEYS),
+        "passage": pick(data.get("passage"), _CONTRACT_DOCUMENT_PASSAGE_KEYS),
+    }
+
+
 def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
     """Liczba okresu + wiersze „kto, gdzie, kiedy, czyja zasługa” bez linków API."""
     if not isinstance(data, dict):
@@ -1290,6 +1338,60 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             _clean({"from_chunk": a.get("from_chunk")}),
         ),
         shape=_shape_amendment_text,
+    ),
+    JarvisTool(
+        name="search_contract_documents",
+        label="Szukam w umowie konsultanta",
+        description=(
+            "Treść PODPISANYCH dokumentów kontraktu konsultanta z zakładki Dokumenty: umowa "
+            "B2B, aneksy, wypowiedzenie, porozumienie (PDF/DOCX, także skany). Fragmenty "
+            "najlepiej pasujące do pytania z odnośnikiem ref (np. „umowa nr 12/2025 § 8 "
+            "ust. 2”) plus lista dokumentów (czy treść da się czytać i dlaczego nie). "
+            "Umowy z różnych lat mają różne zapisy (np. wypowiedzenie „na koniec miesiąca” "
+            "albo „od kolejnego miesiąca”), więc odpowiadaj z tej umowy, nie ze wzoru. "
+            "contract_id podaje list_contracts. Dalszy ciąg: read_contract_document."
+        ),
+        input_schema=_schema(
+            {"contract_id": INT, "query": {"type": "string", "maxLength": 300}},
+            ("contract_id", "query"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/contracts/{contract_id}/documents/search",
+        section=ProductSection.delivery,
+        any_permission=("amounts_view",),
+        build=lambda a: _get(
+            f"/api/contracts/{_int(a, 'contract_id')}/documents/search",
+            {"q": str(a.get("query") or "")[:300]},
+        ),
+        shape=_shape_contract_document_search,
+    ),
+    JarvisTool(
+        name="read_contract_document",
+        label="Czytam umowę konsultanta",
+        description=(
+            "Treść jednego dokumentu kontraktu po kolei, od fragmentu from_chunk (domyślnie "
+            "od początku). document_id podaje search_contract_documents; dalszy ciąg "
+            "zapisu: from_chunk = last_chunk + 1. Wynik podaje next_chunk, gdy dokument ma "
+            "dalszą treść."
+        ),
+        input_schema=_schema(
+            {
+                "document_id": INT,
+                "from_chunk": {"type": "integer", "minimum": 0},
+            },
+            ("document_id",),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/contract-documents/{document_id}/text",
+        section=ProductSection.delivery,
+        any_permission=("amounts_view",),
+        build=lambda a: _get(
+            f"/api/contract-documents/{_int(a, 'document_id')}/text",
+            _clean({"from_chunk": a.get("from_chunk")}),
+        ),
+        shape=_shape_contract_document_text,
     ),
     JarvisTool(
         name="list_contracts",

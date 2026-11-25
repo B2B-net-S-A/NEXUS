@@ -21,6 +21,7 @@ READ: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("„Moi ludzie” do przepięcia", ("my_people_for_job", "my_people")),
     ("klienci, kontrakty i zamówienia", ("get_client_profile", "list_contracts")),
     ("zapisy w umowach ramowych", ("search_framework_contracts",)),
+    ("zapisy w podpisanej umowie konsultanta", ("search_contract_documents",)),
     ("liczby: placementy, CV, kontrakty", ("evaluate_metric",)),
     ("urlopy i sprzęt", ("my_leave_balance", "my_equipment")),
     ("raport godzin osoby za miesiąc", ("person_month",)),
