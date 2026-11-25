@@ -29,6 +29,8 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/components/v2/review-batch/ReviewBatchCard", () => ({
   ReviewBatchCard: () => <div data-testid="review-batch-card" />,
 }));
+const poligon = vi.hoisted(() => ({ lesson: false }));
+vi.mock("@/lib/poligon/mode", () => ({ isNoveltyPractice: () => poligon.lesson }));
 vi.mock("@/lib/api/plainKnowledge", () => ({
   usePlainBrief: () => ({ data: null }),
 }));
@@ -106,6 +108,30 @@ describe("ReviewBatchScreen przy pustej kolejce", () => {
     expect(screen.getByTestId("review-batch-open-today").textContent).toMatch(/po terminie/);
     expect(screen.getByText(/Wyszukiwanie wróci po domknięciu 1 screeningu/)).toBeTruthy();
     expect(screen.getByText("Wyszukiwanie zablokowane")).toBeTruthy();
+  });
+
+  it("lekcja nowości na Poligonie startuje od „Do decyzji”, choć screening jest po terminie (25.11.2026)", () => {
+    // Lekcje „Porcja” każą kliknąć coś na karcie osoby, a ta stoi tylko w „Do decyzji”.
+    // Rano z zaległym screeningiem ekran otwierał się na „Do domknięcia”, pokaz
+    // (same „Rozumiem”) tego nie mówił i ludzie kończyli furtką po 45 s.
+    poligon.lesson = true;
+    try {
+      given(
+        {
+          overdue_screenings: 1,
+          pending: 1,
+          open_today_screenings: [
+            { job_id: 11, job_title: "Java Developer", candidate_id: 101, name: "Jan Testowy", overdue: true },
+          ],
+        },
+        { data: { items: [{ process_id: 1, stage_id: 2, job_id: 11, job_title: "Java Developer", candidate_id: 7, name: "Ola" }] } },
+      );
+      render(<ReviewBatchScreen />);
+      expect(screen.getByRole("tab", { name: /Do decyzji/ }).getAttribute("aria-selected")).toBe("true");
+      expect(screen.getByTestId("review-batch-card")).toBeTruthy();
+    } finally {
+      poligon.lesson = false;
+    }
   });
 
   it("„Nie odebrał” przy screeningu do domknięcia zapisuje próbę, a próba zdejmuje „po terminie” (23.11.2026)", () => {

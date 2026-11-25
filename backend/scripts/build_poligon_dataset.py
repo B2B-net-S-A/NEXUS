@@ -236,6 +236,25 @@ MY_PEOPLE_COUNT = 4
 # Hasło listy bez nazwy (np. słowniczek technologii) wypada z listy.
 NAMED_ITEM_KEYS = ("display_name", "term")
 
+# Teksty, które API zawsze oddaje jako napis (`schemas/champion.py`: `about: str = ""`),
+# a ekran woła na nich `.trim()`. Wycięte zostają puste, nie `null`: 25.11.2026
+# „Edytuj” Profilu Championa na Poligonie kończyło się „Coś poszło nie tak”
+# i lekcja „Najważniejsze zadanie w tej roli” była nie do zrobienia.
+EMPTY_TEXT_KEYS = frozenset({"name", "title", "label", "about", "responsibilities", "deal_breaker"})
+
+
+def blank_empty_texts(value):
+    """`null` pod kluczem z `EMPTY_TEXT_KEYS` → `""` w całym odczycie (kopia)."""
+    if isinstance(value, dict):
+        return {
+            k: "" if v is None and k in EMPTY_TEXT_KEYS else blank_empty_texts(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [blank_empty_texts(v) for v in value]
+    return value
+
+
 # Teksty, których ekran wymaga (nie znosi `null`), a filtr prawdziwych nazw
 # je wyciął — np. pytanie screeningowe z nazwą klienta.
 REQUIRED_TEXT = {
@@ -462,7 +481,7 @@ class Builder:
                 self.dropped["(prawdziwa nazwa) " + key][value[:80]] += 1
                 if key in REQUIRED_TEXT:
                     return REQUIRED_TEXT[key]
-                return None if key not in {"name", "title", "label"} else ""
+                return "" if key in EMPTY_TEXT_KEYS else None
             return value
         if PERSON_NAME_KEYS.search(key) and re.match(
             r"^[A-ZŁŚŻŹĆÓ][a-ząćęłńóśźż]+(\s+[A-ZŁŚŻŹĆÓ][a-ząćęłńóśźż-]+)+$",
@@ -472,7 +491,7 @@ class Builder:
         self.dropped[key][value[:80]] += 1
         if key in REQUIRED_TEXT:
             return REQUIRED_TEXT[key]
-        return None if key not in {"name", "title", "label"} else ""
+        return "" if key in EMPTY_TEXT_KEYS else None
 
     def mentions_real(self, value: str) -> bool:
         words = set(re.findall(r"[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]{3,}", value.lower()))
@@ -1370,7 +1389,7 @@ def dl_context(recorded: dict) -> dict:
 
 def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     """Wymyślone odczyty: nowości z porcji i klient ćwiczebny (bez nagrania)."""
-    dataset = dict(dataset)
+    dataset = {k: blank_empty_texts(v) for k, v in dataset.items()}
     add_novelty_practice(dataset)
     practice = client_practice(meta["template_candidate_id"])
     dataset.update(practice)

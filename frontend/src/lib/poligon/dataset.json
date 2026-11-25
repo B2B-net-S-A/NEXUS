@@ -886,11 +886,11 @@
      "target_companies": null
     },
     "project": {
-     "about": null,
-     "responsibilities": null
+     "about": "",
+     "responsibilities": ""
     },
     "briefing": {
-     "title": null,
+     "title": "",
      "status": "pending",
      "note_id": null,
      "attached_at": null,
@@ -1034,7 +1034,7 @@
      {
       "id": "q2",
       "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
-      "deal_breaker": null,
+      "deal_breaker": "",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola."
      },
      {
@@ -3432,8 +3432,8 @@
      "notes": ""
     },
     "project": {
-     "about": null,
-     "responsibilities": null
+     "about": "",
+     "responsibilities": ""
     },
     "screening_questions": [
      {
@@ -3446,7 +3446,7 @@
       "id": "q2",
       "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola.",
-      "deal_breaker": null
+      "deal_breaker": ""
      },
      {
       "id": "q3",
@@ -3564,7 +3564,7 @@
     "briefing": {
      "status": "pending",
      "note_id": null,
-     "title": null,
+     "title": "",
      "audio_storage_key": null,
      "attached_by_id": null,
      "attached_by_name": null,
@@ -5013,7 +5013,7 @@
      "good": "Kandydat podaje przykład, w którym przełożył cele biznesowe lub regulacyjne na plan obejmujący etapy i konkretne dostawy, a także odpowiadał za realizację.",
      "reject": "Kandydat pełnił wyłącznie rolę doradczą lub audytową albo zajmował się ryzykiem i kontrolą bez odpowiedzialności za realizację.",
      "original": {
-      "deal_breaker": null,
+      "deal_breaker": "",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola."
      },
      "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
@@ -5107,7 +5107,7 @@
    "client": {
     "id": 11,
     "name": "Jakub Szkoleniowy",
-    "about": null,
+    "about": "",
     "origin": "manual",
     "sources": []
    }
@@ -6729,8 +6729,8 @@
      "notes": ""
     },
     "project": {
-     "about": null,
-     "responsibilities": null
+     "about": "",
+     "responsibilities": ""
     },
     "screening_questions": [
      {
@@ -6743,7 +6743,7 @@
       "id": "q2",
       "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola.",
-      "deal_breaker": null
+      "deal_breaker": ""
      },
      {
       "id": "q3",
@@ -6861,7 +6861,7 @@
     "briefing": {
      "status": "pending",
      "note_id": null,
-     "title": null,
+     "title": "",
      "audio_storage_key": null,
      "attached_by_id": null,
      "attached_by_name": null,
@@ -6921,7 +6921,7 @@
      "answer": "",
      "source": null,
      "question_id": "q2",
-     "deal_breaker": null,
+     "deal_breaker": "",
      "deal_breaker_hit": false
     },
     {
