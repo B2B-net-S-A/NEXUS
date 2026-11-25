@@ -31,6 +31,7 @@ import {
 import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import { callWhen } from "@/lib/screening-call";
 import { cn } from "@/lib/utils";
+import { isNoveltyPractice } from "@/lib/poligon/mode";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
@@ -588,8 +589,11 @@ function BatchWorkspace({
   queue: ReturnType<typeof useReviewBatchQueue>;
   onDecided: () => void;
 }) {
+  // Lekcja nowości na Poligonie startuje od karty osoby: lekcje „Porcja” każą
+  // kliknąć coś w „Do decyzji”, a z zaległym screeningiem ekran otwierał się na
+  // „Do domknięcia” i nikt nie wiedział, że trzeba przełączyć (25.11.2026).
   const [tab, setTab] = useState<BatchTab>(
-    (data.overdue_screenings ?? 0) > 0 ? "close" : "decide",
+    (data.overdue_screenings ?? 0) > 0 && !isNoveltyPractice() ? "close" : "decide",
   );
   const [picked, setPicked] = useState(0);
   // „Wybierz rekrutację na dziś”: lista wyboru zamiast zakładek po lewej.

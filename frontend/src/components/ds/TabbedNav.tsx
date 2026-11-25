@@ -12,6 +12,8 @@ export interface TabbedNavItem {
   label: React.ReactNode;
   count?: number;
   icon?: LucideIcon;
+  /** Kotwica kroku nowości na jednej zakładce (`data-tour`), np. „Po terminie”. */
+  "data-tour"?: string;
 }
 
 export interface TabbedNavProps {
@@ -78,6 +80,7 @@ export function TabbedNav({
               <TabsTrigger
                 key={tab.value}
                 value={tab.value}
+                data-tour={tab["data-tour"]}
                 className={cn(dense && "gap-1 px-2 py-1.5 text-xs")}
               >
                 {Icon ? <Icon className="h-4 w-4" aria-hidden /> : null}

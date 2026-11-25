@@ -5,6 +5,8 @@ import poligonRegistry from "../../../../../backend/app/data/novelties/poligon.j
 import { EXERCISES, POLIGON_BUDGET_MAX_HOURLY, POLIGON_CANDIDATE_HOURLY, POLIGON_CLIENT_MAIL, exercisesFor, primaryRole } from "../exercises";
 import { SLOTS_MAIL_OTHER } from "../tools";
 import { poligonPath } from "../usePoligonPath";
+import type { BoardTasksResponse } from "@/lib/api/boardTasks";
+import { buildPersonQueue } from "@/lib/dashboard-person-queue";
 import { BLOCKED_WRITE_MESSAGE, POLIGON_PROGRESS, createPoligonStore, mentionsPoligon, resolveDates, type PoligonAction, type PoligonDataset } from "../store";
 
 const DATA = dataset as unknown as PoligonDataset;
@@ -226,12 +228,42 @@ describe("poligon: screening i bramka „Zweryfikowany”", () => {
   });
 });
 
+describe("poligon: „Czeka na Ciebie” na pulpicie", () => {
+  // 24.11.2026 lekcja „Pracuj po kolei” była nie do zrobienia dla DL-a i TCM-a
+  // bez własnych kart: odczyt szedł do prawdziwego API. Na Poligonie kolejka to
+  // osoby ćwiczebne, więc przycisk stoi u każdego.
+  it("odpowiada z zestawu osobami ćwiczebnymi, a kolejka „Pracuj po kolei” nie jest pusta", () => {
+    const { store } = setup();
+    const res = store.handle({ method: "get", url: "/api/board-tasks" });
+    expect(res).not.toBe("network");
+    const data = (res as { status: number; data: BoardTasksResponse }).data;
+    const queue = buildPersonQueue(data.flow, new Date(NOW));
+    expect(queue.length).toBeGreaterThan(0);
+    const people = new Set(DATA.meta.people.map((p) => p.candidate_id));
+    expect(queue.every((entry) => people.has(entry.candidateId) && entry.jobId === JOB)).toBe(true);
+  });
+});
+
+describe("poligon: plan przelewów", () => {
+  // Lekcja „Zajęcia i spory” (25.11.2026): POST planu to odczyt, a Poligon
+  // odpowiadał na niego 409 i ekran Przelewów pokazywał błąd pobrania.
+  it("POST planu to odczyt z zestawu z fakturą przypiętą do kontraktu ćwiczebnego", () => {
+    const { store } = setup();
+    const res = store.handle({ method: "post", url: "/api/finance/payments/plan", body: { until: "2026-11-27" } });
+    expect(res).toMatchObject({ status: 200 });
+    const items = (res as { data: { items: Array<{ contract_id: number | null }> } }).data.items;
+    expect(items.some((i) => i.contract_id === 990521)).toBe(true);
+  });
+});
+
 describe("poligon: baza kandydatów", () => {
   it("lista bazy to osoby ćwiczebne, szukanie zawęża i zgłasza zdarzenie", () => {
     const { store, actions } = setup();
     const all = store.handle({ method: "get", url: "/api/candidates?page=1&page_size=50" }) as { data: { items: Array<{ id: number; name: string }>; total: number } };
-    // Osoba z „Rozmowy u klienta” i osoba z pliku CV (ćwiczenia z 16.11.2026) nie są w bazie z nagrania.
-    const extras = new Set([DATA.meta.slot_candidate_id, DATA.meta.cv_candidate_id]);
+    // Osoba z „Rozmowy u klienta”, osoba z pliku CV (ćwiczenia z 16.11.2026) i osoba
+    // z „CV wysłane” (lekcja „Terminy przy ruchu”, 25.11.2026) nie są w bazie z nagrania.
+    const meta = DATA.meta as PoligonDataset["meta"] & { terms_candidate_id: number };
+    const extras = new Set([meta.slot_candidate_id, meta.cv_candidate_id, meta.terms_candidate_id]);
     expect(all.data.items.length).toBe(DATA.meta.people.filter((p) => !extras.has(p.candidate_id)).length);
     expect(all.data.items.every((c) => c.id >= 990_000)).toBe(true);
     const found = store.handle({ method: "get", url: `/api/candidates?q=${encodeURIComponent(first.lastname)}` }) as { data: { items: Array<{ id: number }> } };
@@ -241,7 +273,8 @@ describe("poligon: baza kandydatów", () => {
 
   it("przypisanie z profilu dokłada osobę do „Nowych” rekrutacji ćwiczebnej", () => {
     const { store, actions } = setup();
-    const last = DATA.meta.people.at(-1)!;
+    // Osoba z pliku CV nie stoi na Tablicy, więc da się ją przypisać z profilu.
+    const last = DATA.meta.people.find((p) => p.candidate_id === DATA.meta.cv_candidate_id)!;
     expect(store.stageOf(last.candidate_id)).toBeNull();
     expect(store.handle({ method: "post", url: `/api/candidates/${last.candidate_id}/assign-to-job/${JOB}` })).toMatchObject({ status: 200 });
     expect(store.stageOf(last.candidate_id)).toBe("new");
