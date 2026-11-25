@@ -228,6 +228,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0761 (23.11.2026): Sprzedaż — ocena potencjału firmy przed spotkaniem
     # z researchu Bota Research, faktów z NEXUSA i bazy wiedzy (F54).
     sales_potential_assessment = "sales_potential_assessment"
+    # 0785 (25.11.2026): asystent prawny — propozycje zmian w umowie DOCX
+    # („Popraw dokument”, część D planu); człowiek przyjmuje każdą zmianę.
+    legal_redline = "legal_redline"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -287,6 +290,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
+    AIFeatureKey.legal_redline: "Asystent prawny — propozycje zmian w umowie (Popraw dokument)",
 }
 
 
@@ -546,6 +550,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Baza wiedzy oceny: opis oferty i referencje (bez podpisów listów i notatek)",
         "(bez kontaktów, decydentów, kandydatów, konsultantów i stawek; tytuł szansy to "
         "tekst handlowca)",
+    ],
+    AIFeatureKey.legal_redline: [
+        "Tekst umowy z pliku DOCX z danymi osób i firm zamienionymi na znaczniki "
+        "([PARTNER], [NIP], [EMAIL]…); podmiana z powrotem po stronie NEXUSA",
+        "Polecenie użytkownika i fragmenty źródeł (przepisy z korpusu, bez LEX i Gofin)",
     ],
 }
 

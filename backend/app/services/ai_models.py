@@ -76,6 +76,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F52 | contract_document_rate_read      | claude-sonnet-5 (z Haiku)|
 | F53 | contract_partner_read            | claude-sonnet-5 (z Haiku)|
 | F54 | sales_potential_assessment       | claude-sonnet-5-5 (z 5)  |
+| AP21| legal_redline                    | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -661,6 +662,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "handlowca i wiadomość do klienta, więc model tekstu do klienta z F46. Próba na "
         "dwóch firmach ze stagingu 23.11. Dodatek: bez modelu research i fakty zostają "
         "na ekranie, referencje wybiera model tylko numerem z bazy.",
+    ),
+    AIFeatureKey.legal_redline: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LEGAL_REDLINE_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="AP21 (asystent prawny, część D „Popraw dokument”, 25.11.2026, POZA badaniem "
+        "16.09; numer z planu `docs/asystent-prawny-plan.md` — F21 rejestru jest zajęte, numer "
+        "w tabeli nadaje sesja scalająca). Proza prawnicza z cytatami ze źródeł, jak recenzje "
+        "z cytatami F22/F24 (Sonnet 5.5), więc ten sam model bez osobnego pomiaru. Kod sprawdza "
+        "każdy cytat ze źródłem i kotwicę w dokumencie; zmianę przyjmuje człowiek. Dodatek: bez "
+        "modelu działa ręczna lista zmian i porównanie dwóch wersji.",
     ),
 }
 
