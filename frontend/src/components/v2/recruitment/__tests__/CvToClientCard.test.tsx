@@ -811,7 +811,7 @@ describe("CvToClientCard — CV gotowe", () => {
     expect(screen.queryByTestId("cv-card-word-classic-warning")).not.toBeInTheDocument();
   });
 
-  it("23.11.2026: przy Nowym CV karta pozwala wybrać, co stoi w wieńcu", async () => {
+  it("25.11.2026: przy Nowym CV karta nie ma wyboru wieńca (wieniec tylko przy wyróżniku)", async () => {
     const draft = {
       status: "draft",
       from_generator: true,
@@ -824,29 +824,11 @@ describe("CvToClientCard — CV gotowe", () => {
       page1_extras: null,
     };
     mocks.brandedGet.mockResolvedValue({ data: draft });
-    mocks.setPage1.mockResolvedValue({ data: { ...draft, page1_extras: { wreath: "cert" } } });
-    rows = [{ id: 5, status: "ready" }];
-    renderCard();
-    const choice = await screen.findByTestId("cv-wreath-choice");
-    expect(within(choice).getByRole("button", { name: "Automatycznie" })).toHaveAttribute("aria-pressed", "true");
-    await userEvent.click(within(choice).getByRole("button", { name: "Certyfikat" }));
-    await waitFor(() => expect(mocks.setPage1).toHaveBeenCalledWith(21, { wreath: "cert" }));
-    await waitFor(() =>
-      expect(within(screen.getByTestId("cv-wreath-choice")).getByRole("button", { name: "Certyfikat" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      ),
-    );
-  });
-
-  it("23.11.2026: klasyczne CV i CV po wysyłce nie mają wyboru wieńca", async () => {
-    mocks.brandedGet.mockResolvedValue({
-      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1, content_html: "<p>CV</p>", new_layout_enabled: true, cv_layout: "classic" },
-    });
     rows = [{ id: 5, status: "ready" }];
     renderCard();
     await screen.findByTestId("cv-layout-choice-card");
     expect(screen.queryByTestId("cv-wreath-choice")).not.toBeInTheDocument();
+    expect(screen.queryByText("W wieńcu")).not.toBeInTheDocument();
   });
 
   it("22.11.2026: po wysyłce do klienta układ jest zablokowany", async () => {

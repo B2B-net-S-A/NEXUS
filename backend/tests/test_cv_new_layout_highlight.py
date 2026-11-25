@@ -101,7 +101,7 @@ def test_page1_has_one_wreath_only():
     plain = render_new_cv_html(_doc(long_cv()), today=TODAY)
     assert (
         "class='hl'" not in plain
-        and "class='wb'" in plain
+        and "class='wb'" not in plain  # Edukacja bez wieńca zawsze (Artur 25.11.2026)
         and plain.count('class="hlw"') == 0
     )
     html = render_new_cv_html(_doc(_with_client(["Bank Przykładowy"])), today=TODAY)

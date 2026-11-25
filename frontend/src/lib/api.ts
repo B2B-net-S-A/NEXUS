@@ -7139,8 +7139,6 @@ export interface CvPage1Extras {
   result_text?: string | null;
   result_index?: number | null;
   results?: CvPage1Result[] | null;
-  /** Wieniec w „Edukacji” (23.11.2026); brak = „auto”. */
-  wreath?: CvWreath | null;
   /** Wyróżnik pod nazwiskiem w wieńcu laurowym (25.11.2026); brak = „auto”. */
   highlight?: CvPage1Highlight | null;
 }
@@ -7159,14 +7157,10 @@ export interface CvPage1Highlight {
   text?: string | null;
 }
 
-/** Wieniec: „auto” = certyfikat z wymagań MUST klienta, inaczej szkoła. */
-export type CvWreath = "auto" | "cert" | "school";
-
-/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera, wybór wieńca albo wyróżnik. */
+/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera albo wyróżnik. */
 export interface CvPage1Update {
   result_index?: number | null;
   result_text?: string | null;
-  wreath?: CvWreath;
   /** `mode: "custom"` wymaga etykiety i zdania (inaczej 422). */
   highlight?: CvPage1Highlight;
 }
@@ -7387,7 +7381,7 @@ export const candidateStageCvApi = {
     /** Przełącz układ CV bez generowania od nowa (po „CV wysłane” 409). */
     setLayout: (stageId: number, cv_layout: CvLayout) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/layout`, { cv_layout }),
-    /** Strona 1 nowego CV: najmocniejszy wynik albo wieniec (tylko szkic; po „CV wysłane” 409). */
+    /** Strona 1 nowego CV: najmocniejszy wynik albo wyróżnik (tylko szkic; po „CV wysłane” 409). */
     setPage1: (stageId: number, payload: CvPage1Update) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
     /**
