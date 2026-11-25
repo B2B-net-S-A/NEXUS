@@ -45,6 +45,8 @@ export interface CvNewLayoutWorkspaceProps {
   /** PDF nowego CV z bieżącej treści (te same nagłówki co „Jak u klienta”). */
   loadPreview: () => Promise<AuthenticatedDownload>;
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
+  /** „Policz wyniki od nowa” przy najmocniejszym wyniku (tylko CV etapu). */
+  onRecalcResults?: () => Promise<void>;
   onTab: (tab: CvNewLayoutTab) => void;
   onOpenText: (section: CvSectionKey) => void;
 }
@@ -58,6 +60,7 @@ export function CvNewLayoutWorkspace({
   active,
   loadPreview,
   onSaveResult,
+  onRecalcResults,
   onTab,
   onOpenText,
 }: CvNewLayoutWorkspaceProps) {
@@ -105,6 +108,7 @@ export function CvNewLayoutWorkspace({
               extras={extras}
               disabled={disabled}
               onSaveResult={onSaveResult}
+              onRecalcResults={onRecalcResults}
               onOpenPositions={() => onTab("positions")}
               onOpenText={onOpenText}
             />

@@ -19,7 +19,7 @@
 
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
-import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 
 import { Input, SegmentedRadio, Textarea } from "@/components/ui";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,8 @@ export interface CvNewLayoutPage1Props {
   disabled: boolean;
   /** Zapis dodatków strony 1 (wynik, wyróżnik, wieniec); brak = bez tych pól (np. CV bez etapu). */
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
+  /** „Policz wyniki od nowa” — model szuka wyników w zapisanym CV; brak = bez przycisku. */
+  onRecalcResults?: () => Promise<void>;
   onOpenPositions: () => void;
   onOpenText: (section: CvSectionKey) => void;
 }
@@ -93,6 +95,7 @@ export function CvNewLayoutPage1({
   extras,
   disabled,
   onSaveResult,
+  onRecalcResults,
   onOpenPositions,
   onOpenText,
 }: CvNewLayoutPage1Props) {
@@ -148,6 +151,7 @@ export function CvNewLayoutPage1({
             fallback={points[2]?.text ?? null}
             disabled={disabled}
             onSave={onSaveResult}
+            onRecalc={onRecalcResults}
           />
         ) : null}
       </section>
@@ -190,12 +194,14 @@ function StrongestResult({
   fallback,
   disabled,
   onSave,
+  onRecalc,
 }: {
   editor: Editor;
   extras: CvPage1Extras | null | undefined;
   fallback: string | null;
   disabled: boolean;
   onSave: (patch: CvPage1Update) => Promise<void>;
+  onRecalc?: () => Promise<void>;
 }) {
   const chosen = chosenResult(extras);
   const verified = verifiedResults(extras);
@@ -204,6 +210,7 @@ function StrongestResult({
   const [draft, setDraft] = useState(shown);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef(draft);
@@ -258,6 +265,18 @@ function StrongestResult({
       void save({ result_text: current.trim() || null }, current);
     }, RESULT_SAVE_DELAY_MS);
   };
+  const recalc = async () => {
+    if (!onRecalc) return;
+    setRecalculating(true);
+    setError(null);
+    try {
+      await onRecalc();
+    } catch (reason) {
+      setError(apiErrorMessage(reason, "Nie udało się policzyć wyników od nowa."));
+    } finally {
+      setRecalculating(false);
+    }
+  };
   const pick = (choice: VerifiedResult) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -284,49 +303,69 @@ function StrongestResult({
         placeholder={fallback ? `Punkt 3 z CV: ${fallback}` : "Wpisz wynik z liczbą, np. skrócenie testów o 40%"}
       />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className={cn("min-w-0 flex-1 text-xs text-muted-foreground")} title={chosen?.result.quote ?? undefined}>
+        <p className={cn("min-w-48 flex-1 text-xs text-muted-foreground")} title={chosen?.result.quote ?? undefined}>
           {source}
         </p>
-        {saving ? (
-          <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Zapisuję…
-          </span>
-        ) : null}
-        {verified.length > 0 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={disabled || saving}
-                className="h-7 rounded-full px-2.5 text-xs"
-              >
-                Inny wynik ({verified.length})
-                <ChevronDown aria-hidden className="ml-1 h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              {verified.map((choice) => {
-                const active = !typed && chosen?.index === choice.index;
-                return (
-                  <DropdownMenuItem key={choice.index} onSelect={() => pick(choice)} className="items-start gap-2">
-                    <Check
-                      aria-hidden
-                      className={cn("mt-0.5 h-3.5 w-3.5 flex-none", active ? "opacity-100" : "opacity-0")}
-                    />
-                    <span className="grid min-w-0">
-                      <span className="line-clamp-2 text-sm text-foreground">{plainResult(choice.result.text)}</span>
-                      {choice.result.company ? (
-                        <span className="text-xs text-muted-foreground">{choice.result.company}</span>
-                      ) : null}
-                    </span>
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+          {saving ? (
+            <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Zapisuję…
+            </span>
+          ) : null}
+          {onRecalc ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void recalc()}
+              disabled={disabled || saving || recalculating}
+              aria-busy={recalculating}
+              className="h-7 rounded-full px-2.5 text-xs"
+            >
+              {recalculating ? (
+                <Loader2 aria-hidden className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw aria-hidden className="mr-1 h-3.5 w-3.5" />
+              )}
+              {recalculating ? "Szukam wyników w CV…" : "Policz wyniki od nowa"}
+            </Button>
+          ) : null}
+          {verified.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={disabled || saving || recalculating}
+                  className="h-7 rounded-full px-2.5 text-xs"
+                >
+                  Inny wynik ({verified.length})
+                  <ChevronDown aria-hidden className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80">
+                {verified.map((choice) => {
+                  const active = !typed && chosen?.index === choice.index;
+                  return (
+                    <DropdownMenuItem key={choice.index} onSelect={() => pick(choice)} className="items-start gap-2">
+                      <Check
+                        aria-hidden
+                        className={cn("mt-0.5 h-3.5 w-3.5 flex-none", active ? "opacity-100" : "opacity-0")}
+                      />
+                      <span className="grid min-w-0">
+                        <span className="line-clamp-2 text-sm text-foreground">{plainResult(choice.result.text)}</span>
+                        {choice.result.company ? (
+                          <span className="text-xs text-muted-foreground">{choice.result.company}</span>
+                        ) : null}
+                      </span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
       </div>
       {error ? (
         <p role="alert" className="text-xs text-destructive">

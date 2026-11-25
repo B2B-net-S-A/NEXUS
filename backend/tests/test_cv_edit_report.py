@@ -328,6 +328,8 @@ def test_first_draft_is_what_the_stage_draft_path_writes():
         branded_draft_html=None,
         branded_version=1,
         edit_revision=0,
+        generated_document_id=None,
+        page1_extras=None,
     )
 
     asyncio.run(

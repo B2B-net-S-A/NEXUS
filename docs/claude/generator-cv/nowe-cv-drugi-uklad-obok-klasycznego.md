@@ -169,6 +169,19 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
   strona 1 bierze trzeci punkt generatora. Awaria nie zmienia dodatków, ślad
   jest w logu. Zatwierdzona wersja ma dodatki zamrożone — wynik policzony później
   trafia do szkicu, nie do wysłanej treści.
+- **Wynik po zmianie treści (przegląd 25.11.2026):** `verified` dotyczy HTML-a
+  z `results_source_sha`. Gdy treść jest inna (rekruter usunął rolę, zmienił
+  liczbę), render PDF sprawdza wybrany wynik jeszcze raz na bieżących rolach tym
+  samym kodem (`cv_page1_result_checks.rechecked_extras` w `cv_new_pdf._render`,
+  bez sieci, bez zapisu); niesprawdzony ustępuje trzeciemu punktowi generatora.
+  Zdanie wpisane przez rekrutera (`result_text`) nie przechodzi tej kontroli —
+  to jego słowa. Wczytanie innego CV (nowa generacja bez „zachowaj poprawki”
+  w `apply_generated_to_stage_cv`, wgrany plik Word w `_write_imported_draft`)
+  czyści `results`, `result_index`, `result_text`, `results_source_sha`
+  i własny wyróżnik (`highlight.mode == "custom"`) — `cv_layout.forget_page1_result`.
+  Wybór wieńca i wyłączony wyróżnik zostają. Edytor ma przy polu
+  „Najmocniejszy wynik” przycisk „Policz wyniki od nowa” (najpierw zapis szkicu,
+  potem `POST …/cv/page1/results`; 503 i 429 jako zdanie przez `apiErrorMessage`).
 - **Pomiar 22.11.2026** (kopia produkcji, 30 CV: 20 EN, 10 PL, sam Sol bez
   zapasu, tylko odczyt): sprawdzony wynik w 26 CV, 72 propozycje, 0 odrzuconych
   przez kod, 4 CV bez wyniku (model zwrócił pustą listę przy samych obowiązkach),
@@ -186,7 +199,8 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
   dodatkiem, bez niego strona 1 bierze trzeci punkt „Dlaczego”.
 - Nie wpuszczaj na stronę 1 zdania bez `verified` i nie luzuj sprawdzenia cytatu
   ani liczb „bo model jest dobry”: na pomiarze nic nie odpadło, ale to jedyna
-  bariera przed liczbą spoza CV u klienta.
+  bariera przed liczbą spoza CV u klienta. Z tego samego powodu nie ufaj samej
+  fladze po edycji CV — kontrola przy renderze na bieżącej treści zostaje.
 - Nie dopisuj tego zdania do promptu generatora — klasyczne CV mają zostać bez
   zmian, a wynik liczy się z treści po poprawkach rekrutera.
 

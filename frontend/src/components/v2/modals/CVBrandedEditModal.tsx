@@ -194,7 +194,7 @@ export type CvEditorApi = Pick<
    * Układ CV i „Najmocniejszy wynik” strony 1 nowego CV (22.11.2026) — tylko
    * CV etapu; wynik generatora nie ma układu.
    */
-  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout" | "setPage1">>;
+  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout" | "setPage1" | "refreshPage1Results">>;
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
@@ -801,6 +801,20 @@ function CVBrandedEditContent({
         );
       }
     : undefined;
+  /** „Policz wyniki od nowa”: serwer liczy z zapisanego szkicu, więc najpierw zapis bieżącej treści. */
+  const refreshPage1Api = isGenerated ? undefined : editorApi.refreshPage1Results;
+  const recalcPage1 = refreshPage1Api
+    ? async () => {
+        if (!(await ensureDraft())) {
+          throw new Error("Nie udało się założyć nowego szkicu CV — wyniki nie zostały policzone.");
+        }
+        await flush();
+        const response = await refreshPage1Api(stageId);
+        queryClient.setQueryData<CVBrandedState>([scopeKey, stageId], (current) =>
+          current ? { ...current, page1_extras: response.data ?? null } : current,
+        );
+      }
+    : undefined;
   // Wiersz „Umiejętności” / „Edukacja” / „Języki” ze „Strony 1”: kursor w tej sekcji kartki.
   const pendingJump = useRef<CvSectionKey | null>(null);
   const openInText = (section: CvSectionKey) => {
@@ -1274,6 +1288,7 @@ function CVBrandedEditContent({
                   active={open && showCv && formTab !== null}
                   loadPreview={() => loadPdf("preview")}
                   onSaveResult={savePage1}
+                  onRecalcResults={recalcPage1}
                   onTab={setMode}
                   onOpenText={openInText}
                 />

@@ -247,3 +247,102 @@ async def test_generated_cv_in_new_layout_queues_background_run(
     csv = await _csv(sid)
     assert csv.cv_layout == "new"
     assert spawned == [csv.id]
+
+
+# ── Nowa generacja z innego pliku (przegląd 25.11.2026) ──────────────────────
+# Wynik, zdanie rekrutera i własny wyróżnik opisują poprzednie CV — po wczytaniu
+# innej generacji nie mogą zostać na stronie 1. Wybór wieńca zostaje.
+
+STALE_EXTRAS = {
+    "results": [{**RESULT, "verified": True}],
+    "result_index": 1,
+    "results_source_sha": "stare",
+    "result_text": "Zdanie rekrutera o poprzednim CV",
+    "wreath": "cert",
+    "highlight": {"mode": "custom", "label": "Bank", "token": "B", "text": "Zdanie"},
+}
+
+
+async def _generation(cid: int, jid: int) -> int:
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    async with AsyncSessionLocal() as db:
+        source = CvGeneratedDocument(
+            candidate_id=cid,
+            job_id=jid,
+            candidate_name="Synthetic",
+            filename="selected.docx",
+            status="ready",
+            cv_layout="new",
+            render_payload={"name": "Synthetic", "why_points": ["Python w Acme"]},
+        )
+        db.add(source)
+        await db.commit()
+        return source.id
+
+
+@pytest.mark.asyncio
+async def test_other_generation_clears_result_and_custom_highlight(
+    app_client: AsyncClient, app_auth_headers: dict, flag_on, monkeypatch
+):
+    monkeypatch.setattr(service, "_spawn", lambda csv_id: None)
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    await _set_extras(sid, STALE_EXTRAS)
+    choice = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": await _generation(cid, jid),
+        },
+    )
+    assert choice.status_code == 200, choice.text
+    assert (await _csv(sid)).page1_extras == {"wreath": "cert"}
+
+
+@pytest.mark.asyncio
+async def test_other_generation_keeps_highlight_turned_off(
+    app_client: AsyncClient, app_auth_headers: dict, flag_on, monkeypatch
+):
+    monkeypatch.setattr(service, "_spawn", lambda csv_id: None)
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    await _set_extras(sid, {**STALE_EXTRAS, "highlight": {"mode": "off"}})
+    choice = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": await _generation(cid, jid),
+        },
+    )
+    assert choice.status_code == 200, choice.text
+    assert (await _csv(sid)).page1_extras == {
+        "wreath": "cert",
+        "highlight": {"mode": "off"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_rewrite_keeping_edits_keeps_page_1_extras(flag_on, monkeypatch):
+    from app.api.candidate_stage_cv import apply_generated_to_stage_cv
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    monkeypatch.setattr(service, "_spawn", lambda csv_id: None)
+    sid, cid, jid = await _seed_full_stage()
+    await _seed_draft(sid, HTML)
+    await _set_extras(sid, STALE_EXTRAS)
+    generated_id = await _generation(cid, jid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        generated = await db.get(CvGeneratedDocument, generated_id)
+        await apply_generated_to_stage_cv(
+            db, csv, generated, user_id=None, keep_edits=True
+        )
+        await db.commit()
+    assert (await _csv(sid)).page1_extras == STALE_EXTRAS
