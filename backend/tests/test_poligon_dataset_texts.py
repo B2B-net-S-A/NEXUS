@@ -23,7 +23,11 @@ def _nulls(value, path: str = "") -> list[str]:
         return [
             p
             for k, v in value.items()
-            for p in ([f"{path}.{k}"] if v is None and k in build.EMPTY_TEXT_KEYS else _nulls(v, f"{path}.{k}"))
+            for p in (
+                [f"{path}.{k}"]
+                if v is None and k in build.EMPTY_TEXT_KEYS
+                else _nulls(v, f"{path}.{k}")
+            )
         ]
     if isinstance(value, list):
         return [p for i, v in enumerate(value) for p in _nulls(v, f"{path}[{i}]")]
@@ -33,7 +37,9 @@ def _nulls(value, path: str = "") -> list[str]:
 def test_teksty_czytane_jak_napis_nie_sa_null():
     responses = json.loads(DATASET.read_text())["responses"]
     wrong = [p for key, body in responses.items() for p in _nulls(body, key)]
-    assert wrong == [], f"przebuduj: python3 scripts/build_poligon_dataset.py --practice-only ({wrong[:5]})"
+    assert wrong == [], (
+        f"przebuduj: python3 scripts/build_poligon_dataset.py --practice-only ({wrong[:5]})"
+    )
 
 
 def test_profil_championa_ma_opis_projektu_jako_napis():
@@ -44,4 +50,6 @@ def test_profil_championa_ma_opis_projektu_jako_napis():
 
 
 def test_wyciety_tekst_z_tej_listy_zostaje_pusty():
-    assert build.blank_empty_texts({"a": [{"about": None, "x": None}]}) == {"a": [{"about": "", "x": None}]}
+    assert build.blank_empty_texts({"a": [{"about": None, "x": None}]}) == {
+        "a": [{"about": "", "x": None}]
+    }

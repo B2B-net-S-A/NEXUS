@@ -42,7 +42,11 @@ def test_zestaw_w_repo_jest_aktualny():
 def test_lekcja_terminow_ma_karte_w_cv_wyslane():
     lessons = {lesson["id"]: lesson for lesson in json.loads(LESSONS.read_text())}
     lesson = lessons["lekcja-terminy-przy-ruchu"]
-    assert lesson["check"] == {**lesson["check"], "kind": "move", "to": "client_interview"}
+    assert lesson["check"] == {
+        **lesson["check"],
+        "kind": "move",
+        "to": "client_interview",
+    }
     assert lesson["solo_href"] == f"/jobs/{tp.POLIGON_JOB}"
     columns = json.loads(DATASET.read_text())["responses"][tp.KANBAN_KEY]["columns"]
     cv_sent = next(c for c in columns if c["stage"] == tp.TARGET_STAGE)

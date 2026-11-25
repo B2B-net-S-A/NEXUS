@@ -242,7 +242,9 @@ NAMED_ITEM_KEYS = ("display_name", "term")
 # a ekran woła na nich `.trim()`. Wycięte zostają puste, nie `null`: 25.11.2026
 # „Edytuj” Profilu Championa na Poligonie kończyło się „Coś poszło nie tak”
 # i lekcja „Najważniejsze zadanie w tej roli” była nie do zrobienia.
-EMPTY_TEXT_KEYS = frozenset({"name", "title", "label", "about", "responsibilities", "deal_breaker"})
+EMPTY_TEXT_KEYS = frozenset(
+    {"name", "title", "label", "about", "responsibilities", "deal_breaker"}
+)
 
 
 def blank_empty_texts(value):
@@ -1428,7 +1430,14 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
         # Odpowiedzi w całości wymyślone w skrypcie: strażnik zestawu nie
         # wymaga dla nich kluczy ze słownika (`poligon-dataset.test.ts`).
         "fiction_responses": sorted(
-            {*practice, *cv_fiction, *pre_contract_fiction, *texts_fiction, *board_fiction, *payments_fiction}
+            {
+                *practice,
+                *cv_fiction,
+                *pre_contract_fiction,
+                *texts_fiction,
+                *board_fiction,
+                *payments_fiction,
+            }
         ),
     }
     return meta, dataset

@@ -36,7 +36,10 @@ def test_zestaw_w_repo_jest_aktualny():
 def test_kolejka_to_osoby_cwiczebne_z_tablicy():
     data = json.loads(DATASET.read_text())
     flow = data["responses"][bt.KEY]["flow"]
-    people = {p["candidate_id"]: f"{p['name']} {p['lastname']}" for p in data["meta"]["people"]}
+    people = {
+        p["candidate_id"]: f"{p['name']} {p['lastname']}"
+        for p in data["meta"]["people"]
+    }
     rows = flow["screening"] + flow["verified"]
     assert len(flow["screening"]) >= 1
     assert all(people[r["candidate_id"]] == r["candidate_name"] for r in rows)

@@ -58,7 +58,10 @@ def payment_plan() -> dict:
         "account_source": None,
         "account_source_label": None,
         "title": INVOICE_NUMBER,
-        "white_list": {"state": "off", "label": "Na Poligonie wykazu VAT nie sprawdzamy"},
+        "white_list": {
+            "state": "off",
+            "label": "Na Poligonie wykazu VAT nie sprawdzamy",
+        },
         "selectable": False,
         "block": "poligon",
         "block_label": "Na Poligonie przelewów się nie wysyła.",

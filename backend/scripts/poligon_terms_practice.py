@@ -53,7 +53,11 @@ def with_terms_card(kanban: dict) -> dict:
     )
     if target is None or source is None:
         raise SystemExit(f"{KANBAN_KEY}: brak kolumny „CV wysłane” albo karty 990109")
-    items = [i for i in target.get("items", []) if i.get("candidate_id") != PERSON["candidate_id"]]
+    items = [
+        i
+        for i in target.get("items", [])
+        if i.get("candidate_id") != PERSON["candidate_id"]
+    ]
     card = {
         **copy.deepcopy(source),
         "id": PERSON["entry_id"],

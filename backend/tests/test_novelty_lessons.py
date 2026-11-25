@@ -173,7 +173,9 @@ def test_step_that_says_click_is_not_passed_with_understood() -> None:
         for i, step in enumerate(novelty.steps[:-1])
         if step.ack and imperative.match(step.text)
     ]
-    assert wrong == [], f"Krok „Rozumiem” każe coś zrobić, a następny krok tego wymaga: {wrong}"
+    assert wrong == [], (
+        f"Krok „Rozumiem” każe coś zrobić, a następny krok tego wymaga: {wrong}"
+    )
 
 
 def test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list() -> None:

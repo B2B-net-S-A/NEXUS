@@ -53,7 +53,9 @@ def board_tasks(kanban: dict) -> dict:
         if target is None:
             continue
         name, missing = target
-        flow[name] = [_row(item, i, missing) for i, item in enumerate(column.get("items", []))]
+        flow[name] = [
+            _row(item, i, missing) for i, item in enumerate(column.get("items", []))
+        ]
     if not flow["screening"]:
         raise SystemExit(f"{KANBAN_KEY}: brak osób w „Screeningu” do „Czeka na Ciebie”")
     return {
