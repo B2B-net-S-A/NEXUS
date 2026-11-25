@@ -48,7 +48,9 @@ ta sama bramka co lista faktur z KSeF). Bez migracji.
 - Liczone przy otwarciu zakładki na fakturach VAT z KSeF za miesiąc usługi,
   bez tych, które wystawił NEXUS (`client_issued_invoices.sales_invoice_id`).
   Faktury z KSeF dochodzą pętlą co godzinę, więc wynik jest zawsze świeży;
-  zapisu w bazie ani migracji nie ma.
+  zapisu w bazie ani migracji nie ma (październik na kopii: 624 faktury,
+  ok. 0,2 s). Decyzja Artura z 25.11.2026: liczenie przy otwarciu zamiast
+  nocnego raportu w „Przebiegu miesiąca”.
 - Awaria zapytania pokazuje błąd z „Spróbuj ponownie”, nigdy „bez uwag”.
 - Osobę bez kontraktu z faktury z KSeF widzi też Delivery Lead (alert
   `invoice_without_order_line`, `unknown_refs.py`); raport Finansów tego nie
