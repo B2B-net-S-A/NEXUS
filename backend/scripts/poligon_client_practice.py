@@ -1223,6 +1223,35 @@ def contract_list_keys() -> dict[str, object]:
     return out
 
 
+def lost_review_empty() -> dict:
+    """Zakładka „Przegrane” bez przegranych w okresie (kształt `lost_review.compute`)."""
+    side = {"count": 0, "first_cv_days": None, "cvs": None, "interview_share": None}
+    return {
+        "period": {
+            "kind": "month",
+            "start": "@relm:0",
+            "end": "@relm:1",
+            "timezone": "Europe/Warsaw",
+        },
+        "period_label": "bieżący miesiąc",
+        "since": "2026-10-11T22:00:00+00:00",
+        "counts": {"won": 0, "lost": 0, "competitor": 0, "idle": 0},
+        "hit_ratio": None,
+        "known": 0,
+        "why_filled": 0,
+        "stages": {"no_cv": 0, "cv_only": 0, "interview": 0, "acceptance": 0},
+        "compare": {"won": side, "lost": side},
+        "trend": [],
+        "why_counts": [],
+        "source_counts": {"client": 0, "ours": 0, "unknown": 0},
+        "client_verdicts": [],
+        "clients": [],
+        "jobs": [],
+        "lessons": [],
+        "findings": ["W tym okresie nie ma przegranych rekrutacji."],
+    }
+
+
 def client_practice(template_candidate_id: int) -> dict[str, object]:
     """Odpowiedzi klienta ćwiczebnego: klucz zestawu → odpowiedź."""
     c = POLIGON_CLIENT
@@ -1260,6 +1289,11 @@ def client_practice(template_candidate_id: int) -> dict[str, object]:
             "adders": [],
         },
         f"GET /api/clients/{c}/invoicing": invoicing(),
+        # Insights → Przegrane (25.11.2026): pasek „Zasady ze spotkań” na stronie
+        # rekrutacji klienta i sama zakładka (lekcja nowości) — bez zasad i bez
+        # przegranych, więc ekran pokazuje swoje puste stany.
+        f"GET /api/insights/lost-review/client-rules/{c}": {"rules": []},
+        "GET /api/insights/lost-review?period=month&offset=0": lost_review_empty(),
         f"GET /api/my-clients/{c}/settlements": settlements(),
         f"GET /api/equipment/clients/{c}/provider": {"equipment_provider": "klient"},
         "GET /api/reports/clients?min_closed=0&period=year": {"@status": 403},
