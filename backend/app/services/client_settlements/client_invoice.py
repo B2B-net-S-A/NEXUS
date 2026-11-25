@@ -21,7 +21,8 @@ Marża zostaje w zł: netto przeliczamy kursem z linii zamówienia
 Dodatki (13.11.2026): zatwierdzony dodatek z ``bill_to_client`` (np. koszty
 dodatkowe z KEŚU Aliora — trafiają tu jako zgłoszony dodatek, ``extras.sync_from_kesu``)
 idzie na fakturę według ``cl.extra_costs_on_invoice`` — parametr ``item`` pusty =
-jedna pozycja 1 × (usługa + koszty), nazwa = osobna pozycja z tą nazwą. Dodatki zatwierdzone (także niefakturowane klientowi) są kosztem
+jedna pozycja 1 × (usługa + koszty), nazwa = osobna pozycja z tą nazwą, nazwa
+od „_” = osobna pozycja z nazwą usługi i tym przyrostkiem. Dodatki zatwierdzone (także niefakturowane klientowi) są kosztem
 miesiąca, więc obniżają marżę. Waluta linii inna niż zł: dodatek w zł nie
 trafia do pozycji, wiersz dostaje uwagę.
 
@@ -994,9 +995,11 @@ def with_extras(
 ) -> tuple[list[Position], Optional[str]]:
     """Dodatki fakturowane klientowi w pozycjach (``cl.extra_costs_on_invoice``).
 
-    Parametr ``item`` z nazwą = osobna pozycja; pusty = jedna pozycja „usługa
-    z kosztami” (1 × suma, jak faktura główna Aliora z KEŚU). Bez stawki na
-    pozycji zasadniczej koszt idzie osobno, żeby nie udawał całej usługi.
+    Parametr ``item`` z nazwą = osobna pozycja; od „_” = osobna pozycja z nazwą
+    usługi i tym przyrostkiem (jak nadgodziny, BNP: „…nr zamówienia: X_delegacja”);
+    pusty = jedna pozycja „usługa z kosztami” (1 × suma, jak faktura główna
+    Aliora z KEŚU). Bez stawki na pozycji zasadniczej koszt idzie osobno, żeby
+    nie udawał całej usługi.
     Zwraca pozycje i uwagę dla Finansów, gdy dodatek czeka poza fakturą."""
 
     if not billed:
@@ -1013,6 +1016,8 @@ def with_extras(
             f"w {currency} — dolicz go ręcznie."
         )
     label = str(rule["params"].get("item") or "").strip()
+    if label.startswith("_"):
+        label = name + label
     if label:
         return [
             *items,

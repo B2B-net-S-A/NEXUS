@@ -31,8 +31,9 @@ dokładnie kwotę z RCP jako osobną pozycję faktury.
     w RCP też jest inną kwotą. W opisie uwagi stoi, co klient zaakceptował.
 - Kwoty bierzemy z walutą (zł, PLN). Kwotę od miliona pomijamy, bo to kapitał
   zakładowy ze stopki banku.
-- Pozycji delegacji na fakturze klienta to nie dodaje. „Do faktury” to dalej
-  usługi, a dodatek do faktury robi `client_settlement_extras`
+- Kwota delegacji idzie na fakturę klienta dodatkiem `client_settlement_extras`
+  ze źródłem `rcp` (od 25.11.2026): z akceptacją klienta od razu zatwierdzonym,
+  bez niej zgłoszonym. `amount_revenue` to dalej same usługi
   (`dodatki-do-rozliczenia-kontraktora.md`).
 
 ## Zmiana stawki kontraktora w trakcie miesiąca (grupa „Stawka kontraktora”)
