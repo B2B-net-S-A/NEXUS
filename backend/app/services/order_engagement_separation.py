@@ -24,6 +24,7 @@ zawsze świadomą decyzją operatora, nigdy z automatu.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional, Sequence
 
 from fastapi import HTTPException, status as http_status
@@ -101,7 +102,10 @@ def _conflict(line_ids: Sequence[int]) -> HTTPException:
 
 
 async def assert_no_open_md_group_line(
-    db: AsyncSession, contract_id: Optional[int]
+    db: AsyncSession,
+    contract_id: Optional[int],
+    start: Optional[date] = None,
+    end: Optional[date] = None,
 ) -> None:
     """Odmów RĘCZNEGO założenia zamówienia okresowego obok żywej linii MD.
 
@@ -115,11 +119,28 @@ async def assert_no_open_md_group_line(
     wspieranym scenariuszem (dwa różne modele rozliczenia u jednego klienta)
     i nikt nie prosił o jego odebranie — po rozdzieleniu akcji „Zakończ"
     przestało być groźne.
+
+    Z podanym okresem (``start``/``end``) liczą się tylko linie, na których
+    okres zamówienia nachodzi. KIR 25.11.2026: faktury IV–VI cytują zamówienie
+    okresowe, a linia MD tej osoby zaczyna się w listopadzie — zamówienie
+    wstecz to wcześniejsza współpraca, nie drugi zapis tej samej.
     """
 
     line_ids = await open_group_line_ids(db, contract_id, md_only=True)
+    if line_ids and (start is not None or end is not None):
+        periods = await db.execute(
+            select(ClientOrder.id, ClientOrder.start_date, ClientOrder.end_date).where(
+                ClientOrder.id.in_(line_ids)
+            )
+        )
+        line_ids = [
+            line_id
+            for line_id, line_start, line_end in periods.all()
+            if (start is None or line_end is None or start <= line_end)
+            and (end is None or line_start is None or end >= line_start)
+        ]
     if line_ids:
-        raise _conflict(line_ids)
+        raise _conflict(sorted(line_ids))
 
 
 #: Tytuł-zaślepka, którym hook zatrudnienia znaczy szkic „do uzupełnienia przez
