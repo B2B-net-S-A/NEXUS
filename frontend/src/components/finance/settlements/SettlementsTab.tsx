@@ -19,6 +19,7 @@ import { warsawToday } from "@/lib/warsaw-date";
 
 import { ClientInvoiceView } from "./ClientInvoiceView";
 import { ClientRulesEditor } from "./ClientRulesEditor";
+import { ContractNipReviewCard } from "./ContractNipReviewCard";
 import { EinvoicesView } from "./EinvoicesView";
 import { EstimatesView } from "./EstimatesView";
 import { SettlementCard } from "./SettlementCard";
@@ -142,6 +143,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
   return (
     <div className="space-y-3">
       <SettlementsStartCard />
+      <ContractNipReviewCard />
       <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Klient"

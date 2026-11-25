@@ -18,6 +18,7 @@ const CLIENTS = [
 
 // Lista klientów od razu gotowa — jak z pamięci React Query po wcześniejszej wizycie.
 vi.mock("@/lib/api/client-settlements", () => ({
+  useContractNipReview: () => ({ data: { items: [] }, isSuccess: true, isError: false }),
   useSettlementClients: () => ({
     data: CLIENTS,
     isSuccess: true,

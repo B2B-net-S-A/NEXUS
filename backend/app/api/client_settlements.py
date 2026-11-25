@@ -54,6 +54,7 @@ from app.services.access_scope import (
 from app.services.client_settlements import (
     client_acceptance,
     client_invoice,
+    contract_nip_review,
     contractor_invoices,
     integration_costs,
     service,
@@ -450,6 +451,16 @@ async def _nip_decision(
     return await service.detail(
         db, contract_id, month, amounts=has_financial_access(user)
     )
+
+
+@router.get("/contract-nip-review")
+async def contract_nip_review_list(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Umowy B2B, których ``partner_nip`` wskazuje inną firmę (audyt 25.11.2026)."""
+
+    await _open(db, current_user)
+    return await contract_nip_review.review(db, business_today())
 
 
 @router.post("/contractor-invoices/{invoice_id}/approve-nip")
