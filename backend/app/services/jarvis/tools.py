@@ -562,8 +562,7 @@ def _shape_contract_document_search(data: Any, _args: dict[str, Any]) -> Any:
     return {
         **pick(data, ("contract_id", "retrieval", "note")),
         "passages": [
-            pick(p, _CONTRACT_DOCUMENT_PASSAGE_KEYS)
-            for p in data.get("passages") or []
+            pick(p, _CONTRACT_DOCUMENT_PASSAGE_KEYS) for p in data.get("passages") or []
         ],
         "documents": [
             pick(d, _CONTRACT_DOCUMENT_KEYS)
