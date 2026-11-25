@@ -93,3 +93,21 @@ describe("LessonLayer — karta zadania", () => {
     expect(screen.getByTestId("lesson-solo").textContent).toContain("Otwórz „Opieka i rozmowy”.");
   });
 });
+
+describe("LessonLayer — „Coś nie działa”", () => {
+  it("zalicza lekcję zdarzeniem `broken` z etapu „sam” i z pytania", async () => {
+    for (const stage of ["solo", "quiz"] as const) {
+      sendLessonEvent.mockClear();
+      writeRun(run(stage));
+      const view = render(<LessonLayer />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Coś nie działa — zalicz i dalej" }));
+      });
+      expect(sendLessonEvent).toHaveBeenCalledWith("lekcja-karta-kontraktu", "broken");
+      view.unmount();
+    }
+  });
+});

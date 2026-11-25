@@ -14,7 +14,7 @@ import { onPoligonAction } from "@/lib/poligon/adapter";
 import { useStartStatus } from "@/lib/novelties/api";
 import type { Exercise } from "@/lib/poligon/exercises";
 import { leavePoligon } from "@/lib/poligon/mode";
-import { flushProgress, markDone, nextExerciseId, readDone } from "@/lib/poligon/progress";
+import { flushProgress, markDone, nextExerciseId, readDone, resendMissing } from "@/lib/poligon/progress";
 import { usePoligonPath } from "@/lib/poligon/usePoligonPath";
 import { cn } from "@/lib/utils";
 
@@ -96,6 +96,7 @@ export function PoligonLayer() {
   const onboardingDay = status?.poligon?.required === true && !status.poligon.luki;
 
   useEffect(() => {
+    if (serverIds) resendMissing(serverIds, path);
     const initial = readDone(serverIds ?? []);
     setDone(initial);
     setCurrentId((current) =>
@@ -108,8 +109,8 @@ export function PoligonLayer() {
   const onScreen = exercise ? pathname === pathOf(exercise.href) || pathname.startsWith(`${pathOf(exercise.href)}/`) : false;
 
   const complete = useCallback(
-    (ex: Exercise) => {
-      markDone(ex.id);
+    (ex: Exercise, opts: { broken?: boolean } = {}) => {
+      markDone(ex.id, opts);
       // Do stanu, nie z `markDone`: ta zwraca tylko pamięć przeglądarki, bez
       // ćwiczeń zaliczonych na serwerze (24.11.2026: osoba z lukami po pierwszym
       // zaliczeniu wracała „Dalej” do ćwiczenia 1 z 27 i robiła wszystko od nowa).
@@ -277,6 +278,15 @@ export function PoligonLayer() {
               )}
               <span className="text-xs text-muted-foreground">{showMe && !rect && onScreen ? exercise.hint : "Zaliczy się samo"}</span>
             </div>
+            {/* Zepsute ćwiczenie nikogo nie zatrzymuje (Artur, 25.11.2026): zalicza się
+                mimo to, a serwer zapisuje ślad, które ćwiczenie trzeba naprawić. */}
+            <button
+              type="button"
+              onClick={() => complete(exercise, { broken: true })}
+              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Coś nie działa — zalicz i dalej
+            </button>
           </div>
         )}
       </section>

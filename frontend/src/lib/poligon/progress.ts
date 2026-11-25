@@ -40,13 +40,17 @@ export function readDone(serverIds: readonly string[] = []): Set<string> {
 
 const pending = new Set<Promise<unknown>>();
 
-/** Zalicza ćwiczenie: od razu w przeglądarce, w tle na serwerze. */
-export function markDone(id: string): Set<string> {
+/**
+ * Zalicza ćwiczenie: od razu w przeglądarce, w tle na serwerze. `broken` to
+ * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): serwer zalicza tak samo
+ * i zapisuje ślad, które ćwiczenie jest zepsute.
+ */
+export function markDone(id: string, opts: { broken?: boolean } = {}): Set<string> {
   const done = readLocal();
   done.add(id);
   writeLocal(done);
   const request = api
-    .post(`/api/novelties/${SERVER_PREFIX}${id}/events`, { event: "used" })
+    .post(`/api/novelties/${SERVER_PREFIX}${id}/events`, { event: opts.broken ? "broken" : "used" })
     .catch((error: unknown) => {
       // Osoba spoza ról poligonu (404) ćwiczy bez zapisu na serwerze.
       console.warn("[poligon] zaliczenie nie trafiło na serwer:", id, error);
@@ -54,6 +58,27 @@ export function markDone(id: string): Set<string> {
     .finally(() => pending.delete(request));
   pending.add(request);
   return done;
+}
+
+const resent = new Set<string>();
+
+/**
+ * Dosyła serwerowi ćwiczenia zaliczone w tej przeglądarce, których serwer nie
+ * zna. Zapis idzie w tle i nieudany kończy się tylko ostrzeżeniem, a blokada
+ * liczy z serwera: 25.11.2026 osoba widziała „27 z 27 · Poligon zaliczony”,
+ * serwer miał 26 i NEXUS jej nie przepuszczał. Każde id raz na wczytanie strony.
+ */
+export function resendMissing(serverIds: readonly string[], path: readonly Exercise[]): string[] {
+  if (replaying()) return [];
+  const onServer = new Set(serverIds.map((id) => (id.startsWith(SERVER_PREFIX) ? id.slice(SERVER_PREFIX.length) : id)));
+  const missing = path
+    .map((e) => e.id)
+    .filter((id) => readLocal().has(id) && !onServer.has(id) && !resent.has(id));
+  for (const id of missing) {
+    resent.add(id);
+    markDone(id);
+  }
+  return missing;
 }
 
 /** Czeka na zapisy zaliczeń — przed wyjściem z poligonu, żeby blokada już ich nie liczyła. */

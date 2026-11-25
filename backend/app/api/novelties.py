@@ -27,9 +27,12 @@ Moduł ma ``@limiter.limit``, więc bez ``from __future__ import annotations``
 (ciało żądania trafiłoby do query → 422).
 """
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
+
+import sentry_sdk
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, model_validator
@@ -79,14 +82,22 @@ from app.services.poligon_luki import (
 from app.services import novelty_lessons as lessons_rules
 from app.services.section_permissions import SectionAccess, section_access_for_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 NoveltyEvent = Literal[
-    "seen", "card_dismissed", "postponed", "toured", "used", "dot_clicked"
+    "seen", "card_dismissed", "postponed", "toured", "used", "dot_clicked", "broken"
 ]
 
-#: Zdarzenie, które zalicza nowość, i jak to zapisujemy.
-_COMPLETING: dict[str, str] = {"toured": "tour", "used": "used", "dot_clicked": "dot"}
+#: Zdarzenie, które zalicza nowość, i jak to zapisujemy. ``broken`` to
+#: „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): zepsute ćwiczenie
+#: nie może nikogo zatrzymać, a ślad zostaje w logu i Sentry (`_report_broken`).
+_COMPLETING: dict[str, str] = {
+    "toured": "tour",
+    "used": "used",
+    "dot_clicked": "dot",
+    "broken": "used",
+}
 
 #: Nowości z obowiązkowym oknem (odłożyć można raz, do rana). Drobiazg
 #: zalicza pierwsze kliknięcie kropki.
@@ -507,11 +518,24 @@ LessonEvent = Literal[
     "completed",
     "review_passed",
     "review_failed",
+    "broken",
 ]
 
 
 class LessonEventIn(BaseModel):
     event: LessonEvent
+
+
+def _report_broken(kind: str, item_id: str, user_id: int) -> None:
+    """Ślad po „Coś nie działa — zalicz mimo to”: która lekcja albo które
+    ćwiczenie jest zepsute i u kogo (bez treści, samo id)."""
+    logger.warning(
+        "%s zaliczone przyciskiem „Coś nie działa”: %s (osoba %s)",
+        kind,
+        item_id,
+        user_id,
+    )
+    sentry_sdk.capture_message(f"{kind}: „Coś nie działa” — {item_id}", level="warning")
 
 
 def apply_lesson_event(row: NoveltyLessonProgress, event: str, now: datetime) -> bool:
@@ -551,6 +575,17 @@ def apply_lesson_event(row: NoveltyLessonProgress, event: str, now: datetime) ->
         if row.completed_at is None:
             raise conflict("not_completed", "Powtórka dotyczy zaliczonej lekcji.")
         row.reviewed_at = now
+    elif event == "broken":
+        # „Coś nie działa — zalicz mimo to” (Artur, 25.11.2026): zepsuty pokaz,
+        # zadanie albo pytanie nie zatrzymuje lekcji. Zalicza z każdego etapu,
+        # a zaliczona lekcja (powtórka) liczy się jako powtórzona.
+        row.shown_at = row.shown_at or now
+        row.solo_passed_at = row.solo_passed_at or now
+        if row.completed_at is None:
+            row.completed_at = now
+            just_completed = True
+        else:
+            row.reviewed_at = now
     elif event == "review_failed":
         # Lekcja wraca od pokazu w najbliższej porcji (Artur, 23.11.2026).
         row.review_failed_at = now
@@ -602,6 +637,8 @@ async def record_lesson_event(
             novelty_row = await _locked_row(db, current_user.id, novelty_id)
             apply_event(novelty_row, load_novelties()[novelty_id], "toured", now)
     await db.commit()
+    if payload.event == "broken":
+        _report_broken("Lekcja nowości", lesson_id, current_user.id)
 
 
 @router.get("/novelties/lessons")
@@ -747,6 +784,8 @@ async def record_novelty_event(
         row = await _locked_row(db, current_user.id, novelty_id)
         apply_poligon_event(row, payload.event, datetime.now(timezone.utc))
         await db.commit()
+        if payload.event == "broken":
+            _report_broken("Ćwiczenie Poligonu", novelty_id, current_user.id)
         return
     novelty = _find(novelty_id)
     if novelty is None or not _audience_of(current_user, novelty):
