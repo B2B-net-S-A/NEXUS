@@ -185,9 +185,17 @@ import {
 function ConversationToggle() {
   const mode = usePersonPanelConversationMode();
   return (
-    <button type="button" aria-pressed={mode?.on ?? false} onClick={() => mode?.toggle()}>
-      Tryb rozmowy
-    </button>
+    <>
+      <button type="button" aria-pressed={mode?.on ?? false} onClick={() => mode?.toggle()}>
+        Tryb rozmowy
+      </button>
+      <button type="button" onClick={() => mode?.setSheetSide("left")}>
+        Arkusz po lewej
+      </button>
+      <button type="button" onClick={() => mode?.setSheetSide("right")}>
+        Arkusz po prawej
+      </button>
+    </>
   );
 }
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -744,7 +752,7 @@ describe("ScreeningWorkbench — „Arkusz rozmowy” w Trybie rozmowy (23.11.20
     }
   });
 
-  it("tryb przenosi ten sam formularz do lewej strefy jako „Arkusz rozmowy” — wpis zostaje", async () => {
+  it("domyślnie arkusz stoi na górze prawej kolumny, a po lewej zostaje CV (25.11.2026)", async () => {
     const user = userEvent.setup();
     const restore = mountWide();
     try {
@@ -752,9 +760,47 @@ describe("ScreeningWorkbench — „Arkusz rozmowy” w Trybie rozmowy (23.11.20
       await user.type(screen.getByLabelText("szkic odpowiedzi"), "6 lat w banku");
       await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
 
+      const column = screen.getByTestId("dock-column");
+      await waitFor(() => expect(within(column).getByTestId("full-form")).toHaveTextContent("układ: sheet"));
+      // Ten sam egzemplarz — niezapisany wpis nie zniknął.
+      expect(within(column).getByLabelText("szkic odpowiedzi")).toHaveValue("6 lat w banku");
+      // Arkusz przed „Co już wiemy”, żeby był widoczny bez przewijania.
+      const form = within(column).getByTestId("full-form");
+      const beforeCall = within(column).getByTestId("before-call");
+      expect(form.compareDocumentPosition(beforeCall) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Po lewej CV, bez zakładki arkusza.
+      const zone = screen.getByTestId("person-panel-side");
+      expect(within(zone).queryByTestId("sheet-tabs")).toBeNull();
+      expect(within(zone).getByTestId("preview-pane")).toHaveTextContent("podgląd: cv");
+      // Kolumna dzieli panel po połowie.
+      expect(screen.getByTestId("person-panel-column").className).toContain("lg:w-1/2");
+
+      // Przełączenie na lewą stronę i z powrotem nie kasuje wpisu.
+      await user.click(screen.getByRole("button", { name: "Arkusz po lewej" }));
+      const panel = await within(zone).findByTestId("sheet-panel");
+      expect(within(panel).getByLabelText("szkic odpowiedzi")).toHaveValue("6 lat w banku");
+      await user.click(screen.getByRole("button", { name: "Arkusz po prawej" }));
+      await waitFor(() => expect(within(column).getByLabelText("szkic odpowiedzi")).toHaveValue("6 lat w banku"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("„Arkusz po lewej” przenosi ten sam formularz do lewej strefy, start na CV — wpis zostaje", async () => {
+    const user = userEvent.setup();
+    const restore = mountWide();
+    try {
+      await screen.findByTestId("full-form");
+      await user.type(screen.getByLabelText("szkic odpowiedzi"), "6 lat w banku");
+      await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
+      await user.click(screen.getByRole("button", { name: "Arkusz po lewej" }));
+
       const zone = screen.getByTestId("person-panel-side");
       const panel = await within(zone).findByTestId("sheet-panel");
       await waitFor(() => expect(within(panel).getByTestId("full-form")).toHaveTextContent("układ: sheet"));
+      // Kolejny kandydat otwiera się na CV, nie na arkuszu (zgłoszenie rekrutera 25.11.2026).
+      expect(panel).not.toBeVisible();
+      expect(within(zone).getByTestId("preview-pane")).toHaveTextContent("podgląd: cv");
       expect(within(screen.getByTestId("dock-column")).queryByTestId("full-form")).toBeNull();
       // Ten sam egzemplarz — niezapisany wpis nie zniknął.
       expect(within(panel).getByLabelText("szkic odpowiedzi")).toHaveValue("6 lat w banku");
@@ -816,6 +862,7 @@ describe("ScreeningWorkbench — „Arkusz rozmowy” w Trybie rozmowy (23.11.20
     try {
       expect(await screen.findByTestId("joint-form")).toHaveTextContent("układ: column");
       await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
+      await user.click(screen.getByRole("button", { name: "Arkusz po lewej" }));
       const panel = await within(screen.getByTestId("person-panel-side")).findByTestId("sheet-panel");
       await waitFor(() => expect(within(panel).getByTestId("joint-form")).toHaveTextContent("wspólny z: 201 · z pamięcią rozmowy · układ: sheet"));
       expect(within(screen.getByTestId("dock-column")).queryByTestId("joint-form")).toBeNull();
@@ -832,7 +879,10 @@ describe("ScreeningWorkbench — „Arkusz rozmowy” w Trybie rozmowy (23.11.20
     try {
       await screen.findByTestId("full-form");
       await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
-      const panel = await within(screen.getByTestId("person-panel-side")).findByTestId("sheet-panel");
+      await user.click(screen.getByRole("button", { name: "Arkusz po lewej" }));
+      const zone = screen.getByTestId("person-panel-side");
+      const panel = await within(zone).findByTestId("sheet-panel");
+      await user.click(within(zone).getByRole("button", { name: "Arkusz rozmowy" }));
       expect(panel).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Pokaż wcześniejsze notatki" }));
       expect(panel).not.toBeVisible();

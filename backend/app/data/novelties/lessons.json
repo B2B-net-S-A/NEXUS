@@ -2067,9 +2067,10 @@
   },
   {
     "id": "lekcja-arkusz-rozmowy",
-    "title": "Arkusz rozmowy: screening na dużej połowie ekranu",
+    "title": "Arkusz rozmowy: screening obok CV",
     "novelties": [
-      "arkusz-rozmowy-na-lewej-polowie"
+      "arkusz-rozmowy-na-lewej-polowie",
+      "arkusz-rozmowy-obok-cv"
     ],
     "task": "Na rekrutacji ćwiczebnej otwórz osobę ze „Screeningu”, rozwiń panel i włącz „Tryb rozmowy”. Kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
     "solo_href": "/jobs/990001",
@@ -2081,12 +2082,12 @@
       {
         "q": "W trakcie rozmowy chcesz zerknąć do CV kandydata. Gdzie je znajdziesz w „Trybie rozmowy”?",
         "options": [
-          "W zakładce „CV” obok „Arkusza rozmowy”, po lewej",
+          "Po lewej, obok arkusza, który stoi po prawej",
           "Po wyłączeniu „Trybu rozmowy”",
           "W profilu kandydata, w nowej karcie"
         ],
         "answer": 0,
-        "explain": "Arkusz, CV, Wymagania i Po ludzku są zakładkami w lewej połowie. Powrót do „Arkusza rozmowy” nie kasuje tego, co już wpisałeś."
+        "explain": "Arkusz stoi na górze prawej połowy, a CV po lewej — widzisz oba naraz. Kto przeniesie arkusz na lewą połowę ikonami obok „Tryb rozmowy”, ma CV w zakładce obok; przełączanie nie kasuje tego, co już wpisałeś."
       },
       {
         "q": "Pasek nad arkuszem mówi „Do „Zweryfikowany” brakuje 2: Lokalizacja, Tryb pracy”. Co się stanie po wpisaniu lokalizacji?",

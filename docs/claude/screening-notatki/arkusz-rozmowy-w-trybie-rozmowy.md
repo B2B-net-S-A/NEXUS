@@ -85,3 +85,31 @@ wymagało 2+ zapisów arkusza, mediana od „Biorę” do „Zweryfikowany” 4,
     pasek trzy linie; 1024 × 700 — jedna kolumna; bez poziomego przewijania.
 - Jak zmierzymy: odsetek weryfikacji z 2+ zapisami arkusza (przed: 38%)
   i mediana od „Biorę” do „Zweryfikowany” (przed: 4,2 h), pomiar ok. 07.12.2026.
+
+## Arkusz po prawej, CV po lewej (25.11.2026)
+
+Zgłoszenie rekruterki z 25.11.2026: przy każdym kolejnym kandydacie trzeba
+było przeklikać z arkusza na CV, a w trakcie zapisywania odpowiedzi CV nie
+było widać. Makiety ze stagingu (konto zgłaszającej, rekrutacja 789154,
+1280 × 720) w prywatnym artefakcie https://claude.ai/artifact/DbXWtbsU7SoK19awYnLsbA;
+decyzja Artura: wariant „CV po lewej, arkusz po prawej, widoczny bez przewijania”.
+
+- **Domyślnie arkusz po prawej** (`sheetSide: "right"` w układzie panelu,
+  `lib/person-preview-layout.ts`): prawa kolumna dzieli panel po połowie
+  (`lg:w-1/2`, przy CV niezwiniętym; przeciągnięta szerokość wygrywa), arkusz
+  stoi na samej górze kolumny, przed „Co już wiemy”, zgodą i „Screening dla”.
+  Lewa strefa to zwykły podgląd bez zakładki arkusza, otwarty na CV.
+- **Wybór per osoba:** dwie ikony obok „Tryb rozmowy” w pasku osoby
+  (`person-sheet-side`) przenoszą arkusz na lewą połowę (układ opisany wyżej)
+  i z powrotem. Zapis razem z resztą układu (szerokość, Tryb rozmowy),
+  w przeglądarce, per osoba. Wpis bez pola i nieznana wartość = po prawej.
+- **CV na start zawsze:** w Trybie rozmowy podgląd otwiera się na CV także
+  w etapie Screening (bez trybu — jak dotąd, wymagania), a w układzie
+  „arkusz po lewej” zakładka arkusza nie jest na wierzchu przy kolejnej
+  osobie.
+- Formularz dalej jeden (`MovableHost`): przełączenie strony w trakcie
+  rozmowy nie kasuje wpisów — pilnuje test `ScreeningWorkbench`
+  „domyślnie arkusz stoi na górze prawej kolumny…”.
+- Przy 1280 px prawa kolumna ma ok. 640 px, więc arkusz układa się w jedną
+  kolumnę (dwie od `@[44rem]`, czyli przy szerszym oknie albo poszerzonej
+  kolumnie).
