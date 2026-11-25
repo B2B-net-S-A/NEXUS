@@ -107,6 +107,13 @@ class InterviewQuestion(Base, TimestampMixin):
 
     text: Mapped[str] = mapped_column(Text, nullable=False)
     ideal_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 0779: skąd jest ``ideal_answer`` — ``excel`` (archiwum), ``manual``
+    # (człowiek), ``ai`` (nocny bieg F55, do sprawdzenia) albo ``none`` (nagłówek
+    # sekcji, nie pytanie: bez odpowiedzi i bez ponownej wysyłki do modelu).
+    # NULL = jeszcze nie rozstrzygnięte. Wartości w ``interview_answer_proposals``.
+    ideal_answer_source: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
     deal_breaker: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     competence_category_id: Mapped[Optional[int]] = mapped_column(

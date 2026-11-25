@@ -928,6 +928,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.screening_stale import screening_stale_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
+    from app.tasks.interview_answer_proposals import interview_answer_proposals_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -1137,6 +1138,10 @@ async def lifespan(app: FastAPI):
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
             "skill_proposals": asyncio.create_task(skill_proposals_loop()),
+            # 25.11.2026: nocne propozycje odpowiedzi w „Pytaniach z rozmów” (F55).
+            "interview_answer_proposals": asyncio.create_task(
+                interview_answer_proposals_loop()
+            ),
             # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
             "cpro_mail": asyncio.create_task(cpro_mail_loop()),
             # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
