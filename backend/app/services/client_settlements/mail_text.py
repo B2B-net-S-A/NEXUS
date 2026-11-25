@@ -442,6 +442,8 @@ class Verdict:
     ok: bool
     title: str
     detail: Optional[str] = None
+    #: Klient potwierdził liczbę równą dowodowi, nie samo „Akceptuję”.
+    counted: bool = False
 
 
 @dataclass(frozen=True)
@@ -732,5 +734,9 @@ def judge(
         amount = (
             f"{_fmt(found.hours[0])} h" if found.hours else f"{_fmt(found.md[0])} MD"
         )
-        return Verdict(True, f"Akceptacja: {amount} za {month_label(month)}")
+        return Verdict(
+            True,
+            f"Akceptacja: {amount} za {month_label(month)}",
+            counted=matches_hours or matches_md,
+        )
     return sheet_verdict or verdicts[0]

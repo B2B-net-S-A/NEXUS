@@ -48,6 +48,9 @@ class ProofResult:
     #: Godziny dzień po dniu od 1. dnia miesiąca (RCP BNP), do podziału kosztu
     #: przy zmianie stawki (``rate_split``). Nie trafia do zapisu.
     day_hours: tuple[Decimal, ...] = ()
+    #: Mail klienta z liczbą równą dowodowi (``proof.accept_has_hours``): opis
+    #: akceptacji tej liczby dla ``fields.md_month_limit``. Nie trafia do zapisu.
+    client_count: Optional[str] = None
 
 
 def _fmt(value: Decimal) -> str:

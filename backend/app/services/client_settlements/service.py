@@ -407,8 +407,27 @@ def _is_blank_sheet(doc: CpDocument) -> bool:
     return timesheet_bik.is_blank(content, doc.mime)
 
 
+#: Wydruk faktury z KSeF (Aplikacja Podatnika): nagłówek i numer KSeF.
+_KSEF_PRINTOUT = re.compile(r"Krajowy System e-Faktur.*Numer KSeF:", re.S)
+
+
+def _is_ksef_invoice(doc: CpDocument) -> bool:
+    """Faktura kontraktora z KSeF wysłana w wątku Time Sheet („Wystawione”) ma
+    rodzaj „raport” z tematu. Przy innym pliku miesiąca nie jest RCP (próba IX–X
+    2026, BNP: najnowsza była faktura, a podpisany RCP z nadgodzinami czekał
+    obok, więc rozliczenie stało na „Nie rozpoznano szablonu RCP”)."""
+
+    if doc.mime != acceptance_mail.PDF:
+        return False
+    try:
+        content = portal_documents.path_for(doc.file_path).read_bytes()
+    except OSError:
+        return False
+    return bool(_KSEF_PRINTOUT.search(declared.pdf_text(content) or ""))
+
+
 def _not_report(doc: CpDocument) -> bool:
-    return _is_mail_printout(doc) or _is_blank_sheet(doc)
+    return _is_mail_printout(doc) or _is_blank_sheet(doc) or _is_ksef_invoice(doc)
 
 
 async def _pick_report(reports: list[CpDocument]) -> Optional[CpDocument]:
@@ -1200,6 +1219,9 @@ async def _acceptance(
     group = rcp_checks._Group(result, rules, "Akceptacja")
     if verdict.ok:
         group.ok(verdict.title, verdict.detail)
+        if verdict.counted:
+            # Mail klienta z liczbą równą dowodowi, nie zrzut ekranu (bez domeny).
+            result.client_count = f"Mail klienta z tą liczbą ({verdict.title})."
     else:
         group.fail("proof.accept_has_hours", verdict.title, verdict.detail)
         if group.checks:
@@ -2290,6 +2312,10 @@ async def _recompute(
         s.md_extra = proof.md_extra or None
         s.md_source = "rcp"
     proof = _signed_checks(proof, s, rules)
+    if _over_month_limit(proof):
+        proof = _over_limit_accepted(
+            proof, s, await _other_md(db, person.contract, s.period_month)
+        )
     proof = await _copyright_checks(proof, reports, s.period_month, rules)
     split: tuple[SplitPart, ...] = ()
     if hit is not None and s.md_regular is not None:
@@ -2586,6 +2612,76 @@ def _signed_checks(
             "Zapłata po podpisanym arkuszu tej osoby.",
         )
     group.close()
+    return proof
+
+
+#: Uwaga „Więcej MD niż dni roboczych” (``timesheet_pko.month_limit``).
+MONTH_LIMIT = "fields.md_month_limit"
+
+
+def _over_month_limit(proof: Optional[rcp_checks.ProofResult]) -> list[dict[str, Any]]:
+    return [
+        check
+        for group in (proof.groups if proof is not None else [])
+        for check in group.get("checks", [])
+        if check.get("rule") == MONTH_LIMIT and check.get("state") in ("warn", "fail")
+    ]
+
+
+def _client_count(
+    proof: rcp_checks.ProofResult, s: ClientSettlement
+) -> Optional[str]:
+    """Czym klient zaakceptował dokładnie MD z dowodu: podpisem na arkuszu albo
+    protokole od klienta (``signoffs.client_signed``) z tą liczbą MD albo mailem
+    z domeny klienta z liczbą równą dowodowi (``ProofResult.client_count``).
+    Mniejsza liczba, podpis samej osoby albo samo „Akceptuję” nie obejmują MD."""
+
+    md = proof.md_regular
+    if md is None:
+        return None
+    signed = signoffs.marker(s.checks)
+    if (
+        signed
+        and signoffs.client_signed(s.checks, str(signed.get("kind")))
+        and signed.get("md")
+        and abs(Decimal(signed["md"]) - md) <= Decimal("0.005")
+    ):
+        return f"Podpis klienta obejmuje {rcp_checks._fmt(md)} MD."
+    return proof.client_count
+
+
+def _over_limit_accepted(
+    proof: rcp_checks.ProofResult, s: ClientSettlement, other_md: Decimal
+) -> rcp_checks.ProofResult:
+    """``fields.md_month_limit``: MD ponad dni robocze zaakceptowane przez klienta
+    w tej liczbie nie trzymają rozliczenia u człowieka (próba IX–X 2026: VeloBank
+    22,75 MD przy 22 dniach, arkusz podpisany przez bank, Finanse przyjęły ręcznie).
+
+    Uwaga zostaje bez akceptacji tej liczby i wtedy, gdy osoba ma MD u innych
+    klientów (``other_md``): to sprawa do wyjaśnienia z osobą (decyzja Artura
+    z 24.11.2026, BP i VeloBank)."""
+
+    if other_md > 0:
+        return proof
+    why = _client_count(proof, s)
+    if why is None:
+        return proof
+    for check in _over_month_limit(proof):
+        check.update(
+            state="ok",
+            title=f"{check['title']}, zaakceptowane przez klienta",
+            detail=why,
+        )
+        check.pop("rule", None)
+    # Inne uwagi zostają. Gołe ``warn`` bez kontroli mają tylko odczyty bez MD.
+    rest = [
+        c
+        for g in proof.groups
+        for c in g.get("checks", [])
+        if c.get("state") in ("warn", "fail")
+    ]
+    proof.blocking = any(c["state"] == "fail" for c in rest)
+    proof.warn = proof.warn and bool(rest)
     return proof
 
 
