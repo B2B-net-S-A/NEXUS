@@ -69,15 +69,24 @@ describe("conversationSheetProgress", () => {
 
 describe("splitSheetTerms", () => {
   it("narodowość i pola spoza wzoru działu idą pod „pokaż”", () => {
-    expect(splitSheetTerms(["availability", "nationality", "location", "client_manager"], new Set())).toEqual({
+    expect(splitSheetTerms(["availability", "nationality", "location", "client_extra"], new Set())).toEqual({
       common: ["availability", "location"],
-      rare: ["nationality", "client_manager"],
+      rare: ["nationality", "client_extra"],
+    });
+  });
+
+  // 25.11.2026: rekruterzy dopisywali managera w „Czy pracował u Klienta”
+  // (179 kart na kopii produkcji), bo pole schowało się pod „pokaż”.
+  it("„Manager u Klienta” stoi na wierzchu, nawet pusty", () => {
+    expect(splitSheetTerms(["worked_at_client", "client_manager", "nationality"], new Set())).toEqual({
+      common: ["worked_at_client", "client_manager"],
+      rare: ["nationality"],
     });
   });
 
   it("pole wymagane albo z wartością zostaje na wierzchu", () => {
-    expect(splitSheetTerms(["nationality", "client_manager"], new Set(["client_manager"]))).toEqual({
-      common: ["client_manager"],
+    expect(splitSheetTerms(["nationality", "client_extra"], new Set(["client_extra"]))).toEqual({
+      common: ["client_extra"],
       rare: ["nationality"],
     });
   });
