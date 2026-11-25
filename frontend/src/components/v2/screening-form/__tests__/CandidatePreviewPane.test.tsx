@@ -940,6 +940,7 @@ describe("CandidatePreviewPane — zwijanie CV i wymagań", () => {
       infoCollapsed: false,
       columnWidth: null,
       compact: false,
+      sheetSide: "right",
     });
   });
 

@@ -114,6 +114,7 @@ function rolesNewestFirst(html: string): string {
 
 const TENURE_PHRASE = "Ponad 7 lat doświadczenia jako Java Developer";
 const TENURE_PROPOSAL = "Ponad 9 lat w IT, w tym ponad 7 lat jako Java Developer";
+const UNNAMED_DATES = "2012 – 2013";
 const REVERSED = /(<strong>Stażysta<\/strong> )(\d{2}\.\d{4}) – (\d{2}\.\d{4})/;
 
 /** CV ze stanu `?state=lata`: punkt 1 „jako Java Developer” i dwie starsze role. */
@@ -131,6 +132,10 @@ export function withTenureExamples(html: string): string {
         '<p data-cv-section="role"><strong>Stażysta</strong> 08.2014 – 09.2013</p>' +
         '<p data-cv-section="employer">Biuro Przykładowe</p>' +
         "<ul><li><p>Inwentaryzacja sprzętu.</p></li></ul>" +
+        // Stanowisko bez nazwy (25.11.2026): oryginał podał samą firmę z datami.
+        `<p data-cv-section="role"><strong></strong> ${UNNAMED_DATES}</p>` +
+        '<p data-cv-section="employer">Hurtownia Przykładowa</p>' +
+        "<ul><li><p>Obsługa magazynu.</p></li></ul>" +
         '<p data-cv-section="rodo"',
     );
 }
@@ -173,6 +178,22 @@ function tenureChecks(html: string): QcCheck[] {
       };
   return [
     breakdown,
+    check(
+      "role_title",
+      "Każde stanowisko ma nazwę",
+      "warning",
+      // Edytor zdejmuje pusty `<strong>` — liczy się brak nazwy przed datami.
+      html.includes("Hurtownia Przykładowa") && !new RegExp(`<strong>[^<]+</strong>\\s*${UNNAMED_DATES}`).test(html)
+        ? [
+            {
+              key: `role_title|stanowisko w hurtownia przykładowa (${UNNAMED_DATES}) nie ma nazwy.|${UNNAMED_DATES} · hurtownia przykładowa`,
+              role: `${UNNAMED_DATES} · Hurtownia Przykładowa`,
+              role_index: 4,
+              detail: `Stanowisko w Hurtownia Przykładowa (${UNNAMED_DATES}) nie ma nazwy.`,
+            },
+          ]
+        : [],
+    ),
     check(
       "role_dates_reversed",
       "Data końca stanowiska po dacie startu",

@@ -53,6 +53,8 @@ import {
   PhoneOff,
   Plus,
   Rows3,
+  PanelLeft as PanelLeftIcon,
+  PanelRight as PanelRightIcon,
   Undo2,
   Send,
   Sparkles,
@@ -1810,6 +1812,38 @@ export function PipelineCandidateDock({
               <Rows3 className="h-3.5 w-3.5" aria-hidden="true" />
               Tryb rozmowy
             </button>
+          ) : null}
+          {expanded && conversationMode?.on ? (
+            <div
+              role="group"
+              aria-label="Gdzie stoi arkusz rozmowy"
+              data-testid="person-sheet-side"
+              className="inline-flex h-7 shrink-0 items-center rounded-md border border-border p-0.5 text-xs"
+            >
+              {(
+                [
+                  { side: "left", label: "Arkusz po lewej", Icon: PanelLeftIcon },
+                  { side: "right", label: "Arkusz po prawej", Icon: PanelRightIcon },
+                ] as const
+              ).map(({ side, label, Icon }) => (
+                <button
+                  key={side}
+                  type="button"
+                  aria-pressed={conversationMode.sheetSide === side}
+                  onClick={() => conversationMode.setSheetSide(side)}
+                  title={side === "left" ? "Arkusz w dużej lewej strefie, CV w zakładce obok" : "CV po lewej, arkusz po prawej — widzisz oba naraz"}
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1 rounded px-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    conversationMode.sheetSide === side
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="sr-only">{label}</span>
+                </button>
+              ))}
+            </div>
           ) : null}
           {onToggleExpanded ? (
             <button

@@ -145,7 +145,7 @@ class _BlockParser(HTMLParser):
         )
 
     def _flush(self) -> None:
-        if self._current is not None and self._current.text:
+        if self._current is not None and _kept(self._current):
             self.blocks.append(_mark_rodo(self._current))
         self._current = None
 
@@ -204,6 +204,17 @@ RODO_SECTION = "rodo"
 _CONSIDERED_LABEL = re.compile(
     r"^\s*(?:rozważany na stanowisko|considered for)\s*:", re.I
 )
+
+
+def _kept(block: Block) -> bool:
+    """Blok z treścią albo pusty nagłówek stanowiska.
+
+    Pusty akapit `role` (rekruter skasował nazwę i daty, firma została) to
+    w edytorze dalej stanowisko (`cvOutline`). Do 25.11.2026 parser go gubił:
+    firma i obowiązki wchodziły do poprzedniej roli, a `role_index` z QC
+    wskazywał w edytorze sąsiednie stanowisko.
+    """
+    return bool(block.text) or block.section == "role"
 
 
 def _mark_rodo(block: Block) -> Block:

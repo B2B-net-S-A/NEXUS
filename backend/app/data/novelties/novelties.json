@@ -659,6 +659,7 @@
     },
     "where": "Finanse → Rozjazdy stawek",
     "href": "/finance",
+    "practice_href": "/finance?view=rate-divergences",
     "section": "finance",
     "dot_anchor": "finance.rate-divergences"
   },
@@ -4316,6 +4317,7 @@
     },
     "where": "Finanse → Faktury kosztowe → ikona przy numerze faktury",
     "href": "/finance",
+    "practice_href": "/finance?view=costs",
     "section": "finance",
     "dot_anchor": "finance.cost-pdf",
     "steps": [
@@ -4733,7 +4735,7 @@
   {
     "id": "arkusz-rozmowy-na-lewej-polowie",
     "title": "„Arkusz rozmowy” na dużej połowie ekranu",
-    "why": "W „Trybie rozmowy” formularz screeningu stoi po lewej, w dwóch kolumnach, a CV i wymagania są w zakładkach obok. Na górze widzisz, czego brakuje do „Zweryfikowany”; braki znikają, gdy je wpisujesz.",
+    "why": "W „Trybie rozmowy” formularz screeningu staje się arkuszem na pół ekranu, a CV zostaje obok. Na górze widzisz, czego brakuje do „Zweryfikowany”; braki znikają, gdy je wpisujesz.",
     "tier": "tour",
     "shipped_on": "2026-11-23",
     "pr": 3809,
@@ -4753,7 +4755,7 @@
       {
         "anchor": "person.panel.conversation-mode",
         "text": "Kliknij „Tryb rozmowy” w pasku osoby.",
-        "hint": "Lewa połowa zamieni się na „Arkusz rozmowy”. CV, Wymagania i Po ludzku są w zakładkach obok arkusza."
+        "hint": "Arkusz stanie na górze prawej połowy, a po lewej zostanie CV. Ikony obok przenoszą arkusz na lewą połowę i z powrotem."
       },
       {
         "anchor": "screening.sheet.gaps",
@@ -5274,6 +5276,24 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "arkusz-rozmowy-obok-cv",
+    "title": "Arkusz rozmowy po prawej, CV po lewej",
+    "why": "W „Trybie rozmowy” arkusz stoi na górze prawej połowy, a CV jest obok przez całą rozmowę. Wolisz arkusz po lewej? Przełącz ikonami obok „Tryb rozmowy” — wybór zostaje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → osoba z „Screeningu” → Rozwiń → Tryb rozmowy",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
+    "section": "pipeline",
+    "dot_anchor": "person.panel.conversation-mode"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

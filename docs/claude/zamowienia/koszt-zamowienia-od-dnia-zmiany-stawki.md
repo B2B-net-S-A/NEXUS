@@ -44,7 +44,9 @@ przy 286585, gdzie zmiana wypadła na granicy faktur.
   wraca na listę. Obie decyzje zostawiają Activity na zamówieniu.
 - **Linie zamówień zbiorczych MD/kosztowych są poza tym.** Ich stawkę dalej
   prowadzi Delivery Lead. Rozjazd z kontraktem pokazuje nocny raport linii MD
-  w tej samej zakładce.
+  w tej samej zakładce. Rozliczenie klienta liczy jednak koszt takiej linii ze
+  stawki kontraktu, gdy ta obowiązuje cały miesiąc
+  (`finanse-insights/rozliczenia-delegacje-i-zmiana-stawki-w-miesiacu.md`).
 - **Widok:** zamówienie w API ma `cost_parts` (`[{from, to, rate}]`, redagowane
   razem z `rate_candidate`). Tabela zamówień klienta pokazuje pod kosztem
   „w częściach od zmiany stawki”, a panel osoby pokazuje pełną linię

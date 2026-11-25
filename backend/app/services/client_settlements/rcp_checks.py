@@ -51,6 +51,10 @@ class ProofResult:
     #: Mail klienta z liczbą równą dowodowi (``proof.accept_has_hours``): opis
     #: akceptacji tej liczby dla ``fields.md_month_limit``. Nie trafia do zapisu.
     client_count: Optional[str] = None
+    #: Koszty delegacji z RCP (brutto z rachunków) i czy klient je zaakceptował
+    #: (``travel_acceptance``), do dodatku na fakturę klienta
+    #: (``extras.sync_from_rcp``). Nie trafia do zapisu.
+    travel_cost: Optional[tuple[Decimal, bool]] = None
 
 
 def _fmt(value: Decimal) -> str:
@@ -399,6 +403,10 @@ def evaluate(
     extra.close()
 
     if parsed.travel_total and parsed.travel_total > 0:
+        result.travel_cost = (
+            parsed.travel_total,
+            travel is not None and travel.ok,
+        )
         costs = _Group(result, rules, "Delegacje")
         if travel is not None and travel.ok:
             costs.ok(travel.title, travel.detail)

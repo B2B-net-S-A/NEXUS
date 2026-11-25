@@ -638,3 +638,21 @@ def test_koszty_delegacji_to_uwaga_z_opisem():
     assert warns[0]["rule"] == "travel.rcp_costs"
     assert "450 zł brutto" in warns[0]["detail"]
     assert "Faktury kosztów" in warns[0]["detail"]
+
+
+def test_koszty_delegacji_z_akceptacja_do_dodatku_na_fakture():
+    """Kwota z RCP i akceptacja klienta idą do dodatku na fakturę klienta
+    (``extras.sync_from_rcp``); RCP bez kosztów nie daje nic."""
+    import dataclasses
+
+    from app.services.client_settlements.travel_acceptance import Verdict
+
+    parsed = dataclasses.replace(parse_pdf_text(PDF_TEXT), travel_total=D("450.00"))
+    assert _eval(parsed).travel_cost == (D("450.00"), False)
+    other = Verdict(False, "Akceptacja kosztów na inną kwotę", "400 zł")
+    assert _eval(parsed, travel=other).travel_cost == (D("450.00"), False)
+    ok = Verdict(True, "Koszty delegacji w RCP podpisanym przez klienta", "x")
+    accepted = _eval(parsed, travel=ok)
+    assert accepted.travel_cost == (D("450.00"), True)
+    assert _states(accepted)[ok.title] == "ok"
+    assert _eval(parse_pdf_text(PDF_TEXT)).travel_cost is None

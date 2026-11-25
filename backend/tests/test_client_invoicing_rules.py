@@ -332,6 +332,165 @@ def test_several_orders_gets_another_attempt():
     assert "several_orders" in RETRY_REASONS
 
 
+# ── Osoby z pozycji: numer na kilku zamówieniach, a kwota nie wskazuje ─────────
+
+
+def _own_order(order_id, consultant, number="Zamówienie nr 9001/2026"):
+    """Zamówienie okresowe jednej osoby: NEXUS liczy 168 h, klient fakturuje MD."""
+
+    return BillingRow(
+        client_id=1,
+        kind="periodic",
+        group_id=None,
+        order_id=order_id,
+        order_number=number,
+        currency="PLN",
+        lines=(
+            BillingLine(
+                order_id=order_id,
+                consultant=consultant,
+                basis="hours",
+                quantity=Decimal("168"),
+                unit_price=Decimal("100"),
+                net=Decimal("16800.00"),
+                currency="PLN",
+            ),
+        ),
+    )
+
+
+def _md_item(name, md, price="800", number="9001/2026", **extra):
+    return {
+        "name": f"Usługi programistyczne – {name}, nr zamówienia: {number}",
+        "quantity": md,
+        "unit": "MD",
+        "unit_price": price,
+        "net": str(Decimal(md) * Decimal(price)),
+        **extra,
+    }
+
+
+def _invoice_for(rows, *items):
+    return decide(
+        net=sum((Decimal(item["net"]) for item in items), Decimal("0")),
+        currency="PLN",
+        texts=[item["name"] for item in items if not item.get("before_correction")],
+        rows=rows,
+        refs=_refs(*rows),
+        items=list(items),
+    )
+
+
+def test_number_on_several_orders_binds_the_people_named_in_the_items():
+    # Pomiar 25.11: klient wystawia na numer jedną fakturę z pozycją na osobę,
+    # w rzeczywistych MD, więc ani suma, ani żaden wiersz nie jest równy netto.
+    rows = [
+        _own_order(50, "Jan Przykładowy"),
+        _own_order(51, "Ewa Testowa"),
+        _own_order(52, "Adam Próbny"),
+        _own_order(53, "Ola Wzorcowa", number="9001/2026"),
+    ]
+    decision = _invoice_for(
+        rows,
+        _md_item("Ewa Testowa", "23"),
+        _md_item("Jan Przykładowy", "19"),
+        _md_item("Adam Próbny", "23", price="1000"),
+        _md_item("Ola Wzorcowa", "21"),
+    )
+    assert decision.targets == tuple(Target(order_id=i) for i in (50, 51, 52, 53))
+    assert decision.method == "order_number"
+
+
+@pytest.mark.parametrize("md", ["17", "21"])
+def test_number_on_several_orders_and_one_person_binds_that_persons_order(md):
+    # Ten sam klient wystawia też osobną fakturę na osobę. Przy 21 MD kwota jest
+    # równa obu wierszom (ta sama stawka), przy 17 MD żadnemu.
+    rows = [_own_order(50, "Jan Przykładowy"), _own_order(51, "Ewa Testowa")]
+    decision = _invoice_for(rows, _md_item("Ewa Testowa", md))
+    assert decision.targets == (Target(order_id=51),)
+    assert decision.method == "order_number"
+
+
+def test_two_items_of_one_person_bind_that_persons_order_once():
+    # Druga pozycja tej osoby podaje numer, którego NEXUS nie zna: wiąże znany numer.
+    rows = [_own_order(50, "Jan Przykładowy"), _own_order(51, "Ewa Testowa")]
+    decision = _invoice_for(
+        rows,
+        _md_item("Ewa Testowa", "7.5", number="9077/2026"),
+        _md_item("Ewa Testowa", "7.5"),
+    )
+    assert decision.targets == (Target(order_id=51),)
+
+
+def test_people_named_on_group_lines_bind_their_lines():
+    rows = _one_number_on_two_groups(
+        [_line(1, "10000.00"), _line(2, "12000.00", "Ewa Przykładowa")],
+        [_line(3, "7000.00", "Adam Przykładowy")],
+    )
+    decision = decide(
+        net=Decimal("24000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+        items=[
+            {"name": "Ewa Przykładowa, zam 445", "unit_price": "800"},
+            {"name": "Adam Przykładowy, zam 445", "unit_price": "800"},
+        ],
+    )
+    assert decision.targets == (Target(order_id=2), Target(order_id=3))
+    assert decision.method == "order_number"
+
+
+_TWO_PEOPLE = (("Jan Przykładowy", 50), ("Ewa Testowa", 51))
+
+
+@pytest.mark.parametrize(
+    ("people", "items"),
+    [
+        # Pozycja bez osoby (koszty, rabat): nie wiadomo, do którego zamówienia należy.
+        (
+            _TWO_PEOPLE,
+            [
+                _md_item("Jan Przykładowy", "20"),
+                {
+                    "name": "Koszty dojazdu, nr zamówienia: 9001/2026",
+                    "quantity": "1",
+                    "unit_price": "500",
+                    "net": "500",
+                },
+            ],
+        ),
+        # Osoba spoza zamówień z tym numerem.
+        (_TWO_PEOPLE, [_md_item("Adam Próbny", "20")]),
+        # Jedna pozycja na dwie osoby.
+        (_TWO_PEOPLE, [_md_item("Jan Przykładowy, Ewa Testowa", "20")]),
+        # Ta sama osoba na dwóch zamówieniach z tym numerem.
+        (
+            (("Jan Przykładowy", 50), ("Jan Przykładowy", 51), ("Ewa Testowa", 52)),
+            [_md_item("Jan Przykładowy", "20")],
+        ),
+        # Samo nazwisko nie wskazuje osoby.
+        (_TWO_PEOPLE, [_md_item("Przykładowy", "20")]),
+        # Pozycja sprzed korekty nie wskazuje osoby.
+        (_TWO_PEOPLE, [_md_item("Ewa Testowa", "20", before_correction=True)]),
+    ],
+)
+def test_people_in_items_refuse_when_not_certain(people, items):
+    rows = [_own_order(order_id, name) for name, order_id in people]
+    rows.append(_own_order(60, "Adam Próbny", number="9002/2026"))
+    decision = decide(
+        net=sum((Decimal(item["net"]) for item in items), Decimal("0")),
+        currency="PLN",
+        texts=["nr zamówienia: 9001/2026"],
+        rows=rows,
+        refs=_refs(*rows),
+        items=items,
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
 # ── Faktura zbiorcza (cl.collective_invoice): numer wiąże całe zamówienie ──────
 
 COLLECTIVE = (

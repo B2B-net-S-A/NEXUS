@@ -23,6 +23,13 @@ export interface PersonPreviewLayout {
   columnWidth: number | null;
   /** „Tryb rozmowy”: nagłówek osoby, „Screening dla” i stopka formularza ciasno, więcej miejsca na pola. */
   compact: boolean;
+  /**
+   * Gdzie stoi „Arkusz rozmowy” w Trybie rozmowy (25.11.2026, zgłoszenie
+   * rekrutera, decyzja Artura): `right` (domyślnie) — arkusz na górze prawej
+   * kolumny na pół panelu, a CV zostaje widoczne po lewej; `left` — zakładka
+   * w dużej lewej strefie, jak od #3809 do 25.11.2026.
+   */
+  sheetSide: "left" | "right";
 }
 
 export const DEFAULT_PERSON_PREVIEW_LAYOUT: PersonPreviewLayout = Object.freeze({
@@ -30,6 +37,7 @@ export const DEFAULT_PERSON_PREVIEW_LAYOUT: PersonPreviewLayout = Object.freeze(
   infoCollapsed: false,
   columnWidth: null,
   compact: false,
+  sheetSide: "right",
 });
 
 /** Szerokość spoza liczby dodatniej znaczy „domyślna”. */
@@ -56,6 +64,7 @@ export function readPersonPreviewLayout(key: string | null): PersonPreviewLayout
       infoCollapsed: value.infoCollapsed === true,
       columnWidth: readWidth(value.columnWidth),
       compact: value.compact === true,
+      sheetSide: value.sheetSide === "left" ? "left" : "right",
     };
   } catch {
     return DEFAULT_PERSON_PREVIEW_LAYOUT;

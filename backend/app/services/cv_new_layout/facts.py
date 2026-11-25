@@ -98,7 +98,15 @@ def lang_parts(entry: str) -> tuple[str, str]:
     """„Polski - ojczysty” → („Polski”, „ojczysty”); także półpauza, pauza i dwukropek
     („polski – ojczysty” z edytora), bez tego kod języka brał dwie pierwsze litery („PO”)."""
     parts = _LANG_SPLIT.split((entry or "").strip(), maxsplit=1)
-    return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
+    if len(parts) == 1:
+        # „Polish-fluent.” bez spacji (#40503) — dzieli tylko po znanej nazwie języka,
+        # żeby „Serbo-Croatian” zostało w całości
+        left, dash, right = parts[0].partition("-")
+        if dash and left.strip().lower() in LANGUAGE_CODES:
+            parts = [left, right]
+    return parts[0].strip(), (
+        parts[1].strip().rstrip(".").strip() if len(parts) > 1 else ""
+    )
 
 
 def lang_level(level: str, language: str = "pl") -> tuple[Optional[int], str]:
