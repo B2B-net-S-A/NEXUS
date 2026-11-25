@@ -15,7 +15,7 @@ import pytest
 from app.api import deps
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.services.legal import assistant, citations, corpus
+from app.services.legal import assistant, citations, corpus, sources, template_review
 from tests._authz_matrix import PERSONAS, build_user, routes_only
 
 _PERSONA = {persona.key: persona for persona in PERSONAS}
@@ -66,7 +66,21 @@ def stubbed(monkeypatch):
             text="", citations=[], checks=[], blocked=True, error="bez modelu"
         )
 
+    async def _db_counts(_db):
+        return {
+            "case_law": 12,
+            "case_law_latest": "2026-11-20T03:00:00+00:00",
+            "custom_templates": 2,
+            "framework_contracts": 5,
+            "framework_amendments": 7,
+        }
+
+    async def _review_status(_db):
+        return {"open": 1, "last_created_at": "2026-11-24T06:00:00+00:00"}
+
     monkeypatch.setattr(corpus, "sources_status", _sources)
+    monkeypatch.setattr(sources, "db_counts", _db_counts)
+    monkeypatch.setattr(template_review, "review_status", _review_status)
     monkeypatch.setattr(corpus, "search", _search)
     monkeypatch.setattr(corpus, "verify_text", _verify)
     monkeypatch.setattr(assistant, "draft", _draft)
@@ -125,6 +139,28 @@ async def test_generator_user_reads_sources_and_searches(client_as, stubbed) -> 
     assert hit["ref"] == "art. 61 § 1" and hit["act"] == "KC"
     assert hit["truncated"] is True and len(hit["text"]) == 2000
     assert stubbed["search"] == ("wypowiedzenie umowy forma", ["kc", "kp"], None, 5)
+
+
+@pytest.mark.asyncio
+async def test_sources_carry_document_counters_and_template_review(client_as) -> None:
+    resp = await client_as("recruiter").get("/api/legal/sources")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["acts_total"] == 0
+    assert body["documents"] == {
+        "case_law": {"count": 12, "latest_fetched_at": "2026-11-20T03:00:00+00:00"},
+        "templates": {
+            "repo": len(template_review.repo_templates()),
+            "client_clauses": len(template_review.clause_sources()),
+            "custom_approved": 2,
+        },
+        "framework_contracts": {"contracts": 5, "amendments": 7},
+    }
+    assert body["documents"]["templates"]["repo"] > 10
+    assert body["template_review"] == {
+        "open": 1,
+        "last_created_at": "2026-11-24T06:00:00+00:00",
+    }
 
 
 @pytest.mark.asyncio
