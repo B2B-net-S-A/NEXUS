@@ -1,4 +1,4 @@
-"""Dodatkowy numer nabywcy klienta (0779): spółka grupy z własnym NIP-em albo VAT UE.
+"""Dodatkowy numer nabywcy klienta (0781): spółka grupy z własnym NIP-em albo VAT UE.
 
 Główny numer zostaje w ``clients.nip``; ten wiersz to kolejny numer tego samego
 klienta dla dopasowania faktur z KSeF (``client_invoicing.clients.nip_registry``).

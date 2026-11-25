@@ -328,7 +328,7 @@ export interface BuyerNumberSaved {
   matched: number;
 }
 
-/** Dodatkowy numer nabywcy klienta (0779): spółka grupy z własnym NIP-em albo VAT UE. */
+/** Dodatkowy numer nabywcy klienta (0781): spółka grupy z własnym NIP-em albo VAT UE. */
 export interface ExtraBuyerNumber {
   id: number;
   client_id: number;

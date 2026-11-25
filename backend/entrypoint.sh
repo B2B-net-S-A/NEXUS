@@ -6483,7 +6483,7 @@ _COLUMN_STATEMENTS = [
     # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
     # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
     "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
-    # 0779: dodatkowe numery nabywcy klienta (spółki grupy, decyzja Artura 25.11.2026).
+    # 0781: dodatkowe numery nabywcy klienta (spółki grupy, decyzja Artura 25.11.2026).
     # Lustro 1:1 z `app/services/client_invoicing/buyer_numbers_schema.py` —
     # pilnuje `test_client_buyer_numbers.py`.
     """CREATE TABLE IF NOT EXISTS client_buyer_numbers (

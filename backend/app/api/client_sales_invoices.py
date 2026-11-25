@@ -314,7 +314,7 @@ class SalesInvoiceAssignIn(BaseModel):
     month: int = Field(..., ge=1, le=12)
     # Numer nabywcy z faktury do klienta, gdy klient nie ma żadnego.
     save_buyer_number: bool = False
-    # Klient ma inny numer: dopisz ten jako dodatkowy (spółka grupy, 0779).
+    # Klient ma inny numer: dopisz ten jako dodatkowy (spółka grupy, 0781).
     buyer_number_extra: bool = False
 
 
@@ -601,7 +601,7 @@ async def finance_unknown_buyer_skip(
 async def finance_buyer_numbers(
     current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    """Dodatkowe numery nabywcy wszystkich klientów (spółki grupy, 0779)."""
+    """Dodatkowe numery nabywcy wszystkich klientów (spółki grupy, 0781)."""
 
     await _module_open(db, current_user)
     return {"numbers": await views.extra_buyer_numbers(db)}

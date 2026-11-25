@@ -853,7 +853,7 @@ async def unknown_buyers(db: AsyncSession) -> dict[str, Any]:
 
 
 async def extra_buyer_numbers(db: AsyncSession) -> list[dict[str, Any]]:
-    """Dodatkowe numery nabywcy (0779) z nazwą klienta i liczbą faktur u niego."""
+    """Dodatkowe numery nabywcy (0781) z nazwą klienta i liczbą faktur u niego."""
 
     rows = list(
         await db.scalars(

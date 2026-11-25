@@ -13,7 +13,7 @@ Klient usunięty z profilu (``deleted_at``) nie przyjmuje faktur.
 Zamówienia i faktury klienta czytamy razem z jego scalonymi duplikatami
 (``family``): dane po scaleniu bywają jeszcze na wierszu duplikatu.
 
-Klient może mieć dodatkowe numery (``client_buyer_numbers``, 0779): spółki grupy
+Klient może mieć dodatkowe numery (``client_buyer_numbers``, 0781): spółki grupy
 — oddział, spółka leasingowa, fundusz — fakturują się pod własnym numerem,
 a ``clients.nip`` jest jeden (decyzja Artura z 25.11.2026). Rejestr czyta je
 tak samo jak ``clients.nip``, więc ten sam numer u innego klienta to nadal

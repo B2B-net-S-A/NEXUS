@@ -1,4 +1,4 @@
-"""Lustro DDL dodatkowych numerów nabywcy (0779) w ``entrypoint.sh``.
+"""Lustro DDL dodatkowych numerów nabywcy (0781) w ``entrypoint.sh``.
 
 Alembic na produkcji bywa osierocony, więc ``entrypoint.sh`` jest wdrożeniem:
 każde polecenie z ``buyer_numbers_schema.DDL`` musi tam być dosłownie.
@@ -29,10 +29,10 @@ def test_entrypoint_mirrors_every_statement() -> None:
 def test_migration_runs_the_shared_ddl() -> None:
     migration = (
         Path(__file__).resolve().parents[1]
-        / "alembic/versions/0779_client_buyer_numbers.py"
+        / "alembic/versions/0781_client_buyer_numbers.py"
     ).read_text(encoding="utf-8")
     assert (
         "from app.services.client_invoicing.buyer_numbers_schema import DDL"
         in migration
     )
-    assert 'down_revision = "0778_b2b_document_preliminary_jdg"' in migration
+    assert 'down_revision = "0780_client_cv_file_format"' in migration

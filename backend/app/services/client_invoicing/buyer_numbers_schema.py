@@ -1,6 +1,6 @@
-"""DDL dodatkowych numerów nabywcy klienta (0779, 25.11.2026).
+"""DDL dodatkowych numerów nabywcy klienta (0781, 25.11.2026).
 
-Jedno źródło dla migracji ``0779_client_buyer_numbers`` i lustra w
+Jedno źródło dla migracji ``0781_client_buyer_numbers`` i lustra w
 ``entrypoint.sh`` (pilnuje ``tests/test_client_buyer_numbers.py``).
 """
 

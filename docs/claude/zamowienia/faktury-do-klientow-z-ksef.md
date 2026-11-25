@@ -181,7 +181,7 @@
   kosztowe mają nazwiska po przecinku, a wspólna pula „N os.”. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
   6 miesięcy nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.
 
-## Dodatkowe numery nabywcy — spółki grupy klienta (0779, 25.11.2026)
+## Dodatkowe numery nabywcy — spółki grupy klienta (0781, 25.11.2026)
 
 - **Klient ma jedno `clients.nip`, a spółki jego grupy fakturują się pod własnym numerem** (oddział, spółka leasingowa,
   fundusz emerytalny, oddział zagraniczny). Audyt 25.11.2026: 22 faktury spółek grupy jednego klienta (ok. 452 tys. zł
@@ -203,7 +203,7 @@
   nie odpina faktur już przypisanych; kolejne z tym numerem wracają do „Nieznani nabywcy”
   (`client.registry_number_removed`).
 - Poczta zamówień (`order_mail_ingest`) czyta tylko `clients.nip`: dodatkowe numery działają w fakturach z KSeF,
-  nie w rozpoznawaniu klienta z PDF-u zamówienia (poza zakresem 0779).
+  nie w rozpoznawaniu klienta z PDF-u zamówienia (poza zakresem 0781).
 - Testy: `tests/test_client_invoicing_unknown_buyers.py` (sekcja „Dodatkowe numery”), lustro DDL
   `tests/test_client_buyer_numbers.py`.
 
