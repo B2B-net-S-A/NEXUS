@@ -12,7 +12,9 @@ Kolejność, od najpewniejszego:
    prefiksu, tytuł „Zamówienie nr 9001/2026” także jako sam numer
    (``OrderRef.variants``). Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
    jest do sprawdzenia przez Finanse. Faktura na jedną osobę z zamówienia MD
-   (kwota równa pozycji tej osoby) wiąże się z tą osobą. U klienta z regułą
+   (kwota równa pozycji tej osoby) wiąże się z tą osobą. Numer na kilku
+   zamówieniach, którego kwota nie rozstrzyga, wiążą osoby z pozycji: każda
+   pozycja nazywa dokładnie jedną osobę z tych zamówień. U klienta z regułą
    ``cl.collective_invoice`` (VeloBank: jedna pozycja na całe zamówienie)
    numer wiąże wszystkie jego zamówienia z tym numerem w miesiącu,
 4. **numer, którego NEXUS nie zna** (``named_order_numbers``) — faktura czeka na
@@ -288,6 +290,33 @@ def _people_with_amount(rows: Sequence[BillingRow], net: Decimal) -> list[Billin
     ]
 
 
+def _named_people(
+    rows: Sequence[BillingRow], items: Sequence[dict[str, Any]]
+) -> tuple[Target, ...]:
+    """Osoby z pozycji faktury wśród zamówień trafionych numerem (decyzja z 25.11.2026).
+
+    PKO wystawia na numer z kilkoma zamówieniami jedną fakturę z pozycją na osobę
+    albo osobną fakturę na osobę, w rzeczywistych MD, więc kwota nie jest równa
+    szacunkowi NEXUSA. Wiąże tylko pewne wskazanie: każda bieżąca pozycja nazywa
+    pełnym imieniem i nazwiskiem dokładnie jedną osobę z tych zamówień. Pozycja bez
+    osoby, na dwie osoby albo osoba z dwoma zamówieniami z tym numerem — ``()``.
+    """
+
+    lines = [line for row in rows for line in row.lines if line.order_id]
+    current = [
+        item
+        for item in items
+        if isinstance(item, dict) and not item.get("before_correction")
+    ]
+    targets: set[Target] = set()
+    for item in current:
+        named = [line for line in lines if _named_in(line, str(item.get("name") or ""))]
+        if len(named) != 1:
+            return ()
+        targets.add(Target(order_id=named[0].order_id))
+    return tuple(sorted(targets, key=lambda target: target.order_id or 0))
+
+
 def decide(
     *,
     net: Decimal,
@@ -341,6 +370,9 @@ def decide(
             people = _people_with_amount(same, net)
             if len(people) == 1:
                 return Decision((Target(order_id=people[0].order_id),), "order_number")
+        named = _named_people(same, items)
+        if named:
+            return Decision(named, "order_number")
         return Decision(reason="several_orders")
 
     if named_order_numbers(texts):
