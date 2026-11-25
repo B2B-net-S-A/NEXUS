@@ -25,7 +25,7 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
-import { monthLabel, pln, shortDay } from "../settlements/format";
+import { money, monthLabel, pln, shortDay } from "../settlements/format";
 
 type Filter = "open" | "explained" | "closed" | "all";
 
@@ -84,7 +84,7 @@ function Summary({ view }: { view: MonthCheckView }) {
   const s = view.summary;
   const skipped = Object.entries(s.skipped ?? {}).filter(([, n]) => n > 0);
   return (
-    <section className="rounded-xl border bg-card px-4 py-3">
+    <section data-tour="finance.month-close.diff-summary" className="rounded-xl border bg-card px-4 py-3">
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
         {monthLabel(view.month)} · faktura do klienta a faktura konsultanta
       </p>
@@ -112,6 +112,7 @@ function Summary({ view }: { view: MonthCheckView }) {
             {view.waits_until ? ` · brak faktury po jednej stronie liczy się od ${shortDay(view.waits_until)}` : ""}
             {skipped.length ? ` · bez porównania: ${skipped.map(([k, n]) => `${SKIP_LABELS[k] ?? k} ${n}`).join(", ")}` : ""}
             {s.overtime_confirmed ? ` · nadgodziny potwierdzone fakturą konsultanta: ${s.overtime_confirmed}` : ""}
+            {s.foreign_currency ? ` · kwoty w złotych; ${s.foreign_currency} spraw w innej walucie poza sumą` : ""}
           </p>
         </>
       )}
@@ -280,7 +281,7 @@ export function MonthCheckPanel({ month }: { month: string }) {
                         <span className="text-muted-foreground">konsultant:</span> {costs.map((d) => d.number).join(", ") || "brak"}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{c.amount != null ? pln(c.amount) : "–"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{c.amount != null ? money(c.amount, c.currency) : "–"}</td>
                     <td className="px-2 py-1.5">
                       <StatusDot tone={look.tone} note={c.reason ?? undefined}>
                         {look.label}

@@ -155,7 +155,8 @@ export function MonthCloseView() {
             onShowIssues={() => pickTab("reasons")}
           />
           <div className="flex items-center gap-1">
-            {/* Kotwica lekcji nowości: data-tour="finance.month-close.reasons" (przycisk „Błędy i uwagi”). */}
+            {/* Kotwice lekcji nowości: data-tour="finance.month-close.reasons" (przycisk „Błędy i uwagi”),
+                data-tour="finance.month-close.diff" (przycisk „Rozbieżności”). */}
             {(
               [
                 ["clients", "Gdzie są rozliczenia", null],
@@ -171,7 +172,7 @@ export function MonthCloseView() {
                 key={key}
                 type="button"
                 aria-pressed={tab === key}
-                data-tour={key === "reasons" ? "finance.month-close.reasons" : undefined}
+                data-tour={key === "reasons" ? "finance.month-close.reasons" : key === "diff" ? "finance.month-close.diff" : undefined}
                 onClick={() => pickTab(key)}
                 className={cn(
                   "shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium pointer-coarse:min-h-10",

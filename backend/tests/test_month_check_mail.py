@@ -35,6 +35,7 @@ def test_weekly_text_has_amounts_invoices_and_link():
             "person": "Jan Przykładowy",
             "kind_label": "Inne godziny u klienta i u konsultanta",
             "amount": "-1234.50",
+            "currency": "PLN",
             "details": {
                 "sales_invoices": ["FS/1/11/2026"],
                 "contractor_invoices": [{"number": "K/10/2026"}],
@@ -60,3 +61,38 @@ def test_loop_runs_once_a_day_after_three():
     assert not loop.due("2026-11-26T02:10:00+00:00", morning)
     assert loop.due("2026-11-25T02:10:00+00:00", morning)
     assert not loop.due(None, datetime(2026, 11, 26, 2, 0, tzinfo=WAW))
+
+
+def test_foreign_currency_is_shown_and_left_out_of_the_total():
+    rows = [
+        {
+            "month": "2026-10",
+            "client": "Klient",
+            "person": "Osoba",
+            "kind_label": "x",
+            "amount": "100.00",
+            "currency": "PLN",
+            "details": {},
+        },
+        {
+            "month": "2026-10",
+            "client": "Klient",
+            "person": "Osoba",
+            "kind_label": "x",
+            "amount": "50.00",
+            "currency": "EUR",
+            "details": {},
+        },
+    ]
+    _, text = mail.render_weekly(rows, "2026-W49")
+    assert "50,00 EUR" in text
+    assert "razem 100,00 zł" in text
+
+
+def test_test_recipients_come_from_settings(monkeypatch):
+    monkeypatch.setattr(
+        mail.settings,
+        "MONTH_CHECK_TEST_RECIPIENTS",
+        "a@example.com, bez-malpy ,b@example.com",
+    )
+    assert mail.test_recipients() == ["a@example.com", "b@example.com"]

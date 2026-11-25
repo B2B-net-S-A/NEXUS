@@ -110,6 +110,8 @@ class SaleLine:
     #: ``None`` — jednostka bez godzin (szt., ryczałt).
     hours: Optional[Decimal]
     net: Decimal
+    #: Waluta faktury do klienta (kwota sprawy ``over_working_days``).
+    currency: str = "PLN"
 
 
 @dataclass(frozen=True)
@@ -201,6 +203,9 @@ class Inputs:
 class Result:
     findings: list[Finding]
     stats: dict[str, MonthStats]
+    #: Osobo-miesiące pominięte (dwa kontrakty, brak stawki, czeka do 15. dnia…):
+    #: przebieg ich nie sprawdził, więc ich spraw nie wolno zamknąć.
+    skipped: set[tuple[int, str]] = field(default_factory=set)
 
 
 # ── Miesiąc faktury konsultanta ──────────────────────────────────────────────
@@ -352,6 +357,13 @@ def evaluate(data: Inputs) -> Result:
     window = set(data.months) | {shift(m, d) for m in data.months for d in (-1, 1)}
     findings: list[Finding] = []
     stats = {m: MonthStats() for m in data.months}
+    # Dwa kontrakty w miesiącu: pozycja faktury nie wskazuje wtedy osoby, więc
+    # osobo-miesiąc bywa bez danych — i tak nie jest sprawdzony.
+    unchecked: set[tuple[int, str]] = {
+        key
+        for key, ctx in data.context.items()
+        if key[1] in data.months and len(ctx.live) > 1
+    }
     people = {c for c, m in sales_by if m in data.months} | {c for c in costs_by}
 
     for cand in sorted(people):
@@ -385,9 +397,11 @@ def evaluate(data: Inputs) -> Result:
             ctx = data.context.get((cand, month), Context())
             if len(ctx.live) > 1:
                 st.skip(SKIP_PARALLEL)
+                unchecked.add((cand, month))
                 continue
             if not side.present and not ctx.live and not ctx.recent:
                 st.skip(SKIP_OUTSIDE)
+                unchecked.add((cand, month))
                 continue
             skipped_before = sum(st.skipped.values())
             found = _check_person_month(
@@ -396,6 +410,8 @@ def evaluate(data: Inputs) -> Result:
             # Więcej godzin niż dni roboczych liczy się osobno, per klient.
             over = _over_days(data, month, cand, sales_by.get((cand, month), []))
             checked = sum(st.skipped.values()) == skipped_before
+            if not checked:
+                unchecked.add((cand, month))
             # Nadgodziny, które konsultant zafakturował tak samo (Nordea: 14–39 osób
             # w miesiącu), to nie błąd faktury — liczymy je, ale bez sprawy.
             if over and _same_month_match(side, cost_net(month), ctx):
@@ -406,7 +422,7 @@ def evaluate(data: Inputs) -> Result:
             for item in ([found] if found else []) + over:
                 st.cases[item.kind] += 1
                 findings.append(item)
-    return Result(findings=findings, stats=stats)
+    return Result(findings=findings, stats=stats, skipped=unchecked)
 
 
 def _check_person_month(
@@ -422,7 +438,7 @@ def _check_person_month(
 ) -> Optional[Finding]:
     docs = cost.get(month, [])
     c_net = sum((d.net for d in docs), Decimal(0))
-    rate = ctx.rate
+    rate = _rate(ctx)
     currency_ok = all(d.currency == ctx.rate_currency for d in docs)
     tol = TOLERANCE_HOURS * rate if rate is not None else None
     neighbours = (shift(month, -1), shift(month, 1))
@@ -445,7 +461,12 @@ def _check_person_month(
         return base
 
     def finding(
-        kind: str, amount: Optional[Decimal], issue: Optional[str], **extra: object
+        kind: str,
+        amount: Optional[Decimal],
+        issue: Optional[str],
+        *,
+        currency: Optional[str] = None,
+        **extra: object,
     ) -> Finding:
         return Finding(
             kind=kind,
@@ -454,7 +475,7 @@ def _check_person_month(
             contract_id=ctx.contract_id,
             client_id=ctx.client_id,
             amount=amount.quantize(CENT) if amount is not None else None,
-            currency=ctx.rate_currency,
+            currency=currency or ctx.rate_currency,
             data_issue=issue,
             details=details(**extra),
         )
@@ -511,7 +532,10 @@ def _check_person_month(
             elif k_net <= 0:
                 return None
         issue = NO_CONTRACT if not ctx.live else (None if ctx.has_order else NO_ORDER)
-        return finding(COST_WITHOUT_SALE, c_net, issue)
+        # Kwota w walucie faktur konsultanta; faktury w dwóch walutach — bez kwoty.
+        currencies = {d.currency for d in docs}
+        one = next(iter(currencies)) if len(currencies) == 1 else None
+        return finding(COST_WITHOUT_SALE, c_net if one else None, issue, currency=one)
 
     # Klient zafakturowany, konsultant nie.
     if not deadline_passed:
@@ -541,12 +565,19 @@ def _check_person_month(
     return finding(SALE_WITHOUT_COST, expected, issue, expected_cost=_q(expected))
 
 
+def _rate(ctx: Context) -> Optional[Decimal]:
+    """Stawka kosztowa za godzinę; zero albo mniej to brak stawki."""
+
+    return ctx.rate if ctx.rate is not None and ctx.rate > 0 else None
+
+
 def _same_month_match(side: _Side, c_net: Decimal, ctx: Context) -> bool:
     """Faktura konsultanta z tego samego miesiąca potwierdza godziny klienta (±pół dnia)."""
 
-    if not side.present or not side.hours_known or ctx.rate is None or c_net <= 0:
+    rate = _rate(ctx)
+    if not side.present or not side.hours_known or rate is None or c_net <= 0:
         return False
-    return abs(c_net - side.hours * ctx.rate) <= TOLERANCE_HOURS * ctx.rate
+    return abs(c_net - side.hours * rate) <= TOLERANCE_HOURS * rate
 
 
 def _over_days(
@@ -565,7 +596,9 @@ def _over_days(
         if not side.hours_known or side.hours <= limit:
             continue
         excess = side.hours - limit
-        price = side.net / side.hours if side.hours else None
+        currencies = {line.currency for line in client_lines}
+        one = next(iter(currencies)) if len(currencies) == 1 else None
+        price = side.net / side.hours if side.hours and one else None
         out.append(
             Finding(
                 kind=OVER_WORKING_DAYS,
@@ -574,7 +607,7 @@ def _over_days(
                 contract_id=client_lines[0].contract_id,
                 client_id=client_id,
                 amount=(excess * price).quantize(CENT) if price is not None else None,
-                currency="PLN",
+                currency=one or "PLN",
                 data_issue=None,
                 details={
                     "client_hours": _q(side.hours),

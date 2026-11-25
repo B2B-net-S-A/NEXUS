@@ -2848,6 +2848,51 @@
     ]
   },
   {
+    "id": "lekcja-kontrola-miesiaca-rozbieznosci",
+    "title": "Rozbieżności faktur klient ↔ konsultant",
+    "novelties": [
+      "finanse-kontrola-miesiaca-rozbieznosci"
+    ],
+    "task": "W „Przebiegu miesiąca” otwórz zakładkę „Rozbieżności”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=month-close",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.month-close.diff"
+    },
+    "questions": [
+      {
+        "q": "Klient zafakturował 160 h, a z faktury konsultanta wychodzi 200 h. Co robisz, gdy klient faktycznie przyjął 200 h?",
+        "options": [
+          "Oznaczasz „Do korekty”: trzeba skorygować fakturę do klienta",
+          "Oznaczasz „Wyjaśnione”, bo różnica jest mała",
+          "Nic, sprawa zamknie się sama po tygodniu"
+        ],
+        "answer": 0,
+        "explain": "„Do korekty” znaczy, że któraś faktura jest do poprawy. Sprawa zamknie się sama dopiero, gdy po korekcie godziny będą się zgadzać."
+      },
+      {
+        "q": "Kiedy brak faktury konsultanta za październik staje się sprawą?",
+        "options": [
+          "Po 15 listopada",
+          "Pierwszego listopada",
+          "Dopiero po zamknięciu roku"
+        ],
+        "answer": 0,
+        "explain": "Faktury za miesiąc przychodzą do ok. 15. dnia następnego miesiąca; wcześniej to jeszcze nie rozbieżność."
+      },
+      {
+        "q": "Co wpisujesz przy „Wyjaśnione”?",
+        "options": [
+          "Powód, dla którego to się zgadza, np. klient przyjął 15 MD",
+          "Numer nowej faktury",
+          "Nic, wystarczy kliknąć"
+        ],
+        "answer": 0,
+        "explain": "Bez powodu sprawy nie da się wyjaśnić; powód widać potem w wierszu."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

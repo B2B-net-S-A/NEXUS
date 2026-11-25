@@ -217,3 +217,38 @@ async def test_unknown_case_is_404():
         with pytest.raises(service.MonthCheckError) as missing:
             await service.decide(db, 987654321, service.TO_CORRECT, user)
     assert missing.value.status == 404
+
+
+@pytest.mark.asyncio
+async def test_unchecked_person_month_and_explained_case_are_not_closed():
+    candidate_id, tag, person = await _seed()
+    await _run()
+    user = await _finance_user()
+    cases = await _cases(candidate_id)
+    hours_id = cases[f"{rules.HOURS_MISMATCH}:2026-09"].id
+    async with AsyncSessionLocal() as db:
+        await service.decide(db, hours_id, service.TO_CORRECT, user)
+        await db.commit()
+    # Drugi kontrakt tej osoby od września: IX i X nie są już sprawdzane.
+    async with AsyncSessionLocal() as db:
+        first = await db.scalar(
+            select(Contract).where(Contract.candidate_id == candidate_id)
+        )
+        db.add(
+            Contract(
+                candidate_id=candidate_id,
+                client_id=first.client_id,
+                status=ContractStatus.active,
+                start_date=date(2026, 9, 1),
+                rate_unit=RateUnit.hourly,
+                rate_client=PRICE,
+                rate_candidate=COST,
+                rate_client_currency="PLN",
+                rate_candidate_currency="PLN",
+            )
+        )
+        await db.commit()
+    await _run()
+    cases = await _cases(candidate_id)
+    assert cases[f"{rules.HOURS_MISMATCH}:2026-09"].state == service.TO_CORRECT
+    assert cases[f"{rules.SALE_WITHOUT_COST}:2026-10"].state == service.NEW

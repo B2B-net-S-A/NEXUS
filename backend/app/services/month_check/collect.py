@@ -280,7 +280,7 @@ async def load_inputs(
                         lo < s.effective_from <= hi for s in cost_steps.get(one.id, ())
                     )
                     base = infer.rate_on(one.cost_schedule, one.cost_scalar, lo)
-                    if base is not None and not changes:
+                    if base is not None and base > 0 and not changes:
                         rate = base * unit_of[one.id]
                 context[(cand, month)] = rules.Context(
                     live=tuple(c.id for c in live),
@@ -414,7 +414,15 @@ async def _sales(
                     continue
                 stats["unassigned_lines_by_person"] += 1
                 lines.append(
-                    _line(world, live[0].id, live[0].client_id, month, number, item)
+                    _line(
+                        world,
+                        live[0].id,
+                        live[0].client_id,
+                        month,
+                        number,
+                        item,
+                        root.currency,
+                    )
                 )
             continue
         client = canon.get(root.client_id, root.client_id)
@@ -441,7 +449,9 @@ async def _sales(
                 continue
             stats["items_with_person"] += 1
             named_clients[month].add(client)
-            lines.append(_line(world, contract_id, client, month, number, item))
+            lines.append(
+                _line(world, contract_id, client, month, number, item, root.currency)
+            )
     unnamed = {m: seen_clients[m] - named_clients.get(m, set()) for m in seen_clients}
     return lines, unnamed, unassigned, stats
 
@@ -453,6 +463,7 @@ def _line(
     month: str,
     number: str,
     item: dict,
+    currency: Optional[str],
 ) -> rules.SaleLine:
     per_unit = rh.unit_hours(item.get("unit"))
     qty = rh.dec(item.get("quantity"))
@@ -464,6 +475,7 @@ def _line(
         invoice_number=number,
         hours=(qty * per_unit) if (qty is not None and per_unit is not None) else None,
         net=rh.dec(item.get("net")) or Decimal(0),
+        currency=currency or PLN,
     )
 
 
@@ -492,6 +504,7 @@ async def _costs(
             select(ClientContractorInvoice, Contract.candidate_id)
             .join(Contract, Contract.id == ClientContractorInvoice.contract_id)
             .where(
+                Contract.candidate_id.is_not(None),
                 ClientContractorInvoice.nip_state.in_(BOUND_STATES),
                 ClientContractorInvoice.issue_date >= issued_from,
                 ClientContractorInvoice.net_amount.is_not(None),

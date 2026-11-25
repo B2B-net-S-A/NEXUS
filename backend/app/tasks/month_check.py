@@ -46,7 +46,11 @@ async def run_cycle(now_local: datetime) -> dict[str, object]:
     async with AsyncSessionLocal() as db:
         info = await service.last_run(db)
         if due(info.get("executed_at"), now_local):
-            out["run"] = await service.run(db, now_local.date())
+            try:
+                out["run"] = await service.run(db, now_local.date())
+            except Exception:  # noqa: BLE001 — padnięty przebieg nie wstrzymuje maili
+                logger.exception("month_check: przebieg padł")
+                await db.rollback()
         out["mail"] = await mail.tick(db, now_local)
     return out
 

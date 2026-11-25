@@ -69,8 +69,19 @@ zakończonym dawniej niż 62 dni), `waiting_for_deadline` (przed 16. dniem).
 obowiązkowy, CHECK w bazie). Sprawa znaleziona ponownie zostaje w swoim
 stanie, z bieżącą kwotą i fakturami. Sprawa, której przebieg nie znajduje,
 zamyka się sama (`closed`, bez autora) — tylko w miesiącu i rodzaju, które
-przebieg sprawdzał. Zamknięta, która wraca, jest znowu `new` (i trafia do
-maila). „Cofnij” przy wyjaśnionej wraca do `new`.
+przebieg sprawdzał, i tylko gdy ten osobo-miesiąc był sprawdzony
+(`Result.skipped`: dwa kontrakty, brak stawki, czeka do 15. dnia, faktura
+czeka na nabywcę — sprawa czeka, bo inaczej dopisany drugi kontrakt albo
+krok stawki w połowie miesiąca kasowałby decyzję Finansów; przegląd kodu
+25.11). Wyjaśnionej automat nie zamyka. Zamknięta, która wraca, jest znowu
+`new` (i trafia do maila). „Cofnij” przy wyjaśnionej wraca do `new`.
+
+**Waluta.** Kwota sprawy jest w walucie faktury (koszt bez sprzedaży —
+faktur konsultanta, ponad dni robocze — faktury do klienta, różnica godzin
+i sprzedaż bez kosztu — stawki kosztowej); faktury w dwóch walutach dają
+sprawę bez kwoty. Sumy na ekranie i w mailu są tylko w złotych, a sprawy
+w innej walucie liczy `foreign_currency`. Stawka 0 to brak stawki.
+Padnięty przebieg nie wstrzymuje maili (pętla łapie błąd przebiegu osobno).
 
 ## Ekran, karta DL, maile
 
@@ -86,7 +97,8 @@ maila). „Cofnij” przy wyjaśnionej wraca do `new`.
   otwarte sprawy z 7 dni, z kwotą, numerami faktur i linkiem. Pusty tydzień
   nie wychodzi. **12. dnia od 8:00** — podsumowanie poprzedniego miesiąca.
 - **Adresaci: `app_settings['month_check_mail']`.** Domyślnie (`to_finance`
-  brak albo `false`) tygodniowy mail idzie wyłącznie do Artura (próba);
+  brak albo `false`) tygodniowy mail idzie wyłącznie na adresy z ustawienia
+  `MONTH_CHECK_TEST_RECIPIENTS` (domyślnie adres Artura — próba);
   podsumowanie 12. dnia nie wychodzi. Do Finansów (rola `finance`, główna
   albo dodatkowa) dopiero po „wysyłaj” Artura w sesji:
   `INSERT … ('month_check_mail', '{"to_finance": true}')` przez zwykłą ścieżkę

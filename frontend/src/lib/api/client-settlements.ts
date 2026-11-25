@@ -1527,6 +1527,8 @@ export interface MonthCheckSummary {
   open_amount: string | null;
   by_state: Record<MonthCheckState, number>;
   by_kind: Record<MonthCheckKind, number>;
+  /** Sprawy z kwotą w innej walucie niż zł — poza sumami. */
+  foreign_currency?: number;
 }
 
 export interface MonthCheckView {

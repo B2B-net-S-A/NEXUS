@@ -34,6 +34,7 @@ from app.services.month_check import collect, rules
 logger = logging.getLogger(__name__)
 
 RUN_KEY = "month_check_last_run"
+PLN = "PLN"
 NEW, TO_CORRECT, EXPLAINED, CLOSED = "new", "to_correct", "explained", "closed"
 OPEN_STATES = (NEW, TO_CORRECT)
 REASON_MAX = 1000
@@ -122,9 +123,14 @@ async def save(
         else:
             counts["updated"] += 1
     for key, row in rows.items():
-        if key in seen or row.state == CLOSED:
+        # Wyjaśnionej sprawy automat nie zamyka: decyzja Finansów zostaje.
+        if key in seen or row.state in (CLOSED, EXPLAINED):
             continue
         if not _evaluated(row.kind, row.period_month, today):
+            continue
+        # Osobo-miesiąc pominięty w tym przebiegu (dwa kontrakty, brak stawki,
+        # faktura czeka na nabywcę…) nie był sprawdzony — sprawa czeka.
+        if (row.candidate_id, row.period_month) in result.skipped:
             continue
         row.state = CLOSED
         row.closed_at = now
@@ -305,8 +311,16 @@ def summary(
     def total(items: list[MonthCheckCase]) -> Optional[str]:
         if not amounts:
             return None
+        # Suma tylko w złotych; sprawy w innej walucie liczy ``foreign_currency``.
         return str(
-            sum((abs(r.amount) for r in items if r.amount is not None), Decimal(0))
+            sum(
+                (
+                    abs(r.amount)
+                    for r in items
+                    if r.amount is not None and r.currency == PLN
+                ),
+                Decimal(0),
+            )
         )
 
     live = [r for r in rows if r.state != CLOSED]
@@ -321,6 +335,7 @@ def summary(
         "open_amount": total(open_rows),
         "by_state": by_state,
         "by_kind": {k: sum(1 for r in live if r.kind == k) for k in rules.KINDS},
+        "foreign_currency": sum(1 for r in live if r.currency != PLN),
     }
 
 

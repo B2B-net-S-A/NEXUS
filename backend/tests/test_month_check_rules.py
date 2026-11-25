@@ -391,3 +391,70 @@ def test_chain_items_apply_corrections():
         ("Usługi — Jan", "100"),
         ("Usługi — Anna", "150"),
     ]
+
+
+# ── Po przeglądzie kodu (25.11.2026) ─────────────────────────────────────────
+
+
+def test_skipped_person_month_is_reported_so_its_cases_stay_open():
+    months = ("2026-07",) + MONTHS + ("2026-11",)
+    parallel = {
+        (CAND, m): _ctx(live=(CONTRACT, CONTRACT + 1), contract_id=None) for m in months
+    }
+    result = rules.evaluate(
+        _inputs(
+            [_sale("2026-09", "160")], [_cost(date(2026, 9, 30), "1")], context=parallel
+        )
+    )
+    assert (CAND, "2026-09") in result.skipped
+    no_rate = {(CAND, m): _ctx(rate=None) for m in months}
+    result = rules.evaluate(
+        _inputs(
+            [_sale("2026-09", "160")], [_cost(date(2026, 9, 30), "1")], context=no_rate
+        )
+    )
+    assert (CAND, "2026-09") in result.skipped
+    clean = rules.evaluate(
+        _inputs([_sale("2026-09", "160")], [_cost(date(2026, 9, 30), str(160 * 150))])
+    )
+    assert (CAND, "2026-09") not in clean.skipped
+
+
+def test_zero_rate_is_no_rate_not_a_crash():
+    months = ("2026-07",) + MONTHS + ("2026-11",)
+    zero = {(CAND, m): _ctx(rate=Decimal(0)) for m in months}
+    result = rules.evaluate(
+        _inputs(
+            [_sale("2026-09", "160")], [_cost(date(2026, 9, 30), "20000")], context=zero
+        )
+    )
+    assert result.findings == []
+    assert result.stats["2026-09"].skipped[rules.SKIP_NOT_COMPARABLE] == 1
+
+
+def test_amounts_keep_the_invoice_currency():
+    eur_cost = rules.CostDoc(
+        CAND, "K/EUR", date(2026, 10, 30), Decimal("5000"), "EUR", False
+    )
+    (finding,) = rules.evaluate(_inputs([], [eur_cost])).findings
+    assert (finding.kind, finding.amount, finding.currency) == (
+        rules.COST_WITHOUT_SALE,
+        Decimal("5000.00"),
+        "EUR",
+    )
+    eur_sale = rules.SaleLine(
+        CAND,
+        CONTRACT,
+        CLIENT,
+        "2026-10",
+        "FS/EUR",
+        Decimal("200"),
+        Decimal("10000"),
+        "EUR",
+    )
+    over = [
+        f
+        for f in rules.evaluate(_inputs([eur_sale], [])).findings
+        if f.kind == rules.OVER_WORKING_DAYS
+    ]
+    assert [(f.amount, f.currency) for f in over] == [(Decimal("1200.00"), "EUR")]

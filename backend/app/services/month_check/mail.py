@@ -39,8 +39,6 @@ KIND = "month_check_report"
 WEEKLY_RUN = "month_check_weekly"
 MONTHLY_RUN = "month_check_month"
 SETTING_KEY = "month_check_mail"
-#: Próba z pierwszego tygodnia (decyzja Artura 25.11.2026).
-TEST_RECIPIENT = "artur.twardowski@b2bnetwork.pl"
 SEND_HOUR = 8
 SUMMARY_DAY = 12
 MAX_ROWS = 60
@@ -58,9 +56,16 @@ async def to_finance(db: AsyncSession) -> bool:
     return bool(stored and (stored.value or {}).get("to_finance") is True)
 
 
+def test_recipients() -> list[str]:
+    """Próba z pierwszego tygodnia (decyzja Artura 25.11.2026): ``MONTH_CHECK_TEST_RECIPIENTS``."""
+
+    raw = settings.MONTH_CHECK_TEST_RECIPIENTS or ""
+    return [a.strip() for a in raw.split(",") if "@" in a]
+
+
 async def recipients(db: AsyncSession) -> list[str]:
     if not await to_finance(db):
-        return [TEST_RECIPIENT]
+        return test_recipients()
     from app.services.notification_delivery import email_opted_out
 
     users = await db.scalars(
@@ -97,11 +102,12 @@ def _link(month: str) -> str:
     return f"{base}/finance?view=month-close&mcMonth={month}&mcTab=diff"
 
 
-def _pln(value: Optional[Decimal]) -> str:
+def _pln(value: Optional[Decimal], currency: str = "PLN") -> str:
     if value is None:
         return "—"
     whole = f"{abs(value):,.2f}".replace(",", " ").replace(".", ",")
-    return f"{'−' if value < 0 else ''}{whole} zł"
+    unit = "zł" if currency == "PLN" else currency
+    return f"{'−' if value < 0 else ''}{whole} {unit}"
 
 
 def _invoices(details: dict[str, Any]) -> str:
@@ -117,16 +123,24 @@ def render_weekly(rows: list[dict[str, Any]], week: str) -> tuple[str, str]:
     by_month: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
         by_month[r["month"]].append(r)
-    total = sum((abs(Decimal(r["amount"])) for r in rows if r["amount"]), Decimal(0))
+    # Suma tylko w złotych; kwoty w innej walucie są przy wierszach.
+    total = sum(
+        (
+            abs(Decimal(r["amount"]))
+            for r in rows
+            if r["amount"] and r["currency"] == "PLN"
+        ),
+        Decimal(0),
+    )
     lines = [
-        f"Nowe rozbieżności faktur z ostatniego tygodnia: {len(rows)} (razem {_pln(total)} do wyjaśnienia).",
+        f"Nowe rozbieżności faktur z ostatniego tygodnia: {len(rows)} (w złotych razem {_pln(total)} do wyjaśnienia).",
         "",
     ]
     for month in sorted(by_month):
         items = by_month[month]
         lines.append(f"{month} — {len(items)} · {_link(month)}")
         for r in items[:MAX_ROWS]:
-            amount = _pln(Decimal(r["amount"])) if r["amount"] else "—"
+            amount = _pln(Decimal(r["amount"]), r["currency"]) if r["amount"] else "—"
             lines.append(
                 f"  • {r['client'] or 'klient?'} · {r['person']} · {r['kind_label']} · {amount}"
             )
@@ -146,6 +160,7 @@ def render_summary(month: str, summary: dict[str, Any]) -> tuple[str, str]:
         f"  • zgodne osobo-miesiące: {summary.get('matched') or 0} z {summary.get('person_months') or 0}",
         f"  • sprawy: {summary['cases']} na {_pln(Decimal(summary['cases_amount'] or 0))}",
         f"  • otwarte: {summary['open']} na {_pln(Decimal(summary['open_amount'] or 0))}",
+        f"  • w innej walucie niż zł (poza sumami): {summary.get('foreign_currency') or 0}",
         f"  • wyjaśnione: {summary['by_state'].get(service.EXPLAINED, 0)}, zamknięte same: {summary['by_state'].get(service.CLOSED, 0)}",
         "",
         _link(month),
