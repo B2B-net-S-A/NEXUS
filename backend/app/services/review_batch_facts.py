@@ -21,6 +21,7 @@ i polski:
 
 from __future__ import annotations
 
+import functools
 import re
 from datetime import date
 from typing import Any, Iterable, Mapping, Optional
@@ -139,22 +140,46 @@ def job_language(job) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+@functools.lru_cache(maxsize=4096)
+def _mention_pattern(variant: str) -> re.Pattern[str]:
+    """Wariant jako osobne słowo: po lewej bez znaku słowa (litera, cyfra, ``_``)
+    i ``+#.``, po prawej bez znaku słowa i ``+#``."""
+    return re.compile(rf"(?<![\w+#.]){re.escape(variant)}(?![\w+#])")
+
+
 def _text_hit(text: str, variants: Iterable[str]) -> bool:
+    """Czy CV wspomina któryś wariant (``text`` po ``casefold``).
+
+    Regex rusza dopiero od pierwszego wystąpienia słowa, a ``find`` (w C)
+    odsiewa słowa, których w CV nie ma. 25.11.2026 regex po całym CV dla
+    każdej pary osoba × słowo trzymał pętlę zdarzeń do 35 s (``loop_stall``
+    w ``my-next-steps``). Wynik ten sam: trafienie nie może zacząć się przed
+    pierwszym wystąpieniem, a lewa granica widzi znak przed ``pos``."""
     for variant in variants:
         if not variant:
             continue
-        if re.search(rf"(?<![\w+#.]){re.escape(variant)}(?![\w+#])", text):
+        start = text.find(variant)
+        if start >= 0 and _mention_pattern(variant).search(text, start):
             return True
     return False
 
 
 async def evidence_for(
-    db, candidates: Iterable[Any], labels: Iterable[str]
+    db,
+    candidates: Iterable[Any],
+    labels: Iterable[str],
+    *,
+    labels_by_candidate: Optional[Mapping[int, Iterable[str]]] = None,
 ) -> dict[tuple[int, str], tuple[str, int]]:
     """``{(candidate_id, label): (stan, miesiące)}`` — dowód pozycji u osób.
 
     Jedno zapytanie o oś technologii; reszta z CV i listy umiejętności osoby.
-    Wspólne dla karty porcji i reguły rekrutacji (``job_learned_rules``)."""
+    Wspólne dla karty porcji i reguły rekrutacji (``job_learned_rules``).
+
+    ``labels_by_candidate`` (``{candidate_id: etykiety}``) zawęża pary do
+    pozycji danej osoby; bez niego każda osoba idzie przez wszystkie
+    ``labels``. Tablice wielu rekrutacji (``steps_for_jobs``) muszą zawężać:
+    25 Tablic to 850 osób × 204 słowa zamiast 12 123 potrzebnych par."""
     from app.models.candidate_skill_usage import CandidateSkillUsage
     from app.services.scoring_service import (
         candidate_skill_names,
@@ -191,9 +216,15 @@ async def evidence_for(
     usage = {(cid, key): int(months) for cid, key, months in rows}
     out: dict[tuple[int, str], tuple[str, int]] = {}
     for cid, candidate in people.items():
+        own = variants
+        if labels_by_candidate is not None:
+            wanted = {lb.strip() for lb in labels_by_candidate.get(cid, ()) if lb}
+            own = {lb: variants[lb] for lb in wanted if lb in variants}
+            if not own:
+                continue
         text = (getattr(candidate, "raw_cv_text", None) or "").casefold()
         skills = candidate_skill_names(candidate)
-        for label, family in variants.items():
+        for label, family in own.items():
             months = max((usage.get((cid, key), 0) for key in family), default=0)
             state = evidence_state(
                 months=months,

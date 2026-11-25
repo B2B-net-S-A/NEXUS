@@ -1,5 +1,5 @@
 # Porcja dnia: schodki po wymaganiach — najpierw więcej spełnionych „musi mieć”
-<!-- indeks: `services/requirement_steps.py`, `Steps`, `steps_for`, `steps_for_jobs`, `steps_if_enabled`, `OrderFacts.steps`, `_step_key`, `_with_known_points`, `entry_autofill.steps`, `requirements` w `/me/queue`, `ReviewBatchRequirementsBlock`, „Musi mieć 7 z 10” -->
+<!-- indeks: `services/requirement_steps.py`, `Steps`, `steps_for`, `steps_for_jobs`, `labels_by_candidate`, `steps_if_enabled`, `OrderFacts.steps`, `_step_key`, `_with_known_points`, `entry_autofill.steps`, `requirements` w `/me/queue`, `ReviewBatchRequirementsBlock`, „Musi mieć 7 z 10” -->
 
 Decyzja Artura z 23.11.2026, wariant B z makiet:
 https://claude.ai/artifact/5SJB7AYPZWbFkVKf77jhnN. Zgłoszenie: „ręczne
@@ -31,6 +31,15 @@ krytyczne, musi mieć i mile widziane, potem reszta.
   (`ReviewBatchRequirementsBlock`, `orderLine`). Zastępuje chipy ✓ / ? z migawki
   silnika i zdanie „Z listy wymagań: X z Y”. Procent zostaje wynikiem.
 - **Tylko przy włączonej porcji** (`REVIEW_BATCH_ENABLED`, `steps_if_enabled`).
+- **Osoba tylko ze słowami swojej rekrutacji.** `steps_for_jobs` podaje
+  `evidence_for` mapę `labels_by_candidate`; bez niej każda osoba ze wszystkich
+  Tablic idzie przez słowa wszystkich rekrutacji. 25.11.2026 strażnik pętli
+  zdarzeń złapał 34 zastoje `my-next-steps` (do 35 s, `loop_stall` w `_text_hit`).
+  Kopia z 25.11, rekruter z 25 Tablicami: 850 osób × 204 słowa = 173 400 par
+  i 33 s CPU w pętli, przy 12 123 potrzebnych parach; po zmianie 0,7 s, wynik
+  ten sam. Nowe wywołanie `evidence_for` dla wielu rekrutacji też zawęża pary.
+  Wzmianka w CV (`_text_hit`): najpierw `str.find`, regex tylko od pierwszego
+  wystąpienia słowa, wzorce skompilowane raz (`_mention_pattern`).
 
 ## Pomiar (kopia produkcji z 23.11.2026, karty od 09.11)
 

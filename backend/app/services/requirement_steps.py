@@ -190,8 +190,19 @@ async def steps_for_jobs(
     ids = sorted({int(cid) for _, cids in live.values() for cid in cids})
     people = (await db.scalars(select(Candidate).where(Candidate.id.in_(ids)))).all()
     by_id = {p.id: p for p in people}
-    words = {word for reqs, _ in live.values() for word in reqs.words()}
-    evidence = await evidence_for(db, people, words)
+    # Osoba tylko ze słowami swoich rekrutacji (loop_stall 25.11.2026: każda
+    # osoba ze słowami wszystkich Tablic to 14× więcej par i 33 s CPU w pętli).
+    words_of: dict[int, set[str]] = {}
+    for reqs, cids in live.values():
+        words = reqs.words()
+        for cid in cids:
+            words_of.setdefault(int(cid), set()).update(words)
+    evidence = await evidence_for(
+        db,
+        people,
+        {word for words in words_of.values() for word in words},
+        labels_by_candidate=words_of,
+    )
     for job_id, (reqs, cids) in live.items():
         out[job_id] = {
             cid: _steps(reqs, cid, evidence)
