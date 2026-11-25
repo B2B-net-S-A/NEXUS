@@ -29,6 +29,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Mm, Pt, RGBColor
 
+from app.core.docx_cells import row_cells
 from app.services.cv_new_layout.context import Ctx, DatedRole, build_context
 from app.services.cv_new_layout.document import NewCvDocument
 from app.services.cv_new_layout.facts import certs_by_year
@@ -243,7 +244,7 @@ def _grid_table(document, rows: int, widths: Iterable[float]):
         margins.append(edge)
     _tblpr_set(tblpr, margins)
     for row in table.rows:
-        for cell, width in zip(row.cells, widths):
+        for cell, width in zip(row_cells(row), widths):
             cell.width = Mm(width)
     for col, width in zip(table._element.tblGrid.findall(qn("w:gridCol")), widths):
         col.set(qn("w:w"), str(int(width / 25.4 * 1440)))
@@ -255,7 +256,7 @@ def _keep_rows_whole(table, head_rows: int = 0) -> None:
     for i, row in enumerate(table.rows):
         row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
         if i < head_rows:
-            for p in row.cells[1].paragraphs:
+            for p in row_cells(row)[1].paragraphs:
                 p.paragraph_format.keep_with_next = True
 
 
@@ -346,7 +347,7 @@ def _role_table(document, ctx: Ctx, r: DatedRole) -> None:
         return
     table = _grid_table(document, len(rows), (30.0, CONTENT_W - 30.0))
     for i, (label, kind, value) in enumerate(rows):
-        head, body = table.rows[i].cells
+        head, body = row_cells(table.rows[i])
         _shade(head, HEAD_FILL)
         _run(_first(head), label, bold=True)
         if kind == "text":
@@ -378,7 +379,7 @@ def _skills_full(document, ctx: Ctx) -> None:
         return
     table = _grid_table(document, len(rows), (36.0, CONTENT_W - 36.0))
     for i, (label, items) in enumerate(rows):
-        head, body = table.rows[i].cells
+        head, body = row_cells(table.rows[i])
         _shade(head, HEAD_FILL)
         _run(_first(head), label, bold=True)
         p = _first(body)
@@ -396,12 +397,12 @@ def _education_full(document, ctx: Ctx, certs_hidden: int) -> None:
     if len(schools) > 1:
         table = _grid_table(document, len(schools) + 1, (36.0, 76.0, CONTENT_W - 112.0))
         for cell, text in zip(
-            table.rows[0].cells, (t["dates"], t["school"], t["field_degree"])
+            row_cells(table.rows[0]), (t["dates"], t["school"], t["field_degree"])
         ):
             _shade(cell, "E8E8E8")
             _run(_first(cell), text, size=7.8, bold=True)
         for i, s in enumerate(schools, start=1):
-            a, b, c = table.rows[i].cells
+            a, b, c = row_cells(table.rows[i])
             _run(_first(a), s.dates.replace(" - ", " – ") or "—", size=8.3)
             _run(_first(b), s.institution, size=8.3, bold=True)
             _run(_first(c), s.degree, size=8.3)
@@ -413,10 +414,10 @@ def _education_full(document, ctx: Ctx, certs_hidden: int) -> None:
         widths = (14.0, CONTENT_W - 14.0) if has_year else (CONTENT_W,)
         table = _grid_table(document, len(certs) + 1, widths)
         heads = (t["year"], t["certificate"]) if has_year else (t["certificate"],)
-        for cell, text in zip(table.rows[0].cells, heads):
+        for cell, text in zip(row_cells(table.rows[0]), heads):
             _run(_first(cell), text, size=7.8, bold=True, color=SOFT)
         for i, c in enumerate(certs, start=1):
-            cells = table.rows[i].cells
+            cells = row_cells(table.rows[i])
             if has_year:
                 _run(_first(cells[0]), c.year, size=8.3, color=SOFT)
             _run(_first(cells[-1]), c.name, size=8.3)
