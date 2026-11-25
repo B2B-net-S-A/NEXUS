@@ -12,8 +12,10 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   Ograniczenia `CHECK` **nadal akceptują starą wartość** (widen-then-migrate),
   a typ we froncie ma obie — dlatego zmiana niczego nie zerwała. Sam import
   (`/api/admin/import-talent-radar`, karta „Import CV” w Administracji) usunięto
-  25.11.2026, a projekt Supabase `talentradar-prod` wyeksportowano poza repo;
-  wiersze `tr_legacy` w bazie zostają.
+  25.11.2026. Projekt Supabase `talentradar-prod` tego samego dnia
+  wyeksportowano poza repo (liczby wierszy i próbne odtworzenie zgodne
+  ze źródłem), a po „usuń” Artura usunięto, więc źródła importu już nie ma.
+  Wiersze `tr_legacy` w bazie NEXUSA zostają.
 - **`client_id` jest WYMAGANY, nie opcjonalny.** Filtr dopuszczalności sprawdza
   względem niego blacklistę klienta, NDA, konflikty konkurencyjne i weto hiring
   managera. Opcjonalny klient dałby listę, w której te kontrole cicho nie
