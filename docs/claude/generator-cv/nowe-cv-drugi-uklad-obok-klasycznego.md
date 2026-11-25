@@ -183,6 +183,21 @@ w regule CV klienta (etap 1), potem Word w nowym wyglądzie (etap 2, sekcja
   w „Nowym CV” (`GeneratedCvItem.cv_layout`) trasa daje 409, a wynik nie ma
   przycisku PDF, tylko wskazanie karty „CV do klienta” — PDF z Worda byłby
   innym plikiem niż wybrany.
+- **Pozostałe miejsca pobrania CV etapu** (25.11.2026, PR po #3983/#3991):
+  - pasek podglądu „CV firmowe” w panelu osoby (`CandidatePreviewPane`) —
+    jak dok (`cvDownloadsWithoutMenu`): Word i PDF obok siebie, plik klienta
+    pierwszy, bez „Word (klasyczne)” (miejsce nie ma menu);
+  - przycisk nad CV w `StageCvPreview` (przegląd DL, edytor): bez wymagań jeden
+    plik jak dotąd (PDF przy Nowym CV, inaczej Word), przy formacie klienta
+    przyciski z `plan.primary` (oba = Word i PDF);
+  - pliki kandydata („CV dla klientów”): „Pobierz” = plik klienta (przy PDF
+    przycisk „Pobierz PDF”), reszta planu w „⋯”, także „Word (klasyczne)”
+    (`fetchStageCvFile(…, { classic: true })` → `?layout=classic`);
+  - „Moje wygenerowane CV”: jeden przycisk, plik klienta (bez menu).
+  Lista `GET /cv-generator/generated` niesie przy CV etapu `stage_cv_layout`
+  i `client_file_format` (to samo zapytanie co `stage_cv_stage_id`).
+  Rekrutacje w profilu kandydata nie pobierają pliku (sam podgląd), oryginały
+  kandydata idą jak dotąd.
 - **Ostrzeżenie** „Klient chce Worda, a wybrane jest Nowe CV” było w etapie 1
   (PR #3983); etap 2 je usunął, bo Word ma już nowy wygląd.
 

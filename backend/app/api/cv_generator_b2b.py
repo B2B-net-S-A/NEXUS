@@ -99,6 +99,7 @@ from app.services.ai_quota import (
 from app.services import cv_consent_check as consent_check
 from app.services import cv_consent_gate as consent_gate
 from app.services import cv_layout as layout_service
+from app.services import cv_file_format as file_format_service
 from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
@@ -362,6 +363,11 @@ class GeneratedCvItem(BaseModel):
     stage_cv_status: Optional[Literal["draft", "finalized"]] = None
     stage_cv_updated_at: Optional[str] = None
     stage_cv_finalized_at: Optional[str] = None
+    # Układ CV etapu i format pliku z reguły klienta rekrutacji (25.11.2026):
+    # pliki kandydata i „Moje wygenerowane CV” stawiają na wierzchu plik,
+    # którego chce klient (`cvDownloadPlan`). Tylko przy CV etapu.
+    stage_cv_layout: Optional[Literal["classic", "new"]] = None
+    client_file_format: Optional[Literal["docx", "pdf", "both"]] = None
     # „Odrzuć to CV” (audyt 22.10, F64): dokument zostaje w plikach, ale karta
     # „CV do klienta” nie proponuje go jako CV tej rekrutacji.
     discarded: bool = False
@@ -3468,6 +3474,7 @@ async def _stage_cvs_for_documents(db: AsyncSession, document_ids: list[int]) ->
     if not document_ids:
         return {}
     from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.client_cv_rule import ClientCvRule
 
     found: dict = {}
     rows = (
@@ -3478,9 +3485,21 @@ async def _stage_cvs_for_documents(db: AsyncSession, document_ids: list[int]) ->
                 CandidateStageCV.branded_status,
                 CandidateStageCV.branded_updated_at,
                 CandidateStageCV.branded_finalized_at,
+                CandidateStageCV.cv_layout,
+                ClientCvRule.cv_file_format,
             )
             .join(
                 CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
+            )
+            # Format pliku z zatwierdzonej reguły klienta rekrutacji — jak
+            # `cv_file_format.for_stage` przy karcie „CV do klienta”.
+            .outerjoin(Job, Job.id == CandidateStage.job_id)
+            .outerjoin(
+                ClientCvRule,
+                and_(
+                    ClientCvRule.client_id == Job.client_id,
+                    ClientCvRule.confirmed_at.is_not(None),
+                ),
             )
             .where(
                 CandidateStageCV.generated_document_id.in_(document_ids),
@@ -3512,6 +3531,8 @@ def _stage_cv_fields(row) -> dict:
             if row.branded_status == "finalized" and row.branded_finalized_at
             else None
         ),
+        "stage_cv_layout": layout_service.effective(row.cv_layout),
+        "client_file_format": file_format_service.normalized(row.cv_file_format),
     }
 
 

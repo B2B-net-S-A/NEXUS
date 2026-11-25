@@ -20,6 +20,7 @@ const listGenerated = vi.fn();
 const getMock = vi.fn();
 const downloadGeneratedCv = vi.fn();
 const fetchStageCvFile = vi.fn();
+const fetchStageCvPdf = vi.fn();
 const downloadBlob = vi.fn();
 const toast = vi.hoisted(() => ({ showError: vi.fn(), showSuccess: vi.fn(), showInfo: vi.fn() }));
 
@@ -35,6 +36,7 @@ vi.mock("@/components/v2/cv-generator/cv-generated-files", () => ({
 }));
 vi.mock("@/lib/stage-cv-file", () => ({
   fetchStageCvFile: (...args: unknown[]) => fetchStageCvFile(...args),
+  fetchStageCvPdf: (...args: unknown[]) => fetchStageCvPdf(...args),
 }));
 vi.mock("@/lib/cv-generator", () => ({
   downloadBlob: (...args: unknown[]) => downloadBlob(...args),
@@ -78,6 +80,7 @@ beforeEach(() => {
   listGenerated.mockReset();
   downloadGeneratedCv.mockReset();
   fetchStageCvFile.mockReset();
+  fetchStageCvPdf.mockReset();
   downloadBlob.mockReset();
   toast.showError.mockReset();
 });
@@ -133,6 +136,38 @@ describe("MyGeneratedCvs", () => {
     await user.click(screen.getByRole("button", { name: "Pobierz CV: Kandydat 2" }));
     await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(77, { download: "mine" }));
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_etap.docx");
+  });
+
+  it("CV etapu u klienta z PDF w regule — „Pobierz PDF” daje PDF etapu (25.11.2026)", async () => {
+    listGenerated.mockResolvedValue({
+      data: [
+        cv(4, { stage_cv_stage_id: 78, stage_cv_status: "draft", client_file_format: "pdf" }),
+        // Format klienta bez CV etapu nic nie zmienia — plik z generatora.
+        cv(5, { client_file_format: "pdf" }),
+        cv(6, { stage_cv_stage_id: 79, stage_cv_status: "draft", client_file_format: "docx", stage_cv_layout: "new" }),
+      ],
+    });
+    downloadGeneratedCv.mockResolvedValue(null);
+    fetchStageCvPdf.mockResolvedValue({ blob: new Blob(["%PDF"]), filename: "CV_etap.pdf" });
+    fetchStageCvFile.mockResolvedValue({ blob: new Blob(["x"]), filename: "CV_nowe.docx" });
+    renderPage();
+    const user = userEvent.setup();
+
+    const pdfButton = await screen.findByRole("button", { name: "Pobierz CV: Kandydat 4" });
+    expect(pdfButton).toHaveTextContent("Pobierz PDF");
+    await user.click(pdfButton);
+    await waitFor(() => expect(fetchStageCvPdf).toHaveBeenCalledWith(78, { download: "mine" }));
+    expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_etap.pdf");
+    expect(fetchStageCvFile).not.toHaveBeenCalled();
+
+    const generatorButton = screen.getByRole("button", { name: "Pobierz CV: Kandydat 5" });
+    expect(generatorButton).toHaveTextContent(/^Pobierz$/);
+    await user.click(generatorButton);
+    expect(downloadGeneratedCv).toHaveBeenCalledWith(expect.objectContaining({ id: 5 }), "docx", "mine");
+
+    // Word przy Nowym CV — nowy wygląd (bez `classic`), klasycznego tu nie ma.
+    await user.click(screen.getByRole("button", { name: "Pobierz CV: Kandydat 6" }));
+    await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(79, { download: "mine" }));
   });
 
   it("nazwa pliku otwiera podgląd tego wiersza", async () => {

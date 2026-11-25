@@ -3,6 +3,9 @@
 Profil kandydata („Pliki i umowy” → „CV dla klientów”) pobierał surowy plik
 generatora, a poprawki z edytora i po QC żyją wyłącznie w CV etapu. Lista podaje
 teraz wiersz etapu, z którego profil pobiera plik z poprawkami.
+
+Od 25.11.2026 także układ CV etapu i format pliku z zatwierdzonej reguły klienta
+— pliki kandydata i „Moje wygenerowane CV” dają na wierzchu plik klienta.
 """
 
 # ruff: noqa: F811  (fixture `pv_client` importowana z sąsiedniego pliku)
@@ -14,8 +17,10 @@ import pytest
 from httpx import AsyncClient
 
 import app.models  # noqa: F401
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate_stage_cv import CandidateStageCV
+from app.models.client_cv_rule import ClientCvRule
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from tests.test_cv_auto_generate import _headers, _world
 from tests.test_cv_generated_list_filters import _doc
@@ -123,3 +128,58 @@ async def test_stage_row_without_company_cv_is_ignored(pv_client: AsyncClient):
     item = (await _items(pv_client, world))[document]
 
     assert item["stage_cv_stage_id"] is None
+
+
+async def _rule(client_id: int, value: str | None, *, confirmed: bool = True) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientCvRule(
+                client_id=client_id,
+                version=1,
+                edit_revision=1,
+                confirmed_at=datetime.now(timezone.utc) if confirmed else None,
+                cv_file_format=value,
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_stage_cv_row_carries_layout_and_client_file_format(
+    pv_client: AsyncClient, monkeypatch
+):
+    monkeypatch.setattr(settings, "CV_NEW_LAYOUT_ENABLED", True)
+    world = await _world()
+    attached = await _doc(world, created_by=world["user_id"], name="Format klienta")
+    unused = await _doc(world, created_by=world["user_id"], name="Bez etapu")
+    await _stage_cv(
+        world, world["stage_id"], attached, branded_status="draft", cv_layout="new"
+    )
+    await _rule(world["client_id"], "pdf")
+
+    items = await _items(pv_client, world)
+
+    assert items[attached]["stage_cv_layout"] == "new"
+    assert items[attached]["client_file_format"] == "pdf"
+    # Bez CV etapu pobiera się plik generatora — format nie ma znaczenia.
+    assert items[unused]["stage_cv_layout"] is None
+    assert items[unused]["client_file_format"] is None
+
+    # Wyłączona flaga „Nowego CV” = układ klasyczny, jak w karcie.
+    monkeypatch.setattr(settings, "CV_NEW_LAYOUT_ENABLED", False)
+    assert (await _items(pv_client, world))[attached]["stage_cv_layout"] == "classic"
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_rule_proposal_is_not_a_client_format(pv_client: AsyncClient):
+    # Propozycja reguły (bez zatwierdzenia) nie zmienia pobrania u rekrutera.
+    world = await _world()
+    document = await _doc(world, created_by=world["user_id"], name="Propozycja")
+    await _stage_cv(world, world["stage_id"], document, branded_status="draft")
+    await _rule(world["client_id"], "pdf", confirmed=False)
+
+    item = (await _items(pv_client, world))[document]
+
+    assert item["stage_cv_stage_id"] == world["stage_id"]
+    assert item["stage_cv_layout"] == "classic"
+    assert item["client_file_format"] is None

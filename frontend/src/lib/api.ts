@@ -7530,6 +7530,10 @@ export interface GeneratedCvItem {
   stage_cv_status?: "draft" | "finalized" | null;
   stage_cv_updated_at?: string | null;
   stage_cv_finalized_at?: string | null;
+  /** Układ CV etapu (25.11.2026) — tylko przy `stage_cv_stage_id`. */
+  stage_cv_layout?: CvLayout | null;
+  /** Format pliku z reguły klienta rekrutacji; `null` = bez wymagań. Tylko przy CV etapu. */
+  client_file_format?: "docx" | "pdf" | "both" | null;
   /** Odrzucone „Odrzuć to CV” w karcie „CV do klienta” (audyt 22.10). */
   discarded?: boolean;
 }
