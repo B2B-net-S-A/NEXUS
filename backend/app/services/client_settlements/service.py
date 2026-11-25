@@ -20,7 +20,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
@@ -2404,12 +2404,24 @@ async def _recompute(
     proof, cost_parts = await _rate_change_checks(
         db, s, proof, rules, person.contract, state, split=bool(split)
     )
+    # Podział na zamówienia z maila ma stawki swoich linii; tu tylko jedna linia.
+    cost_state, cost_note = (
+        (state, None)
+        if split
+        else _contract_cost(
+            person.contract,
+            order,
+            state,
+            await _candidate_steps(db, s.contract_id),
+            s.period_month,
+        )
+    )
     result = compute(
         Inputs(
             md_regular=s.md_regular,
             md_extra=s.md_extra,
             rules=rules,
-            order=state,
+            order=cost_state,
             onboarding_used_before=await _onboarding_used(
                 db, s.contract_id, s.period_month
             ),
@@ -2426,6 +2438,8 @@ async def _recompute(
             cost_parts=cost_parts,
         )
     )
+    if cost_note is not None and result.amount_cost is not None:
+        result = replace(result, checks=[*result.checks, cost_note])
     # Stawka linii ≠ kontrakt albo ostatnia faktura za osobę: uwaga przed fakturą.
     priced_lines = (
         [part.order for part in split]
@@ -2569,6 +2583,94 @@ def _cost_parts(
         md=Decimal(s.md_regular),
         per_md=rcp_checks._param_dec(rules, "fields.md_hours", "hours", "8"),
     )
+
+
+#: Stawki kontraktu, które przeliczamy na zł/MD wprost (1 MD = 8 h). Stawka
+#: miesięczna nie mówi, ile kosztuje dzień w miesiącu innym niż 21 dni.
+_PER_MD_UNITS = (RateUnit.hourly, RateUnit.daily)
+_CENT = Decimal("0.01")
+
+
+async def _candidate_steps(db: AsyncSession, contract_id: int) -> list[rate_split.Step]:
+    return [
+        (day, Decimal(rate))
+        for day, rate in (
+            await db.execute(
+                select(ContractCandidateRate.effective_from, ContractCandidateRate.rate)
+                .where(ContractCandidateRate.contract_id == contract_id)
+                .order_by(
+                    ContractCandidateRate.effective_from, ContractCandidateRate.id
+                )
+            )
+        ).all()
+    ]
+
+
+def _contract_cost(
+    contract: Optional[Contract],
+    order: Any,
+    state: Optional[OrderState],
+    steps: Sequence[rate_split.Step],
+    month: str,
+) -> tuple[Optional[OrderState], Optional[dict[str, Any]]]:
+    """Koszt linii zamówienia zbiorczego ze stawki kontraktu na cały miesiąc.
+
+    Stawkę linii zbiorczej prowadzi Delivery Lead i synchronizacja z kontraktem
+    jej nie zmienia (``contract_order_sync``), a kontraktor fakturuje według
+    kontraktu. Próba IX–X 2026: linia została przy stawce sprzed aneksu albo
+    dostała stawkę aneksu przed jego datą, a rozliczenie miało zły koszt ze
+    stanem „ok”. Gdy przez cały miesiąc obowiązuje jedna stawka kontraktu
+    (``Contract.effective_candidate_rate``) w zł, koszt liczy się z niej
+    (decyzja Artura z 25.11.2026). Przychód i linia zostają bez zmian, a stan
+    też: rozjazd linii pokazuje raport „Rozjazdy stawek”.
+
+    Poza tym: zmiana stawki w trakcie miesiąca (``_rate_change_checks``),
+    zwykłe zamówienie (części kosztu z ``order_cost_steps``), stawka miesięczna,
+    waluta obca (linia trzyma koszt w zł po kursie) i linia bez stawki kosztu."""
+
+    if (
+        state is None
+        or state.rate_cost is None
+        or getattr(order, "order_group_id", None) is None
+        or contract is None
+        or contract.rate_unit is None
+        or RateUnit(contract.rate_unit) not in _PER_MD_UNITS
+        or contract.resolved_rate_candidate_currency != "PLN"
+    ):
+        return state, None
+    first, last = month_bounds(month)
+    if steps and rate_split.changes(steps, first, last):
+        return state, None
+    rate = rate_split.rate_on(steps, first) if steps else contract.rate_candidate
+    unit = RateUnit(contract.rate_unit)
+    md_rate = convert_order_rate(rate, unit, RateUnit.daily)
+    if md_rate is None or md_rate <= 0:
+        return state, None
+    md_rate = md_rate.quantize(_CENT)
+    line = Decimal(state.rate_cost).quantize(_CENT)
+    if abs(md_rate - line) < _CENT:
+        return state, None
+    hourly = (
+        f" ({rcp_checks._fmt(Decimal(rate))} zł/h)" if unit == RateUnit.hourly else ""
+    )
+    number = f" {state.number}" if state.number else ""
+    note = {
+        "title": "Stawka kontraktora",
+        "checks": [
+            {
+                "state": "ok",
+                "title": f"Koszt ze stawki kontraktu: {rcp_checks._fmt(md_rate)} zł/MD",
+                "detail": (
+                    f"Linia zamówienia{number}: {rcp_checks._fmt(line)} zł/MD, "
+                    "a stawka kontraktu przez cały miesiąc: "
+                    f"{rcp_checks._fmt(md_rate)} zł/MD{hourly}. Koszt liczymy "
+                    "z kontraktu, bo według niego fakturuje kontraktor. Stawkę linii "
+                    "poprawia Delivery Lead (Finanse → Rozjazdy stawek)."
+                ),
+            }
+        ],
+    }
+    return replace(state, rate_cost=md_rate), note
 
 
 async def _month_mail_files(
