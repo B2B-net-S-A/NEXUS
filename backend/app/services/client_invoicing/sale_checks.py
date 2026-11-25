@@ -268,6 +268,9 @@ async def person_owners(
         .where(
             ClientExternalId.client_id.in_(family),
             ClientExternalId.kind == refs.PERSON_NO_KIND,
+            # Kod odrzucony przez Finanse nie należy do osoby (podpowiedź
+            # z faktury, którą ktoś uznał za błędną).
+            ClientExternalId.state != "rejected",
         )
     )
     out: dict[str, list[Owner]] = defaultdict(list)

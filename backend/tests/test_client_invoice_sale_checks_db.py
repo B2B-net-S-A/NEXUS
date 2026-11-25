@@ -183,3 +183,65 @@ async def test_report_checks_ksef_invoices_issued_outside_nexus(
                 delete(ClientSalesInvoice).where(ClientSalesInvoice.id.in_(ids))
             )
             await db.commit()
+
+
+async def _contract_of(client_id: int, first: str) -> int:
+    from sqlalchemy import select
+
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract
+
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(Contract.id)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(Contract.client_id == client_id, Candidate.name == first)
+        )
+
+
+@pytest.mark.parametrize("state", ["rejected", "confirmed"])
+async def test_rejected_person_code_does_not_count(sales_client, seed, rules, state):
+    from app.models.client_time_report import ClientExternalId
+
+    await rules({"cl.contractor_person_id": {"level": "warn"}})
+    contract_id = await _contract_of(seed.client_id, "Jan")
+    async with AsyncSessionLocal() as db:
+        code = ClientExternalId(
+            client_id=seed.client_id,
+            contract_id=contract_id,
+            kind="client_person_no",
+            value="A123456",
+            source="manual",
+            state=state,
+        )
+        invoice = _ksef_invoice(
+            seed.client_id,
+            9201,
+            [{"name": "Contractor Jan Przykładowy ID: A123456", "quantity": "1"}],
+        )
+        db.add_all([code, invoice])
+        await db.commit()
+        ids = (code.id, invoice.id)
+    try:
+        response = await sales_client.get(
+            f"{SALES}/form-checks",
+            params={"year": 2026, "month": 10},
+            headers=_h(seed),
+        )
+        assert response.status_code == 200, response.text
+        found = {
+            row["invoice_id"]: row["problems"] for row in response.json()["invoices"]
+        }
+        if state == "rejected":
+            assert any("NEXUS nie zna kodu A123456" in p for p in found[ids[1]])
+        else:
+            assert ids[1] not in found
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientSalesInvoice).where(ClientSalesInvoice.id == ids[1])
+            )
+            await db.execute(
+                delete(ClientExternalId).where(ClientExternalId.id == ids[0])
+            )
+            await db.commit()
