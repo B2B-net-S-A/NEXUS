@@ -14,6 +14,7 @@
 import { enterPoligon, leavePoligon } from "@/lib/poligon/mode";
 import type { PoligonAction } from "@/lib/poligon/store";
 
+import { sendLessonEvent } from "./api";
 import { DAILY_PATH, withSteps } from "./daily";
 import { withinAnchor, writeTour, type Novelty } from "./logic";
 
@@ -234,4 +235,26 @@ export function afterWrongAnswer(run: LessonRun): { run: LessonRun; backToShow: 
 /** Miejsce w NEXUSIE wpisu słowami użytkownika — pierwszy człon „gdzie”. */
 export function lessonArea(lesson: Pick<Lesson, "novelties">): string {
   return lesson.novelties[0]?.where.split("→")[0]?.trim() || "NEXUS";
+}
+
+/**
+ * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): zepsuty pokaz, zadanie
+ * albo pytanie nie może nikogo zatrzymać. Serwer zalicza lekcję od razu
+ * (zdarzenie `broken`) i zostawia ślad, która lekcja jest zepsuta. Bez
+ * połączenia lekcja zostaje niezaliczona, ale osoba i tak wraca do listy.
+ */
+export async function skipBrokenLesson(run: LessonRun): Promise<boolean> {
+  let ok = await sendLessonEvent(run.lesson.id, "broken");
+  // Serwer bez zdarzenia `broken` (front wdrożony przed backendem): zwykła
+  // kolejność etapów zalicza lekcję tak samo.
+  if (!ok) {
+    const id = run.lesson.id;
+    ok = run.review
+      ? await sendLessonEvent(id, "review_passed")
+      : (await sendLessonEvent(id, "shown")) &&
+        (await sendLessonEvent(id, "solo_passed")) &&
+        (await sendLessonEvent(id, "completed"));
+  }
+  leaveLesson(run);
+  return ok;
 }

@@ -10,7 +10,7 @@ import { writeRun, type LessonRun } from "@/lib/novelties/lessons";
 // B. pokaz kończący się na ekranie z warunku zaliczał „sam” od razu, zanim
 //    karta przeszła na `solo_href` (Boty sprzedaży, karta firmy → Kontakty).
 
-const sendLessonEvent = vi.hoisted(() => vi.fn(async () => true));
+const sendLessonEvent = vi.hoisted(() => vi.fn(async (_id: string, _event: string) => true));
 let pathname = "/contracts/990521";
 
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -91,5 +91,41 @@ describe("LessonLayer — karta zadania", () => {
     expect(screen.queryByTestId("lesson-solo")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /pokaż zadanie/ }));
     expect(screen.getByTestId("lesson-solo").textContent).toContain("Otwórz „Opieka i rozmowy”.");
+  });
+});
+
+describe("LessonLayer — „Coś nie działa”", () => {
+  it("zalicza lekcję zdarzeniem `broken` z etapu „sam” i z pytania", async () => {
+    for (const stage of ["solo", "quiz"] as const) {
+      sendLessonEvent.mockClear();
+      writeRun(run(stage));
+      const view = render(<LessonLayer />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Coś nie działa — zalicz i dalej" }));
+      });
+      expect(sendLessonEvent).toHaveBeenCalledWith("lekcja-karta-kontraktu", "broken");
+      view.unmount();
+    }
+  });
+});
+
+describe("LessonLayer — „Coś nie działa” na starym serwerze", () => {
+  it("bez `broken` na serwerze zalicza zwykłą kolejnością etapów", async () => {
+    sendLessonEvent.mockClear();
+    sendLessonEvent.mockImplementation(async (_id: string, event: string) => event !== "broken");
+    writeRun(run("quiz"));
+    render(<LessonLayer />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Coś nie działa — zalicz i dalej" }));
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(sendLessonEvent.mock.calls.map((c) => c[1])).toEqual(["broken", "shown", "solo_passed", "completed"]);
+    sendLessonEvent.mockImplementation(async () => true);
   });
 });

@@ -16,7 +16,7 @@ import { useStartStatus } from "@/lib/novelties/api";
 import { formatLukiDue } from "@/lib/novelties/logic";
 import { pluralPl } from "@/lib/plural-pl";
 import { enterPoligon } from "@/lib/poligon/mode";
-import { SERVER_PREFIX, nextExerciseId, readDone, resetProgress } from "@/lib/poligon/progress";
+import { SERVER_PREFIX, nextExerciseId, readDone, resendMissing, resetProgress } from "@/lib/poligon/progress";
 import { usePoligonPath } from "@/lib/poligon/usePoligonPath";
 import { cn } from "@/lib/utils";
 
@@ -29,9 +29,11 @@ export default function PoligonPage() {
   const { path, context } = usePoligonPath(poligon);
 
   useEffect(() => {
+    // Zaliczone w przeglądarce, a nieznane serwerowi, dosyłamy: blokada liczy z serwera.
+    if (serverIds) resendMissing(serverIds, path);
     setDone(readDone(serverIds ?? []));
     setMounted(true);
-  }, [serverIds]);
+  }, [serverIds, path]);
 
   const modules = useMemo(() => {
     const byModule = new Map<string, (typeof path)[number][]>();
