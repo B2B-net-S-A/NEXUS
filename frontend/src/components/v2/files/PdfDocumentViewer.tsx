@@ -70,6 +70,20 @@ const SILENT_L10N = {
   resume: () => undefined,
 };
 
+/**
+ * Adnotacje rysujemy na płótnie strony (`ENABLE`), bez warstwy formularzy.
+ * Podpis elektroniczny (kwalifikowany, zaufany, „Wypełnij i podpisz”) to
+ * adnotacja PDF — pole podpisu albo pieczątka. Do 25.11.2026 podgląd miał
+ * `DISABLE` i podpisana umowa przedwstępna wyglądała na niepodpisaną, choć
+ * plik był podpisany. Warstwę HTML adnotacji (linki, dymki) ukrywa
+ * `pdf-viewer.css`, jak przed zmianą.
+ */
+export function viewerAnnotationMode(
+  lib: Pick<Awaited<ReturnType<typeof loadPdfJs>>["lib"], "AnnotationMode">,
+): number {
+  return lib.AnnotationMode.ENABLE;
+}
+
 type ViewerInternals = {
   eventBus: InstanceType<
     Awaited<ReturnType<typeof loadPdfJs>>["viewer"]["EventBus"]
@@ -247,7 +261,7 @@ export function PdfDocumentViewer({
         linkService,
         findController,
         textLayerMode: 1,
-        annotationMode: lib.AnnotationMode.DISABLE,
+        annotationMode: viewerAnnotationMode(lib),
         // Kontrakt typów wymaga pełnej klasy L10n; pdf.js woła wyłącznie
         // metody zdefiniowane w SILENT_L10N.
         l10n: SILENT_L10N as never,

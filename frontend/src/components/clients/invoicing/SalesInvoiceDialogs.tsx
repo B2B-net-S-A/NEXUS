@@ -58,8 +58,11 @@ function BuyerNumberNote({ check }: { check: BuyerNumberCheck }) {
   if (check.state === "differs") {
     return (
       <p className="mb-3 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
-        Klient ma już inny numer ({check.existing}), więc {label} z faktury ({check.number}) nie
-        zostanie dopisany. Jeśli numer u klienta jest błędny, popraw go w profilu klienta.
+        Klient ma już inny numer ({check.existing}). Jeśli faktura jest od spółki z grupy klienta
+        (oddział, spółka leasingowa), dopisz {label} {check.number} jako dodatkowy numer: kolejne
+        faktury tego nabywcy będą trafiać do klienta same
+        {check.other_waiting > 0 ? ` (teraz czeka jeszcze: ${check.other_waiting})` : ""}. Jeśli
+        numer u klienta jest błędny, popraw go w profilu klienta.
       </p>
     );
   }
@@ -82,7 +85,7 @@ const othersMessage = (saved: BuyerNumberSaved) =>
 
 const assignedMessage = (saved?: BuyerNumberSaved) =>
   saved?.saved
-    ? `Faktura przypisana, numer dopisany do klienta.${othersMessage(saved)}`
+    ? `Faktura przypisana, ${saved.extra ? "dodatkowy numer" : "numer"} dopisany do klienta.${othersMessage(saved)}`
     : "Faktura przypisana";
 
 /** „Przypisz” — zamówienie (albo kilka, albo jedna osoba z zamówienia MD) w miesiącu faktury. */
@@ -107,8 +110,15 @@ export function AssignInvoiceDialog({
   const list = options.data?.options ?? [];
   const buyerNumber = options.data?.buyer_number;
   const buyerNumberText = invoiceBuyerNumberText(invoice);
-  const canAddNumber = buyerNumber?.state === "add";
-  const hasNote = canAddNumber || buyerNumber?.state === "differs" || buyerNumber?.state === "taken";
+  // `differs`: klient ma inny numer — ten można dopisać jako dodatkowy (spółka grupy).
+  const asExtra = buyerNumber?.state === "differs";
+  const canAddNumber = buyerNumber?.state === "add" || asExtra;
+  const hasNote = canAddNumber || buyerNumber?.state === "taken";
+  const numberWord = buyerNumber
+    ? asExtra
+      ? "jako dodatkowy"
+      : BUYER_NUMBER_LABELS[buyerNumber.kind]
+    : "";
 
   const toggle = (key: string, on: boolean) =>
     setPicked((current) => {
@@ -127,11 +137,11 @@ export function AssignInvoiceDialog({
   const addNumberOnly = () => {
     if (clientId === null) return;
     saveNumber.mutate(
-      { invoiceId: invoice.id, clientId },
+      { invoiceId: invoice.id, clientId, extra: asExtra },
       {
         onSuccess: (result) => {
           showToast(
-            `Numer dopisany do klienta.${result.buyer_number ? othersMessage(result.buyer_number) : ""}`,
+            `${asExtra ? "Dodatkowy numer" : "Numer"} dopisany do klienta.${result.buyer_number ? othersMessage(result.buyer_number) : ""}`,
             "success",
           );
           onClose();
@@ -152,7 +162,13 @@ export function AssignInvoiceDialog({
       return;
     }
     assign.mutate(
-      { invoiceId: invoice.id, targets, ...splitPeriod(period), saveBuyerNumber },
+      {
+        invoiceId: invoice.id,
+        targets,
+        ...splitPeriod(period),
+        saveBuyerNumber,
+        buyerNumberExtra: saveBuyerNumber && asExtra,
+      },
       {
         onSuccess: (result) => {
           showToast(assignedMessage(result.buyer_number), "success");
@@ -177,9 +193,7 @@ export function AssignInvoiceDialog({
           </Button>
           {canAddNumber && options.isSuccess && !list.length ? (
             <Button onClick={addNumberOnly} disabled={saveNumber.isPending}>
-              {saveNumber.isPending
-                ? "Zapisywanie…"
-                : `Dopisz ${BUYER_NUMBER_LABELS[buyerNumber.kind]} bez przypisywania`}
+              {saveNumber.isPending ? "Zapisywanie…" : `Dopisz ${numberWord} bez przypisywania`}
             </Button>
           ) : canAddNumber ? (
             <>
@@ -191,9 +205,7 @@ export function AssignInvoiceDialog({
                 Tylko przypisz
               </Button>
               <Button onClick={() => submit(true)} disabled={assign.isPending || !list.length}>
-                {assign.isPending
-                  ? "Zapisywanie…"
-                  : `Przypisz i dopisz ${BUYER_NUMBER_LABELS[buyerNumber.kind]}`}
+                {assign.isPending ? "Zapisywanie…" : `Przypisz i dopisz ${numberWord}`}
               </Button>
             </>
           ) : (

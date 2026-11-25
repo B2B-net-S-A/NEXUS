@@ -1,4 +1,4 @@
-"""Szkic pisma asystenta prawnego (funkcja AI ``legal_assistant``, F56).
+"""Szkic pisma asystenta prawnego (funkcja AI ``legal_assistant``, F57).
 
 Decyzje Artura 25.11.2026 (``docs/asystent-prawny-plan.md``):
 

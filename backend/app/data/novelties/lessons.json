@@ -1349,6 +1349,7 @@
       "kontrakty-jedna-lista",
       "kontrakty-lista-co-dalej",
       "stawka-z-dokumentu",
+      "stawka-z-faktur-ksef",
       "kontrakt-zamowienie-po-koncu-wspolpracy"
     ],
     "task": "Klient zamówił jeszcze okres u osoby z kontraktu ćwiczebnego, choć współpraca już się skończyła. Znajdź na liście kontraktów, kogo to dotyczy.",
@@ -2711,6 +2712,41 @@
     ]
   },
   {
+    "id": "lekcja-pytania-po-stanowisku",
+    "title": "Pytania z rozmów po stanowisku",
+    "novelties": [
+      "pytania-z-rozmow-po-stanowisku"
+    ],
+    "task": "W Rekrutacjach otwórz „Pytania z rozmów” i wejdź w dowolne stanowisko z listy.",
+    "solo_href": "/jobs/pytania",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.question-bank.position"
+    },
+    "questions": [
+      {
+        "q": "Gdzie widzisz pytania klienta z konkretnej rekrutacji?",
+        "options": [
+          "Po kliknięciu stanowiska na liście",
+          "Na jednej długiej liście wszystkich pytań",
+          "Tylko w Excelu"
+        ],
+        "answer": 0,
+        "explain": "Lista pokazuje stanowiska. Pytania i odpowiedzi otwierasz kliknięciem stanowiska, a link do niego możesz wysłać rekruterowi."
+      },
+      {
+        "q": "Przy pytaniu jest „Propozycja odpowiedzi AI”. Co z nią robisz?",
+        "options": [
+          "Sprawdzam, zanim przekażę kandydatowi",
+          "Przekazuję bez czytania",
+          "Nic, to odpowiedź klienta"
+        ],
+        "answer": 0,
+        "explain": "Odpowiedź AI dopisuje się w nocy i jest tylko propozycją. Odpowiedzi z dawnego Excela mają osobny podpis."
+      }
+    ]
+  },
+  {
     "id": "lekcja-nowe-cv-strona-1",
     "title": "Nowe CV: wyróżnik i trzy zdania strony 1",
     "novelties": [
@@ -2763,6 +2799,51 @@
         ],
         "answer": 0,
         "explain": "Automat pokazuje wcześniejszą pracę u klienta rekrutacji, np. „Doświadczenie w PKO BP · 2018–2023”. Bez takiej pracy wyróżnika nie ma, chyba że wpiszesz własny."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-przegrane-przeglad-z-dl",
+    "title": "Przegrane: przegląd z Delivery Leadami",
+    "novelties": [
+      "przegrane-przeglad-z-dl"
+    ],
+    "task": "W Insights → Przegrane zostaw na liście „Do omówienia” tylko rekrutacje bez odpowiedzi. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/insights?tab=przegrane",
+    "check": {
+      "kind": "click",
+      "anchor": "insights.lost.only-open"
+    },
+    "questions": [
+      {
+        "q": "Co dzieje się z wnioskiem zapisanym jako „ten klient”?",
+        "options": [
+          "Staje się zasadą klienta widoczną na jego rekrutacjach",
+          "Trafia tylko do notatki tej rekrutacji",
+          "Wysyła się mailem do klienta"
+        ],
+        "answer": 0,
+        "explain": "Zasada klienta pokazuje się na stronie każdej jego otwartej rekrutacji, a tabela klientów porównuje wygrane i przegrane przed zasadą i po niej."
+      },
+      {
+        "q": "Kiedy zaznaczyć „Nie wiemy — zapytam klienta”?",
+        "options": [
+          "Gdy klient nie powiedział, dlaczego wybrał kogoś innego",
+          "Zawsze, gdy rekrutację zamknął NEXUS",
+          "Nigdy — trzeba wybrać powód z listy"
+        ],
+        "answer": 0,
+        "explain": "NEXUS przygotuje pytanie do hiring managera i przypomni za 3 dni robocze. Pytanie wysyłasz ze swojej skrzynki; gdy klient odpowie, zmień źródło na „Klient powiedział”."
+      },
+      {
+        "q": "Co dostaje model AI, który pisze rady na spotkanie?",
+        "options": [
+          "Same liczby i powody z list, bez nazwisk, notatek i stawek",
+          "Notatki z zamknięć i nazwiska kandydatów",
+          "Maile od klientów"
+        ],
+        "answer": 0,
+        "explain": "Rady AI to dodatek do liczb policzonych przez NEXUS — sprawdź liczby przed decyzją."
       }
     ]
   },

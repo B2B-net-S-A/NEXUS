@@ -1398,7 +1398,7 @@ async def document_types(
 ) -> dict:
     """Definicje typów i pól — front buduje z nich jeden formularz.
     ``custom_types`` = zatwierdzone wzory własne („Nowy dokument” → „Wzory
-    własne”, 0780); wystawia się je trasami ``/custom-templates/{id}``."""
+    własne”, 0785); wystawia się je trasami ``/custom-templates/{id}``."""
     return {
         "types": [t.to_public() for t in TYPES.values()],
         "ref_labels": REF_LABELS,

@@ -7,17 +7,17 @@ zwraca w komunikatach żadnej cyfry numeru — błąd mówi tylko, co jest nie t
 Skrót (HMAC-SHA256, klucz wyprowadzony z ``M365_TOKEN_ENCRYPTION_KEY`` z osobnym
 przeznaczeniem, jak skrót rachunku w ``billing_details.account_fingerprint``)
 pilnuje, żeby dwie osoby nie miały tego samego PESEL-u, bez odszyfrowywania.
+Zapis bieżącym kluczem, porównanie wszystkimi (``fingerprints``): skrót sprzed
+rotacji klucza pasuje do poprzedniego, dopóki ``app.cli.token_cipher_rotate``
+go nie przeliczy.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 from datetime import date
 from typing import Optional
 
-from app.core.config import settings
-from app.core.encryption import TokenCipherNotConfigured
+from app.core.encryption import get_token_cipher
 from app.services.hr.payroll_errors import PayrollError
 
 WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
@@ -84,21 +84,32 @@ def masked(last_digits: Optional[str]) -> Optional[str]:
     return f"{MASK}{last_digits}" if last_digits else None
 
 
+#: Przeznaczenie klucza skrótu PESEL-u (``TokenCipher.fingerprints``).
+FINGERPRINT_PURPOSE = b"nexus-payroll-pesel:"
+
+
+def fingerprints(value: str) -> tuple[str, ...]:
+    """Skróty PESEL-u każdym kluczem, bieżący pierwszy; brak klucza =
+    ``TokenCipherNotConfigured``."""
+
+    return get_token_cipher().fingerprints(FINGERPRINT_PURPOSE, value)
+
+
 def fingerprint(value: str) -> str:
-    secret = settings.M365_TOKEN_ENCRYPTION_KEY
-    if not secret:
-        raise TokenCipherNotConfigured("brak klucza szyfrowania danych płacowych")
-    key = hashlib.sha256(b"nexus-payroll-pesel:" + secret.encode()).digest()
-    return hmac.new(key, value.encode(), hashlib.sha256).hexdigest()
+    """Skrót do zapisu — bieżącym kluczem."""
+
+    return fingerprints(value)[0]
 
 
 __all__ = [
+    "FINGERPRINT_PURPOSE",
     "MASK",
     "PeselError",
     "birth_date",
     "checksum_ok",
     "clean",
     "fingerprint",
+    "fingerprints",
     "last4",
     "masked",
     "sex",

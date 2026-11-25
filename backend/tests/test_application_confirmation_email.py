@@ -173,6 +173,16 @@ async def test_render_is_pure_and_escapes_html():
     assert generic.text_body.startswith("Dzień dobry,")
 
 
+async def test_render_uses_variant5_colors():
+    """Link w czerwieni tekstu #B0222A, stopka #5E4A4E (stary #888 miał 3,5:1)."""
+    m = confirmation.render_confirmation(
+        to="x@example.com", first_name="", public_job_title=None, rodo_url="u"
+    )
+    assert 'style="color:#B0222A"' in m.html_body
+    assert "color:#5E4A4E" in m.html_body
+    assert "#888" not in m.html_body
+
+
 # ── Zgłoszenia ─────────────────────────────────────────────────────────────
 
 

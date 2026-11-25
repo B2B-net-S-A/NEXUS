@@ -12,7 +12,7 @@ Rodzaje pisma (``LETTER_KINDS``):
   (``templates/documents/<typ>_pl``), model nie pisze ani zdania;
 * **model** — odpowiedź na wypowiedzenie Partnera, nota/wezwanie do zapłaty
   kary umownej, pismo do klienta: zdania pisze ``assistant.draft``
-  (``legal_assistant``, F56) ze znacznikami, nagłówek, adresata, daty
+  (``legal_assistant``, F57) ze znacznikami, nagłówek, adresata, daty
   i podpis składa kod.
 
 Termin liczy ``deadlines`` z reguły PODPISANEJ umowy (``termination_terms``

@@ -1,8 +1,8 @@
-"""Zasilenie treści istniejących dokumentów kontraktu (0782, asystent prawny E).
+"""Zasilenie treści istniejących dokumentów kontraktu (0788, asystent prawny E).
 
 Nowy plik czyta się sam po wgraniu, a każdy inny przy pierwszym pytaniu
 (``contract_document_text.index.ensure_indexed``). Ten skrypt nadrabia
-dokumenty sprzed 0782 z góry, żeby pierwsze pytanie nie czekało na OCR.
+dokumenty sprzed 0788 z góry, żeby pierwsze pytanie nie czekało na OCR.
 
 Wznowienie: dokument z aktualnym stanem odczytu odpada z zakresu, więc
 przerwany bieg wystarczy uruchomić ponownie (albo z ``--after-id``).

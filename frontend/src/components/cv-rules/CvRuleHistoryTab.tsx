@@ -49,9 +49,11 @@ function renderValue(value: unknown): string {
 /** Wartości pól, które w historii mają czytelną nazwę zamiast klucza. */
 const FIELD_VALUE_LABELS: Record<string, Record<string, string>> = {
   cv_layout: { classic: "Klasyczne (Word)", new: "Nowe CV (PDF)" },
+  cv_file_format: { docx: "Word", pdf: "PDF", both: "Word i PDF" },
 };
 
 function fieldValue(field: string, value: unknown): string {
+  if (field === "cv_file_format" && value == null) return "Bez wymagań";
   const label = typeof value === "string" ? FIELD_VALUE_LABELS[field]?.[value] : undefined;
   return label ?? renderValue(value);
 }

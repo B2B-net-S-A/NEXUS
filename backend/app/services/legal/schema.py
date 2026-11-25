@@ -1,7 +1,7 @@
 """Korpus prawa asystenta prawnego (część A planu, 25.11.2026): SQL migracji
-``0779_legal_corpus`` i lustra entrypointu.
+``0784_legal_corpus`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0779_legal_corpus.py``
+Jedno źródło instrukcji dla ``alembic/versions/0784_legal_corpus.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabele:

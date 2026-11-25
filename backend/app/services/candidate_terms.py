@@ -185,14 +185,23 @@ _COMPANY = (
 _F = "font-family:Helvetica,Arial,sans-serif;"
 _F_BIG = "font-family:'Arial Black','Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:900;"
 
+#: Kolory wariantu 5 „Czerwień w gradientach tech” (decyzja Artura 25.11.2026,
+#: DESIGN.md strony b2bnetwork-www), te same co na `/warunki/<token>`
+#: (`warunki.css`): czerwień #C42329, linki #B0222A, burgund-obsydian #1F1115
+#: zamiast grafitu, tło w kamieniu różanym #F4EAE8. Bez gradientów, bo klienci
+#: poczty (Outlook) ich nie rysują: jednolita czerwień.
+#:
 #: Ciemny wygląd dla Apple Mail, iOS i Outlooka na Macu. Aplikacje Gmaila
-#: tej reguły nie czytają i przyciemniają mail same.
+#: tej reguły nie czytają i przyciemniają mail same. Czerwień na karcie #2E1A1F
+#: miałaby 2,82:1, więc kropka (``rd``) i zaliczone odcinki (``sgd``) biorą tam
+#: ciepły blask #D43424 (3,36:1), a linki morelowy #FFD6C9 (13,7:1).
 _STYLE = (
     "@media (prefers-color-scheme: dark){"
-    ".bg{background:#0E0E0D!important}.wh{background:#181715!important}"
-    ".tx{color:#F3F0E9!important}.mu{color:#A9A399!important}.ln{border-color:#33302B!important}"
-    ".bt{background:#F3F0E9!important}.bt a{color:#141312!important}.lk{color:#FF8A95!important}"
-    ".sgo{background:#181715!important;border-color:#F3F0E9!important}"
+    ".bg{background:#1F1115!important}.wh{background:#2E1A1F!important}"
+    ".tx{color:#F7EFEC!important}.mu{color:#C4B2B4!important}.ln{border-color:#3D2A2E!important}"
+    ".bt{background:#F7EFEC!important}.bt a{color:#1F1115!important}.lk{color:#FFD6C9!important}"
+    ".sgo{background:#2E1A1F!important;border-color:#F7EFEC!important}"
+    ".sgd{background:#D43424!important;border-color:#D43424!important}.rd{color:#D43424!important}"
     ".lt{display:none!important}.dk{display:block!important}}"
     "@media (max-width:620px){.pad{padding:24px 22px!important}.poster{padding:8px 22px 30px!important}"
     ".big{font-size:44px!important;line-height:46px!important}}"
@@ -202,15 +211,15 @@ _STYLE = (
 def _segment(label: str, done: bool) -> str:
     """Odcinek paska: zgłoszenie i CV zaliczone, warunki czekają na kandydata."""
     fill, cls, mark = (
-        ("#D62E40", "sgd", "&#10003;&nbsp;") if done else ("#FFFFFF", "sgo", "")
+        ("#C42329", "sgd", "&#10003;&nbsp;") if done else ("#FFFFFF", "sgo", "")
     )
-    border = "#D62E40" if done else "#1A1816"
+    border = "#C42329" if done else "#1F1115"
     return (
         '<td valign="top" width="33%" style="width:33%;padding:0 4px">'
         f'<div class="{cls}" style="height:12px;background:{fill};border:2px solid {border};'
         'border-radius:8px"></div>'
         f'<div class="tx" style="{_F}font-size:14px;line-height:20px;font-weight:bold;'
-        f'color:#1A1816;margin-top:8px">{mark}{label}</div></td>'
+        f'color:#1F1115;margin-top:8px">{mark}{label}</div></td>'
     )
 
 
@@ -280,7 +289,7 @@ def render_terms_email(
         else "Twoje zgłoszenie i CV do nas dotarły."
     )
     job_html = (
-        f'<br><b class="tx" style="color:#1A1816">{e(title)}</b>' if title else ""
+        f'<br><b class="tx" style="color:#1F1115">{e(title)}</b>' if title else ""
     )
     header = (
         '<tr><td class="wh pad" bgcolor="#FFFFFF" style="background:#FFFFFF;padding:24px 36px 22px">'
@@ -289,17 +298,17 @@ def render_terms_email(
         'alt="B2Bnetwork" style="display:block;border:0">'
         f'<img class="dk" src="{e(logo_light_url, quote=True)}" width="88" height="41" '
         'alt="B2Bnetwork" style="display:none;border:0"></td>'
-        f'<td align="right" class="mu" style="{_F}font-size:13px;line-height:18px;color:#6E6A63">'
+        f'<td align="right" class="mu" style="{_F}font-size:13px;line-height:18px;color:#5E4A4E">'
         f"Zgłoszenie przyjęte{job_html}</td></tr></table></td></tr>"
     )
     if link:
         poster = (
             '<tr><td class="poster wh ln" bgcolor="#FFFFFF" style="background:#FFFFFF;'
-            'padding:10px 32px 34px;border-top:1px solid #ECE8E1">'
+            'padding:10px 32px 34px;border-top:1px solid #E6D6D3">'
             f'<div class="tx big" style="{_F_BIG}font-size:60px;line-height:62px;'
-            'letter-spacing:-2px;color:#1A1816;margin:18px 4px 6px">'
-            '30 sekund<span style="color:#D62E40">.</span></div>'
-            f'<div class="tx" style="{_F}font-size:19px;line-height:27px;color:#1A1816;'
+            'letter-spacing:-2px;color:#1F1115;margin:18px 4px 6px">'
+            '30 sekund<span class="rd" style="color:#C42329">.</span></div>'
+            f'<div class="tx" style="{_F}font-size:19px;line-height:27px;color:#1F1115;'
             'margin:0 4px 26px">Tyle dzieli Twoje zgłoszenie od kompletu.</div>'
             '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
             + _segment("Zgłoszenie", True)
@@ -309,15 +318,15 @@ def render_terms_email(
         )
         action = (
             '<tr><td class="wh pad" bgcolor="#FFFFFF" style="background:#FFFFFF;padding:30px 36px 32px">'
-            f'<p class="tx" style="margin:0 0 24px;{_F}font-size:17px;line-height:26px;color:#1A1816">'
+            f'<p class="tx" style="margin:0 0 24px;{_F}font-size:17px;line-height:26px;color:#1F1115">'
             f"Dzień dobry,<br><br>{e(intro)}</p>"
             '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-            'style="margin:0 0 14px"><tr><td class="bt" bgcolor="#1A1816" '
-            'style="background:#1A1816;border-radius:2px">'
+            'style="margin:0 0 14px"><tr><td class="bt" bgcolor="#1F1115" '
+            'style="background:#1F1115;border-radius:2px">'
             f'<a href="{e(link, quote=True)}" style="display:inline-block;padding:16px 30px;'
             f'{_F}font-size:16px;font-weight:bold;color:#FFFFFF;text-decoration:none">'
             "Dokończ w 30 sekund&nbsp;&nbsp;&rarr;</a></td></tr></table>"
-            f'<p class="mu" style="margin:0;{_F}font-size:13px;line-height:20px;color:#6E6A63">'
+            f'<p class="mu" style="margin:0;{_F}font-size:13px;line-height:20px;color:#5E4A4E">'
             f"Nieobowiązkowe · bez logowania · link działa {LINK_TTL_DAYS} dni i jest tylko "
             "dla Ciebie · English version on the form</p></td></tr>"
         )
@@ -325,18 +334,18 @@ def render_terms_email(
         poster = ""
         action = (
             '<tr><td class="wh pad ln" bgcolor="#FFFFFF" style="background:#FFFFFF;'
-            'padding:30px 36px 32px;border-top:1px solid #ECE8E1">'
+            'padding:30px 36px 32px;border-top:1px solid #E6D6D3">'
             f'<h1 class="tx" style="margin:0 0 14px;{_F_BIG}font-size:30px;line-height:34px;'
-            'letter-spacing:-1px;color:#1A1816">Dziękujemy za zgłoszenie'
-            '<span style="color:#D62E40">.</span></h1>'
-            f'<p class="tx" style="margin:0;{_F}font-size:17px;line-height:26px;color:#1A1816">'
+            'letter-spacing:-1px;color:#1F1115">Dziękujemy za zgłoszenie'
+            '<span class="rd" style="color:#C42329">.</span></h1>'
+            f'<p class="tx" style="margin:0;{_F}font-size:17px;line-height:26px;color:#1F1115">'
             f"Dzień dobry, {e(intro)}</p></td></tr>"
         )
     optout_html = (
-        f'<p class="tx" style="margin:0 0 4px;{_F}font-size:14px;line-height:21px;color:#3C3934">'
+        f'<p class="tx" style="margin:0 0 4px;{_F}font-size:14px;line-height:21px;color:#4A3539">'
         "Nie chcesz takich pytań? "
         f'<a class="lk" href="{e(optout_link, quote=True)}" style="display:inline-block;'
-        'padding:6px 0;color:#B3202F;font-weight:bold;text-decoration:underline">'
+        'padding:6px 0;color:#B0222A;font-weight:bold;text-decoration:underline">'
         "Wypisz się jednym kliknięciem</a></p>"
         if optout_link
         else ""
@@ -344,12 +353,12 @@ def render_terms_email(
     footer = (
         '<tr><td class="pad" style="padding:20px 36px 30px">'
         f"{optout_html}"
-        f'<p class="mu" style="margin:0 0 6px;{_F}font-size:12px;line-height:18px;color:#6E6A63">'
+        f'<p class="mu" style="margin:0 0 6px;{_F}font-size:12px;line-height:18px;color:#5E4A4E">'
         f"{e(no_reply)} "
         f'<a class="lk" href="{e(rodo_url, quote=True)}" style="display:inline-block;'
-        'padding:6px 0;color:#B3202F;text-decoration:underline">'
+        'padding:6px 0;color:#B0222A;text-decoration:underline">'
         "Informacje o przetwarzaniu danych</a></p>"
-        f'<p class="mu" style="margin:0;{_F}font-size:11px;line-height:17px;color:#7A756C">'
+        f'<p class="mu" style="margin:0;{_F}font-size:11px;line-height:17px;color:#76626A">'
         f"{e(_COMPANY)}</p></td></tr>"
     )
     html_body = (
@@ -358,11 +367,11 @@ def render_terms_email(
         '<meta name="color-scheme" content="light dark">'
         '<meta name="supported-color-schemes" content="light dark">'
         f"<title>{e(subject)}</title><style>{_STYLE}</style></head>"
-        '<body class="bg" style="margin:0;padding:0;background:#F4F3F0">'
+        '<body class="bg" style="margin:0;padding:0;background:#F4EAE8">'
         '<div style="display:none;max-height:0;overflow:hidden;opacity:0">'
         f"{e(pre)}</div>"
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
-        'class="bg" bgcolor="#F4F3F0" style="background:#F4F3F0"><tr><td align="center" '
+        'class="bg" bgcolor="#F4EAE8" style="background:#F4EAE8"><tr><td align="center" '
         'style="padding:28px 10px"><table role="presentation" width="600" cellpadding="0" '
         'cellspacing="0" border="0" style="width:100%;max-width:600px">'
         f"{header}{poster}{action}{footer}"

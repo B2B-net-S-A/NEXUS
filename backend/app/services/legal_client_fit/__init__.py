@@ -1,4 +1,4 @@
-"""Zgodność umów B2B z umową ramową klienta (asystent prawny, część G, 0784).
+"""Zgodność umów B2B z umową ramową klienta (asystent prawny, część G, 0790).
 
 Silnik (``engine``), źródła (``sources``), tematy (``topics``), bieg w tle
 i odczyt (``service``), dostawca zadań (``task_provider``). Reguła:

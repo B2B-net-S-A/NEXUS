@@ -15,7 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { CustomDocumentType } from "@/lib/api/customTemplates";
 
-/** `custom` = dokument ze wzoru własnego (asystent prawny, 0780) — tylko w liście. */
+/** `custom` = dokument ze wzoru własnego (asystent prawny, 0785) — tylko w liście. */
 export type DocumentFamily = "annex" | "termination" | "preliminary" | "custom";
 export type DocumentParentKind = "b2b" | "mandate" | "none";
 export type DocumentFieldKind =

@@ -1,10 +1,10 @@
 # Asystent prawny — fundament: korpus prawa, weryfikator cytatów, znaczniki, terminy, szkic pisma
-<!-- indeks: asystent prawny, legal, /api/legal, korpus prawa, legal_acts, legal_act_versions, legal_provisions, nexus_legal_corpus, ELI, tekst jednolity, EUR-Lex, CELLAR, SPARQL, weryfikator cytatów, citations, pseudonimizacja, znaczniki [PARTNER], terminy art. 111–116 KC, na koniec miesiąca, od kolejnego miesiąca, legal_assistant F56, LEGAL_CORPUS_REFRESH_ENABLED, LEGAL_CORPUS_EMBEDDINGS_ENABLED, legal_corpus_seed -->
+<!-- indeks: asystent prawny, legal, /api/legal, korpus prawa, legal_acts, legal_act_versions, legal_provisions, nexus_legal_corpus, ELI, tekst jednolity, EUR-Lex, CELLAR, SPARQL, weryfikator cytatów, citations, pseudonimizacja, znaczniki [PARTNER], terminy art. 111–116 KC, na koniec miesiąca, od kolejnego miesiąca, legal_assistant F57, LEGAL_CORPUS_REFRESH_ENABLED, LEGAL_CORPUS_EMBEDDINGS_ENABLED, legal_corpus_seed -->
 
 Decyzje Artura z 25.11.2026: asystent prawny do umów B2B działa **w tle
 istniejących ekranów** (kontrakty, Generator, Jarvis, Przepisy), bez trasy
 `/legal` we froncie. Plan, części A–H i kontrakt: `docs/asystent-prawny-plan.md`.
-Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0779).
+Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0784).
 
 ## Decyzje, które łatwo cofnąć „przy okazji”
 
@@ -106,7 +106,7 @@ Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0779
 
 ## Funkcja AI
 
-`legal_assistant` (F56; F19–F22 z planu były już zajęte w rejestrze) —
+`legal_assistant` (F57; F19–F22 z planu były już zajęte w rejestrze) —
 Sonnet 5.5 z zapasem Sonnet 5, jak tekst do osoby spoza firmy w F46/F54
 i najmniej zdań bez pokrycia w pomiarze F50. Bez osobnego pomiaru; zmiana po
 pomiarze na modelu z produkcji. Wywołanie w `ai_feature()`, env

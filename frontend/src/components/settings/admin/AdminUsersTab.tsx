@@ -13,7 +13,6 @@ import {
   KeyRound,
   Plus,
   Activity,
-  Database,
   Wrench,
   Eye,
   ShieldCheck,
@@ -50,7 +49,6 @@ import { UserModal } from "./UserModal";
 import { ResetPasswordModal } from "./ResetPasswordModal";
 import { SystemTab } from "./SystemTab";
 import { AuditLogTab } from "./AuditLogTab";
-import { ImportTab } from "./ImportTab";
 import { NewPersonSetupDialog } from "@/components/v2/dashboard/NewPersonSetupDialog";
 import { AdminToolsGrid } from "./AdminToolsGrid";
 import { DeactivateAccountDialog } from "./DeactivateAccountDialog";
@@ -368,7 +366,6 @@ export function AdminUsersTab({
           { id: "permissions" as SubTab, label: "Uprawnienia", icon: ShieldCheck },
           { id: "system" as SubTab, label: "System", icon: Server },
           { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
-          { id: "import" as SubTab, label: "Import CV", icon: Database },
           { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
         ]
           .filter(({ id }) => !embedded || EMBEDDED_SUBTABS.includes(id))
@@ -751,7 +748,6 @@ export function AdminUsersTab({
       {subTab === "permissions" && (
         <PermissionsTab onDirtyChange={setPermissionsDirty} />
       )}
-      {subTab === "import" && <ImportTab />}
       {subTab === "tools" && <AdminToolsGrid />}
       {subTab === "audit" && <AuditLogTab />}
 

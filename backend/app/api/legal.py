@@ -9,7 +9,7 @@ Trasy (``/api/legal``):
   pytania (po słowach i po znaczeniu),
 * ``POST /verify`` — sprawdzenie cytatów w tekście z korpusem i podanymi
   fragmentami umów (bez modelu, niczego nie zapisuje),
-* ``POST /draft`` — szkic pisma (funkcja AI ``legal_assistant``, F56; niczego
+* ``POST /draft`` — szkic pisma (funkcja AI ``legal_assistant``, F57; niczego
   nie zapisuje i nie wysyła).
 
 **Bramka = Generator umów B2B** (``B2BGeneratorAccess`` za sekcją Sourcing,

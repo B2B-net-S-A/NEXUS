@@ -1,6 +1,6 @@
-"""Zadania asystenta prawnego — stan „załatwione / odrzucone” (0783, część F).
+"""Zadania asystenta prawnego — stan „załatwione / odrzucone” (0789, część F).
 
-Jedno źródło instrukcji dla ``alembic/versions/0783_legal_assistant_tasks.py``
+Jedno źródło instrukcji dla ``alembic/versions/0789_legal_assistant_tasks.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja idempotentna.
 

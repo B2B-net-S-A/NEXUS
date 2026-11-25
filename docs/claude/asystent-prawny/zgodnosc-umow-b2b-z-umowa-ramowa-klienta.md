@@ -1,5 +1,5 @@
-# Zgodność umów B2B z umową ramową klienta w tle (część G, 0784, 25.11.2026)
-<!-- indeks: back-to-back, wymogi klienta wobec podwykonawcy, DORA, szkolenia ICT, zgłaszanie incydentów, praca spoza EOG, NDA na wzorze klienta, wymiana konsultanta, prawa autorskie, dalsze powierzenie, legal_client_fit F59, legal_client_fit_checks, legal_client_fit_findings, /api/legal/client-fit, client_fit_tasks, „Sprawdzone z umową ramową”, „Dodaj do treści aneksu”, szkic klauzuli klienta, zgodnosc= -->
+# Zgodność umów B2B z umową ramową klienta w tle (część G, 0790, 25.11.2026)
+<!-- indeks: back-to-back, wymogi klienta wobec podwykonawcy, DORA, szkolenia ICT, zgłaszanie incydentów, praca spoza EOG, NDA na wzorze klienta, wymiana konsultanta, prawa autorskie, dalsze powierzenie, legal_client_fit F60, legal_client_fit_checks, legal_client_fit_findings, /api/legal/client-fit, client_fit_tasks, „Sprawdzone z umową ramową”, „Dodaj do treści aneksu”, szkic klauzuli klienta, zgodnosc= -->
 
 Plan: `docs/asystent-prawny-plan.md` (część G, „Podział F / G”). Decyzje Artura
 z 25.11.2026: asystent działa w tle istniejących ekranów, nic nie wychodzi
@@ -107,7 +107,7 @@ i aneksach (np. aneks DORA) — i ile aktywnych umów B2B tego klienta to dotycz
 
 ## Funkcja AI
 
-`legal_client_fit` (F59) — Sonnet 5.5 z zapasem Sonnet 5, jak F58 (proza
+`legal_client_fit` (F60) — Sonnet 5.5 z zapasem Sonnet 5, jak F59 (proza
 prawnicza z cytatami), bez osobnego pomiaru; env `LEGAL_CLIENT_FIT_MODEL`,
 prompt `llm_prompts.LEGAL_CLIENT_FIT`. Zmiana modelu po pomiarze na modelu
 z produkcji.

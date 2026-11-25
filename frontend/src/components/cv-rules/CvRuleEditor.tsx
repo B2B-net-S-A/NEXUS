@@ -28,6 +28,7 @@ import { CentralPolicyView, useCentralPolicy } from "./CentralPolicyView";
 import { CoverSheetTemplateSection } from "./CoverSheetTemplateSection";
 // 22.11.2026: układ CV też jest spoza katalogu — własny zapis przy zasadach centralnych.
 import { CvRuleLayoutSection } from "./CvRuleLayoutField";
+import { CvRuleFileFormatSection, cvFileFormatFact } from "./CvRuleFileFormatField";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -289,7 +290,7 @@ export function CvRuleEditor({
     }
   };
 
-  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <><CvRuleLayoutSection clientId={clientId} /><CoverSheetTemplateSection clientId={clientId} /><CentralPolicyView clientId={clientId} /></>}</div>;
+  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <><CvRuleLayoutSection clientId={clientId} /><CvRuleFileFormatSection clientId={clientId} /><CoverSheetTemplateSection clientId={clientId} /><CentralPolicyView clientId={clientId} /></>}</div>;
   if (central.isLoading) return <p>Ładowanie zasad CV…</p>;
   if (central.isError) return <p>Nie udało się odczytać zasad CV.</p>;
 
@@ -339,6 +340,7 @@ export function CvRuleEditor({
           {rule?.new_layout_enabled ? (
             <SummaryFact k="Układ" v={form.cv_layout === "new" ? "Nowe CV (PDF)" : "Klasyczne (Word)"} />
           ) : null}
+          <SummaryFact k="Format pliku" v={cvFileFormatFact(form.cv_file_format)} />
           <SummaryFact k="Tryb" v={summary.mode} />
           <SummaryFact k="Instrukcje AI" v={summary.instructions} />
           <SummaryFact

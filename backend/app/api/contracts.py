@@ -196,6 +196,10 @@ from app.services.contract_order_after_end import (
     order_after_end_contracts,
     orders_after_end,
 )
+from app.services.contract_rate_history.listing import (
+    attach_rate_history_changes,
+    open_rate_history_contracts,
+)
 from app.services.contract_rate_documents.listing import (
     attach_rate_document_changes,
     open_rate_document_contracts,
@@ -1609,7 +1613,7 @@ async def _fill_client_manager(
 
 # Zbiory szybkich filtrów listy liczone przez serwer: „Kończące się”,
 # „Stawka z dokumentu” (0739) i „Zamówione po końcu” (19.11.2026).
-ContractBucket = Literal["ending", "rate_document", "order_after_end"]
+ContractBucket = Literal["ending", "rate_document", "rate_history", "order_after_end"]
 
 
 def _apply_contract_list_filters(
@@ -1675,6 +1679,10 @@ def _apply_contract_list_filters(
         query = query.where(ending_bucket_clause())
     if bucket == "rate_document":
         query = query.where(Contract.id.in_(open_rate_document_contracts()))
+    if bucket == "rate_history":
+        # „Stawka z faktur” (0782): faktury KSeF pokazują inną stawkę niż
+        # harmonogram, podpowiedź czeka na decyzję człowieka.
+        query = query.where(Contract.id.in_(open_rate_history_contracts()))
     if bucket == "order_after_end":
         # „Klient zamówił okres po zakończeniu” (19.11.2026): kończące się
         # i zakończone kontrakty z żywym zamówieniem po końcu projektu.
@@ -1988,6 +1996,7 @@ _CONTRACT_FINANCE_SCALARS = (
     "rate_unit",
     "billing_hours_per_month",
     "rate_document_change",
+    "rate_history_change",
 )
 _CONTRACT_FINANCE_LISTS = (
     "candidate_rate_schedule",
@@ -2363,7 +2372,8 @@ async def list_contracts(
             "umowa z końcem w 30 dni — ta sama reguła co „Obsługa kontraktorów” "
             "(`contract_service.ending_bucket_clause`). `rate_document` = umowa "
             "albo aneks w Dokumentach podaje stawkę, której nie ma w harmonogramie "
-            "(0739). `order_after_end` = kończący się albo zakończony kontrakt "
+            "(0739). `rate_history` = faktury KSeF pokazują stawkę, której nie ma "
+            "w harmonogramie (0782). `order_after_end` = kończący się albo zakończony kontrakt "
             "z zamówieniem po końcu projektu (19.11.2026). Łączy się ze `status` (AND)."
         ),
     ),
@@ -2608,6 +2618,7 @@ async def list_contracts(
         items = [_contract_list_item(c, latest_order_dates, _today) for c in contracts]
 
     await attach_rate_document_changes(db, items)
+    await attach_rate_history_changes(db, items)
     await attach_order_after_end(db, items)
     await attach_termination_documents(db, items)
     if not global_finance:
@@ -5989,7 +6000,7 @@ async def upload_contract_document(
         storage_service.delete_contract_document(relative_path)
         raise
     await db.refresh(doc)
-    # 0782: treść umowy, aneksu i wypowiedzenia dla asystenta prawnego
+    # 0788: treść umowy, aneksu i wypowiedzenia dla asystenta prawnego
     # i Jarvisa — odczyt w tle dopiero po commicie (zadanie czyta wiersz
     # z własnej sesji).
     await db.commit()
@@ -6401,6 +6412,110 @@ async def undo_contract_rate_document(
 ) -> dict[str, Any]:
     """„Cofnij” wpis automatyczny (7 dni): kroki i aneksy znikają, różnica wraca na kartę."""
     return await _rate_document_decision(contract_id, read_id, current_user, db, "undo")
+
+
+@router.get("/{contract_id}/rate-history-ksef")
+async def get_contract_rate_history_ksef(
+    contract_id: int,
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Stawka z faktur KSeF, której nie ma w harmonogramie kontraktu (0782).
+
+    Podpowiedź do decyzji albo wpis automatyczny w oknie „Cofnij”. Kwoty
+    i skutek tylko pod bramką kwot kontraktu — bez niej karta mówi, od kiedy
+    faktury pokazują inną stawkę."""
+    from app.models.contract_rate_history_finding import ContractRateHistoryFinding
+    from app.services.b2b_documents.effects import can_confirm_rate_annex
+    from app.services.contract_rate_history import service as rate_history
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    amounts = await _can_read_contract_finance(contract, current_user, db)
+    row = await db.scalar(
+        select(ContractRateHistoryFinding).where(
+            ContractRateHistoryFinding.contract_id == contract_id
+        )
+    )
+    now = datetime.now(timezone.utc)
+    visible = row is not None and (
+        row.status in rate_history.FOR_HUMAN
+        or (
+            rate_history.undo_deadline(row) is not None
+            and rate_history.undo_deadline(row) > now
+        )
+    )
+    return {
+        "item": rate_history.view(row, amounts=amounts) if visible else None,
+        "amounts_visible": amounts,
+        "can_apply": await can_confirm_rate_annex(db, current_user, contract.client_id),
+    }
+
+
+async def _rate_history_decision(
+    contract_id: int, current_user: User, db: AsyncSession, action: str
+) -> dict[str, Any]:
+    from app.services.b2b_documents.effects import can_confirm_rate_annex
+    from app.services.contract_rate_history import service as rate_history
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    # Wpis i cofnięcie zmieniają stawkę: ta sama reguła co „Stawka z dokumentu”
+    # i aneks stawki z Generatora — „Stawki i kwoty: zmiana” albo Delivery Lead
+    # tego klienta.
+    if action in ("apply", "undo") and not await can_confirm_rate_annex(
+        db, current_user, contract.client_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Stawkę z faktur wpisuje osoba ze zmianą kwot albo Delivery "
+                "Lead tego klienta."
+            ),
+        )
+    try:
+        if action == "apply":
+            row = await rate_history.apply(
+                db, contract_id, user=current_user, today=business_today()
+            )
+        elif action == "dismiss":
+            row = await rate_history.dismiss(db, contract_id, user=current_user)
+        else:
+            row = await rate_history.undo_auto(db, contract_id, user=current_user)
+    except rate_history.RateHistoryError as exc:
+        await db.commit()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.commit()
+    amounts = await _can_read_contract_finance(contract, current_user, db)
+    return rate_history.view(row, amounts=amounts)
+
+
+@router.post("/{contract_id}/rate-history-ksef/apply")
+async def apply_contract_rate_history_ksef(
+    contract_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Wprowadź do harmonogramu” — kroki z faktur KSeF bez aneksu (0782)."""
+    return await _rate_history_decision(contract_id, current_user, db, "apply")
+
+
+@router.post("/{contract_id}/rate-history-ksef/dismiss")
+async def dismiss_contract_rate_history_ksef(
+    contract_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Odrzuć” — ta sama propozycja z faktur już nie wraca na kartę i listę."""
+    return await _rate_history_decision(contract_id, current_user, db, "dismiss")
+
+
+@router.post("/{contract_id}/rate-history-ksef/undo")
+async def undo_contract_rate_history_ksef(
+    contract_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Cofnij” wpis automatyczny (7 dni): kroki znikają, podpowiedź wraca na kartę."""
+    return await _rate_history_decision(contract_id, current_user, db, "undo")
 
 
 @router.get(

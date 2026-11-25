@@ -34,6 +34,7 @@ import type { JobCloseReason } from "@/types/client-profile";
 import {
   CloseReasonFields,
   closeReasonReady,
+  lostWhyOf,
   type CloseReasonValue,
 } from "./CloseReasonFields";
 
@@ -118,22 +119,26 @@ export function JobCloseWithReasonDialog({
   const mutation = useMutation({
     mutationFn: async (): Promise<void> => {
       const reason = value.reason as JobCloseReason;
+      const lostWhy = lostWhyOf(value);
       if (mode === "change") {
         await jobsApi.changeCloseReason(jobId, {
           reason,
           notes: value.notes,
           duplicateOfJobId: value.duplicateOfJobId,
+          ...(lostWhy ? { lostWhy } : {}),
         });
         return;
       }
-      await jobsApi.close(
+      const args = [
         jobId,
         reason,
         value.notes,
         activeCards != null,
         value.duplicateOfJobId,
         endPeople > 0,
-      );
+      ] as const;
+      // „Co zdecydowało?” idzie tylko, gdy coś wybrano (25.11.2026).
+      await (lostWhy ? jobsApi.close(...args, lostWhy) : jobsApi.close(...args));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });

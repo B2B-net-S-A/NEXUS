@@ -568,6 +568,10 @@ class JobCloseRequest(BaseModel):
     # 08.11.2026: przy `competitor`/`budget` pary u klienta kończą się „przez
     # klienta” z powodem i bez maila. Decyduje osoba zamykająca w oknie.
     end_client_cards: bool = False
+    # 25.11.2026 (Insights → Przegrane): przy przegranej „Co zdecydowało?”
+    # (do dwóch kluczy z `lost_review.WHY`) i „Skąd wiesz?”. Opcjonalne.
+    lost_why: Optional[list[str]] = None
+    lost_why_source: Optional[Literal["client", "ours", "unknown"]] = None
 
 
 class JobCloseReasonUpdate(BaseModel):
@@ -577,6 +581,9 @@ class JobCloseReasonUpdate(BaseModel):
     reason: JobCloseReason
     notes: Optional[str] = None
     duplicate_of_job_id: Optional[int] = None
+    # 25.11.2026: jak w `JobCloseRequest`; `None` = bez zmiany zapisanego wyboru.
+    lost_why: Optional[list[str]] = None
+    lost_why_source: Optional[Literal["client", "ours", "unknown"]] = None
 
 
 class JobManageInNexusRequest(BaseModel):

@@ -12,7 +12,6 @@ export type AdminSubTab =
   | "permissions"
   | "system"
   | "audit"
-  | "import"
   | "tools";
 
 export const ADMIN_SUBTAB_KEYS: readonly AdminSubTab[] = [
@@ -20,7 +19,6 @@ export const ADMIN_SUBTAB_KEYS: readonly AdminSubTab[] = [
   "permissions",
   "system",
   "audit",
-  "import",
   "tools",
 ] as const;
 

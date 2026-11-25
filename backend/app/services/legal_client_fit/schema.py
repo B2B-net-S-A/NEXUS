@@ -1,6 +1,6 @@
-"""Zgodność umów B2B z umową ramową klienta (część G, 0784): SQL migracji i lustra entrypointu.
+"""Zgodność umów B2B z umową ramową klienta (część G, 0790): SQL migracji i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0784_legal_client_fit.py``
+Jedno źródło instrukcji dla ``alembic/versions/0790_legal_client_fit.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja idempotentna.
 

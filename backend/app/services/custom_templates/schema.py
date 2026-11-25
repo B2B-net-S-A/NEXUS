@@ -1,7 +1,7 @@
 """Wzory własne Generatora Umów B2B (asystent prawny, część B, 25.11.2026):
-SQL migracji ``0780_custom_document_templates`` i lustra entrypointu.
+SQL migracji ``0785_custom_document_templates`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0780_custom_document_templates.py``
+Jedno źródło instrukcji dla ``alembic/versions/0785_custom_document_templates.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabele:

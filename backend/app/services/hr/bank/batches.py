@@ -172,13 +172,15 @@ def _account(details: Optional[EmployeeBillingDetails]) -> tuple[Optional[str], 
 
 
 def _same_account(account: Optional[str], payment: PayrollPayment) -> bool:
+    """Skrót z utworzenia paczki = bieżący rachunek, każdym kluczem (rotacja)."""
+
     if account is None or not payment.counterparty_hmac:
         return False
     try:
-        current = billing_details.account_fingerprint(account)
+        candidates = billing_details.account_fingerprints(account)
     except TokenCipherNotConfigured:
         return False
-    return hmac.compare_digest(current, payment.counterparty_hmac)
+    return any(hmac.compare_digest(fp, payment.counterparty_hmac) for fp in candidates)
 
 
 async def plan(

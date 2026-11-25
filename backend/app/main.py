@@ -126,6 +126,7 @@ from app.api import insights_team
 from app.api import insights_team_signals
 from app.api import insights_work_rhythm
 from app.api import insights_wnioski
+from app.api import insights_lost_review
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -937,6 +938,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.screening_stale import screening_stale_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
+    from app.tasks.interview_answer_proposals import interview_answer_proposals_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -947,6 +949,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.contract_rate_documents import contract_rate_documents_loop
+    from app.tasks.contract_rate_history import contract_rate_history_loop
     from app.tasks.contract_partner_reads import contract_partner_reads_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
@@ -1146,6 +1149,10 @@ async def lifespan(app: FastAPI):
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
             "skill_proposals": asyncio.create_task(skill_proposals_loop()),
+            # 25.11.2026: nocne propozycje odpowiedzi w „Pytaniach z rozmów” (F55).
+            "interview_answer_proposals": asyncio.create_task(
+                interview_answer_proposals_loop()
+            ),
             # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
             "cpro_mail": asyncio.create_task(cpro_mail_loop()),
             # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -1219,6 +1226,9 @@ async def lifespan(app: FastAPI):
             "contract_rate_documents": asyncio.create_task(
                 contract_rate_documents_loop()
             ),
+            # 0782: historia stawek kontraktu z faktur KSeF — podpowiedzi na
+            # karcie, wpis automatyczny historii za flagą.
+            "contract_rate_history": asyncio.create_task(contract_rate_history_loop()),
             # 0755: dane firmy Partnera z podpisanej umowy do potwierdzenia
             # (E5a). Kończy się przed pętlą przy CONTRACT_PARTNER_READ_ENABLED=false.
             "contract_partner_reads": asyncio.create_task(
@@ -1907,10 +1917,10 @@ app.include_router(
     tags=["rejection-emails"],
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
-# Treść podpisanych dokumentów kontraktu (asystent prawny E, 0782) — przed
+# Treść podpisanych dokumentów kontraktu (asystent prawny E, 0788) — przed
 # routerem kontraktów, choć ścieżki się nie gryzą (`documents/search`).
 app.include_router(contract_document_text_api.router, prefix="/api", tags=["contracts"])
-# Pismo na stronie kontraktu i zadania asystenta prawnego (część F, 0783).
+# Pismo na stronie kontraktu i zadania asystenta prawnego (część F, 0789).
 app.include_router(legal_letters_api.router, prefix="/api", tags=["contracts"])
 app.include_router(legal_tasks_api.router, prefix="/api/legal", tags=["legal"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
@@ -1965,7 +1975,7 @@ app.include_router(
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
-# Wzory własne Generatora (0780, asystent prawny część B).
+# Wzory własne Generatora (0785, asystent prawny część B).
 app.include_router(
     custom_document_templates.router,
     prefix="/api/b2b-generator",
@@ -2066,6 +2076,16 @@ app.include_router(
 )
 app.include_router(
     insights_wnioski.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_lost_review.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_lost_review.write_router,
     prefix="/api/insights",
     tags=["insights"],
 )
@@ -4028,6 +4048,7 @@ async def api_health_deep_check(request: Request):
     from app.models.access_usage import AccessUsageDaily
     from app.models.cv_preview_read import CvPreviewRead
     from app.models.insight_decision import InsightDecision
+    from app.models.lost_review import JobLossReview, LostReviewLesson
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
     from app.models.novelty import (
         NoveltyDailyState,
@@ -4324,6 +4345,7 @@ async def api_health_deep_check(request: Request):
     from app.models.legal_case_law import LegalCase
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
+    from app.models.contract_rate_history_finding import ContractRateHistoryFinding
     from app.models.contract_partner_read import ContractPartnerRead
     from app.models.contract_document_chunk import ContractDocumentChunk
     from app.models.legal_assistant_task import LegalAssistantTask
@@ -4344,6 +4366,7 @@ async def api_health_deep_check(request: Request):
         BoardVoteBallot,
         BoardKrsSnapshot,
     )
+    from app.models.client_buyer_number import ClientBuyerNumber
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4853,6 +4876,9 @@ async def api_health_deep_check(request: Request):
         # dodania kandydata, ale cicho przywraca drugi odczyt modelem w `/from-cv`.
         ("cv_preview_reads", CvPreviewRead),
         ("insight_decisions", InsightDecision),
+        # 0783: moduł „Przegrane” — okno zamknięcia i spotkanie z DL.
+        ("job_loss_reviews", JobLossReview),
+        ("lost_review_lessons", LostReviewLesson),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
         # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
@@ -5030,13 +5056,13 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
-        # 0779: korpus prawa asystenta prawnego.
+        # 0784: korpus prawa asystenta prawnego.
         ("legal_acts", LegalAct),
         ("legal_act_versions", LegalActVersion),
         ("legal_provisions", LegalProvision),
-        # 0781: orzecznictwo asystenta prawnego.
+        # 0786: orzecznictwo asystenta prawnego.
         ("legal_cases", LegalCase),
-        # 0780: wzory własne Generatora Umów B2B — wzór i wersje.
+        # 0785: wzory własne Generatora Umów B2B — wzór i wersje.
         ("custom_document_templates", CustomDocumentTemplate),
         ("custom_document_template_versions", CustomDocumentTemplateVersion),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
@@ -5055,6 +5081,8 @@ async def api_health_deep_check(request: Request):
         # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
         ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
+        # 0781: dodatkowe numery nabywcy klienta (spółki grupy).
+        ("client_buyer_numbers", ClientBuyerNumber),
         # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
         ("client_invoice_templates", ClientInvoiceTemplate),
         # 0720: archiwum dokumentów z eBI24 (E5).
@@ -5064,14 +5092,15 @@ async def api_health_deep_check(request: Request):
         ("board_documents", BoardDocument),
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
+        ("contract_rate_history_findings", ContractRateHistoryFinding),
         # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
         ("contract_partner_reads", ContractPartnerRead),
-        # 0782: treść podpisanych dokumentów kontraktu (asystent prawny,
+        # 0788: treść podpisanych dokumentów kontraktu (asystent prawny,
         # Jarvis); sonda ``contract_documents`` sprawdza kolumny ``text_*``.
         ("contract_document_chunks", ContractDocumentChunk),
-        # 0783: zamknięte zadania asystenta prawnego (pasek na liście kontraktów).
+        # 0789: zamknięte zadania asystenta prawnego (pasek na liście kontraktów).
         ("legal_assistant_tasks", LegalAssistantTask),
-        # 0784: zgodność umów B2B z umową ramową klienta (asystent prawny G).
+        # 0790: zgodność umów B2B z umową ramową klienta (asystent prawny G).
         ("legal_client_fit_checks", LegalClientFitCheck),
         ("legal_client_fit_findings", LegalClientFitFinding),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.

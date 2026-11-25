@@ -1,4 +1,4 @@
-"""Zgodność umów B2B z umową ramową klienta (0784).
+"""Zgodność umów B2B z umową ramową klienta (0790).
 
 CHECK-i i indeksy jak w ``app/services/legal_client_fit/schema.py`` (strażnik
 dryfu schematu porównuje model z bazą po migracji).

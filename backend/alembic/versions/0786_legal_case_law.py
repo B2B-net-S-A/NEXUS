@@ -1,7 +1,7 @@
 """Orzecznictwo dla asystenta prawnego: tabela ``legal_cases`` (część C).
 
-Revision ID: 0781_legal_case_law
-Revises: 0780_custom_document_templates
+Revision ID: 0786_legal_case_law
+Revises: 0785_custom_document_templates
 
 SQL i powody: ``app/services/legal_case_law/schema.py`` (to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``). Reguła:
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services.legal_case_law import schema
 
-revision = "0781_legal_case_law"
-down_revision = "0780_custom_document_templates"
+revision = "0786_legal_case_law"
+down_revision = "0785_custom_document_templates"
 branch_labels = None
 depends_on = None
 

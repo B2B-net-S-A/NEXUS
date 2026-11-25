@@ -1,4 +1,4 @@
-"""Zamknięte zadanie asystenta prawnego — 0783.
+"""Zamknięte zadanie asystenta prawnego — 0789.
 
 Opis: ``app/services/legal/tasks_schema.py``. Zapis i odczyt:
 ``app/services/legal/tasks.py``.

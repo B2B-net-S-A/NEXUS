@@ -12,6 +12,11 @@ osierocony, entrypoint jest wtedy wdrożeniem):
 - `cv_generated_documents.cv_layout` — układ wybrany przy „Generuj”; trafia do
   CV etapu, gdy wynik generacji staje się szkicem,
 - `client_cv_rules.cv_layout` — domyślny układ klienta (NULL = klasyczny).
+
+Migracja 0780 (25.11.2026): `client_cv_rules.cv_file_format` — w jakim pliku
+klient chce CV (`docx` | `pdf` | `both`; NULL = bez wymagań, plik idzie za
+układem: klasyczne → Word, Nowe CV → PDF). Osobna krotka, bo 0753 wykonuje
+`ALL_DDL` — dopisanie tam zmieniłoby starą migrację.
 """
 
 LAYOUTS = ("classic", "new")
@@ -28,4 +33,13 @@ ADDED_COLUMNS = (
 ALL_DDL = tuple(
     f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}"
     for table, column, ddl in ADDED_COLUMNS
+)
+
+FILE_FORMATS = ("docx", "pdf", "both")
+
+FILE_FORMAT_COLUMNS = (("client_cv_rules", "cv_file_format", "VARCHAR(8) NULL"),)
+
+FILE_FORMAT_DDL = tuple(
+    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}"
+    for table, column, ddl in FILE_FORMAT_COLUMNS
 )

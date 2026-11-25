@@ -24,7 +24,7 @@ zmian (autor „Asystent NEXUS”) i komentarzami z powodem i podstawą.
   który jest w akapicie kilka razy, odpada z powodem (w propozycjach modelu —
   lista „Pominięte”, przy pliku — 422 z `change_id`). Dwie zmiany na tym
   samym fragmencie = 422.
-- **Propozycje modelu** (`legal_redline`, numer F58 do nadania przy
+- **Propozycje modelu** (`legal_redline`, numer F59 do nadania przy
   scalaniu): dane z kontraktu (osoba, e-mail, telefon, klient) i z wiersza
   rejestru (Partner, firma, NIP) oraz rozpoznane kodem (e-mail, konto, PESEL,
   NIP, telefon) idą jako `[PARTNER]`, `[NIP]`…; zmiana ze znacznikiem spoza

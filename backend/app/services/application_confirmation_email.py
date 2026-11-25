@@ -98,8 +98,9 @@ def render_confirmation(
         f"<p>dziękujemy — {safe_what} dotarło do nas razem z CV.</p>"
         "<p>Rekruter przejrzy je i odezwie się, jeśli Twój profil będzie pasował "
         "do tej lub innej rekrutacji. Nie musisz niczego wysyłać ponownie.</p>"
-        f'<p><a href="{safe_rodo}">Informacje o przetwarzaniu danych</a></p>'
-        '<hr><p style="color:#888;font-size:12px">Zespół rekrutacji B2B.NET S.A. · '
+        f'<p><a href="{safe_rodo}" style="color:#B0222A">Informacje o przetwarzaniu danych</a></p>'
+        '<hr style="border:0;border-top:1px solid #E6D6D3">'
+        '<p style="color:#5E4A4E;font-size:12px">Zespół rekrutacji B2B.NET S.A. · '
         "wiadomość wysłana automatycznie — prosimy na nią nie odpowiadać.</p>"
     )
     return ConfirmationEmail(

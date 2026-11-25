@@ -5296,6 +5296,60 @@
     "dot_anchor": "person.panel.conversation-mode"
   },
   {
+    "id": "pytania-z-rozmow-po-stanowisku",
+    "title": "Pytania z rozmów po stanowisku, z odpowiedziami",
+    "why": "Najpierw stanowiska, po kliknięciu jego pytania z propozycją odpowiedzi do prepu. Odpowiedź AI dopisuje się w nocy i jest do sprawdzenia. Link do stanowiska wyślesz rekruterowi.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacje → Pytania z rozmów → stanowisko",
+    "href": "/jobs/pytania",
+    "section": "pipeline",
+    "dot_anchor": "jobs.question-bank.positions",
+    "used_anchor": "jobs.question-bank.position"
+  },
+  {
+    "id": "przegrane-przeglad-z-dl",
+    "title": "Przegrane: przegląd z Delivery Leadami",
+    "why": "Zakładka na spotkanie o przegranych: etap przegranej, co klient mówi o naszych, wykresy i rady AI. Zaznaczasz „Dlaczego?”, a wniosek „ten klient” staje się zasadą klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Insights → Przegrane",
+    "href": "/insights",
+    "practice_href": "/insights?tab=przegrane",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.lost",
+    "used_anchor": "insights.lost.only-open"
+  },
+  {
+    "id": "stawka-z-faktur-ksef",
+    "pr": 4007,
+    "title": "Historia stawek kontraktu z faktur KSeF",
+    "why": "Stawki z faktur KSeF porównane z kontraktem. Jednoznaczną historię NEXUS wpisuje sam (z „Cofnij” przez 7 dni), resztę pokazuje na karcie kontraktu i pod pigułką „Stawka z faktur”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → pigułka „Stawka z faktur”",
+    "href": "/contracts",
+    "practice_href": "/contracts?status=all&rate_hist=1",
+    "section": "delivery",
+    "dot_anchor": "contracts.rate-history"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

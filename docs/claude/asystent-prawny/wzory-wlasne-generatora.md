@@ -17,7 +17,7 @@ dokumentów Generatora.
 - Backend: `app/services/custom_templates/` (pola, sandbox, wykrywanie pól,
   szkic AI, sprawdzenia, cykl życia), trasy `app/api/custom_document_templates.py`
   pod `/api/b2b-generator/custom-templates`, tabele z migracji
-  `0780_custom_document_templates` (DDL w `custom_templates/schema.py`, lustro
+  `0785_custom_document_templates` (DDL w `custom_templates/schema.py`, lustro
   w `entrypoint.sh` przez `hr_schema_bundle`, sondy w `/api/health/deep`).
 - Front: `components/v2/b2b-generator/documents/custom-templates/`, logika
   w `lib/custom-templates.ts`, API w `lib/api/customTemplates.ts`, harness
@@ -74,7 +74,7 @@ Szkic widzi autor i administrator; zatwierdzony wzór — każdy z Generatora.
 - **Do modelu nie idą dane osób.** Wzór ich nie ma; numery i e-maile i tak są
   maskowane w poleceniu (`draft._mask`), a wykrywanie pól ostrzega, gdy
   wgrany Word ma NIP, PESEL albo e-mail osoby.
-- Funkcja AI `legal_template_draft` (F57; plan nazywał ją F20, ten numer jest
+- Funkcja AI `legal_template_draft` (F58; plan nazywał ją F20, ten numer jest
   zajęty) jest dodatkiem: bez klucza albo przy awarii szkic zostaje bez zmian,
   ścieżka „wgraj Word → pola → zapis” działa.
 

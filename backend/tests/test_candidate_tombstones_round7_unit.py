@@ -56,67 +56,6 @@ def test_email_tombstone_fails_closed_without_key(monkeypatch):
 # ── R7-V2-3: INSERT sprawdza nagrobek w chwili zapisu ────────────────────────
 
 
-# ── R7-V2-4: Talent Radar czyta nagrobki ─────────────────────────────────────
-
-
-def _tr_importer():
-    from app.services.talent_radar_importer import TalentRadarImporter
-
-    return TalentRadarImporter("postgresql://x", target_db=None)
-
-
-def test_talent_radar_skips_tombstoned_traffit_id_and_email(hmac_key):
-    from app.services.candidate_audit import (
-        candidate_email_tombstone,
-        candidate_source_tombstone,
-    )
-
-    imp = _tr_importer()
-    imp._tombstones = {
-        "traffit": {candidate_source_tombstone("traffit", "48895")},
-        "tr_legacy": set(),
-        "email": {candidate_email_tombstone("gone@example.com")},
-    }
-    assert imp._is_tombstoned({"external_id": "48895", "email": None})
-    assert imp._is_tombstoned({"external_id": "1", "email": "GONE@example.com"})
-    assert not imp._is_tombstoned({"external_id": "1", "email": "live@example.com"})
-    # Żywy właściciel identyfikatora nie jest usuniętą osobą.
-    imp._ext_id_to_id = {"1": 7}
-    assert not imp._is_tombstoned({"external_id": "1", "email": "gone@example.com"})
-    # Żywy wiersz z tym mailem — osoba wróciła, CV łączy się z nią.
-    imp._email_to_id = {"gone@example.com": 9}
-    assert not imp._is_tombstoned({"external_id": "2", "email": "Gone@example.com"})
-
-
-def test_talent_radar_without_tombstones_checks_nothing():
-    imp = _tr_importer()
-    assert not imp._is_tombstoned({"external_id": "1", "email": "a@b.pl"})
-
-
-@pytest.mark.asyncio
-async def test_talent_radar_upsert_does_not_touch_a_tombstoned_person(hmac_key):
-    from app.services.candidate_audit import candidate_source_tombstone
-
-    class CommitOnlyDb:
-        async def commit(self):
-            return None
-
-        def __getattr__(self, name):
-            raise AssertionError(f"import dotknął bazy przez .{name}")
-
-    imp = _tr_importer()
-    imp.target_db = CommitOnlyDb()
-    imp._tombstones = {"tr_legacy": {candidate_source_tombstone("tr_legacy", "5")}}
-
-    async def must_not_run(p):
-        raise AssertionError("usunięta osoba doszła do dopasowania")
-
-    imp._find_existing_id = must_not_run
-    inserted, updated = await imp._upsert([{"external_id": "5", "email": None}])
-    assert (inserted, updated) == (0, 0)
-    assert imp.tombstoned == 1
-
-
 # ── R7-V2-5: okna fazy cv_fields ─────────────────────────────────────────────
 
 

@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   // Werdykt niezależnej kontroli AI (0327) odsyłany przez /finalize.
   reviewStatus: null as null | string,
   reviewFindings: null as null | number,
+  // Format pliku z reguły klienta (25.11.2026).
+  clientFileFormat: null as null | string,
 }));
 
 vi.mock("@tiptap/react", () => {
@@ -80,6 +82,7 @@ vi.mock("@/lib/api", () => {
     get: async () => ({ data: { status: state.status, content_html: state.stored,
       edit_revision: state.revision, version: 1, template: "standard", language: "pl",
       docx_available: state.status === "finalized", docx_filename: "Reviewed.docx",
+      client_file_format: state.clientFileFormat,
       updated_at: "2026-09-09T07:00:00Z" } }),
     update: async (_id: number, body: {content_html: string}) => {
       state.stored = body.content_html;
@@ -403,6 +406,22 @@ it("pola w nawiasach z nowych bloków zatrzymują „Gotowe”, ale szkic się z
   fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   finalize.mockRestore();
+});
+
+it("25.11.2026: klient chce PDF — w pasku „Pobierz PDF”, Word w „Więcej”", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1; state.clientFileFormat = "pdf";
+  vi.clearAllMocks();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.click(await screen.findByTestId("cv-editor-download-pdf"));
+  await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/preview-pdf?intent=download&surface=editor",
+    {content_html: "<p>Old text</p>", expected_revision: 1},
+  ));
+  expect(screen.queryByRole("button", {name: "Pobierz Word"})).toBeNull();
+  state.clientFileFormat = null;
 });
 
 it("„Jak u klienta” rysuje strony i plik z bieżącej treści i nie liczy się jako pobranie", async () => {

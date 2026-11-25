@@ -406,13 +406,17 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_partner_read'",
     # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem (F54).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_potential_assessment'",
-    # 0779: asystent prawny — szkic pisma ze sprawdzonymi cytatami (F56).
+    # 0779: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_answer_proposal'",
+    # 0783: Przegrane — wnioski AI ze spotkania z DL (F56).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'lost_review_summary'",
+    # 0784: asystent prawny — szkic pisma ze sprawdzonymi cytatami (F57).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_assistant'",
-    # 0780: wzory własne Generatora — szkic wzoru z asystentem prawnym.
+    # 0785: wzory własne Generatora — szkic wzoru z asystentem prawnym.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_template_draft'",
-    # 0785: asystent prawny — propozycje zmian w umowie DOCX („Popraw dokument”).
+    # 0787: asystent prawny — propozycje zmian w umowie DOCX („Popraw dokument”).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_redline'",
-    # 0784: asystent prawny — zgodność umów B2B z umową ramową klienta (F59).
+    # 0790: asystent prawny — zgodność umów B2B z umową ramową klienta (F60).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_client_fit'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
@@ -1255,7 +1259,10 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
 try:
     from app.services import cv_layout_schema as _cv_layout_schema
 
-    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL)
+    # + format pliku klienta (migracja 0780, `FILE_FORMAT_DDL`).
+    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL) + list(
+        _cv_layout_schema.FILE_FORMAT_DDL
+    )
 except Exception as _cv_layout_err:  # noqa: BLE001
     print(f"cv layout DDL unavailable: {_cv_layout_err!r}")
     _CV_LAYOUT_DDL = []
@@ -1591,6 +1598,17 @@ try:
 except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
+
+# 0783: moduł „Przegrane” w Insights (`app/services/lost_review_schema.py`).
+try:
+    from app.services import lost_review_schema as _lost_review_schema
+
+    _LOST_REVIEW_TABLE_DDL = list(_lost_review_schema.TABLE_DDL)
+    _LOST_REVIEW_AI_DDL = list(_lost_review_schema.AI_FEATURE_DDL)
+except Exception as _lost_review_schema_err:  # noqa: BLE001
+    print(f"lost review schema unavailable: {_lost_review_schema_err!r}")
+    _LOST_REVIEW_TABLE_DDL = []
+    _LOST_REVIEW_AI_DDL = []
 
 # 0710: limit z umowy ramowej — dopłaty i kategoria na kontrakcie
 # (`app/services/framework_rate_schema.py`).
@@ -6466,6 +6484,10 @@ _COLUMN_STATEMENTS = [
     # 0772: dosłowna treść zgody ze strony WWW (dowód zgody, RODO art. 7 ust. 1).
     # Lustro 1:1 z migracją — pilnuje `test_public_website_applications.py`.
     "ALTER TABLE candidate_consents ADD COLUMN IF NOT EXISTS consent_text TEXT NULL",
+    # 0779: skąd jest odpowiedź pod pytaniem z rozmów (excel | manual | ai | none).
+    # Lustro 1:1 z migracją — pilnuje `test_interview_answer_proposals.py`.
+    "ALTER TABLE interview_questions "
+    "ADD COLUMN IF NOT EXISTS ideal_answer_source VARCHAR(16) NULL",
     # 0340: tytuł na stronie kariery ustawiany przez rekrutera (pusty = tytuł
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "
@@ -6482,6 +6504,21 @@ _COLUMN_STATEMENTS = [
     # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
     # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
     "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
+    # 0781: dodatkowe numery nabywcy klienta (spółki grupy, decyzja Artura 25.11.2026).
+    # Lustro 1:1 z `app/services/client_invoicing/buyer_numbers_schema.py` —
+    # pilnuje `test_client_buyer_numbers.py`.
+    """CREATE TABLE IF NOT EXISTS client_buyer_numbers (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        number VARCHAR(32) NOT NULL,
+        source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        added_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_buyer_numbers_number UNIQUE (number),
+        CONSTRAINT ck_client_buyer_numbers_source CHECK (source IN ('manual', 'auto'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_buyer_numbers_client_id "
+    "ON client_buyer_numbers (client_id)",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "
@@ -7287,6 +7324,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_CV_PREVIEW_READS_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
+    *_LOST_REVIEW_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
     *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
@@ -8197,12 +8235,25 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_potential_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_potential_assessment')",
-    # 0779: seed klucza AI asystenta prawnego.
+    # 0783: seed klucza AI wniosków z przegranych (F56).
+    *_LOST_REVIEW_AI_DDL,
+    # 0779: seed klucza AI nocnych propozycji odpowiedzi do pytań z rozmów.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'interview_answer_proposal', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'interview_answer_proposal')",
+    # 0779: źródło odpowiedzi sprzed nocnego biegu — Excel przy archiwum,
+    # człowiek przy reszcie. Idempotentne (tylko wiersze bez źródła).
+    "UPDATE interview_questions SET ideal_answer_source = CASE "
+    "WHEN source = 'legacy_import' THEN 'excel' ELSE 'manual' END "
+    "WHERE ideal_answer_source IS NULL "
+    "AND NULLIF(btrim(ideal_answer), '') IS NOT NULL",
+    # 0784: seed klucza AI asystenta prawnego.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_assistant', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'legal_assistant')",
-    # 0780: seed klucza AI szkicu wzoru własnego (asystent prawny).
+    # 0785: seed klucza AI szkicu wzoru własnego (asystent prawny).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_template_draft', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
@@ -8212,7 +8263,7 @@ _DATA_STATEMENTS = [
     "SELECT 'legal_redline', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'legal_redline')",
-    # 0784: seed klucza AI zgodności umów B2B z umową ramową klienta.
+    # 0790: seed klucza AI zgodności umów B2B z umową ramową klienta.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_client_fit', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

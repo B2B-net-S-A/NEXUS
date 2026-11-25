@@ -141,13 +141,17 @@ class TestFeatureKeyEnum:
             "contract_partner_read",
             # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem.
             "sales_potential_assessment",
-            # 0779: asystent prawny — szkic pisma ze sprawdzonymi cytatami.
+            # 0779: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
+            "interview_answer_proposal",
+            # 0782: Przegrane — wnioski AI na spotkanie z DL (F56).
+            "lost_review_summary",
+            # 0784: asystent prawny — szkic pisma ze sprawdzonymi cytatami.
             "legal_assistant",
-            # 0780: szkic wzoru własnego Generatora Umów (asystent prawny).
+            # 0785: szkic wzoru własnego Generatora Umów (asystent prawny).
             "legal_template_draft",
-            # 0785: asystent prawny — propozycje zmian w umowie DOCX.
+            # 0787: asystent prawny — propozycje zmian w umowie DOCX.
             "legal_redline",
-            # 0784: asystent prawny — zgodność umów B2B z umową ramową klienta.
+            # 0790: asystent prawny — zgodność umów B2B z umową ramową klienta.
             "legal_client_fit",
         }
 

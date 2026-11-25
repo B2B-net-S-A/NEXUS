@@ -27,6 +27,10 @@ on:
         description: "Nazwa sekretu repo, z którego wziąć wartość — użyj dla SEKRETÓW"
         required: false
         default: ""
+      keep_old_value_in:
+        description: "Tylko key=M365_TOKEN_ENCRYPTION_KEY: wpisz M365_TOKEN_ENCRYPTION_KEY_PREVIOUS — obecny klucz trafi na początek listy kluczy do odczytu. Wartość nie trafia do logu."
+        required: false
+        default: ""
       is_buildtime:
         description: "true if the value must be baked at build time (forces full rebuild)"
         required: false
@@ -72,6 +76,7 @@ jobs:
           # nie metadane uruchomienia.
           VALUE_FROM_SECRET: ${{ inputs.value_from_secret }}
           VALUE_SECRET: ${{ secrets[inputs.value_from_secret] }}
+          KEEP_OLD_IN: ${{ inputs.keep_old_value_in }}
           IS_BUILDTIME: ${{ inputs.is_buildtime }}
         run: |
           set -euo pipefail
@@ -152,6 +157,38 @@ jobs:
           fi
           echo "długość wartości: ${#VALUE} zn."
 
+          # Klucze szyfrowania danych (25.11.2026): zła wartość zatrzymuje
+          # szyfrowanie w całej aplikacji, a sync M365 wyłącza wtedy skrzynki.
+          # Sprawdzenie formatu jak w Fernet (32 bajty w url-safe base64),
+          # wartość ze stdin, nie z argumentu.
+          fernet_keys_ok() {
+            python3 -c '
+          import base64, binascii, sys
+          keys = [k.strip() for k in sys.stdin.read().split(",") if k.strip()]
+          def ok(key):
+              try:
+                  return len(key) == 44 and len(base64.urlsafe_b64decode(key.encode())) == 32
+              except (binascii.Error, ValueError):
+                  return False
+          sys.exit(0 if keys and all(ok(k) for k in keys) else 1)
+          '
+          }
+          case "${KEY}" in
+            M365_TOKEN_ENCRYPTION_KEY)
+              # Pusty klucz też odpada: bez niego nie działa żadne szyfrowanie.
+              if [ -z "${VALUE}" ] || [[ "${VALUE}" == *,* ]] || ! printf '%s' "${VALUE}" | fernet_keys_ok; then
+                echo "Wartość '${KEY}' nie jest jednym kluczem Fernet (32 bajty w url-safe base64) — nic nie zapisano." >&2
+                exit 1
+              fi
+              ;;
+            M365_TOKEN_ENCRYPTION_KEY_PREVIOUS)
+              if [ -n "${VALUE}" ] && ! printf '%s' "${VALUE}" | fernet_keys_ok; then
+                echo "Wartość '${KEY}' nie jest listą kluczy Fernet po przecinku — nic nie zapisano." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
           base="${COOLIFY_URL%/}"
           auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
 
@@ -161,25 +198,98 @@ jobs:
           exists=$(jq -r --arg k "$KEY" 'any(.[]?; .key==$k)' /tmp/envs.json)
           echo "key '${KEY}' already present: ${exists}"
 
-          payload=$(jq -n --arg k "$KEY" --arg v "$VALUE" --argjson bt "${IS_BUILDTIME}" \
-            '{key:$k, value:$v, is_buildtime:$bt, is_runtime:true, is_preview:false}')
+          # Bieżąca wartość zmiennej produkcyjnej (bez wierszy podglądu), od razu
+          # pod maską — tylko do porównań i do keep_old_value_in, nigdy do logu.
+          current_value() {
+            jq -r --arg k "$1" \
+              '[.[]? | select(.key == $k and ((.is_preview // false) | not))][0].value // ""' \
+              /tmp/envs.json
+          }
+          mask_list() {
+            local _entry
+            while IFS= read -r _entry; do
+              _entry="${_entry#"${_entry%%[![:space:]]*}"}"
+              _entry="${_entry%"${_entry##*[![:space:]]}"}"
+              [ -n "$_entry" ] && echo "::add-mask::${_entry}"
+            done < <(printf '%s\n' "$1" | tr ',' '\n')
+            return 0
+          }
+          OLD_VALUE="$(current_value "${KEY}")"
+          mask_list "${OLD_VALUE}"
 
-          if [ "$exists" = "true" ]; then
-            method=PATCH
-          else
-            method=POST
-          fi
-          echo "→ ${method} /api/v1/applications/.../envs (key=${KEY})"
-          code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X "$method" "${auth[@]}" \
-            -H "Content-Type: application/json" \
-            -d "$payload" \
-            "${base}/api/v1/applications/${COOLIFY_APP_UUID}/envs")
-          echo "env write HTTP ${code}"
-          # Print only a safe error hint, never the full body (could echo a value).
-          if [ "$code" -ge 400 ]; then
-            jq -r '.message // .error // "request failed"' /tmp/resp.json 2>/dev/null || true
+          # Zmiana klucza szyfrowania bez zachowania obecnej wartości = dane
+          # nie do odczytu (tokeny M365, dane płacowe): sync M365 wyłącza
+          # skrzynkę, której tokenu nie czyta żaden klucz. Procedura:
+          # docs/claude/podstawy/rotacja-klucza-szyfrowania-tokenow.md.
+          if [ "${KEY}" = "M365_TOKEN_ENCRYPTION_KEY" ] && [ -n "${OLD_VALUE}" ] \
+            && [ "${OLD_VALUE}" != "${VALUE}" ] \
+            && [ "${KEEP_OLD_IN}" != "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS" ]; then
+            echo "Zmiana M365_TOKEN_ENCRYPTION_KEY gubi dane bez keep_old_value_in=M365_TOKEN_ENCRYPTION_KEY_PREVIOUS (obecny klucz zostaje do odczytu, dane przeszyfrowuje app.cli.token_cipher_rotate) — nic nie zapisano." >&2
             exit 1
           fi
+
+          write_env() {
+            local _key="$1" _value="$2" _method _code _payload
+            if [ "$(jq -r --arg k "$_key" 'any(.[]?; .key==$k)' /tmp/envs.json)" = "true" ]; then
+              _method=PATCH
+            else
+              _method=POST
+            fi
+            _payload=$(jq -n --arg k "$_key" --arg v "$_value" --argjson bt "${IS_BUILDTIME}" \
+              '{key:$k, value:$v, is_buildtime:$bt, is_runtime:true, is_preview:false}')
+            echo "→ ${_method} /api/v1/applications/.../envs (key=${_key})"
+            _code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X "$_method" "${auth[@]}" \
+              -H "Content-Type: application/json" \
+              -d "$_payload" \
+              "${base}/api/v1/applications/${COOLIFY_APP_UUID}/envs")
+            echo "env write HTTP ${_code}"
+            # Print only a safe error hint, never the full body (could echo a value).
+            if [ "$_code" -ge 400 ]; then
+              jq -r '.message // .error // "request failed"' /tmp/resp.json 2>/dev/null || true
+              return 1
+            fi
+          }
+
+          if [ -n "${KEEP_OLD_IN}" ]; then
+            # Wyłącznie rotacja klucza szyfrowania danych: inaczej input
+            # przepisywałby dowolny sekret z Coolify do dowolnej zmiennej.
+            if [ "${KEY}" != "M365_TOKEN_ENCRYPTION_KEY" ] \
+              || [ "${KEEP_OLD_IN}" != "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS" ]; then
+              echo "keep_old_value_in działa tylko dla key=M365_TOKEN_ENCRYPTION_KEY z keep_old_value_in=M365_TOKEN_ENCRYPTION_KEY_PREVIOUS." >&2
+              exit 1
+            fi
+            if [ -z "${OLD_VALUE}" ]; then
+              echo "Zmienna '${KEY}' nie ma teraz wartości — nie ma czego zachować w '${KEEP_OLD_IN}'." >&2
+              exit 1
+            fi
+            if [ "${OLD_VALUE}" = "${VALUE}" ]; then
+              echo "Nowa wartość '${KEY}' jest taka sama jak obecna — nic nie zapisano." >&2
+              exit 1
+            fi
+            KEPT="$(current_value "${KEEP_OLD_IN}")"
+            mask_list "${KEPT}"
+            # Obecna wartość na początek listy, bez powtórzeń i bez nowej wartości.
+            KEPT_LIST="$(printf '%s,%s' "${OLD_VALUE}" "${KEPT}" | VALUE="${VALUE}" python3 -c '
+          import os, sys
+          seen, out = {os.environ["VALUE"]}, []
+          for entry in sys.stdin.read().split(","):
+              entry = entry.strip()
+              if entry and entry not in seen:
+                  seen.add(entry)
+                  out.append(entry)
+          sys.stdout.write(",".join(out))
+          ')"
+            if [ "${KEEP_OLD_IN}" = "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS" ] && ! printf '%s' "${KEPT_LIST}" | fernet_keys_ok; then
+              echo "Obecne klucze nie mają formatu Fernet — nic nie zapisano." >&2
+              exit 1
+            fi
+            # Najpierw lista starych wartości: przerwanie między zapisami zostawia
+            # stary klucz i do zapisu, i do odczytu (bez szkody).
+            write_env "${KEEP_OLD_IN}" "${KEPT_LIST}" || exit 1
+            echo "zachowano poprzednią wartość '${KEY}' w '${KEEP_OLD_IN}' (pozycji na liście: $(printf '%s' "${KEPT_LIST}" | tr ',' '\n' | grep -c .))"
+          fi
+
+          write_env "${KEY}" "${VALUE}" || exit 1
 
           echo "done: ${KEY} set"
 

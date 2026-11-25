@@ -3,7 +3,7 @@
 Kontrakt z planu (``docs/asystent-prawny-plan.md``, „Podział F / G”): każdy
 dostawca ``TaskProvider`` zwraca ``LegalTaskRow`` i **sam pilnuje zakresu
 klientów i bramek** pytającego; ``collect`` sumuje dostawców, usuwa powtórki
-klucza i zadania zamknięte w ``legal_assistant_tasks`` (0783). Zadań nie
+klucza i zadania zamknięte w ``legal_assistant_tasks`` (0789). Zadań nie
 zapisujemy — liczą się z danych przy odczycie, więc nie ma pętli w tle.
 
 Dostawca części F: „szkic odpowiedzi na wypowiedzenie czeka” — kontrakt B2B

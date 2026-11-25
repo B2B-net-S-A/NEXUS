@@ -43,7 +43,9 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/job-intake/critical-suggestion",
     "/api/job-intake/requirement-rows",
     "/api/job-intake/category-suggestion",
-    # Asystent prawny: sprawdzenie cytatów z tekstem źródła, bez zapisu (0779).
+    # Insights → Przegrane (25.11.2026): wnioski AI z liczb okresu, bez zapisu danych.
+    "/api/insights/lost-review/ai-summary",
+    # Asystent prawny: sprawdzenie cytatów z tekstem źródła, bez zapisu (0784).
     "/api/legal/verify",
     # Asystent prawny „Popraw dokument”: plik w ciele, nic się nie zapisuje —
     # odczyt jak pobranie dokumentu kontraktu (zapis idzie przez „Dodaj plik”).

@@ -1,4 +1,4 @@
-"""Porównanie wymogów umowy klienta z naszym wzorem (funkcja AI ``legal_client_fit``, F59).
+"""Porównanie wymogów umowy klienta z naszym wzorem (funkcja AI ``legal_client_fit``, F60).
 
 Model wskazuje temat, stan i dwa cytaty (fragment klienta ``K…``, fragment
 naszego wzoru ``T…``). Wszystko inne robi kod:

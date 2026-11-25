@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateWriteAccess
-from app.api.candidate_stage_cv import _build_branded_response, _load_csv_for_stage
+from app.api.candidate_stage_cv import _branded_response, _load_csv_for_stage
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.schemas.candidate_stage_cv import CVBrandedResponse
@@ -201,4 +201,4 @@ async def update_stage_cv_page1(
             )
         )
         await db.commit()
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)

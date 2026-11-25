@@ -1,4 +1,4 @@
-"""Wzory własne Generatora Umów B2B (0780, asystent prawny część B).
+"""Wzory własne Generatora Umów B2B (0785, asystent prawny część B).
 
 Wzór dodany w NEXUSIE, nie w kodzie: DOCX (szablon docxtpl) + lista pól.
 Zatwierdza administrator; dopiero zatwierdzona wersja jest w „Nowy dokument”.

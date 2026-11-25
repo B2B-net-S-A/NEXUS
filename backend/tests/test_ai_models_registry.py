@@ -191,13 +191,16 @@ DECISION_2026_09_16 = {
     AIFeatureKey.contract_partner_read: ("F53", "claude-sonnet-5"),
     # F54 — 23.11.2026: ocena potencjału firmy w Sprzedaży (model F46).
     AIFeatureKey.sales_potential_assessment: ("F54", "claude-sonnet-5-5"),
-    AIFeatureKey.legal_assistant: ("F56", "claude-sonnet-5-5"),
-    # F57 — 25.11.2026: szkic wzoru własnego Generatora (model F50).
-    AIFeatureKey.legal_template_draft: ("F57", "claude-sonnet-5-5"),
-    # F58 — 25.11.2026: asystent prawny, „Popraw dokument” (model F22/F24).
-    AIFeatureKey.legal_redline: ("F58", "claude-sonnet-5-5"),
-    # F59 — 25.11.2026: asystent prawny, zgodność z umową ramową klienta (model F58).
-    AIFeatureKey.legal_client_fit: ("F59", "claude-sonnet-5-5"),
+    # F55 — 25.11.2026: nocne propozycje odpowiedzi w „Pytaniach z rozmów” (model F44).
+    AIFeatureKey.interview_answer_proposal: ("F55", "claude-sonnet-5-5"),
+    AIFeatureKey.lost_review_summary: ("F56", "claude-sonnet-5-5"),
+    AIFeatureKey.legal_assistant: ("F57", "claude-sonnet-5-5"),
+    # F58 — 25.11.2026: szkic wzoru własnego Generatora (model F50).
+    AIFeatureKey.legal_template_draft: ("F58", "claude-sonnet-5-5"),
+    # F59 — 25.11.2026: asystent prawny, „Popraw dokument” (model F22/F24).
+    AIFeatureKey.legal_redline: ("F59", "claude-sonnet-5-5"),
+    # F60 — 25.11.2026: asystent prawny, zgodność z umową ramową klienta (model F59).
+    AIFeatureKey.legal_client_fit: ("F60", "claude-sonnet-5-5"),
 }
 
 

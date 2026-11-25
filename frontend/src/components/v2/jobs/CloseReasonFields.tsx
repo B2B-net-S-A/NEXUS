@@ -9,12 +9,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { jobsApi } from "@/lib/api";
+import { jobsApi, type LostWhyPayload } from "@/lib/api";
 import {
   CLOSE_REASON_GROUPS,
   closeReasonGroup,
   type CloseReasonGroup,
 } from "@/lib/job-close-reasons";
+import {
+  LOST_WHY,
+  LOST_WHY_MAX,
+  LOST_WHY_SOURCES,
+  toggleLostWhy,
+  type LostWhyKey,
+  type LostWhySource,
+} from "@/lib/lost-review";
 import { cn } from "@/lib/utils";
 import type { JobCloseReason } from "@/types/client-profile";
 
@@ -22,6 +30,9 @@ export interface CloseReasonValue {
   reason: JobCloseReason | null;
   notes: string;
   duplicateOfJobId: number | null;
+  /** „Co zdecydowało?” przy przegranej (25.11.2026). Brak = okno ich nie wysyła. */
+  lostWhy?: LostWhyKey[];
+  lostWhySource?: LostWhySource | null;
 }
 
 interface CloseReasonFieldsProps {
@@ -29,6 +40,78 @@ interface CloseReasonFieldsProps {
   onChange: (next: CloseReasonValue) => void;
   jobId: number;
   clientId?: number | null;
+}
+
+/**
+ * „Co zdecydowało?” przy przegranej (Insights → Przegrane, decyzja Artura
+ * 25.11.2026): do dwóch powodów i „Skąd wiesz?”. Oba opcjonalne — okno da się
+ * zamknąć bez nich, a DL uzupełni je na spotkaniu.
+ */
+function LostWhyFields({
+  why,
+  source,
+  onChange,
+}: {
+  why: LostWhyKey[];
+  source: LostWhySource | null;
+  onChange: (next: { lostWhy: LostWhyKey[]; lostWhySource: LostWhySource | null }) => void;
+}) {
+  return (
+    <fieldset
+      className="space-y-2 rounded-lg border border-warning/60 bg-warning-muted/40 px-3 py-2.5"
+      data-testid="close-lost-why"
+    >
+      <legend className="px-1 text-xs font-semibold text-foreground">
+        Co zdecydowało? (do {LOST_WHY_MAX}, opcjonalnie)
+      </legend>
+      <div className="flex flex-wrap gap-1">
+        {LOST_WHY.map((w) => {
+          const on = why.includes(w.key);
+          return (
+            <button
+              key={w.key}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onChange({ lostWhy: toggleLostWhy(why, w.key), lostWhySource: source })}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs",
+                on ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted",
+              )}
+            >
+              {w.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        <span className="mr-1 font-semibold text-foreground">Skąd wiesz?</span>
+        {LOST_WHY_SOURCES.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            aria-pressed={source === s.key}
+            onClick={() =>
+              onChange({ lostWhy: why, lostWhySource: source === s.key ? null : s.key })
+            }
+            className={cn(
+              "rounded-full border px-2.5 py-1",
+              source === s.key
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-card hover:bg-muted",
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {source === "unknown" ? (
+        <p className="text-xs text-muted-foreground">
+          Za 3 dni robocze NEXUS przypomni, a w Insights → Przegrane czeka gotowe pytanie do hiring
+          managera (wysyłasz je ze swojej skrzynki).
+        </p>
+      ) : null}
+    </fieldset>
+  );
 }
 
 const GROUP_TONE: Record<CloseReasonGroup, { on: string; effect: string }> = {
@@ -39,6 +122,14 @@ const GROUP_TONE: Record<CloseReasonGroup, { on: string; effect: string }> = {
   },
   neutral: { on: "border-foreground/60 bg-muted", effect: "bg-muted text-foreground" },
 };
+
+/** „Co zdecydowało?” do wysyłki; `null` = nic nie wybrano, zapis zostaje bez zmian. */
+export function lostWhyOf(value: CloseReasonValue): LostWhyPayload | null {
+  const why = value.lostWhy ?? [];
+  const source = value.lostWhySource ?? null;
+  if (value.reason !== "competitor" || (why.length === 0 && !source)) return null;
+  return { why, source };
+}
 
 /** Czy wybór da się wysłać — serwer i tak sprawdza (422 z `code`). */
 export function closeReasonReady(value: CloseReasonValue): boolean {
@@ -135,6 +226,14 @@ export function CloseReasonFields({ value, onChange, jobId, clientId }: CloseRea
           Wybierz, jak skończyła się rekrutacja — od tego zależy hit ratio.
         </p>
       )}
+
+      {value.reason === "competitor" ? (
+        <LostWhyFields
+          why={value.lostWhy ?? []}
+          source={value.lostWhySource ?? null}
+          onChange={(next) => onChange({ ...value, ...next })}
+        />
+      ) : null}
 
       {isDuplicate ? (
         <div className="space-y-1">

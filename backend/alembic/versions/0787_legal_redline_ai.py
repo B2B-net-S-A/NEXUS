@@ -1,7 +1,7 @@
 """Klucz AI F58: asystent prawny — propozycje zmian w umowie DOCX.
 
-Revision ID: 0785_legal_redline_ai
-Revises: 0781_legal_case_law
+Revision ID: 0787_legal_redline_ai
+Revises: 0786_legal_case_law
 
 Część D planu asystenta prawnego (``docs/asystent-prawny-plan.md``, „Popraw
 dokument”): model proponuje zmiany w umowie z powodem i cytatami, kod
@@ -15,8 +15,8 @@ Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0785_legal_redline_ai"
-down_revision = "0781_legal_case_law"
+revision = "0787_legal_redline_ai"
+down_revision = "0786_legal_case_law"
 branch_labels = None
 depends_on = None
 
@@ -39,7 +39,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0785 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0787 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

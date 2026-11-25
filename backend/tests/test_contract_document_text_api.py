@@ -1,4 +1,4 @@
-"""Treść dokumentów kontraktu (0782) — bramki tras i odmowy, bez bazy.
+"""Treść dokumentów kontraktu (0788) — bramki tras i odmowy, bez bazy.
 
 Fragment podpisanej umowy niesie stawki tak samo jak PDF, więc bramka jest ta
 sama co pobranie pliku (``download_contract_document``): „Stawki i kwoty:

@@ -2,11 +2,13 @@
 
 import { LegalTasksStrip } from "@/components/legal-assistant/letters/LegalTasksStrip";
 import { RateDocumentRowNote } from "@/components/contracts/rate-documents/RateDocumentRowNote";
+import { RateHistoryRowNote } from "@/components/contracts/rate-history-ksef/RateHistoryRowNote";
 import {
  OrderAfterEndRowNote,
  type OrderAfterEndSummary,
 } from "@/components/contracts/OrderAfterEndRowNote";
 import type { RateDocumentChange } from "@/lib/api/contractRateDocuments";
+import type { RateHistoryChange } from "@/lib/api/contractRateHistoryKsef";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from"react";
 import Link from"next/link";
 import dynamic from"next/dynamic";
@@ -182,6 +184,8 @@ interface ContractRow {
  missing_fields?: string[];
  // Stawka z dokumentu, której nie ma w harmonogramie (0739, redagowana z kwotami).
  rate_document_change?: RateDocumentChange | null;
+ // Stawka z faktur KSeF, której nie ma w harmonogramie (0782, redagowana z kwotami).
+ rate_history_change?: RateHistoryChange | null;
  // „Klient zamówił okres po zakończeniu” (19.11.2026): pierwsze takie zamówienie.
  order_after_end?: OrderAfterEndSummary | null;
  candidate_name?: string;
@@ -307,13 +311,14 @@ type QuickFilterKey =
  | "ending"
  | "order_after_end"
  | "all"
- | "rate_document";
+ | "rate_document"
+ | "rate_history";
 const QUICK_FILTERS: ReadonlyArray<{
  key: QuickFilterKey;
  label: string;
  statuses: ContractStatusValue[];
  /** Zbiór liczy serwer (`bucket`), nie lista statusów. */
- bucket?: "ending" | "rate_document" | "order_after_end";
+ bucket?: "ending" | "rate_document" | "rate_history" | "order_after_end";
  /** Pigułka tylko wtedy, gdy zbiór nie jest pusty (albo jest wybrany). */
  onlyWhenNotEmpty?: boolean;
  hint: string;
@@ -357,6 +362,13 @@ const QUICK_FILTERS: ReadonlyArray<{
  statuses: [],
  bucket: "rate_document",
  hint: "Umowa albo aneks w Dokumentach podaje stawkę Partnera, której nie ma w kontrakcie.",
+ },
+ {
+ key: "rate_history",
+ label: "Stawka z faktur",
+ statuses: [],
+ bucket: "rate_history",
+ hint: "Faktury KSeF (sprzedaż i faktury konsultanta) pokazują stawkę, której nie ma w harmonogramie kontraktu.",
  },
 ];
 
@@ -859,6 +871,11 @@ export function ContractsListV2({
  );
  // „Zamówione po końcu” (19.11.2026): kończący się albo zakończony kontrakt
  // z zamówieniem po końcu projektu — zbiór liczy serwer (`bucket=order_after_end`).
+ // „Stawka z faktur” (0782): faktury KSeF pokazują stawkę, której nie ma
+ // w harmonogramie — zbiór liczy serwer (`bucket=rate_history`).
+ const [rateHistory, setRateHistory] = useState(
+ initialListState.state.rateHistory ?? false,
+ );
  const [orderAfterEnd, setOrderAfterEnd] = useState(
  initialListState.state.orderAfterEnd ?? false,
  );
@@ -912,6 +929,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ rateHistory,
  orderAfterEnd,
  ...dateRange,
  groupByClient,
@@ -928,6 +946,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ rateHistory,
  orderAfterEnd,
  dateRange,
  groupByClient,
@@ -967,6 +986,7 @@ export function ContractsListV2({
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
  setRateDocument(next.rateDocument ?? false);
+ setRateHistory(next.rateHistory ?? false);
  setOrderAfterEnd(next.orderAfterEnd ?? false);
  setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
@@ -1027,6 +1047,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ rateHistory,
  orderAfterEnd,
  appliedDates,
  sort,
@@ -1054,6 +1075,7 @@ export function ContractsListV2({
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("bucket", "ending");
  else if (rateDocument) params.set("bucket", "rate_document");
+ else if (rateHistory) params.set("bucket", "rate_history");
  else if (orderAfterEnd) params.set("bucket", "order_after_end");
  if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
@@ -1173,6 +1195,10 @@ export function ContractsListV2({
  ? statusFilter.length === 0
  ? "rate_document"
  : null
+ : rateHistory
+ ? statusFilter.length === 0
+ ? "rate_history"
+ : null
  : orderAfterEnd
  ? statusFilter.length === 0
  ? "order_after_end"
@@ -1197,6 +1223,8 @@ export function ContractsListV2({
  ? "ending"
  : rateDocument
  ? "rate_document"
+ : rateHistory
+ ? "rate_history"
  : orderAfterEnd
  ? "order_after_end"
  : undefined,
@@ -1218,6 +1246,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  rateDocument,
+ rateHistory,
  orderAfterEnd,
  appliedDates,
  sort,
@@ -1256,6 +1285,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  rateDocument,
+ rateHistory,
  orderAfterEnd,
  appliedDates,
  sort,
@@ -1312,6 +1342,7 @@ export function ContractsListV2({
  setStatusFilter([...filter.statuses]);
  setEndingSoon(filter.bucket === "ending");
  setRateDocument(filter.bucket === "rate_document");
+ setRateHistory(filter.bucket === "rate_history");
  setOrderAfterEnd(filter.bucket === "order_after_end");
  setAgreementNotTerminated(false);
  setPage(1);
@@ -1450,6 +1481,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ rateHistory,
  orderAfterEnd,
  appliedDates,
  ]);
@@ -1585,6 +1617,7 @@ export function ContractsListV2({
  {c.candidate_name ?? `#${c.id}`}
  </Link>
  <RateDocumentRowNote change={c.rate_document_change} />
+ <RateHistoryRowNote change={c.rate_history_change} />
  <OrderAfterEndRowNote summary={c.order_after_end} />
  {liveClientCount > 1 && (
  <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
@@ -1988,7 +2021,7 @@ export function ContractsListV2({
  key={filter.key}
  type="button"
  // Strażnik kotwic nowości czyta kotwicę z linii `data-tour` — jedna linia.
- data-tour={filter.key === "rate_document" ? "contracts.rate-document" : filter.key === "order_after_end" ? "contracts.order-after-end" : filter.key === "ending" ? "contracts.ending-pill" : undefined}
+ data-tour={filter.key === "rate_document" ? "contracts.rate-document" : filter.key === "rate_history" ? "contracts.rate-history" : filter.key === "order_after_end" ? "contracts.order-after-end" : filter.key === "ending" ? "contracts.ending-pill" : undefined}
  aria-pressed={selected}
  title={filter.hint}
  onClick={() => selectQuickFilter(filter.key)}
@@ -2093,6 +2126,7 @@ export function ContractsListV2({
  setStatusFilter([]);
  setEndingSoon(false);
  setRateDocument(false);
+ setRateHistory(false);
  }
  setPage(1);
  }}

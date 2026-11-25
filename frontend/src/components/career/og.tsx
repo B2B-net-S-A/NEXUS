@@ -7,7 +7,7 @@ export { OgCard, ogJobTiles, type OgFact } from "./ogCard";
  * Wspólny kadr grafik Open Graph (LinkedIn) strony kariery — `next/og`.
  *
  * Od 29.10.2026 w barwach marki B2B Network jak szablony ogłoszeń (Montserrat
- * + Source Sans 3, czerwień #E73748, logo), zamiast okna terminala: w
+ * + Source Sans 3, czerwień #C42329 w gradiencie wariantu 5 od 25.11.2026, logo), zamiast okna terminala: w
  * miniaturze posta (ok. 550 px szerokości, na telefonie ok. 350 px) tytuł jest
  * duży, a lokalizacja, tryb i umowa stoją w kaflach — `$ cat /rekrutacje/…`
  * i mono były tam nieczytelne.

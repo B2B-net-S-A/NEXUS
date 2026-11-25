@@ -29,7 +29,8 @@ Wszystko inne zostaje Finansom z powodem (``REASON_LABELS``) — system nie
 zgaduje. Korekta idzie za fakturą pierwotną (te same zamówienia). Ręczne
 przypisanie Finansów nie jest nadpisywane przez kolejne przebiegi. Finanse mogą
 przy przypisaniu dopisać numer nabywcy do klienta (``save_buyer_number``): wtedy
-pozostałe faktury tego nabywcy dopasowują się od razu.
+pozostałe faktury tego nabywcy dopasowują się od razu. Z dowodem (osoby z pozycji,
+nazwa prawna) numer dopisuje automat (``buyer_proof``).
 """
 
 from __future__ import annotations
@@ -216,6 +217,17 @@ def person_named_in(person: str, text: str) -> bool:
     parts = _fold(person).split()
     name = _fold(text)
     return len(parts) >= 2 and all(_pattern(part).search(name) for part in parts)
+
+
+def name_key(text: str) -> str:
+    """Tekst do odsiewu przed ``person_named_in``: małe litery bez polskich znaków.
+
+    Gdy ``person_named_in`` znajduje osobę w tekście, każda część jej imienia
+    i nazwiska w tej postaci jest podciągiem tekstu w tej postaci. ``ı`` → ``i``,
+    bo ``re.IGNORECASE`` zrównuje te litery, a ``casefold`` nie.
+    """
+
+    return _fold(text).casefold().replace("ı", "i")
 
 
 def _named_in(line: BillingLine, item_name: str) -> bool:
@@ -848,21 +860,35 @@ async def waiting_for_number(db: AsyncSession, number: str) -> int:
 
 
 async def save_buyer_number(
-    db: AsyncSession, invoice: ClientSalesInvoice, *, client_id: Optional[int] = None
+    db: AsyncSession,
+    invoice: ClientSalesInvoice,
+    *,
+    client_id: Optional[int] = None,
+    extra: bool = False,
+    source: str = "manual",
+    actor_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """Numer nabywcy u klienta z faktury i od razu reszta faktur tego nabywcy.
 
     Nie czekamy na ``rematch_pending``: idzie po kolejce paczkami, więc starsze
     faktury tego nabywcy doszłyby do niego dopiero po kilku przebiegach.
+    ``extra=True`` dopisuje numer jako dodatkowy, gdy klient ma już inny
+    (spółka grupy, ``client_buyer_numbers``); automat podaje ``source="auto"``.
     """
 
     check = await clients.add_buyer_number(
-        db, invoice.client_id or client_id, buyer_number(invoice)
+        db,
+        invoice.client_id or client_id,
+        buyer_number(invoice),
+        extra=extra,
+        source=source,
+        actor_id=actor_id,
     )
     result: dict[str, Any] = {
         "state": check.state,
         "number": check.number,
         "client_id": check.client_id,
+        "extra": check.extra,
         "saved": check.state == "add",
         "retried": 0,
         "matched": 0,
@@ -885,6 +911,7 @@ __all__ = [
     "ignore",
     "invoice_texts",
     "invoices_waiting_for_number",
+    "name_key",
     "named_order_numbers",
     "numbers_found",
     "person_named_in",

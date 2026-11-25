@@ -1,11 +1,10 @@
 /**
  * Klient `POST /api/talent-radar/search` — ranking bazy pod wklejony request.
  *
- * UWAGA na kolizję nazw: `talent_radar` funkcjonuje w tym repo od dawna jako
- * *legacy źródło importu* (`/api/admin/import-talent-radar`, `adminApi
- * .startTalentRadarImport`). Tamto źródło zostało w bazie przemianowane na
- * `tr_legacy` właśnie po to, żeby nazwa „Talent Radar" należała do TEGO modułu.
- * Nic tutaj nie ma z tamtym importem wspólnego.
+ * UWAGA na kolizję nazw: `talent_radar` funkcjonowało w tym repo jako
+ * *legacy źródło importu* z Supabase. Tamto źródło zostało w bazie przemianowane
+ * na `tr_legacy` właśnie po to, żeby nazwa „Talent Radar" należała do TEGO
+ * modułu, a sam import usunięto 25.11.2026. Nic tutaj nie ma z nim wspólnego.
  */
 
 import { api, type HiddenCounters, type MatchEligibility } from "@/lib/api";

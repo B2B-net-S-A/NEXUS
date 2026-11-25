@@ -30,7 +30,7 @@ Stan sprawdzony 25.11.2026 (robots.txt, dokumentacja, próbne zapytania).
 
 ## Pamięć i wyszukiwanie
 
-- Tabela `legal_cases` (0781, DDL w `services/legal_case_law/schema.py`,
+- Tabela `legal_cases` (0786, DDL w `services/legal_case_law/schema.py`,
   lustro w `entrypoint.sh` przez `hr_schema_bundle`, sonda w `/api/health/deep`):
   sygnatura, sąd, data, rodzaj, adres, teza, tekst, `content_sha256`, tematy,
   `fetched_at`. Klucz: (źródło, id w źródle).
@@ -57,7 +57,7 @@ Stan sprawdzony 25.11.2026 (robots.txt, dokumentacja, próbne zapytania).
 i miarkowanie (art. 484 § 2 KC), wypowiedzenie umów o świadczenie usług
 (art. 746/750 KC), zakaz konkurencji. SAOS nie sortuje po trafności; bierzemy
 orzeczenia najczęściej powoływane (`REFERENCING_JUDGMENTS_COUNT`). Bez pętli
-w lifespanie — uruchomienie ręczne (na produkcji po wdrożeniu 0781).
+w lifespanie — uruchomienie ręczne (na produkcji po wdrożeniu 0786).
 
 ## API
 

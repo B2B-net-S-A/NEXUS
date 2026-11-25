@@ -591,7 +591,7 @@ export function sensitiveFieldsOf(
 // ── Rejestr aneksów ─────────────────────────────────────────────────────────
 
 /** Rodziny dokumentów zakładki „Dokumenty” — aneksy mają własny rejestr.
- *  `custom` = dokumenty ze wzorów własnych (0780). */
+ *  `custom` = dokumenty ze wzorów własnych (0785). */
 export const NON_ANNEX_FAMILIES: readonly DocumentFamily[] = [
   "termination",
   "preliminary",

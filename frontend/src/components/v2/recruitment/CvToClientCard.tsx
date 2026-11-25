@@ -155,6 +155,7 @@ import type { CvEditorSourcesProps } from "@/components/v2/cv-editor/CvEditorSou
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
+import { cvDownloadPlan, cvFileFormat, CV_FILE_FORMAT_LABEL, wordClassicWarning } from "@/lib/cv-file-format";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
@@ -701,6 +702,13 @@ export function CvToClientCard({
   // Układ CV (22.11.2026): jedno ustawienie CV, bez generowania od nowa.
   const layoutEnabled = branded?.new_layout_enabled === true;
   const layout: CvLayout = branded?.cv_layout ?? "classic";
+  // Format pliku z reguły klienta (25.11.2026): który przycisk pobrania jest pierwszy.
+  const fileFormat = cvFileFormat(branded?.client_file_format);
+  const downloadPlan = cvDownloadPlan(fileFormat, layoutEnabled && layout === "new" ? "new" : "classic");
+  const wordLabel = layoutEnabled && layout === "new" ? "Word (klasyczne)" : "Pobierz Word";
+  const consentTitle = state.consentMissing
+    ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
+    : undefined;
   const layoutMut = useMutation({
     mutationFn: (target: { stageId: number; layout: CvLayout }) =>
       candidateStageCvApi.branded.setLayout(target.stageId, target.layout),
@@ -1041,44 +1049,50 @@ export function CvToClientCard({
               />
             ) : null}
             {layoutEnabled && layout === "new" ? <NewCvRoleGapsNote gaps={branded?.new_layout_role_gaps} /> : null}
+            {downloadPlan.warnWordClassic && !lockedAfterSend ? (
+              <p
+                role="note"
+                data-testid="cv-card-word-classic-warning"
+                className="rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2 text-xs text-warning-muted-foreground [overflow-wrap:anywhere]"
+              >
+                {wordClassicWarning(fileFormat)}
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {!readOnly ? (
                 <Button size="sm" variant="outline" onClick={() => openEditor()}>
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> Otwórz i popraw
                 </Button>
               ) : null}
-              {layoutEnabled && layout === "new" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  data-testid="cv-card-download-pdf"
-                  onClick={() => void downloadPdf()}
-                  disabled={downloadingPdf || state.consentMissing}
-                  loading={downloadingPdf}
-                  title={
-                    state.consentMissing
-                      ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
-                      : undefined
-                  }
-                >
-                  <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
-                </Button>
-              ) : null}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void download()}
-                disabled={downloading || state.consentMissing}
-                loading={downloading}
-                title={
-                  state.consentMissing
-                    ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
-                    : undefined
-                }
-              >
-                <Download className="h-3.5 w-3.5" aria-hidden />{" "}
-                {layoutEnabled && layout === "new" ? "Word (klasyczne)" : "Pobierz Word"}
-              </Button>
+              {downloadPlan.primary.map((kind) =>
+                kind === "pdf" ? (
+                  <Button
+                    key="pdf"
+                    size="sm"
+                    variant="outline"
+                    data-testid="cv-card-download-pdf"
+                    onClick={() => void downloadPdf()}
+                    disabled={downloadingPdf || state.consentMissing}
+                    loading={downloadingPdf}
+                    title={consentTitle}
+                  >
+                    <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
+                  </Button>
+                ) : (
+                  <Button
+                    key="docx"
+                    size="sm"
+                    variant="outline"
+                    data-testid="cv-card-download-docx"
+                    onClick={() => void download()}
+                    disabled={downloading || state.consentMissing}
+                    loading={downloading}
+                    title={consentTitle}
+                  >
+                    <Download className="h-3.5 w-3.5" aria-hidden /> {wordLabel}
+                  </Button>
+                ),
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -1092,19 +1106,24 @@ export function CvToClientCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {layoutEnabled && layout === "new" ? null : (
-                  <DropdownMenuItem
-                    disabled={downloadingPdf || state.consentMissing}
-                    title={
-                      state.consentMissing
-                        ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
-                        : undefined
-                    }
-                    onSelect={() => void downloadPdf()}
-                  >
-                    <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
-                  </DropdownMenuItem>
-                  )}
+                  {downloadPlan.inMenu.includes("pdf") ? (
+                    <DropdownMenuItem
+                      disabled={downloadingPdf || state.consentMissing}
+                      title={consentTitle}
+                      onSelect={() => void downloadPdf()}
+                    >
+                      <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
+                    </DropdownMenuItem>
+                  ) : null}
+                  {downloadPlan.inMenu.includes("docx") ? (
+                    <DropdownMenuItem
+                      disabled={downloading || state.consentMissing}
+                      title={consentTitle}
+                      onSelect={() => void download()}
+                    >
+                      <Download className="h-3.5 w-3.5" aria-hidden /> {wordLabel}
+                    </DropdownMenuItem>
+                  ) : null}
                   {canReplace ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(() => setOtherOpen(true))}>
                       <Repeat2 className="h-3.5 w-3.5" aria-hidden /> Użyj innego CV
@@ -1131,6 +1150,11 @@ export function CvToClientCard({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+            {fileFormat ? (
+              <p className="text-xs text-muted-foreground" data-testid="cv-card-client-format">
+                Klient chce: {CV_FILE_FORMAT_LABEL[fileFormat]}
+              </p>
+            ) : null}
           </div>
         </div>
         {/* Pełna szerokość karty: obok miniatury zdanie i „Sprawdź i popraw” łamały się w słupek. */}

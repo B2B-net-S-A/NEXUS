@@ -10,10 +10,12 @@ import { useToast } from "@/components/Toast";
 import api, { cvGeneratorApi, type GeneratedCvItem } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { contentModeLabel, stageLabel } from "@/lib/cv-generator";
+import { CV_FILE_FORMAT_LABEL, cvFileFormat, type CvFileFormat } from "@/lib/cv-file-format";
 
 import { ConsentAttachButton } from "./ConsentAttachButton";
 import { CvWarnings } from "./CvWarnings";
-import { downloadGeneratedCv } from "./cv-generated-files";
+import { useClientCvRule } from "./ClientCvRuleBanner";
+import { downloadGeneratedCv, downloadGeneratedCvPdf } from "./cv-generated-files";
 import { GeneratedCvPreviewModal } from "./GeneratedCvPreviewModal";
 import { StatusChip } from "./GeneratorParts";
 
@@ -43,6 +45,9 @@ export interface CvResultViewProps {
   onPreview: (doc: GeneratedCvItem) => void;
   onEdit: (doc: GeneratedCvItem) => void;
   onDownload: (doc: GeneratedCvItem) => void;
+  /** Plik, którego chce klient (reguła CV, 25.11.2026); `null` = bez wymagań (sam DOCX). */
+  fileFormat?: CvFileFormat | null;
+  onDownloadPdf?: (doc: GeneratedCvItem) => void;
   onRegenerate?: () => void;
   onRetryPackage?: () => void;
   onDelete?: (doc: GeneratedCvItem) => void;
@@ -63,6 +68,16 @@ export function CvResultView(props: CvResultViewProps) {
   const consentMissing = props.documents.some((doc) => doc.consent_missing);
   const consentRequired = props.documents.some((doc) => doc.consent_required);
   const warnings = [...new Set(props.documents.flatMap((doc) => doc.warnings ?? []))];
+  // Format z reguły klienta: PDF na pierwszym miejscu albo obok DOCX; bez wymagań — sam DOCX.
+  // Generacja w „Nowym CV”: plik wyniku jest klasyczny, a PDF nowego układu jest w karcie.
+  const wantsPdf = props.fileFormat === "pdf" || props.fileFormat === "both";
+  const newLayoutResult = main?.cv_layout === "new";
+  const pdfAllowed = !!props.onDownloadPdf && wantsPdf && !newLayoutResult;
+  const downloadKinds: ("docx" | "pdf")[] = !pdfAllowed
+    ? ["docx"]
+    : props.fileFormat === "pdf"
+      ? ["pdf", "docx"]
+      : ["docx", "pdf"];
   const subtitle = [main?.content_mode ? contentModeLabel(main.content_mode) : null, jobTitle, clientName]
     .filter(Boolean)
     .join(" · ");
@@ -156,21 +171,34 @@ export function CvResultView(props: CvResultViewProps) {
                           <Pencil aria-hidden className="mr-1.5 h-4 w-4" />Edytuj
                         </Button>
                       ) : null}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!doc.can_download || consentMissing}
-                        title={consentMissing ? "Pobranie zablokowane — brak zrzutu zgody RODO" : undefined}
-                        onClick={() => props.onDownload(doc)}
-                      >
-                        <Download aria-hidden className="mr-1.5 h-4 w-4" />Pobierz DOCX
-                      </Button>
+                      {downloadKinds.map((kind) => (
+                        <Button
+                          key={kind}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          data-testid={`cv-result-download-${kind}`}
+                          disabled={!doc.can_download || consentMissing}
+                          title={consentMissing ? "Pobranie zablokowane — brak zrzutu zgody RODO" : undefined}
+                          onClick={() => (kind === "pdf" ? props.onDownloadPdf?.(doc) : props.onDownload(doc))}
+                        >
+                          <Download aria-hidden className="mr-1.5 h-4 w-4" />
+                          {kind === "pdf" ? "Pobierz PDF" : "Pobierz DOCX"}
+                        </Button>
+                      ))}
                     </span>
                   )}
                 </li>
               ))}
             </ul>
+            {wantsPdf && props.fileFormat ? (
+              <p className="mt-2 text-xs text-muted-foreground" data-testid="cv-result-client-format">
+                Klient chce: {CV_FILE_FORMAT_LABEL[props.fileFormat]}
+                {newLayoutResult
+                  ? ". PDF w układzie „Nowe CV” pobierzesz z karty „CV do klienta” w rekrutacji — plik DOCX stąd jest klasyczny."
+                  : null}
+              </p>
+            ) : null}
             {((failed.length > 0 && ready.length > 0) || interrupted) && props.onRetryPackage && props.canWrite ? (
               <Button type="button" variant="outline" size="sm" className="mt-2" onClick={props.onRetryPackage}>
                 {interrupted ? "Ponów generację" : "Ponów brakującą wersję językową"}
@@ -251,6 +279,16 @@ export function CvResultLive(props: CvResultLiveProps) {
     if (problem) toast.showError(problem);
   }
 
+  async function downloadPdf(doc: GeneratedCvItem) {
+    const problem = await downloadGeneratedCvPdf(doc);
+    if (problem) toast.showError(problem);
+  }
+
+  // Format pliku z reguły klienta tej generacji (ten sam odczyt co baner generatora).
+  const clientId = (documents.find((doc) => doc.id === props.mainId) ?? documents[0])?.client_id ?? null;
+  const ruleQuery = useClientCvRule(clientId);
+  const fileFormat = ruleQuery.data?.is_active ? cvFileFormat(ruleQuery.data.cv_file_format) : null;
+
   async function retryPackage() {
     try {
       await api.post(`/api/cv-generator/generated/${props.mainId}/package/retry`, {});
@@ -285,6 +323,8 @@ export function CvResultLive(props: CvResultLiveProps) {
         onPreview={setPreviewItem}
         onEdit={setEditItem}
         onDownload={(doc) => void download(doc)}
+        fileFormat={fileFormat}
+        onDownloadPdf={(doc) => void downloadPdf(doc)}
         onRegenerate={props.onRegenerate}
         onRetryPackage={() => void retryPackage()}
         onDelete={(doc) => void remove(doc)}

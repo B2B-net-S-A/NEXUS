@@ -76,10 +76,12 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F52 | contract_document_rate_read      | claude-sonnet-5 (z Haiku)|
 | F53 | contract_partner_read            | claude-sonnet-5 (z Haiku)|
 | F54 | sales_potential_assessment       | claude-sonnet-5-5 (z 5)  |
-| F56 | legal_assistant                  | claude-sonnet-5-5 (z 5)  |
-| F57 | legal_template_draft             | claude-sonnet-5-5 (z 5)  |
-| F58 | legal_redline                    | claude-sonnet-5-5 (z 5)  |
-| F59 | legal_client_fit                 | claude-sonnet-5-5 (z 5)  |
+| F55 | interview_answer_proposal        | claude-sonnet-5-5 (z Haiku)|
+| F56 | lost_review_summary              | claude-sonnet-5-5 (z 5)  |
+| F57 | legal_assistant                  | claude-sonnet-5-5 (z 5)  |
+| F58 | legal_template_draft             | claude-sonnet-5-5 (z 5)  |
+| F59 | legal_redline                    | claude-sonnet-5-5 (z 5)  |
+| F60 | legal_client_fit                 | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -666,11 +668,28 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "dwóch firmach ze stagingu 23.11. Dodatek: bez modelu research i fakty zostają "
         "na ekranie, referencje wybiera model tylko numerem z bazy.",
     ),
+    AIFeatureKey.interview_answer_proposal: ModelChoice(
+        default=SONNET_55,
+        env_vars=("INTERVIEW_ANSWER_PROPOSAL_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F55 (decyzja Artura 25.11.2026: odpowiedzi AI hurtem w nocy), model F44 "
+        "cv_call_questions (ta sama dziedzina: pytania do rozmowy), BEZ osobnego pomiaru — do "
+        "zmierzenia po pierwszych nocach. Dodatek: bez modelu pytanie zostaje bez propozycji.",
+    ),
+    AIFeatureKey.lost_review_summary: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LOST_REVIEW_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F56 (decyzja Artura 25.11.2026: „rady i konkluzje od AI” w module Przegrane), "
+        "model tekstu do ludzi z F46/F54, BEZ osobnego pomiaru — wejście to same liczby "
+        "i etykiety z list policzone przez kod. Dodatek: bez modelu ekran ma wszystkie liczby, "
+        "wykresy i wnioski z reguł kodu.",
+    ),
     AIFeatureKey.legal_assistant: ModelChoice(
         default=SONNET_55,
         env_vars=("LEGAL_ASSISTANT_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F56 (decyzja Artura 25.11.2026, asystent prawny, POZA badaniem 16.09). Szkic "
+        rationale="F57 (decyzja Artura 25.11.2026, asystent prawny, POZA badaniem 16.09). Szkic "
         "pisma do kontraktora albo klienta z podanych fragmentów przepisów i umowy — tekst dla "
         "osoby spoza firmy oparty na źródłach, więc model z F46/F54, a w pomiarze F50 (16.11) "
         "Sonnet 5.5 dał najmniej zdań bez pokrycia (1 na 8 szkiców wobec 4 Sonneta 5). Bez "
@@ -682,8 +701,8 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=SONNET_55,
         env_vars=("LEGAL_TEMPLATE_DRAFT_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F57 (plan asystenta prawnego 25.11.2026 nazywa ją F20 — ten numer "
-        "zajmuje job_public_description; F55 = pytania z rozmów, F56 = legal_assistant). Szkic zmian wzoru umowy z polecenia: tekst prawny "
+        rationale="F58 (plan asystenta prawnego 25.11.2026 nazywa ją F20 — ten numer "
+        "zajmuje job_public_description; F55 = pytania z rozmów, F57 = legal_assistant). Szkic zmian wzoru umowy z polecenia: tekst prawny "
         "do podpisu, więc model tekstu umownego z F50 (uzasadnienie dopłaty do umowy "
         "ramowej), bez osobnego pomiaru. Kod nakłada zmiany na DOCX, sprawdza pola "
         "i szablon; zatwierdza administrator. Dodatek: bez modelu działa ścieżka "
@@ -693,7 +712,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=SONNET_55,
         env_vars=("LEGAL_REDLINE_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F58 (asystent prawny, część D „Popraw dokument”, 25.11.2026, POZA badaniem "
+        rationale="F59 (asystent prawny, część D „Popraw dokument”, 25.11.2026, POZA badaniem "
         "16.09; numer z planu `docs/asystent-prawny-plan.md` — F21 rejestru jest zajęte, numer "
         "w tabeli nadaje sesja scalająca). Proza prawnicza z cytatami ze źródeł, jak recenzje "
         "z cytatami F22/F24 (Sonnet 5.5), więc ten sam model bez osobnego pomiaru. Kod sprawdza "
@@ -704,9 +723,9 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=SONNET_55,
         env_vars=("LEGAL_CLIENT_FIT_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F59 (asystent prawny, część G, 25.11.2026, POZA badaniem 16.09; numer "
+        rationale="F60 (asystent prawny, część G, 25.11.2026, POZA badaniem 16.09; numer "
         "z planu `docs/asystent-prawny-plan.md`). Porównanie dwóch tekstów prawnych "
-        "z cytatami ze źródeł — ten sam rodzaj pracy co F58 (propozycje zmian w umowie "
+        "z cytatami ze źródeł — ten sam rodzaj pracy co F59 (propozycje zmian w umowie "
         "z cytatami) i recenzje z cytatami F22/F24, więc Sonnet 5.5 bez osobnego "
         "pomiaru; zmiana po pomiarze na modelu z produkcji. Kod sprawdza każdy cytat "
         "z tekstem fragmentu (ustalenie bez pokrycia odpada), paragrafy liczy z układu "

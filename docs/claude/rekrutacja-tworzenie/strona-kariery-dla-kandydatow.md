@@ -15,6 +15,20 @@ Publiczny landing, który rekruterzy wrzucają na LinkedIna. Raport:
   właściciela linku (`my_people` nie czyta `created_by`).
 
 Reguły, które łatwo cofnąć:
+- **Kolorystyka wariantu 5 jak strona główna (25.11.2026, decyzja Artura
+  „Czerwień w gradientach tech” na b2bnetwork-test.dynaminds.pl):** tokeny
+  w jednym miejscu (`site/site.module.css`, `.site`), źródłem prawdy jest
+  `DESIGN.md` i `src/app/globals.css` repo b2bnetwork-www. Czerwień `#C42329`,
+  gradient `#961621` › `#C42329` › `#D43424` poziomo w nagłówku i na pierwszym
+  ekranie (`--red-tech`), tekst czerwony `#B0222A`, ciemne rozdziały i stopka
+  w burgund-obsydianie `#1F1115`, morelowa iskra `#FFD6C9` (token `--lime`,
+  jak na stronie głównej) — limonki `#D4F04A` na stronie kariery nie ma.
+  Typografia A: Montserrat 700, największe słowo 136 px, nic poniżej 13 px.
+  Nagłówek i stopka powtarzają `SiteHeader`/`SiteFooter` strony głównej (CTA
+  „Porozmawiajmy o projekcie”, poniżej 400 px „Porozmawiajmy”; nawigacja od
+  1280 px, niżej menu). Te same kolory mają grafika OG / podgląd posta
+  (`ogCard.tsx`, OG zostaje na Montserrat 800, bo satori czyta tylko TTF)
+  i plakat z QR (`career_poster.py`). Nowy kolor = najpierw strona główna.
 - **Strona rekrutera (etap 6, 20.10.2026, makieta 6d w
   https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h; od 24.11.2026 w szablonie
   nowej strony B2B Network, `components/career/site/RecruiterPage.tsx`):**

@@ -551,7 +551,7 @@ const PUBLIC_PATHS = [
   "/preview/permissions",
   "/preview/b2b-documents",
   "/preview/b2b-generator",
-  // Wzory własne Generatora (asystent prawny, 0780): studio, lista, „Nowy dokument”.
+  // Wzory własne Generatora (asystent prawny, 0785): studio, lista, „Nowy dokument”.
   "/preview/custom-templates",
   // Asystent prawny: „Popraw dokument” (część D) i zgodność z umową ramową
   // klienta (część G) — dane fikcyjne, zasiany cache, bez zapytań.

@@ -1,7 +1,7 @@
 """Zgodność umów B2B z umową ramową klienta (asystent prawny G, 25.11.2026).
 
-Revision ID: 0784_legal_client_fit
-Revises: 0783_legal_assistant_tasks
+Revision ID: 0790_legal_client_fit
+Revises: 0789_legal_assistant_tasks
 
 Tabele ``legal_client_fit_checks`` (stan sprawdzenia, jeden wiersz na klienta)
 i ``legal_client_fit_findings`` (ustalenie na temat: wymóg klienta z cytatem,
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services.legal_client_fit.schema import ALL_DDL, DOWNGRADE_DDL
 
-revision = "0784_legal_client_fit"
-down_revision = "0783_legal_assistant_tasks"
+revision = "0790_legal_client_fit"
+down_revision = "0789_legal_assistant_tasks"
 branch_labels = None
 depends_on = None
 
@@ -42,7 +42,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0784 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0790 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

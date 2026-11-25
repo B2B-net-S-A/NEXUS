@@ -1114,12 +1114,15 @@ def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
 
 def test_poster_has_one_look_of_the_new_career_site():
     """Od 24.11.2026 plakat ma jeden wygląd jak nagłówek oferty (wariant G1):
-    czerwone tło, biały tytuł, jasny pas z kodem QR. Szablony go nie zmieniają."""
+    czerwone tło, biały tytuł, jasny pas z kodem QR. Szablony go nie zmieniają.
+    Od 25.11.2026 w kolorach wariantu 5: czerwień #C42329 w gradiencie."""
     pytest.importorskip("segno")
     from app.services.career_poster import poster_html
 
     doc = poster_html(_poster_payload(), "https://kariera.example/r/java-ab12")
-    assert "background: #E73748" in doc
+    assert "background: #C42329" in doc
+    assert "linear-gradient(90deg, #961621 0%, #C42329 52%, #D43424 100%)" in doc
+    assert "#E73748" not in doc
     assert "Zeskanuj i wyślij CV" in doc
     assert "~/kariera" not in doc and "›" not in doc
 

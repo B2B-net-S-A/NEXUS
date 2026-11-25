@@ -2,7 +2,9 @@
 
 25.11.2026 o 10:19 jądro zabiło proces bazy, bo kontener Postgresa doszedł do `mem_limit`
 (OOM cgroupa, `memory.events`: `oom_kill 1`). Baza przeszła crash recovery w ok. 3 s,
-a 38 żądań dostało 500, w tym zapisy screeningu i ruch kart. Kontener nie ma swapu,
+a 38 żądań dostało 500, w tym zapisy screeningu i ruch kart. O 16:50, jeszcze przed
+wdrożeniem poprawki, OOM powtórzył się (`oom_kill 2`, zabity backend kończył `COMMIT`)
+i dał 118 × 5xx. Kontener nie ma swapu,
 więc pamięci, której nie da się odzyskać, nie może być więcej niż limit.
 
 ## Co liczy się w limicie

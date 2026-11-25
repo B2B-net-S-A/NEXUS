@@ -1,7 +1,7 @@
 """Pismo na stronie kontraktu (asystent prawny, część F).
 
 * ``POST /api/contracts/{id}/legal-letter/draft`` — szkic pisma: wzór
-  Generatora wypełniony kodem albo zdania modelu (``legal_assistant``, F56)
+  Generatora wypełniony kodem albo zdania modelu (``legal_assistant``, F57)
   ze sprawdzonymi cytatami. Niczego nie zapisuje.
 * ``POST /api/contracts/{id}/legal-letter/docx`` — to samo pismo jako DOCX
   (wzór: plik wzoru; model: tekst po poprawkach człowieka). Niczego nie
