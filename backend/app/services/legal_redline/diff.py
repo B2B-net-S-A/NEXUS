@@ -1,7 +1,7 @@
 """Dwie wersje tekstu → lista zmian silnika.
 
 Wersja pierwotna to akapity DOCX (``read_paragraphs``), nowa — tekst z akapitami
-rozdzielonymi znakiem nowego wiersza (np. wklejona poprawiona treść albo tekst
+rozdzielonymi znakiem nowego wiersza, a złamaniem wiersza w akapicie jako U+2028 (np. wklejona poprawiona treść albo tekst
 po ręcznej edycji w panelu). Akapity porównujemy całe, a w parach zmienionych
 akapitów — słowami, żeby zmiana „30 dni” → „14 dni” była jedną małą wstawką,
 a nie przepisanym akapitem.
@@ -14,6 +14,7 @@ from difflib import SequenceMatcher
 
 from app.services.legal_redline.model import RedlineChange
 
+LINE_BREAK = "\u2028"
 _TOKEN = re.compile(r"\s+|\w+|[^\w\s]", re.UNICODE)
 # Akapity podobne co najmniej w tym stopniu traktujemy jako „ten sam, zmieniony”.
 _SAME_PARAGRAPH_RATIO = 0.5
@@ -70,7 +71,12 @@ def word_changes(
 def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
     """Akapity dokumentu i nowa wersja tekstu → zmiany (``replace`` / wstawione / skreślone akapity)."""
 
-    new_paragraphs = new_text.replace("\r\n", "\n").split("\n")
+    # Złamanie wiersza w akapicie (`w:br`) przychodzi jako U+2028 — tylko
+    # prawdziwy koniec wiersza dzieli akapity.
+    new_paragraphs = [
+        line.replace(LINE_BREAK, "\n")
+        for line in new_text.replace("\r\n", "\n").split("\n")
+    ]
     matcher = SequenceMatcher(None, old_paragraphs, new_paragraphs, autojunk=False)
     changes: list[RedlineChange] = []
     counter = 0

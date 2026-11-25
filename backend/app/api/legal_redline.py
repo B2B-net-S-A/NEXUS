@@ -379,9 +379,15 @@ def _parse_changes(raw: str) -> list[ChangeIO]:
         raise HTTPException(status_code=422, detail="Lista zmian ma złe pola.")
 
 
+OUTPUT_SUFFIX = " — poprawki asystenta"
+
+
 def _output_name(name: str) -> str:
+    """Nazwa pliku wyniku; druga runda poprawek nie dokleja dopisku drugi raz."""
     stem = name[: -len(".docx")] if name.lower().endswith(".docx") else name
-    return f"{stem} — poprawki asystenta.docx"
+    if not stem.endswith(OUTPUT_SUFFIX):
+        stem += OUTPUT_SUFFIX
+    return f"{stem}.docx"
 
 
 def _content_disposition(name: str) -> str:

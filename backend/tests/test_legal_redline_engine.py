@@ -379,3 +379,11 @@ def test_new_paragraph_keeps_paragraph_mark_format_for_numbering():
     assert rpr[0].tag == f"{W}ins"
     kept = {c.tag for c in rpr[1:]}
     assert kept == {c.tag for c in anchor_rpr if c.tag not in (f"{W}ins", f"{W}del", f"{W}rPrChange")}
+
+
+def test_diff_keeps_line_breaks_inside_a_paragraph():
+    """`w:br` w akapicie (np. „§ 2 ⏎ Definicje”) nie może rozbić porównania wierszami."""
+    old = ["§ 2 \nDefinicje", "Termin wynosi 14 dni.", "Podpisy:\n\nB2BNET\tPartner"]
+    sent = "\n".join(p.replace("\n", " ") for p in old).replace("14 dni", "21 dni")
+    changes = diff_texts(old, sent)
+    assert [(c.kind, c.paragraph, c.find, c.new_text) for c in changes] == [("replace", 1, "14", "21")]

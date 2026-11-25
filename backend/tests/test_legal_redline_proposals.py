@@ -190,3 +190,11 @@ async def test_model_gets_masked_text_and_failure_is_soft(monkeypatch):
     assert "123-456-32-18" not in seen["prompt"]
     assert "jan.testowy@example.com" not in seen["prompt"]
     assert "[PARTNER]" in seen["prompt"]
+
+
+def test_output_name_does_not_repeat_the_suffix():
+    from app.api.legal_redline import _output_name
+
+    assert _output_name("Umowa 12-2026.docx") == "Umowa 12-2026 — poprawki asystenta.docx"
+    assert _output_name("Umowa 12-2026 — poprawki asystenta.docx") == "Umowa 12-2026 — poprawki asystenta.docx"
+    assert _output_name("Umowa.DOCX") == "Umowa — poprawki asystenta.docx"

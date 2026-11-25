@@ -18,6 +18,8 @@ import {
   aiStatusMessage,
   documentText,
   proposeRedline,
+  redlineFolderId,
+  REDLINE_FOLDER_NAME,
   renderRedline,
   summarize,
   type ChangeEdit,
@@ -156,6 +158,7 @@ export function RedlineDialog({ open, onOpenChange, target, title, canSave, onSa
       fd.append("file", new File([file.blob], file.filename, { type: DOCX_MIME }));
       const docType = target?.kind === "contract-document" ? target.docType : null;
       fd.append("doc_type", docType || "other");
+      fd.append("folder_id", String(await redlineFolderId(contractId)));
       await contractsApi.uploadDocument(contractId, fd);
       setSaved(true);
       onSaved?.(file.filename);
@@ -287,10 +290,11 @@ export function RedlineDialog({ open, onOpenChange, target, title, canSave, onSa
 
         {result && (
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-6 py-3">
-            <p className="mr-auto flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <p className="mr-auto flex min-w-0 flex-1 basis-72 items-center gap-1.5 text-[12px] text-muted-foreground">
               <Scale className="size-3.5 shrink-0" aria-hidden="true" />
-              Asystent nie jest poradą prawną. Kara umowna, spór z klientem, rozwiązanie ze skutkiem natychmiastowym — do
-              prawnika.
+              <span>
+                Nie jest poradą prawną. Kara umowna, spór, rozwiązanie ze skutkiem natychmiastowym — do prawnika.
+              </span>
             </p>
             {summary.pending > 0 && (
               <Button size="sm" variant="ghost" onClick={() => setDecisions((prev) => acceptAll(changes, prev, edits))}>
@@ -310,6 +314,7 @@ export function RedlineDialog({ open, onOpenChange, target, title, canSave, onSa
                 size="sm"
                 variant="outline"
                 disabled={accepted.length === 0 || busy != null || saved}
+                title={`Plik trafi do folderu „${REDLINE_FOLDER_NAME}” w Dokumentach kontraktu`}
                 onClick={() => void save()}
               >
                 {busy === "save" ? (
@@ -317,7 +322,7 @@ export function RedlineDialog({ open, onOpenChange, target, title, canSave, onSa
                 ) : (
                   <Save className="mr-1.5 size-3.5" aria-hidden="true" />
                 )}
-                {saved ? "Zapisano w Dokumentach" : "Zapisz w Dokumentach kontraktu"}
+                {saved ? `Zapisano w „${REDLINE_FOLDER_NAME}”` : "Zapisz w Dokumentach kontraktu"}
               </Button>
             )}
           </div>

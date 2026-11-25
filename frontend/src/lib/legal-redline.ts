@@ -7,7 +7,8 @@
  * Reguła: docs/claude/asystent-prawny/popraw-dokument-docx-ze-sledzeniem-zmian.md
  */
 
-import { api } from "@/lib/api";
+import { api, contractsApi } from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -84,6 +85,14 @@ function targetForm(target: RedlineTarget): FormData {
   return fd;
 }
 
+// `api` ma domyślnie `Content-Type: application/json` — bez nadpisania
+// FormData wychodzi bez granicy multipart i serwer nie widzi pól. Model
+// i budowa pliku trwają dłużej niż domyślne 30 s.
+const FORM_REQUEST = {
+  headers: { "Content-Type": "multipart/form-data" },
+  timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+} as const;
+
 export type ProposeMode =
   | { mode: "ai"; instruction: string }
   | { mode: "diff"; newText: string }
@@ -94,7 +103,7 @@ export async function proposeRedline(target: RedlineTarget, request: ProposeMode
   if (request.mode === "ai") fd.append("instruction", request.instruction);
   if (request.mode === "diff") fd.append("new_text", request.newText);
   if (request.mode === "manual") fd.append("use_ai", "false");
-  const res = await api.post<RedlineResponse>("/api/legal/redline", fd);
+  const res = await api.post<RedlineResponse>("/api/legal/redline", fd, FORM_REQUEST);
   return res.data;
 }
 
@@ -120,12 +129,29 @@ export async function renderRedline(
   fd.append("sha256", sha256);
   fd.append("changes", JSON.stringify(changes));
   try {
-    const res = await api.post<Blob>("/api/legal/redline/render", fd, { responseType: "blob" });
+    const res = await api.post<Blob>("/api/legal/redline/render", fd, { ...FORM_REQUEST, responseType: "blob" });
     const disposition = String(res.headers["content-disposition"] ?? "");
     return { blob: res.data, filename: dispositionFilename(disposition, "Dokument — poprawki asystenta.docx") };
   } catch (err) {
     return withJsonErrorBody(err);
   }
+}
+
+/**
+ * Plik ze śledzeniem zmian to szkic, nie obowiązująca umowa. Bez folderu
+ * nazwa z numerem umowy trafiała do karty „Obowiązuje teraz → Umowa”, a plik
+ * w folderze to archiwum (`kontrakty/foldery-w-dokumentach-kontraktu.md`).
+ */
+export const REDLINE_FOLDER_NAME = "Poprawki asystenta";
+
+export async function redlineFolderId(contractId: number): Promise<number> {
+  const listed = await contractsApi.documentFolders(contractId);
+  const existing = listed.data.folders.find(
+    (f) => f.name.trim().toLocaleLowerCase("pl") === REDLINE_FOLDER_NAME.toLocaleLowerCase("pl"),
+  );
+  if (existing) return existing.id;
+  const created = await contractsApi.createDocumentFolder(contractId, { name: REDLINE_FOLDER_NAME });
+  return created.data.folder.id;
 }
 
 export function dispositionFilename(disposition: string, fallback: string): string {
@@ -292,8 +318,21 @@ export function insertedParagraphs(
     .filter((item) => item.decision !== "rejected");
 }
 
-/** Opis miejsca zmiany na karcie: „Akapit 12” albo pierwszy nagłówek nad nim. */
+const SECTION_MARK = /^§\s*\d+[a-zA-Z]?\b/;
+
+/**
+ * Opis miejsca zmiany na karcie: najbliższy „§ N” nad zmianą (z tytułem
+ * z następnego krótkiego akapitu, jak w naszych umowach), potem nagłówek
+ * ze stylem, a na końcu początek samego akapitu.
+ */
 export function changePlace(change: RedlineChange, paragraphs: readonly RedlineParagraph[]): string {
+  for (let i = change.paragraph; i >= 0; i -= 1) {
+    const text = paragraphs[i]?.text.trim() ?? "";
+    if (!SECTION_MARK.test(text)) continue;
+    if (text.length > 12) return text.slice(0, 70);
+    const title = paragraphs[i + 1]?.text.trim() ?? "";
+    return i + 1 < change.paragraph && title && title.length <= 80 ? `${text} ${title}` : text;
+  }
   for (let i = change.paragraph; i >= 0; i -= 1) {
     const p = paragraphs[i];
     if (p?.heading && p.text.trim()) return p.text.trim().slice(0, 60);
@@ -331,6 +370,11 @@ export function aiStatusMessage(status: RedlineAiStatus, count: number): string 
   }
 }
 
+/**
+ * Tekst do porównania: akapit w wierszu, a złamanie wiersza w akapicie
+ * (`w:br`) jako U+2028 — serwer zamienia je z powrotem (`diff.py`). Bez tego
+ * akapit „§ 2 ⏎ Definicje” rozjeżdżał porównanie na dziesiątki zmian.
+ */
 export function documentText(paragraphs: readonly RedlineParagraph[]): string {
-  return paragraphs.map((p) => p.text).join("\n");
+  return paragraphs.map((p) => p.text.replace(/\n/g, "\u2028")).join("\n");
 }

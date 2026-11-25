@@ -166,3 +166,107 @@ describe("pomocnicze", () => {
     expect(aiStatusMessage("off", 0)).toMatch(/wyłączone/);
   });
 });
+
+describe("wysyłka do API", () => {
+  it("formularz idzie jako multipart (domyślny JSON api gubi pola) z długim limitem czasu", async () => {
+    const { api } = await import("@/lib/api");
+    const { proposeRedline, renderRedline } = await import("@/lib/legal-redline");
+    const { SLOW_ENDPOINT_TIMEOUT_MS } = await import("@/lib/http-timeouts");
+    const seen: { url?: string; contentType?: unknown; timeout?: number; body?: unknown }[] = [];
+    const original = api.defaults.adapter;
+    api.defaults.adapter = async (config) => {
+      seen.push({
+        url: config.url,
+        contentType: config.headers?.["Content-Type"],
+        timeout: config.timeout,
+        body: config.data,
+      });
+      const data =
+        config.responseType === "blob"
+          ? new Blob(["x"])
+          : { source: { sha256: "s" }, paragraphs: [], changes: [], notes: [], dropped: [], ai: { status: "manual", model: null } };
+      return { data, status: 200, statusText: "OK", headers: {}, config };
+    };
+    try {
+      const target = { kind: "contract-document" as const, contractId: 7, documentId: 9, name: "u.docx" };
+      await proposeRedline(target, { mode: "ai", instruction: "Skróć termin" });
+      await renderRedline(target, "s", []);
+    } finally {
+      api.defaults.adapter = original;
+    }
+    expect(seen.map((s) => s.url)).toEqual(["/api/legal/redline", "/api/legal/redline/render"]);
+    for (const s of seen) {
+      expect(String(s.contentType)).toContain("multipart/form-data");
+      expect(s.timeout).toBe(SLOW_ENDPOINT_TIMEOUT_MS);
+      expect((s.body as FormData).get("contract_id")).toBe("7");
+    }
+  });
+});
+
+describe("changePlace", () => {
+  const para = (index: number, text: string, heading = false): RedlineParagraph => ({
+    index,
+    text,
+    style: null,
+    in_table: false,
+    heading,
+  });
+
+  it("bierze najbliższy „§” nad zmianą, nawet gdy wyżej jest nagłówek ze stylem", async () => {
+    const { changePlace } = await import("@/lib/legal-redline");
+    const paragraphs = [
+      para(0, "nr 12/2026", true),
+      para(1, "§ 7A"),
+      para(2, "Przetwarzanie Danych Klientów (Partner jako Procesor)"),
+      para(3, "Partner zgłasza naruszenia."),
+    ];
+    expect(changePlace(change({ id: "a", paragraph: 3 }), paragraphs)).toBe("§ 7A Przetwarzanie Danych Klientów (Partner jako Procesor)");
+  });
+
+  it("bez „§” — nagłówek, a bez nagłówka — początek akapitu", async () => {
+    const { changePlace } = await import("@/lib/legal-redline");
+    expect(changePlace(change({ id: "a", paragraph: 1 }), [para(0, "Załącznik nr 2", true), para(1, "Treść.")])).toBe("Załącznik nr 2");
+    expect(changePlace(change({ id: "a", paragraph: 0 }), [para(0, "Strony ustalają, co następuje.")])).toBe("„Strony ustalają, co następuje.”");
+  });
+});
+
+describe("documentText", () => {
+  it("złamanie wiersza w akapicie to U+2028, koniec akapitu to \\n", async () => {
+    const { documentText } = await import("@/lib/legal-redline");
+    const paragraphs: RedlineParagraph[] = [
+      { index: 0, text: "§ 2 \nDefinicje", style: null, in_table: false, heading: false },
+      { index: 1, text: "Treść.", style: null, in_table: false, heading: false },
+    ];
+    expect(documentText(paragraphs)).toBe("§ 2  Definicje\nTreść.");
+  });
+});
+
+describe("folder „Poprawki asystenta”", () => {
+  it("używa istniejącego folderu (bez względu na wielkość liter), a bez niego go zakłada", async () => {
+    const { api } = await import("@/lib/api");
+    const { REDLINE_FOLDER_NAME, redlineFolderId } = await import("@/lib/legal-redline");
+    const calls: string[] = [];
+    let folders = [{ id: 5, name: "poprawki ASYSTENTA", created_at: "2026-11-25" }];
+    const original = api.defaults.adapter;
+    api.defaults.adapter = async (config) => {
+      calls.push(`${config.method?.toUpperCase()} ${config.url}`);
+      const data =
+        config.method === "get"
+          ? { folders, orders_folder_name: "Zamówienia", current_contract_number: null, suggestions: [] }
+          : { folder: { id: 9, name: REDLINE_FOLDER_NAME, created_at: "2026-11-25" }, moved: 0 };
+      return { data, status: config.method === "get" ? 200 : 201, statusText: "OK", headers: {}, config };
+    };
+    try {
+      expect(await redlineFolderId(740)).toBe(5);
+      folders = [];
+      expect(await redlineFolderId(740)).toBe(9);
+    } finally {
+      api.defaults.adapter = original;
+    }
+    expect(calls).toEqual([
+      "GET /api/contracts/740/document-folders",
+      "GET /api/contracts/740/document-folders",
+      "POST /api/contracts/740/document-folders",
+    ]);
+  });
+});

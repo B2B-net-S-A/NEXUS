@@ -45,7 +45,15 @@ zmian (autor „Asystent NEXUS”) i komentarzami z powodem i podstawą.
   literą w literę jak pobranie pliku (`tests/data/authz_golden/legal_redline.json`).
 - **Zapis tylko człowiekiem:** „Zapisz w Dokumentach kontraktu” to zwykłe
   `POST /api/contracts/{id}/documents` (prawo dodawania plików, 409
-  „kontrakt ma już ten plik” jak przy ręcznym uploadzie). Bez nowych tabel.
+  „kontrakt ma już ten plik” jak przy ręcznym uploadzie) **do folderu
+  „Poprawki asystenta”** (zakładany przy pierwszym zapisie). Przeklikane
+  25.11: bez folderu plik z numerem umowy w nazwie stawał się kartą
+  „Obowiązuje teraz → Umowa”, a szkic ze śledzeniem zmian nie obowiązuje —
+  plik w folderze to archiwum. Nazwa: `<plik> — poprawki asystenta.docx`,
+  druga runda nie dokleja dopisku drugi raz. Bez nowych tabel.
+- **Porównanie wierszami:** akapit w wierszu, złamanie wiersza w akapicie
+  (`w:br`) jako U+2028 (`documentText` → `diff.py`). Bez tego nasze umowy
+  („§ 2 ⏎ Definicje”) dawały 20 zmian zamiast 2.
 - **Fundament (część A):** do scalenia zaślepki w
   `services/legal_redline/foundation.py` (`SourcePassage`, maska, wyszukiwanie
   przepisów zwraca pustą listę). Cały kontakt z fundamentem jest w tym pliku.

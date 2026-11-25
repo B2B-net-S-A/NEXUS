@@ -155,6 +155,10 @@ function DocumentText({
   );
 }
 
+function clip(text: string, limit = 90): string {
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+}
+
 function ChangeCard({
   change: raw,
   n,
@@ -195,6 +199,15 @@ function ChangeCard({
           {changeKindLabel(change)}
         </Badge>
       </div>
+      <p className="mt-1 line-clamp-2 text-[12px] leading-snug" aria-label="Treść zmiany">
+        {change.find && change.kind !== "insert_paragraph" && (
+          <del className="bg-destructive-muted text-destructive-muted-foreground">{clip(change.find)}</del>
+        )}
+        {change.find && change.new_text && change.kind !== "insert_paragraph" && <span aria-hidden="true"> → </span>}
+        {change.new_text && (
+          <ins className="bg-success-muted text-success-muted-foreground decoration-success">{clip(change.new_text)}</ins>
+        )}
+      </p>
       {change.reason && <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{change.reason}</p>}
       {change.sources.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-y-1">
@@ -311,7 +324,11 @@ export function RedlineReview({
   return (
     <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1fr)_340px]">
       <DocumentText paragraphs={paragraphs} changes={changes} decisions={decisions} edits={edits} numbers={numbers} />
-      <aside aria-label="Lista zmian" className="space-y-2">
+      {/* Przy długiej umowie lista zostaje obok tekstu i przewija się sama. */}
+      <aside
+        aria-label="Lista zmian"
+        className="space-y-2 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-13rem)] lg:self-start lg:overflow-y-auto lg:pr-1"
+      >
         {ordered.map((change) => (
           <ChangeCard
             key={change.id}
