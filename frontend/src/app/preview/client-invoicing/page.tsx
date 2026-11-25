@@ -92,6 +92,11 @@ function prepare(params: URLSearchParams) {
       summary: CLIENT_MONTH.summary,
     });
     client.setQueryData(invoicingKeys.toInvoice(year, month), TO_INVOICE);
+    client.setQueryData(invoicingKeys.formChecks(year, month), {
+      period: PERIOD,
+      checked: CLIENT_MONTH.invoices.length,
+      invoices: [],
+    });
     client.setQueryData(invoicingKeys.credits, { credits: CREDITS });
     client.setQueryData(invoicingKeys.unknownBuyers, {
       buyers: [],
