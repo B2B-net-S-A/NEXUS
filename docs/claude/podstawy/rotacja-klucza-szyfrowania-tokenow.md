@@ -108,3 +108,10 @@ skrzynki M365 do ponownego połączenia, linki zaproszeń bez adresu na liście
 (działają dalej po skrócie SHA-256) i nieczytelne dane płacowe. Czy stary klucz
 zostaje gdzieś do wygaśnięcia ostatniej takiej kopii, decyduje Artur przy
 każdej rotacji, bo zależy to od tego, ile danych płacowych jest w bazie.
+
+Rotacja z 25.11.2026: stary klucz leży do 09.12.2026 w sekrecie repo
+`M365_TOKEN_ENCRYPTION_KEY_RETIRED` (wartość z API Coolify prosto do
+`gh secret set`, bez ekranu; czyta go tylko workflow z maina), potem sekret
+znika. Do tego dnia krok 8 da się cofnąć: „Coolify set env”
+`key=M365_TOKEN_ENCRYPTION_KEY_PREVIOUS`,
+`value_from_secret=M365_TOKEN_ENCRYPTION_KEY_RETIRED`, Deploy.
