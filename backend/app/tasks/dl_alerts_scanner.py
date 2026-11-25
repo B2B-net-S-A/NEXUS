@@ -1421,7 +1421,9 @@ async def rule_invoice_without_order_line(
         )
         created += len(alerts)
     for ref in unknown:
-        user_ids = await dl_user_ids_for_client(db, ref.client_id, scope=recipient_scope)
+        user_ids = await dl_user_ids_for_client(
+            db, ref.client_id, scope=recipient_scope
+        )
         if not user_ids:
             continue
         live |= _live_keys(ALERT_INVOICE_WITHOUT_ORDER_LINE, ref.entity_key, user_ids)

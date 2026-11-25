@@ -39,7 +39,9 @@ from app.services.client_settlements.time_reports import person_numbers
 
 PERSON_NO_KIND = "client_person_no"
 #: Znacznik osoby w pozycji faktury; po nim imię i nazwisko (2–4 wyrazy).
-_MARKER = re.compile(r"\b(?:contractor|consultant|konsultant)\b\s*[:;,-]?\s*", re.IGNORECASE)
+_MARKER = re.compile(
+    r"\b(?:contractor|consultant|konsultant)\b\s*[:;,-]?\s*", re.IGNORECASE
+)
 #: Osoba klienta w tej samej pozycji („Nordea Contact: …”) — bywa wpisana też jako kontraktor.
 _CONTACT = re.compile(r"\bcontact\b\s*:\s*", re.IGNORECASE)
 #: Wyraz z literami; apostrof i łącznik w środku („O’Neill”, „Nowak-Kowalski”).
@@ -185,7 +187,8 @@ async def _known(db: AsyncSession, members: set[int]) -> _Known:
     )
     return _Known(
         people=tuple(
-            tuple(_fold_words(f"{name or ''} {lastname or ''}")) for name, lastname in rows
+            tuple(_fold_words(f"{name or ''} {lastname or ''}"))
+            for name, lastname in rows
         ),
         person_numbers=frozenset(str(value).upper() for value in numbers),
     )
@@ -227,7 +230,13 @@ async def unknown_refs(
         for item in _items(invoice):
             for label in _people_without_contract(item, known[client_id]):
                 ref = UnknownRef(
-                    invoice.id, invoice.invoice_number, client_id, year, month, "person", label
+                    invoice.id,
+                    invoice.invoice_number,
+                    client_id,
+                    year,
+                    month,
+                    "person",
+                    label,
                 )
                 found[ref.entity_key] = ref
         if (
@@ -238,7 +247,13 @@ async def unknown_refs(
             numbers = matching.named_order_numbers(matching.invoice_texts(invoice))
             label = ", ".join(dict.fromkeys(numbers)) or "z faktury"
             ref = UnknownRef(
-                invoice.id, invoice.invoice_number, client_id, year, month, "order", label
+                invoice.id,
+                invoice.invoice_number,
+                client_id,
+                year,
+                month,
+                "order",
+                label,
             )
             found[ref.entity_key] = ref
     return list(found.values())

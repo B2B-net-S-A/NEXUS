@@ -336,8 +336,7 @@ async def test_unknown_order_card_closes_when_finance_assigns() -> None:
 
     async with AsyncSessionLocal() as db:
         invoice = await db.get(ClientSalesInvoice, invoice_id)
-        invoice.match_status = "matched"
-        invoice.match_reason = None
+        invoice.match_reason = "currency_differs"
         await db.commit()
     await _scan()
 
