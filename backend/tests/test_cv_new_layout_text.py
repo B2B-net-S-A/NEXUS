@@ -212,6 +212,27 @@ def test_language_parts_levels_and_codes():
     )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "03.2023 - currently",
+        "03.2023 – Currently",
+        "03.2023 - ongoing",
+        "03.2023 - teraz",
+        "03.2023 - aktualnie",
+        "03.2023 - do dziś",
+        "03.2023 - to date",
+        "03.2023 - present",
+    ],
+)
+def test_parse_dates_knows_every_word_for_present(text):
+    """Zgłoszenie z 25.11.2026: „03.2023 – currently” dawało 1 miesiąc zamiast 3 lat 9 mies.
+    (edytor liczył dobrze, `cv-new-layout-form.ts` zna te słowa)."""
+    span = parse_dates(text, NOW)
+    assert span == Span(2023 + 2 / 12, NOW, True)
+    assert duration_text(span) == "3 lata 9 mies."
+
+
 def test_parse_dates_reads_each_side():
     span = parse_dates("2013 - 12.2017", NOW)
     assert (
