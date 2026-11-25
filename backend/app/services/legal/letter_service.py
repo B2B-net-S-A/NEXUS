@@ -789,6 +789,9 @@ async def build_letter(
         ),
         user_id=user_id,
         on_date=today,
+        # W piśmie do Partnera nazwisko stoi w nagłówku adresata; w treści —
+        # formy grzecznościowe (staging 25.11: „złożonego przez Jan …”).
+        forbidden_labels=("PARTNER",) if kind.recipient == "partner" else (),
     )
     text = ""
     checks: list[CitationCheck] = []

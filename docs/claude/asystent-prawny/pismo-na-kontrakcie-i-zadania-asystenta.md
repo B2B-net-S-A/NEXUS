@@ -52,6 +52,19 @@ kod, dane osób do modelu tylko jako znaczniki.
   (`letter_service.verification_passages`): umowa i aneksy z „Aktualnej umowy”
   oraz umowy ramowe klienta pocięte na paragrafy i ustępy, przepisy z korpusu.
   `missing` / `mismatch`, pytanie o formę albo „…” we wzorze = `blocked`.
+- **Odpowiedź modelu (staging 25.11, kontrakt w starej redakcji):** model
+  zmyślił `[PAN_ZAIMEK_PLACEHOLDER]`, dopisał „Przepraszam, poprawiam…” i drugi
+  raz cały list, a w treści dał imię i nazwisko w mianowniku („złożonego przez
+  Jan …”). Polecenie (`letters._token_rules`, `COURTESY_TOKENS`) wymienia każdy
+  znacznik z przykładem (`[PAN_BIERNIK]` = „Pana”/„Panią”: „przez
+  [PAN_BIERNIK]”) i zakaz innych; `[PARTNER]` tylko w nagłówku adresata.
+  `assistant.reply_problems` (znacznik spoza listy, komentarz, drugi zwrot,
+  „Dotyczy”/podpis, `[PARTNER]` w treści pisma do Partnera) → jedna ponowna
+  próba z opisem błędu, potem `issues` i blokada. Test:
+  `tests/test_legal_letter_model_reply.py`.
+- **Litery i punkty w tekście ciągłym:** „a. … b. … c. …” w jednej linii (OCR,
+  stara redakcja) pokrywa „§ 8 ust. 2 lit. c Umowy” (`citations._part_marker`
+  zna „c.” i „c)”, „1.” i „1)”); litery, której nie ma, nadal jest `missing`.
 - **Akcje:** „Zatwierdzam” (`POST …/legal-letter/approve`, cytaty jeszcze raz,
   a w piśmie modelu także daty i kwoty spoza obliczeń kodu —
   `letter_service._review_issues` → `assistant.code_issues` na tekście po

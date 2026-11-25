@@ -336,15 +336,16 @@ def partner_female(gender: Optional[str], full_name: str) -> bool:
 def courtesy_entities(female: bool) -> list[Entity]:
     """Zwrot i formy Pan/Pani jako znaczniki — model ich nie odmienia, liczy je kod."""
     forms = (
-        ("Szanowna Pani", "Pani", "Pani", "Pani", "Panią")
+        ("Szanowna Pani", "Pani", "Pani", "Pani", "Panią", "Panią")
         if female
-        else ("Szanowny Panie", "Pan", "Pana", "Panu", "Panem")
+        else ("Szanowny Panie", "Pan", "Pana", "Panu", "Pana", "Panem")
     )
     labels = (
         "ZWROT",
         "PAN_MIANOWNIK",
         "PAN_DOPELNIACZ",
         "PAN_CELOWNIK",
+        "PAN_BIERNIK",
         "PAN_NARZEDNIK",
     )
     return [Entity(label, value) for label, value in zip(labels, forms)]
@@ -362,18 +363,47 @@ def amount_text(amount: float, words: str) -> str:
 # ── polecenia dla modelu (piszę kod, wartości tylko jako znaczniki) ─────────
 
 
+#: Formy grzecznościowe do Partnera: znacznik, forma męska i przykład użycia.
+#: Model nie odmienia nazwiska (staging 25.11: „złożonego przez Jan …”), tylko
+#: wybiera przypadek; formę żeńską wstawia kod (``courtesy_entities``).
+COURTESY_TOKENS: tuple[tuple[str, str, str], ...] = (
+    ("[ZWROT]", "„Szanowny Panie”", "tylko raz, na początku: „[ZWROT],”"),
+    ("[PAN_MIANOWNIK]", "„Pan”", "„czy [PAN_MIANOWNIK] potwierdza”"),
+    (
+        "[PAN_DOPELNIACZ]",
+        "„Pana”",
+        "„od [PAN_DOPELNIACZ]”, „Pana pismo” = „pismo [PAN_DOPELNIACZ]”",
+    ),
+    ("[PAN_CELOWNIK]", "„Panu”", "„dziękujemy [PAN_CELOWNIK]”"),
+    (
+        "[PAN_BIERNIK]",
+        "„Pana”",
+        "„złożonego przez [PAN_BIERNIK]”, „prosimy [PAN_BIERNIK]”",
+    ),
+    ("[PAN_NARZEDNIK]", "„Panem”", "„z [PAN_NARZEDNIK]”"),
+)
+
+
 def _token_rules(to_partner: bool) -> str:
-    address = (
-        "Do adresata zwracaj się wyłącznie znacznikami form grzecznościowych "
-        "z listy (PAN_MIANOWNIK, PAN_DOPELNIACZ, PAN_CELOWNIK, PAN_NARZEDNIK) — "
-        "nigdy „Pan”, „Pani” ani samodzielnie odmienionym nazwiskiem."
-        if to_partner
-        else "Do adresata zwracaj się formą „Państwo”."
-    )
+    if to_partner:
+        listed = "; ".join(
+            f"{token} = {form} ({example})" for token, form, example in COURTESY_TOKENS
+        )
+        address = (
+            f"Do adresata zwracaj się wyłącznie tymi znacznikami: {listed}. Nigdy "
+            "nie pisz „Pan”, „Pani” ani nazwiska samodzielnie. Imienia i nazwiska "
+            "([PARTNER]) nie używaj w treści — NEXUS wpisze je w nagłówku adresata."
+        )
+    else:
+        address = (
+            "Do adresata zwracaj się formą „Państwo”; [ZWROT] = „Szanowni Państwo”."
+        )
     return (
         f"Zacznij od znacznika [ZWROT] i przecinka. {address} Daty, okres "
-        "i kwoty wyłącznie znacznikami z listy. Bez miejsca, daty, adresata, "
-        "tematu i podpisu — dopisze je NEXUS."
+        "i kwoty wyłącznie znacznikami z listy <znaczniki>. Innych znaczników nie "
+        "ma — nie twórz nowych. Bez miejsca, daty, adresata, tematu („Dotyczy”) "
+        "i podpisu — dopisze je NEXUS. Oddaj jedną wersję pisma, bez komentarzy, "
+        "przeprosin i poprawek po treści."
     )
 
 

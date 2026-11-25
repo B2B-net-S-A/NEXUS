@@ -350,7 +350,7 @@ def document_kinds(document: Optional[str]) -> frozenset[str]:
 
 
 def _part_marker(token: str) -> Optional[re.Pattern[str]]:
-    """Ślad podjednostki w tekście jednostki nadrzędnej („§ 7”, „8.”, „2)”, „b)”)."""
+    """Ślad podjednostki w tekście jednostki nadrzędnej („§ 7”, „8.”, „2)”, „b)”, „b.”)."""
     match = re.match(r"^(§|ust\.|pkt|lit\.)(.+)$", token)
     if not match:
         return None
@@ -359,7 +359,9 @@ def _part_marker(token: str) -> Optional[re.Pattern[str]]:
         return re.compile(rf"§\s*{number}(?![\w¹²³⁴⁵⁶⁷⁸⁹⁰])", re.I)
     if label == "ust.":
         return re.compile(rf"(?:^|[\s(:;])(?:ust\.\s*)?{number}\.(?=\s)", re.I)
-    return re.compile(rf"(?:^|[\s(:;])(?:{label[:3]}\.?\s*)?{number}\)", re.I)
+    # Litera i punkt: „c)” i „c.”, także w tekście ciągłym po OCR („trybach: a. za
+    # porozumieniem stron b. … c. za wypowiedzeniem …”, stara redakcja umów).
+    return re.compile(rf"(?<![\w.])(?:{label[:3]}\.?\s*)?{number}[.)](?=\s|$)", re.I)
 
 
 def _find(

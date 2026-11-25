@@ -133,7 +133,64 @@ def _tokens_block(mapping: dict[str, str]) -> str:
     from app.services.prompt_fencing import fence
 
     described = ", ".join(mapping) if mapping else "(brak)"
-    return fence("znaczniki", f"Dostępne znaczniki: {described}")
+    return fence(
+        "znaczniki",
+        f"Dostępne znaczniki: {described}. Innych znaczników nie ma — nie twórz "
+        "nowych; gdy wartości brak, napisz zdanie bez niej.",
+    )
+
+
+#: Komentarz modelu zamiast treści pisma (staging 25.11: „Przepraszam,
+#: poprawiam ostatni akapit …” i drugi raz cały list).
+_META_LINE = re.compile(
+    # Pierwsza osoba liczby pojedynczej to głos modelu, nie firmy („Przepraszamy
+    # za opóźnienie” w piśmie jest w porządku).
+    r"^\s*(?:przepraszam\b|poprawiam\b|poprawiona\s+wersja|wersja\s+poprawiona|"
+    r"oto\s+(?:poprawion|pismo|treść|tekst)|uwaga:)",
+    re.I | re.M,
+)
+_SALUTATION = re.compile(r"\[ZWROT\]|\bSzanown[ayi]\b", re.I)
+_HEADER_LINE = re.compile(r"^\s*(?:dotyczy:|z\s+poważaniem)", re.I | re.M)
+
+
+def reply_problems(
+    model_text: str, mapping: dict[str, str], *, forbidden_labels: Sequence[str] = ()
+) -> list[str]:
+    """Usterki odpowiedzi, po których model dostaje jedną ponowną próbę:
+    zmyślony znacznik, komentarz zamiast treści, drugi raz zwrot albo nagłówek,
+    znacznik osoby w treści (``forbidden_labels``, np. ``PARTNER`` w piśmie do
+    Partnera — imię i nazwisko stoi w nagłówku adresata)."""
+    problems: list[str] = []
+    unknown = unknown_tokens(model_text, mapping)
+    if unknown:
+        problems.append(
+            f"użyto znaczników spoza listy ({', '.join(unknown)}) — wolno tylko te z <znaczniki>"
+        )
+    if _META_LINE.search(model_text or ""):
+        problems.append(
+            "w treści jest komentarz do pisma (np. „Przepraszam, poprawiam…”) — "
+            "pismo ma być jedną wersją bez komentarzy"
+        )
+    if len(_SALUTATION.findall(model_text or "")) > 1:
+        problems.append(
+            "zwrot na początku pisma pojawia się drugi raz — treść jest powtórzona"
+        )
+    if _HEADER_LINE.search(model_text or ""):
+        problems.append("„Dotyczy” i podpis dopisuje NEXUS — nie pisz ich w treści")
+    labels = {label.upper() for label in forbidden_labels}
+    used = [
+        token
+        for token in dict.fromkeys(
+            re.findall(r"\[[A-ZĄĆĘŁŃÓŚŹŻ_]+(?:_\d+)?\]", model_text or "")
+        )
+        if re.sub(r"_\d+$", "", token.strip("[]")) in labels
+    ]
+    if used:
+        problems.append(
+            f"imię i nazwisko adresata ({', '.join(used)}) w treści — w treści używaj "
+            "form grzecznościowych ([PAN_BIERNIK], [PAN_CELOWNIK] …), nazwisko jest w nagłówku"
+        )
+    return problems
 
 
 def code_issues(model_text: str, mapping: dict[str, str]) -> list[str]:
@@ -173,8 +230,12 @@ async def draft(
     entities: Sequence[Entity],
     user_id: Optional[int] = None,
     on_date: Optional[date] = None,
+    forbidden_labels: Sequence[str] = (),
 ) -> Draft:
-    """Szkic pisma rodzaju ``kind`` ze sprawdzonymi cytatami (niczego nie zapisuje)."""
+    """Szkic pisma rodzaju ``kind`` ze sprawdzonymi cytatami (niczego nie zapisuje).
+
+    Odpowiedź z usterką (``reply_problems``) dostaje jedną ponowną próbę z opisem,
+    co było źle; usterka po niej zostaje w ``issues`` i blokuje pismo."""
     from fastapi.concurrency import run_in_threadpool
 
     from app.models.ai_feature import AIFeatureKey
@@ -234,16 +295,42 @@ async def draft(
         tokens=_tokens_block(mapping),
         sources=_sources_block(masked_sources, short_names),
     )
+    system = LEGAL_ASSISTANT_DRAFT.system_prompt or ""
+    problems: list[str] = []
     try:
         async with ai_feature(db, AIFeatureKey.legal_assistant, user_id=user_id):
             await db.commit()
             model_text = await run_in_threadpool(
-                _call_model,
-                prompt,
-                LEGAL_ASSISTANT_DRAFT.system_prompt or "",
-                chain[0],
-                chain[1:],
+                _call_model, prompt, system, chain[0], chain[1:]
             )
+            problems = reply_problems(
+                model_text, mapping, forbidden_labels=forbidden_labels
+            )
+            if problems:
+                retry = (
+                    prompt
+                    + "\n\n"
+                    + fence(
+                        "uwagi",
+                        "Poprzednia odpowiedź była błędna: "
+                        + "; ".join(problems)
+                        + ". Napisz całe pismo od nowa, jeden raz, wyłącznie ze "
+                        "znacznikami z <znaczniki>, bez komentarzy i przeprosin.",
+                    )
+                )
+                try:
+                    second = await run_in_threadpool(
+                        _call_model, retry, system, chain[0], chain[1:]
+                    )
+                except Exception as exc:  # noqa: BLE001 — zostaje pierwsza odpowiedź z usterką
+                    logger.warning(
+                        "[legal] ponowna próba szkicu nieudana: %s", type(exc).__name__
+                    )
+                else:
+                    model_text = second
+                    problems = reply_problems(
+                        model_text, mapping, forbidden_labels=forbidden_labels
+                    )
     except Exception as exc:  # noqa: BLE001 — każda awaria modelu = szkic bez tekstu
         logger.warning("[legal] szkic pisma nieudany: %s", type(exc).__name__)
         return Draft(
@@ -256,6 +343,11 @@ async def draft(
             error="Asystent nie odpowiedział — fragmenty źródeł są niżej, pismo można napisać samemu.",
         )
     issues = code_issues(model_text, mapping)
+    issues.extend(
+        f"Odpowiedź modelu: {p}."
+        for p in problems
+        if not p.startswith("użyto znaczników")
+    )
     text = unmask(model_text, mapping)
     checks = await corpus.verify_text(db, text, sources, on_date=on_date)
     found = [check.citation for check in checks]
