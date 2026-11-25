@@ -4,7 +4,9 @@ Akt, którego ostatnie sprawdzenie (``legal_acts.checked_at``) jest starsze
 niż ``RECHECK_AFTER`` albo go nie było, przechodzi przez ``corpus.refresh_act``:
 pytanie o najnowszy tekst jednolity (ELI) albo wersję skonsolidowaną
 (CELLAR), a gdy jest nowa — pobranie, podział na jednostki, zapis wersji
-z listą zmian (zdarzenie dla Przepisów, część H) i wektory. Pierwszy bieg po
+z listą zmian (zdarzenie dla Przepisów, część H) i wektory. Po każdym biegu
+``template_review`` porównuje nowe wersje z przepisami cytowanymi we wzorach
+i zakłada w Przepisach zadania „Przejrzyj wzór” (bez duplikatów, bez maili). Pierwszy bieg po
 wdrożeniu zasila cały korpus (16 aktów, kilka minut; PDF-y czyta osobny
 proces). Nieudane sprawdzenie zostawia poprzednią wersję i ponawia się po
 ``RETRY_FAILED_AFTER``.
@@ -28,7 +30,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.legal_corpus import LegalAct
 from app.services import loop_heartbeat
-from app.services.legal import corpus, fetch
+from app.services.legal import corpus, fetch, template_review
 from app.services.legal.acts import ACTS, ActSpec
 
 logger = logging.getLogger(__name__)
@@ -65,15 +67,31 @@ async def due_specs(now: datetime) -> list[ActSpec]:
 async def tick(now: datetime) -> dict[str, int]:
     counts = {"checked": 0, "new_version": 0, "failed": 0}
     specs = await due_specs(now)
-    if not specs:
-        return counts
-    async with fetch.client() as http:
-        for spec in specs:
-            result = await corpus.refresh_act(spec, http=http)
-            counts["checked"] += 1
-            if result.status in counts:
-                counts[result.status] += 1
+    if specs:
+        async with fetch.client() as http:
+            for spec in specs:
+                result = await corpus.refresh_act(spec, http=http)
+                counts["checked"] += 1
+                if result.status in counts:
+                    counts[result.status] += 1
+    # Co godzinę, nie tylko po nowej wersji: przebieg po awarii łapie
+    # wersje z ``LOOKBACK``, a duplikatów pilnuje odcisk wersji.
+    counts.update(await review_templates(now))
     return counts
+
+
+async def review_templates(now: datetime) -> dict[str, int]:
+    """„Przejrzyj wzór” dla wersji z ostatnich dni; awaria nie zatrzymuje pętli."""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await template_review.run(
+                db, since=now - template_review.LOOKBACK, now=now
+            )
+            await db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("legal_corpus template review failed")
+        return {"review_tasks": 0}
+    return {"review_tasks": result.tasks_added}
 
 
 async def legal_corpus_loop() -> None:
@@ -86,12 +104,13 @@ async def legal_corpus_loop() -> None:
         beat.tick()
         try:
             counts = await tick(datetime.now(timezone.utc))
-            if counts["checked"]:
+            if counts["checked"] or counts["review_tasks"]:
                 logger.info(
-                    "legal_corpus tick checked=%d new_version=%d failed=%d",
+                    "legal_corpus tick checked=%d new_version=%d failed=%d review_tasks=%d",
                     counts["checked"],
                     counts["new_version"],
                     counts["failed"],
+                    counts["review_tasks"],
                 )
         except asyncio.CancelledError:
             raise
