@@ -2928,6 +2928,51 @@
     ]
   },
   {
+    "id": "lekcja-asystent-prawny-pismo",
+    "title": "Asystent prawny: odpowiedź na wypowiedzenie",
+    "novelties": [
+      "asystent-prawny-pismo-na-kontrakcie"
+    ],
+    "task": "Konsultant z kontraktu ćwiczebnego złożył wypowiedzenie, a umowa wymaga formy pisemnej. Z listy kontraktów otwórz szkic odpowiedzi i powiedz asystentowi, że wypowiedzenie przyszło w oryginale. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "click",
+      "anchor": "legal-letter.confirm-original"
+    },
+    "questions": [
+      {
+        "q": "Partner przysłał wypowiedzenie tylko mailem, a umowa wymaga formy pisemnej. Co robisz?",
+        "options": [
+          "Proponujesz porozumienie o rozwiązaniu z tą samą datą",
+          "Wysyłasz odpowiedź, bo mail wystarczy",
+          "Czekasz, aż asystent sam wyśle pismo"
+        ],
+        "answer": 0,
+        "explain": "Wypowiedzenie bez wymaganej formy może być nieskuteczne. Panel pyta o oryginał albo podpis kwalifikowany, a „Zamień na porozumienie” przygotowuje porozumienie z tą samą datą."
+      },
+      {
+        "q": "Skąd jest data rozwiązania umowy w szkicu?",
+        "options": [
+          "Liczy ją kod z okresu w podpisanej umowie i dnia złożenia",
+          "Wpisuje ją model AI",
+          "To zawsze ostatni dzień zamówienia klienta"
+        ],
+        "answer": 0,
+        "explain": "Termin liczy kod z reguły podpisanej umowy (np. „liczony od kolejnego miesiąca”) i porównuje go z datą zapisaną w NEXUSIE."
+      },
+      {
+        "q": "Co się dzieje po kliknięciu „Zatwierdzam”?",
+        "options": [
+          "Kod sprawdza cytaty jeszcze raz, a pismo wysyłasz sam albo zapisujesz jako DOCX",
+          "Pismo od razu idzie do Partnera",
+          "Pismo trafia do prawnika do akceptacji"
+        ],
+        "answer": 0,
+        "explain": "Nic nie wychodzi samo. Zatwierdzenie sprawdza cytaty na tekście po Twoich poprawkach, a potem otwierasz okno maila albo zapisujesz DOCX w Dokumentach kontraktu."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

@@ -141,7 +141,9 @@ function workdayAt(now: number, workdays: number, hh: number, mm: number): strin
 /**
  * `@rel:-3.2` → data sprzed 3,2 dnia, `@reld:-3` → sam dzień, `@relt:2T09:00` → za
  * 2 dni robocze o 9:00 UTC (terminy u klienta i prepy: pełne godziny, bez weekendu),
- * `@relm:-1` → poprzedni miesiąc (`2026-10`; rozliczenie klienta ćwiczebnego).
+ * `@relm:-1` → poprzedni miesiąc (`2026-10`; rozliczenie klienta ćwiczebnego),
+ * `@releom:-2:1` → ostatni dzień miesiąca o 1 po miesiącu dnia sprzed 2 dni
+ * (koniec okresu wypowiedzenia „liczonego od kolejnego miesiąca”).
  */
 export function resolveDates(value: Json, now: number): Json {
   if (typeof value === "string") {
@@ -151,6 +153,11 @@ export function resolveDates(value: Json, now: number): Json {
     if (month) {
       const d = new Date(now);
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + Number(month[1]), 1)).toISOString().slice(0, 7);
+    }
+    const eom = /^@releom:(-?\d+):(-?\d+)$/.exec(value);
+    if (eom) {
+      const d = new Date(now + Number(eom[1]) * DAY_MS);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + Number(eom[2]) + 1, 0)).toISOString().slice(0, 10);
     }
     if (value.startsWith("@rel:")) return new Date(now + Number(value.slice(5)) * DAY_MS).toISOString();
     if (value.startsWith("@reld:")) return new Date(now + Number(value.slice(6)) * DAY_MS).toISOString().slice(0, 10);
@@ -692,6 +699,9 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     "/api/finance/rate-divergences",
     "/api/finance/order-cost-corrections",
     "/api/finance/order-changes/summary",
+    // Zadania asystenta prawnego (lekcja z 26.11.2026): zadanie kontraktu
+    // ćwiczebnego, nie prawdziwe wypowiedzenia u klientów osoby.
+    "/api/legal/tasks",
   ]);
   /** Zapisy, które w rzeczywistości są odczytami (wyniki dopasowania, podpowiedzi). */
   const READ_POSTS = new Set([

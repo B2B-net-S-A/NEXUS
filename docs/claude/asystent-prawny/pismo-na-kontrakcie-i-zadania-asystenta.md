@@ -139,3 +139,16 @@ blokada, znaczniki, wzory wypełnione z podpisanej umowy),
 `jarvis/__tests__/jarvis-legal-letter.test.tsx`. Harness:
 `/preview/legal-redline?widok=pismo` (osobnej strony nie ma — limit harnessów
 może tylko maleć).
+
+## Lekcja nowości i Poligon (26.11.2026)
+
+Lekcja `lekcja-asystent-prawny-pismo` (wpis `asystent-prawny-pismo-na-kontrakcie`,
+odbiorcy jak bramka pisma: `amounts_view`). Kontrakt ćwiczebny 990521 ma
+wypowiedzenie Partnera sprzed 2 dni (`@releom:-2:1` = koniec przyszłego
+miesiąca, `store.ts`), `GET /api/legal/tasks` idzie z zestawu (pusta lista
+bez podglądu kwot, `amounts.ts`), a szkic i „Zatwierdzam” daje narzędzie
+Poligonu `lib/poligon/legal-letter.ts` — stały tekst, bez modelu i bez
+zapisu; DOCX i inne rodzaje pisma zostają zablokowane. Warunek „sam”: klik
+„To oryginał / podpis kwalifikowany” (`legal-letter.confirm-original`) po
+wejściu z listy kontraktów. Kotwice: `legal-tasks.action`,
+`legal-letter.confirm-original`, `legal-letter.citations`, `legal-letter.approve`.

@@ -11,6 +11,7 @@ import { autoTexts, whySlots } from "@/lib/cv-page1-why";
 
 import { CV_FICTION_TERMS, CV_FICTION_WHY, cvFictionHtml } from "./cv-fiction";
 import { POLIGON_CLIENT_MAIL_SLOTS } from "./exercises";
+import { practiceLetterApprove, practiceLetterDraft } from "./legal-letter";
 import type { PoligonAction, PoligonDataset, PoligonPerson, PoligonResponse } from "./store";
 
 type Json = unknown;
@@ -741,6 +742,19 @@ export function createTools(ctx: ToolsContext) {
       if (ai[2] === "command") return cvCommand(body);
       if (ai[2] === "applied") emit({ type: "cv_applied", operations: Number(body.operations ?? 0) });
       return { status: 200, data: { ok: true } };
+    }
+
+    // Pismo asystenta prawnego na kontrakcie ćwiczebnym: szkic i „Zatwierdzam”
+    // bez modelu i bez zapisu (`legal-letter.ts`). DOCX zostaje zablokowany.
+    const letter = path.match(/^\/api\/contracts\/(\d+)\/legal-letter\/(draft|approve)$/);
+    if (letter && method === "POST" && Number(letter[1]) >= 990_000) {
+      const contract = ctx.recorded("GET", `/api/contracts/${letter[1]}`, [], true);
+      const draft = contract.status === 200 && contract.data && typeof contract.data === "object"
+        ? practiceLetterDraft(contract.data as Row, body, ctx.now)
+        : null;
+      if (!draft) return null;
+      if (letter[2] === "draft") return { status: 200, data: draft };
+      return { status: 200, data: practiceLetterApprove(draft, body) };
     }
 
     if (path === "/api/jarvis/status" && get) {

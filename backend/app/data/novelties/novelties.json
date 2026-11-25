@@ -5400,6 +5400,44 @@
     "dot_anchor": "settlements.cases.overdue"
   },
   {
+    "id": "asystent-prawny-pismo-na-kontrakcie",
+    "pr": 4032,
+    "title": "Asystent prawny: odpowiedź na wypowiedzenie Partnera",
+    "why": "Po wypowiedzeniu Partnera asystent przygotowuje szkic odpowiedzi: termin liczy z podpisanej umowy, pyta o formę wypowiedzenia, a każdy cytat sprawdza ze źródłem. Wysyłasz Ty, po „Zatwierdzam”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": { "permissions": ["amounts_view"] },
+    "where": "Kontrakty → kontrakt → wiersz „Asystent prawny” albo „Napisz pismo”",
+    "href": "/contracts",
+    "practice_href": "/contracts/990521",
+    "section": "delivery",
+    "dot_anchor": "legal-tasks.action",
+    "steps": [
+      {
+        "anchor": "legal-tasks.action",
+        "text": "Kliknij „Otwórz szkic” w wierszu „Asystent prawny”.",
+        "hint": "Wiersz pojawia się pod „Co się dzieje”, gdy Partner złożył wypowiedzenie. To samo pismo otworzysz przyciskiem „Napisz pismo” u góry kontraktu."
+      },
+      {
+        "anchor": "legal-letter.confirm-original",
+        "text": "Umowa wymaga formy pisemnej. Potwierdź, że wypowiedzenie przyszło w oryginale.",
+        "hint": "Jeśli przyszło tylko mailem, wybierz „Zamień na porozumienie” — wypowiedzenie bez wymaganej formy może być nieskuteczne. Na poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "legal-letter.citations",
+        "text": "Każdy cytat w piśmie sprawdził kod z umową i przepisem.",
+        "hint": "„Zgodne ze źródłem” znaczy, że cytat jest w podpisanej umowie albo w ustawie. Cytat bez pokrycia blokuje „Zatwierdzam”.",
+        "ack": true
+      },
+      {
+        "anchor": "legal-letter.approve",
+        "text": "„Zatwierdzam” sprawdza cytaty jeszcze raz — dopiero potem mail albo DOCX.",
+        "hint": "Nic nie wychodzi samo: pismo wysyłasz oknem maila NEXUSA albo zapisujesz jako DOCX w Dokumentach kontraktu.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
