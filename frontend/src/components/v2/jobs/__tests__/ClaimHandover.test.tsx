@@ -40,14 +40,18 @@ const held = {
   claim_user_id: 7,
   claim_user_name: "Ola Przykładowa",
   claim_until: LATER,
+  // Pola serwera są liczone dla patrzącego; w testach oba „tak”, a każdy
+  // widok czyta tylko swoje.
+  can_hand_over: true,
+  can_ask: true,
 };
 
-function renderAs(viewerId: number, item: Record<string, unknown> = held) {
+function renderAs(viewerId: number, item: Record<string, unknown> = held, readOnly = false) {
   useAuthStore.setState({ user: { id: viewerId, name: "Patrzący", role: "recruiter", roles: ["recruiter"] } } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <PairOwnerLine item={item as never} jobId={JOB} />
+      <PairOwnerLine item={item as never} jobId={JOB} readOnly={readOnly} />
     </QueryClientProvider>,
   );
 }
@@ -73,7 +77,13 @@ describe("handoverView — kto co widzi", () => {
 
   it("po upływie blokady nie ma czego oddawać ani o co prosić", () => {
     const expired = { ...held, claim_until: "2026-11-25T11:59:00Z", claim_request_user_id: 8 };
-    expect(handoverView(expired, 7, NOW)).toEqual({ holder: false, other: false, request: null, askedByMe: false });
+    expect(handoverView(expired, 7, NOW)).toEqual({
+      holder: false,
+      other: false,
+      canAsk: false,
+      request: null,
+      askedByMe: false,
+    });
   });
 
   it("prośba: kto prosi i czy to ja", () => {
@@ -163,6 +173,19 @@ describe("Poproś o oddanie — ktoś bez blokady", () => {
     renderAs(11, asked);
     expect(screen.queryByTestId("claim-handover-ask")).toBeNull();
     expect(screen.getByText("· prosi Wika")).toBeInTheDocument();
+  });
+
+  it("przyciski idą za polami serwera: zamknięta rekrutacja, brak roli, podgląd", () => {
+    const { unmount } = renderAs(7, { ...held, can_hand_over: false });
+    expect(screen.queryByTestId("claim-handover-give")).toBeNull();
+    expect(screen.queryByTestId("claim-handover-release")).toBeNull();
+    unmount();
+    const second = renderAs(8, { ...held, can_ask: false });
+    expect(screen.queryByTestId("claim-handover-ask")).toBeNull();
+    second.unmount();
+    renderAs(7, { ...held, claim_request_user_id: 8, claim_request_user_name: "Wika Przykładowa" }, true);
+    expect(screen.queryByTestId("claim-handover-give")).toBeNull();
+    expect(screen.queryByTestId("claim-request-banner")).toBeNull();
   });
 
   it("wolna osoba i blokada po czasie: bez przycisków oddania", () => {

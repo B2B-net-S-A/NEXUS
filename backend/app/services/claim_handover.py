@@ -33,6 +33,8 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
 from app.services import candidate_claim, pair_owner, screening_calls
 
+HANDED_OVER = "candidate_claim_handed_over"
+
 
 def holder_label(user: Optional[User]) -> str:
     if user is None:
@@ -89,16 +91,43 @@ async def resolve_target(db: AsyncSession, *, actor: User, user_id: int) -> User
     return target
 
 
+async def record(
+    db: AsyncSession,
+    *,
+    latest: CandidateStage,
+    actor: User,
+    action: str,
+    details: dict,
+) -> Activity:
+    """Wpis w historii pary — i encja dzwonka, który z niego wynika."""
+
+    event = Activity(
+        entity_type="pipeline",
+        entity_id=latest.id,
+        action=action,
+        user_id=actor.id,
+        details=details,
+    )
+    db.add(event)
+    await db.flush()
+    return event
+
+
 async def notify(
     db: AsyncSession,
     *,
     user_id: int,
     title: str,
     message: str,
-    process: RecruitmentProcess,
+    event: Activity,
     job: Job,
+    candidate_id: int,
     ntype: NotificationType,
 ) -> None:
+    """Dzwonek wiązany z wpisem historii, nie z procesem: `ix_notif_dedup_daily`
+    puszcza jeden dzwonek dziennie na (osoba, typ, encja), a druga prośba albo
+    „zwolnił(a)” po „zostawia u siebie” tego samego dnia to nowe zdarzenia."""
+
     from app.services.notification_triggers import emit
 
     await emit(
@@ -107,9 +136,9 @@ async def notify(
         title=title,
         message=message,
         ntype=ntype,
-        related_entity_type="recruitment_process",
-        related_entity_id=process.id,
-        link=f"/jobs/{job.id}?candidate={process.candidate_id}",
+        related_entity_type="activity",
+        related_entity_id=event.id,
+        link=f"/jobs/{job.id}?candidate={candidate_id}",
     )
 
 
@@ -124,25 +153,27 @@ async def hand_over(
     now: datetime,
     via_request: bool,
 ) -> None:
-    """Blokada przechodzi na ``target`` na pełne 12 h od teraz."""
+    """Blokada przechodzi na ``target`` na pełne 12 h od teraz.
+
+    Wpis ``candidate_claim_handed_over`` liczy się w ``screening_stale`` jak
+    „Biorę” osoby ``to_user_id``: bez śladu przez 2 dni robocze karta wraca.
+    """
 
     candidate_claim.set_claim(process, target.id, now)
     await screening_calls.follow_claim(db, process=process, user=target, now=now)
-    db.add(
-        Activity(
-            entity_type="pipeline",
-            entity_id=latest.id,
-            action="candidate_claim_handed_over",
-            user_id=actor.id,
-            details={
-                "candidate_id": process.candidate_id,
-                "job_id": job.id,
-                "from_user_id": actor.id,
-                "to_user_id": target.id,
-                "via_request": via_request,
-                "claimed_until": process.claimed_until.isoformat(),
-            },
-        )
+    event = await record(
+        db,
+        latest=latest,
+        actor=actor,
+        action=HANDED_OVER,
+        details={
+            "candidate_id": process.candidate_id,
+            "job_id": job.id,
+            "from_user_id": actor.id,
+            "to_user_id": target.id,
+            "via_request": via_request,
+            "claimed_until": process.claimed_until.isoformat(),
+        },
     )
     person = await person_label(db, process.candidate_id)
     await notify(
@@ -150,7 +181,8 @@ async def hand_over(
         user_id=target.id,
         title=f"{holder_label(actor)} oddał(a) Ci osobę",
         message=f"{person} · {job.title} · masz ją na 12 h",
-        process=process,
+        event=event,
         job=job,
+        candidate_id=process.candidate_id,
         ntype=NotificationType.candidate_claim_handover,
     )

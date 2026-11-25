@@ -143,7 +143,7 @@ from app.services.recruitment_move_policy import (
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services import screening_calls
-from app.services import claim_handover
+from app.services import claim_handover, pair_owner
 from app.services.stage_verifier import first_verifier
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
@@ -5014,6 +5014,22 @@ async def _render_kanban_board(
                         v4, viewer, board_now, inactive_claimers
                     )
                 )
+                # Oddanie i prośba (25.11.2026): tylko tam, gdzie serwer je
+                # przyjmie (`_lock_claim_target`) — otwarta rekrutacja, karta
+                # w „Nowych”/„Screeningu”, aktywna blokada.
+                handover_open = (
+                    job.status != JobStatus.closed
+                    and board_column in candidate_claim.CLAIM_COLUMNS
+                    and claim.active(board_now)
+                )
+                holds = handover_open and claim.user_id == viewer.id
+                payload["can_hand_over"] = holds
+                payload["can_ask"] = (
+                    handover_open
+                    and not holds
+                    and pair_owner.can_own(viewer)
+                    and payload.get("claim_request_user_id") in (None, viewer.id)
+                )
         elif viewer is not None:
             payload["can_take"] = job.status != JobStatus.closed
         availability = availability_by_id.get(e.candidate_id, (None, None))
@@ -6139,14 +6155,12 @@ async def release_claim(
         process, now, await candidate_claim.inactive_holders(db, [process])
     )
     candidate_claim.release_claim(process, now)
-    db.add(
-        Activity(
-            entity_type="pipeline",
-            entity_id=latest.id,
-            action="candidate_claim_released",
-            user_id=current_user.id,
-            details={"candidate_id": data.candidate_id, "job_id": job.id},
-        )
+    event = await claim_handover.record(
+        db,
+        latest=latest,
+        actor=current_user,
+        action="candidate_claim_released",
+        details={"candidate_id": data.candidate_id, "job_id": job.id},
     )
     if request is not None:
         # Ktoś prosił o tę osobę — dowiaduje się, że może kliknąć „Biorę”.
@@ -6156,8 +6170,9 @@ async def release_claim(
             user_id=request.user_id,
             title=f"{claim_handover.holder_label(current_user)} zwolnił(a) osobę",
             message=f"{person} · {job.title} · kliknij „Biorę”",
-            process=process,
+            event=event,
             job=job,
+            candidate_id=data.candidate_id,
             ntype=NotificationType.candidate_claim_request_answer,
         )
     response = _claim_response(process)
@@ -6177,6 +6192,13 @@ async def ask_for_claim(
     job, process, latest = await _lock_claim_target(
         db, current_user, data.candidate_id, data.job_id
     )
+    # Oddać można tylko rekruterowi (`claim_handover.resolve_target`), więc
+    # prośba kogoś innego zablokowałaby kartę bez wyjścia.
+    if not pair_owner.can_own(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="O osobę może prosić tylko ktoś z rolą rekrutera.",
+        )
     now = datetime.now(timezone.utc)
     inactive = await candidate_claim.inactive_holders(db, [process])
     state = candidate_claim.claim_state(process, inactive)
@@ -6198,18 +6220,16 @@ async def ask_for_claim(
     process.claim_request_user_id = current_user.id
     process.claim_request_reason = reason
     process.claim_request_at = now
-    db.add(
-        Activity(
-            entity_type="pipeline",
-            entity_id=latest.id,
-            action="candidate_claim_requested",
-            user_id=current_user.id,
-            details={
-                "candidate_id": data.candidate_id,
-                "job_id": job.id,
-                "holder_user_id": state.user_id,
-            },
-        )
+    event = await claim_handover.record(
+        db,
+        latest=latest,
+        actor=current_user,
+        action="candidate_claim_requested",
+        details={
+            "candidate_id": data.candidate_id,
+            "job_id": job.id,
+            "holder_user_id": state.user_id,
+        },
     )
     person = await claim_handover.person_label(db, data.candidate_id)
     await claim_handover.notify(
@@ -6217,8 +6237,9 @@ async def ask_for_claim(
         user_id=state.user_id,
         title=f"{claim_handover.holder_label(current_user)} prosi o Twoją osobę",
         message=f"{person} · {job.title} · „{reason}”",
-        process=process,
+        event=event,
         job=job,
+        candidate_id=data.candidate_id,
         ntype=NotificationType.candidate_claim_request,
     )
     response = {
@@ -6266,18 +6287,16 @@ async def answer_claim_request(
         )
     else:
         candidate_claim.clear_request(process)
-        db.add(
-            Activity(
-                entity_type="pipeline",
-                entity_id=latest.id,
-                action="candidate_claim_request_declined",
-                user_id=current_user.id,
-                details={
-                    "candidate_id": data.candidate_id,
-                    "job_id": job.id,
-                    "requested_by": request.user_id,
-                },
-            )
+        event = await claim_handover.record(
+            db,
+            latest=latest,
+            actor=current_user,
+            action="candidate_claim_request_declined",
+            details={
+                "candidate_id": data.candidate_id,
+                "job_id": job.id,
+                "requested_by": request.user_id,
+            },
         )
         person = await claim_handover.person_label(db, data.candidate_id)
         await claim_handover.notify(
@@ -6285,8 +6304,9 @@ async def answer_claim_request(
             user_id=request.user_id,
             title=f"{claim_handover.holder_label(current_user)} zostawia osobę u siebie",
             message=f"{person} · {job.title}",
-            process=process,
+            event=event,
             job=job,
+            candidate_id=data.candidate_id,
             ntype=NotificationType.candidate_claim_request_answer,
         )
     response = _claim_response(process)

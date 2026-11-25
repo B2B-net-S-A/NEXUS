@@ -521,6 +521,9 @@ class CandidateStageResponse(BaseModel):
     claim_request_user_name: Optional[str] = None
     claim_request_reason: Optional[str] = None
     claim_request_at: Optional[datetime] = None
+    # Czy patrzący może „Oddaj…”/„Zwolnij” albo „Poproś o oddanie”.
+    can_hand_over: bool = False
+    can_ask: bool = False
     # Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
     booked_call: Optional[BookedCallSummary] = None
     # Ostatnia osoba, która kliknęła „Biorę”, także po wygaśnięciu blokady —

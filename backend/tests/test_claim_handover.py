@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
+from app.models.job import Job, JobStatus
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import UserRole
@@ -126,7 +127,7 @@ async def test_holder_hands_the_person_over_for_full_12h(api_client):
 
         [notif] = await _notifications(other[0])
         assert "oddał(a) Ci osobę" in notif.title
-        assert notif.related_entity_id == proc.id
+        assert notif.related_entity_type == "activity"
         async with AsyncSessionLocal() as db:
             act = await db.scalar(
                 select(Activity).where(
@@ -336,6 +337,133 @@ async def test_request_on_a_free_person_says_take_it(api_client):
         assert "Biorę" in free.json()["detail"]
     finally:
         await _cleanup([cand_id], job_id)
+
+
+async def test_only_recruiters_may_ask(api_client):
+    """Prośba osoby bez roli rekrutera zablokowałaby kartę: „Oddaj” i tak
+    by nie przeszło, a inni dostawaliby „prosi już …”."""
+    owner, [_other], job_id = await _team()
+    dl_only = await _seed_user(UserRole.delivery_lead)
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner[1], owner[2])
+    dl_h = await _login(api_client, dl_only[1], dl_only[2])
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        resp = await api_client.post(
+            "/api/pipeline/claim/request",
+            headers=dl_h,
+            json=_body(cand_id, job_id, reason="Znam tę osobę"),
+        )
+        assert resp.status_code == 403, resp.text
+        card = await _card(api_client, dl_h, job_id, cand_id)
+        assert card["can_ask"] is False
+        assert (await _process(cand_id, job_id)).claim_request_user_id is None
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_board_flags_say_who_may_hand_over_or_ask(api_client):
+    owner, [other], job_id = await _team()
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner[1], owner[2])
+    other_h = await _login(api_client, other[1], other[2])
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        mine = await _card(api_client, owner_h, job_id, cand_id)
+        theirs = await _card(api_client, other_h, job_id, cand_id)
+        assert (mine["can_hand_over"], mine["can_ask"]) == (True, False)
+        assert (theirs["can_hand_over"], theirs["can_ask"]) == (False, True)
+
+        # Zamknięta rekrutacja: serwer i tak odmówi, więc przycisków nie ma.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job).where(Job.id == job_id).values(status=JobStatus.closed)
+            )
+            await db.commit()
+        mine = await _card(api_client, owner_h, job_id, cand_id)
+        theirs = await _card(api_client, other_h, job_id, cand_id)
+        assert mine["can_hand_over"] is False and theirs["can_ask"] is False
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_every_event_gets_its_own_bell(api_client):
+    """Dzienny dedup dzwonków (użytkownik, typ, encja, dzień) nie może zjeść
+    drugiej prośby ani „zwolnił(a)” po „zostawia u siebie”."""
+    owner, [asker], job_id = await _team()
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner[1], owner[2])
+    asker_h = await _login(api_client, asker[1], asker[2])
+    url = "/api/pipeline/claim/request"
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        for answer in ("decline", "release"):
+            asked = await api_client.post(
+                url, headers=asker_h, json=_body(cand_id, job_id, reason="Znam ją")
+            )
+            assert asked.status_code == 200, asked.text
+            if answer == "decline":
+                resp = await api_client.post(
+                    f"{url}/answer",
+                    headers=owner_h,
+                    json=_body(cand_id, job_id, accept=False),
+                )
+            else:
+                resp = await api_client.post(
+                    "/api/pipeline/claim/release",
+                    headers=owner_h,
+                    json=_body(cand_id, job_id),
+                )
+            assert resp.status_code == 200, resp.text
+        assert len(await _notifications(owner[0], _REQUEST)) == 2
+        assert len(await _notifications(asker[0], _ANSWER)) == 2
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_old_request_does_not_follow_a_new_claim(api_client):
+    """Prośba była do A; po wygaśnięciu blokady B umawia telefon i bierze
+    osobę — B nie może dostać cudzej prośby z paskiem „Oddaj — X”."""
+    from tests.test_screening_calls import _body as _call_body
+    from tests.test_screening_calls import _cleanup as _call_cleanup
+    from tests.test_screening_calls import _in
+
+    owner, [asker, booker], job_id = await _team(n_others=2)
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner[1], owner[2])
+    asker_h = await _login(api_client, asker[1], asker[2])
+    booker_h = await _login(api_client, booker[1], booker[2])
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        asked = await api_client.post(
+            "/api/pipeline/claim/request",
+            headers=asker_h,
+            json=_body(cand_id, job_id, reason="Znam ją"),
+        )
+        assert asked.status_code == 200, asked.text
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(RecruitmentProcess)
+                .where(
+                    RecruitmentProcess.candidate_id == cand_id,
+                    RecruitmentProcess.job_id == job_id,
+                )
+                .values(claimed_until=datetime.now(timezone.utc) - timedelta(minutes=1))
+            )
+            await db.commit()
+        booked = await api_client.post(
+            "/api/screening-calls",
+            headers=booker_h,
+            json=_call_body(cand_id, job_id, _in(days=1)),
+        )
+        assert booked.status_code == 201, booked.text
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_by_user_id == booker[0]
+        assert proc.claim_request_user_id is None
+        card = await _card(api_client, booker_h, job_id, cand_id)
+        assert card.get("claim_request_user_id") is None
+    finally:
+        await _call_cleanup(cand_id, job_id)
 
 
 def _proc(**kw) -> SimpleNamespace:

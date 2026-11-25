@@ -59,6 +59,8 @@ type OwnerItem = Pick<
   | "claim_request_user_id"
   | "claim_request_user_name"
   | "claim_request_reason"
+  | "can_hand_over"
+  | "can_ask"
   | "entry_source"
   | "entry_autofill"
 > &
@@ -236,7 +238,8 @@ export function PairOwnerLine({
   jobId,
   onTake,
   taking,
-}: { item: OwnerItem; jobId: number } & TakeProps) {
+  readOnly = false,
+}: { item: OwnerItem; jobId: number; readOnly?: boolean } & TakeProps) {
   const user = useAuthStore((s) => s.user);
   const canAssign = mayAssignOwner(getUserRoles(user));
   const [open, setOpen] = useState(false);
@@ -270,9 +273,9 @@ export function PairOwnerLine({
             {inactive ? " · konto nieaktywne" : ""}
           </span>
           {/* Oddanie osoby z blokadą (25.11.2026): „Oddaj…”, „Zwolnij”, „Poproś o oddanie”. */}
-          <ClaimHandoverActions item={item} jobId={jobId} />
+          <ClaimHandoverActions item={item} jobId={jobId} readOnly={readOnly} />
         </div>
-        <ClaimRequestBanner item={item} jobId={jobId} />
+        <ClaimRequestBanner item={item} jobId={jobId} readOnly={readOnly} />
       </div>
       {open ? (
         <OwnerDialog

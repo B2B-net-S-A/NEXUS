@@ -33,13 +33,17 @@ export type HandoverItem = Pick<
   | "claim_request_user_id"
   | "claim_request_user_name"
   | "claim_request_reason"
+  | "can_hand_over"
+  | "can_ask"
 >;
 
 export interface HandoverView {
-  /** Patrzący ma aktywną blokadę: „Oddaj…”, „Zwolnij”, odpowiedź na prośbę. */
+  /** Patrzący ma aktywną blokadę i serwer przyjmie „Oddaj…”, „Zwolnij”, odpowiedź. */
   holder: boolean;
-  /** Blokadę ma ktoś inny: „Poproś o oddanie” albo stan prośby. */
+  /** Blokadę ma ktoś inny: stan prośby albo „Poproś o oddanie”. */
   other: boolean;
+  /** Serwer przyjmie prośbę patrzącego (rola rekrutera, otwarta rekrutacja, kolumna). */
+  canAsk: boolean;
   /** Prośba czeka (serwer podaje ją tylko przy aktywnej blokadzie). */
   request: { userId: number; name: string; reason: string | null } | null;
   /** Prośba patrzącego czeka na odpowiedź. */
@@ -49,7 +53,10 @@ export interface HandoverView {
 export function handoverView(item: HandoverItem, viewerId: number | null, now: Date = new Date()): HandoverView {
   const active =
     item.claim_user_id != null && Boolean(item.claim_until) && new Date(item.claim_until ?? 0).getTime() > now.getTime();
-  const holder = active && viewerId != null && item.claim_user_id === viewerId;
+  // Przyciski idą za polami serwera (`can_hand_over`, `can_ask`), jak „Biorę” za
+  // `can_take`: zamknięta rekrutacja albo karta poza „Nowymi” ich nie ma.
+  const mine = active && viewerId != null && item.claim_user_id === viewerId;
+  const holder = mine && item.can_hand_over === true;
   const request =
     active && item.claim_request_user_id != null
       ? {
@@ -60,7 +67,8 @@ export function handoverView(item: HandoverItem, viewerId: number | null, now: D
       : null;
   return {
     holder,
-    other: active && !holder,
+    other: active && !mine,
+    canAsk: active && !mine && item.can_ask === true,
     request,
     askedByMe: request != null && viewerId != null && request.userId === viewerId,
   };
@@ -96,11 +104,18 @@ function useClaimCall(jobId: number) {
   });
 }
 
+interface HandoverProps {
+  item: HandoverItem;
+  jobId: number;
+  /** Panel tylko do odczytu („Podgląd jako”): bez przycisków. */
+  readOnly?: boolean;
+}
+
 const linkClass =
   "shrink-0 rounded-md px-1 font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:p-2";
 
 /** Przyciski na końcu wiersza z blokadą. */
-export function ClaimHandoverActions({ item, jobId }: { item: HandoverItem; jobId: number }) {
+export function ClaimHandoverActions({ item, jobId, readOnly = false }: HandoverProps) {
   const viewerId = useAuthStore((s) => s.user?.id ?? null);
   const view = handoverView(item, viewerId);
   const call = useClaimCall(jobId);
@@ -109,7 +124,7 @@ export function ClaimHandoverActions({ item, jobId }: { item: HandoverItem; jobI
   const holderFirst = cardShortName(item.claim_user_name) ?? "osoba z blokadą";
   const ids = { candidate_id: item.candidate_id, job_id: jobId };
 
-  if (!view.holder && !view.other) return null;
+  if (readOnly || (!view.holder && !view.other)) return null;
 
   const release = async () => {
     const ok = await askConfirm({
@@ -155,11 +170,11 @@ export function ClaimHandoverActions({ item, jobId }: { item: HandoverItem; jobI
         <span className="shrink-0 truncate" title={`O tę osobę prosi już ${view.request.name}`}>
           · prosi {cardShortName(view.request.name)}
         </span>
-      ) : (
+      ) : view.canAsk ? (
         <button type="button" className={linkClass} onClick={ask} disabled={call.isPending} data-testid="claim-handover-ask">
           Poproś o oddanie
         </button>
-      )}
+      ) : null}
       {giving ? <GiveDialog item={item} jobId={jobId} viewerId={viewerId} onClose={() => setGiving(false)} /> : null}
       {confirmDialog}
     </>
@@ -167,11 +182,11 @@ export function ClaimHandoverActions({ item, jobId }: { item: HandoverItem; jobI
 }
 
 /** Pasek prośby pod „Prowadzi” — widzi go osoba z blokadą. */
-export function ClaimRequestBanner({ item, jobId }: { item: HandoverItem; jobId: number }) {
+export function ClaimRequestBanner({ item, jobId, readOnly = false }: HandoverProps) {
   const viewerId = useAuthStore((s) => s.user?.id ?? null);
   const view = handoverView(item, viewerId);
   const call = useClaimCall(jobId);
-  if (!view.holder || !view.request) return null;
+  if (readOnly || !view.holder || !view.request) return null;
   const first = cardShortName(view.request.name) ?? view.request.name;
   const answer = (accept: boolean) =>
     call.mutate({

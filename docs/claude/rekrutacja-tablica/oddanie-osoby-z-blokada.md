@@ -19,19 +19,27 @@ z 25.11.2026: wszystkie trzy warianty z makiet
   zostaje, „Biorę” może kliknąć każdy, a „Biorę” nie liczy się jako
   przejęcie. Gdy ktoś prosił, dostaje dzwonek „zwolnił(a) osobę”.
 - **Poproś o oddanie** (`POST /api/pipeline/claim/request`, powód 3–300
-  znaków): kolumny `claim_request_user_id/_reason/_at` na procesie (0777).
+  znaków, tylko osoba z rolą rekrutera — oddać można tylko jej, więc prośba
+  kogoś innego zablokowałaby kartę): kolumny `claim_request_user_id/_reason/_at` na procesie (0777).
   Jedna prośba naraz (druga osoba dostaje 409 z imieniem proszącej).
   Prośba obowiązuje tylko przy aktywnej blokadzie kogoś innego
-  (`candidate_claim.pending_request`), a każda nowa blokada i zwolnienie ją
-  kasują. Osoba z blokadą odpowiada `POST …/request/answer` (`accept`):
+  (`candidate_claim.pending_request`), a każda nowa blokada (`set_claim`,
+  umówiony telefon w `screening_calls`) i zwolnienie ją kasują. Osoba z blokadą odpowiada `POST …/request/answer` (`accept`):
   „Oddaj” idzie drogą „Oddaj…”, „Zostaw” zostawia blokadę i dzwoni do
   proszącej.
 - **Dzwonki:** trzy typy (`candidate_claim_handover`, `candidate_claim_request`,
-  `candidate_claim_request_answer`), bo `ix_notif_dedup_daily` puszcza jeden
-  dzwonek dziennie na typ i proces. Przy jednym typie „zostawia u siebie”
-  zjadało późniejsze „oddał(a) Ci osobę” tego samego dnia.
+  `candidate_claim_request_answer`) z własnym nagłówkiem maila. Encją dzwonka
+  jest wpis historii (`related_entity_type="activity"`), nie proces, bo
+  `ix_notif_dedup_daily` puszcza jeden dzwonek dziennie na (osoba, typ, encja):
+  druga prośba tego samego dnia albo „zwolnił(a)” po „zostawia u siebie”
+  znikały.
+- **Powrót kart bez śladu** (`screening_stale`): oddanie liczy się jak
+  „Biorę” osoby z `details.to_user_id`, więc oddana karta po 2 dniach
+  roboczych bez śladu wraca dla wszystkich.
 - **Front:** `ClaimHandover.tsx` w wierszu „Prowadzi” (`PairOwnerLine`) i pasek
-  prośby pod nim. Osoba z blokadą ma na karcie „Prośba · imię” zamiast
+  prośby pod nim. Przyciski czytają pola z Tablicy `can_hand_over` i `can_ask`
+  (otwarta rekrutacja, karta w „Nowych”/„Screeningu”, aktywna blokada, rola
+  rekrutera), jak „Biorę” czyta `can_take`; panel tylko do odczytu ich nie ma. Osoba z blokadą ma na karcie „Prośba · imię” zamiast
   „Twój · N h” (ton `wait`), bo przy 15 kartach sam dzwonek łatwo przeoczyć.
 - **Bez zmian:** „Przejmij” admina, DL i HoR, Liga, cele i premie (liczą się
   jak przy „Biorę”, `biore-zmienia-osobe-karty.md`) oraz przypisanie
