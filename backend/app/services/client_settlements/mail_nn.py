@@ -8,6 +8,10 @@ odbioru pracy”, polami „Imię i nazwisko”, „Okres pracy: 09-2026” i ta
 liczba tuż nad parą kwot „… PLN”. Kilka wierszy tabeli sumujemy; czytamy
 tylko pierwszą tabelę, bo przekazany dalej mail cytuje ją ponownie.
 
+Przekazany dalej z Outlooka mail bywa tekstem z wierszem tabeli w jednej linii
+(próba IV–V 2026): „00000001 ALFA - Moduł Prace dewelopera 20 19,200.00 PLN
+23,616.00 PLN” — wtedy MD to liczba tuż przed parą kwot w tej samej linii.
+
 To akceptacja klienta z MD wprost, bez przeliczania godzin. Mail spoza wzoru
 daje ``None``.
 """
@@ -32,6 +36,13 @@ _PERIOD = re.compile(r"^okres\s+pracy\s*:\s*(.+)$", re.I)
 _TABLE_END = re.compile(r"^kwota\s+netto\s+do\s+zafakturowania", re.I)
 _MD = re.compile(r"^\d+(?:[.,]\d+)?$")
 _PLN = re.compile(r"^(\d[\d,.\xa0 ]*?)\s*(?:PLN|zł)$", re.I)
+_AMOUNT = r"\d{1,3}(?:[ \xa0.,]\d{3})*[.,]\d{2}"
+#: Wiersz tabeli w jednej linii: „… 20 19,200.00 PLN 23,616.00 PLN”.
+_ROW = re.compile(
+    r"(?:^|\s)(\d{1,2}(?:[.,]\d{1,3})?)\s+(" + _AMOUNT + r")\s*(?:PLN|zł)\s+"
+    r"(" + _AMOUNT + r")\s*(?:PLN|zł)\s*$",
+    re.I,
+)
 # Po pierwszej tabeli: nagłówek przekazanego maila albo ponowny początek treści.
 _NEXT_MAIL = re.compile(
     r"^(?:from|od|sent|wysłano|subject|temat)\s*:|zaakceptowanego\s+odbioru", re.I
@@ -79,6 +90,10 @@ def parse_text(text: str) -> Optional[Declared]:
         ):
             md += _amount(lines[index - 1]) or Decimal("0")
             net += _amount(found.group(1)) or Decimal("0")
+            rows += 1
+        elif found := _ROW.search(line):
+            md += _amount(found.group(1)) or Decimal("0")
+            net += _amount(found.group(2)) or Decimal("0")
             rows += 1
     return Declared(
         source=SOURCE,

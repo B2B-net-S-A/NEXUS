@@ -478,6 +478,44 @@ def test_nn_cytowana_ponownie_tabela_nie_podwaja_md():
     assert parsed.md == Decimal("22.875")
 
 
+NN_FORWARDED = """Z pozdrowieniami,
+Opiekun Testowy
+________________________________
+From: Rozliczenia kontraktorów
+Sent: Tuesday, May 12, 2026 9:00:26 AM
+Subject: Rozliczenie pracownika Jan Testowy za okres 09-2026
+Dzień dobry,
+Poniżej znajdują się szczegóły zaakceptowanego odbioru pracy Państwa pracownika:
+Imię i nazwisko: Jan Testowy
+Okres pracy: 09-2026
+Numer zamówienia Nazwa CK Opis wykonywanej pracy Ilość MD Kwota netto Kwota brutto
+00000001 ALFA - Moduł testowy Prace dewelopera v2 20 19,200.00 PLN 23,616.00 PLN
+Kwota netto do zafakturowania: 19,200.00 PLN
+Kwota brutto do zafakturowania: 23,616.00 PLN
+"""
+
+
+def test_nn_przekazany_mail_z_wierszem_w_jednej_linii():
+    parsed = mail_nn.parse(
+        _eml(NN_FORWARDED, subject="Fw: Rozliczenie pracownika"), EML
+    )
+
+    assert parsed.consultant == PERSON
+    assert parsed.month == MONTH
+    assert parsed.md == Decimal("20")
+    assert parsed.amount == Decimal("19200.00")
+
+
+def test_nn_wiersz_w_jednej_linii_z_kwotami_po_polsku():
+    text = NN_FORWARDED.replace(
+        "19,200.00 PLN 23,616.00 PLN", "19 200,00 PLN 23 616,00 PLN"
+    )
+    parsed = mail_nn.parse_text(text)
+
+    assert parsed.md == Decimal("20")
+    assert parsed.amount == Decimal("19200.00")
+
+
 def test_inny_mail_to_none():
     assert mail_nn.parse(_eml("Akceptuję godziny za wrzesień."), EML) is None
 
