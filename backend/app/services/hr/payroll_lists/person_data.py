@@ -818,15 +818,18 @@ async def update(
         return payload(subject, name, record, data, editable=True, today=today)
     number = data.get("pesel")
     try:
-        pesel_hmac = pesel_rules.fingerprint(number) if number else None
+        # Skróty każdym kluczem: PESEL zapisany przed rotacją klucza ma skrót
+        # poprzednim, dopóki skrypt rotacji go nie przeliczy.
+        pesel_hmacs = pesel_rules.fingerprints(number) if number else ()
+        pesel_hmac = pesel_hmacs[0] if pesel_hmacs else None
         account = data.get("bank_account")
         account_hmac = account_fingerprint(account) if account else None
     except TokenCipherNotConfigured:
         raise PersonDataError(CIPHER_MISSING, 503) from None
-    if pesel_hmac is not None:
+    if pesel_hmacs:
         owner = await db.scalar(
             select(PayrollPersonData.id).where(
-                PayrollPersonData.pesel_hmac == pesel_hmac,
+                PayrollPersonData.pesel_hmac.in_(pesel_hmacs),
                 PayrollPersonData.id != (record.id if record else 0),
             )
         )
