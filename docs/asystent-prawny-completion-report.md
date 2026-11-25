@@ -18,7 +18,7 @@ osobnego modułu.
 | G. Zgodność z umową ramową klienta w tle | zadanie na liście kontraktów, panel w kreatorze aneksu i „Nowej umowie”, okno ustaleń | `0791_legal_client_fit` | F60 `legal_client_fit` |
 | H. Przepisy: źródła asystenta i „Przejrzyj wzór” | Przepisy → Źródła i boty | — | — |
 
-Migracje idą po `0783_lost_review` z `main`, jeden head (`0791_legal_client_fit`).
+Migracje idą po `0784_month_check_cases` z `main`, jeden head (`0791_legal_client_fit`).
 Każda nowa tabela ma lustro w `entrypoint.sh` i sondę w `/api/health/deep`.
 
 ## Jak sprawdzone
@@ -34,7 +34,7 @@ Każda nowa tabela ma lustro w `entrypoint.sh` i sondę w `/api/health/deep`.
   bez kontroli dat z modelu) — poprawione testami, które najpierw padały.
 - **Staging (kopia produkcji z 25.11.2026, własna baza i własne pliki):**
   backend z gałęzi na 8101, front na 3101, ekran 1280 × 720, prawdziwy model.
-  - Migracje 0785–0791 na kopii, `/api/health/deep` — 9 nowych tabel `healthy`.
+  - Migracje asystenta na kopii (przed ostatnim przenumerowaniem: 0784–0790), `/api/health/deep` — 9 nowych tabel `healthy`.
   - Korpus: 16 aktów, 27 191 jednostek; orzecznictwo: 40 orzeczeń SAOS;
     treść dokumentów kontraktów klienta testowego: 585 odczytanych
     (34 bez pliku na stagingu, 2 nieczytelne).
