@@ -515,6 +515,12 @@ class CandidateStageResponse(BaseModel):
     claim_user_id: Optional[int] = None
     claim_user_name: Optional[str] = None
     claim_until: Optional[datetime] = None
+    # 0777: prośba o oddanie osoby z aktywną blokadą — tylko przy aktywnej
+    # blokadzie kogoś innego (`candidate_claim.pending_request`).
+    claim_request_user_id: Optional[int] = None
+    claim_request_user_name: Optional[str] = None
+    claim_request_reason: Optional[str] = None
+    claim_request_at: Optional[datetime] = None
     # Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
     booked_call: Optional[BookedCallSummary] = None
     # Ostatnia osoba, która kliknęła „Biorę”, także po wygaśnięciu blokady —

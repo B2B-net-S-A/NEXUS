@@ -228,6 +228,13 @@ class NotificationType(str, enum.Enum):
     # 0352: ktoś przejął Twoją osobę w „Nowych" (przed upływem 12 h tylko
     # DL/HoR/admin) — related_entity=(recruitment_process, id).
     candidate_claim_taken = "candidate_claim_taken"
+    # 0777: oddanie osoby z blokadą 12 h innej osobie, prośba o nie i
+    # odpowiedź na prośbę — related_entity=(recruitment_process, id). Trzy
+    # typy, bo `ix_notif_dedup_daily` puszcza jeden dzwonek dziennie na typ
+    # i proces: „zostawia u siebie” zjadałoby późniejsze „oddał(a) Ci osobę”.
+    candidate_claim_handover = "candidate_claim_handover"
+    candidate_claim_request = "candidate_claim_request"
+    candidate_claim_request_answer = "candidate_claim_request_answer"
     # 0352: podpis umowy przeniósł osobę na „Zatrudniony", a zamówienia od
     # klienta jeszcze nie ma — do Finansów; related_entity=(contract, id).
     hired_order_missing = "hired_order_missing"
