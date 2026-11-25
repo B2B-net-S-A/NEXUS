@@ -145,6 +145,7 @@ from app.models.plain_knowledge import (  # noqa: F401
     PlainTerm,
     RoleProfile,
 )
+from app.models.client_buyer_number import ClientBuyerNumber  # noqa: F401
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload

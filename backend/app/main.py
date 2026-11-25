@@ -4308,6 +4308,7 @@ async def api_health_deep_check(request: Request):
         BoardVoteBallot,
         BoardKrsSnapshot,
     )
+    from app.models.client_buyer_number import ClientBuyerNumber
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -5010,6 +5011,8 @@ async def api_health_deep_check(request: Request):
         # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
         ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
+        # 0781: dodatkowe numery nabywcy klienta (spółki grupy).
+        ("client_buyer_numbers", ClientBuyerNumber),
         # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
         ("client_invoice_templates", ClientInvoiceTemplate),
         # 0720: archiwum dokumentów z eBI24 (E5).

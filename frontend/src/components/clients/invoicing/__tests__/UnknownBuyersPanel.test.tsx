@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+const del = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   api: {
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
+    delete: (...a: unknown[]) => del(...a),
   },
 }));
 
@@ -110,6 +112,55 @@ describe("UnknownBuyersPanel", () => {
     expect(cell.getByText("klient ma już inny numer")).toBeInTheDocument();
     expect(cell.queryByRole("button", { name: "Przypisz" })).not.toBeInTheDocument();
     expect(cell.getByRole("button", { name: "Przypisz do…" })).toBeInTheDocument();
+  });
+
+  it("adds a group company number as an extra one after confirmation", async () => {
+    const user = userEvent.setup();
+    post.mockResolvedValue({ data: { buyer_number: { retried: 2, matched: 1, extra: true } } });
+    renderPanel();
+    await user.click(within(await row("NO123456789")).getByRole("button", { name: "Jako dodatkowy" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Klient ma już inny numer");
+    await user.click(within(dialog).getByRole("button", { name: "Dopisz jako dodatkowy" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/finance/sales-invoices/unknown-buyers/assign", {
+        number: "NO123456789",
+        client_id: 36,
+        extra: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Dodatkowy numer dopisany"), "success"),
+    );
+  });
+
+  it("lists extra numbers and removes one after confirmation", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (url: string) => ({
+      data: url.endsWith("/buyer-numbers")
+        ? {
+            numbers: [
+              {
+                id: 5,
+                client_id: 36,
+                client_name: "Klient Z Numerem",
+                number: "FI01234567",
+                kind: "vat_ue",
+                source: "auto",
+                created_at: "2026-11-25T10:00:00+00:00",
+                invoices: 8,
+              },
+            ],
+          }
+        : RESPONSE,
+    }));
+    del.mockResolvedValue({ data: { removed: 5 } });
+    renderPanel();
+    expect(await screen.findByText("Dodatkowe numery klientów (1)")).toBeInTheDocument();
+    expect(screen.getByText(/dopisany przez automat 25\.11\.2026 · 8 faktur/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Usuń" }));
+    await user.click(await screen.findByRole("button", { name: "Usuń numer" }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith("/api/finance/sales-invoices/buyer-numbers/5"));
   });
 
   it("requires a reason to skip and sends it", async () => {
