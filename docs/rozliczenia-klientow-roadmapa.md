@@ -293,6 +293,8 @@ reguły klienta jako katalog z poziomami.
   miesiąca, daje podpowiedź „NIP kontraktora” do zatwierdzenia przez Finanse;
   zatwierdzony NIP trafia do kontraktu i od tej chwili wiąże faktury sam.
   Pierwszy miesiąc dopasowań idzie wolniej, bo każdy NIP ktoś zatwierdza.
+  Od 25.11.2026 NIP, którego dowodzi historia faktur w KSeF, NEXUS zapisuje sam
+  (decyzja Artura, `docs/claude/finanse-insights/nip-kontraktora-z-ksef-sam.md`).
 - E4.1 Pobieranie `Subject2` zapisuje też faktury od NIP-ów kontraktorów
   (NIP z kontraktu/generatora B2B) — nowa tabela albo rozszerzenie `payroll_invoices`
   o `contract_id` (decyzja przy E4 po przeczytaniu `hr/ksef/sync.py`).
