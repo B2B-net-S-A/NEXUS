@@ -109,6 +109,11 @@ Wszystkie trzy rozliczenia miały stan „ok” bez uwagi.
   - waluta obca, bo linia trzyma koszt w zł po kursie, a bez kursu stawek się
     nie porówna;
   - linia bez stawki kosztu.
+- Pomiar na klonie kopii produkcji (369 rozliczeń IX–X, `main` kontra gałąź,
+  w transakcji z ROLLBACK): zmieniły się dokładnie 3 rozliczenia, wyłącznie koszt
+  i linia „Dni zwykłe”. Stan i przychód zostały. Jedno ma teraz koszt równy fakturze
+  kontraktora (wcześniej był za niski). Dwa mają koszt niższy, bo linię ustawiono
+  na stawkę z późniejszego aneksu; ich faktur kontraktora nie ma w NEXUS-ie.
 - Test: `test_client_settlements_contract_cost.py` (bez bazy) i dwa przypadki
   w `test_client_settlements_rate_change_db.py`.
 
