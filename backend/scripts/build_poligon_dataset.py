@@ -62,6 +62,7 @@ try:
     from scripts.poligon_pre_contract_practice import pre_contract_practice
     from scripts.poligon_terms_practice import PERSON as TERMS_CARD, terms_practice
     from scripts.poligon_board_tasks_practice import board_tasks_practice
+    from scripts.poligon_payments_practice import payments_practice
 except (
     ModuleNotFoundError
 ):  # wywołanie z `backend/`: python3 scripts/build_poligon_dataset.py
@@ -71,6 +72,7 @@ except (
     from poligon_pre_contract_practice import pre_contract_practice
     from poligon_terms_practice import PERSON as TERMS_CARD, terms_practice
     from poligon_board_tasks_practice import board_tasks_practice
+    from poligon_payments_practice import payments_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -1411,6 +1413,9 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     # „Czeka na Ciebie” z osobami ćwiczebnymi (lekcja „Pracuj po kolei”, 25.11.2026).
     board, board_fiction = board_tasks_practice(dataset)
     dataset.update(board)
+    # Plan przelewów z fakturą kontraktora ćwiczebnego (lekcja „Zajęcia i spory”).
+    payments, payments_fiction = payments_practice()
+    dataset.update(payments)
     meta = {
         **meta,
         "people": people,
@@ -1423,7 +1428,7 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
         # Odpowiedzi w całości wymyślone w skrypcie: strażnik zestawu nie
         # wymaga dla nich kluczy ze słownika (`poligon-dataset.test.ts`).
         "fiction_responses": sorted(
-            {*practice, *cv_fiction, *pre_contract_fiction, *texts_fiction, *board_fiction}
+            {*practice, *cv_fiction, *pre_contract_fiction, *texts_fiction, *board_fiction, *payments_fiction}
         ),
     }
     return meta, dataset

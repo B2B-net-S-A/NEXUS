@@ -108,8 +108,9 @@ class Novelty(BaseModel):
     #: Ekran porannej porcji (18.11.2026): gdzie na rekrutacji ćwiczebnej
     #: Poligonu stoi element, gdy ``href`` prowadzi tylko na listę (np. karta
     #: na Tablicy: ``/jobs/990001``). Brak = przeklikanie zaczyna się na ``href``.
+    #: Wielkie litery tylko w query: parametry Rozliczeń są camelCase (``stSub``).
     practice_href: Optional[str] = Field(
-        default=None, pattern=r"^/[a-z0-9/_-]*(\?[a-z0-9_=&.-]+)?$", max_length=120
+        default=None, pattern=r"^/[a-z0-9/_-]*(\?[A-Za-z0-9_=&.-]+)?$", max_length=120
     )
     #: Kotwica ``data-tour``, przy której stoi kropka.
     dot_anchor: str = Field(pattern=_ANCHOR)
@@ -285,7 +286,7 @@ class Lesson(BaseModel):
     task: str = Field(min_length=10, max_length=240)
     #: Ekran Poligonu, na którym zaczyna się zadanie samodzielne.
     solo_href: str = Field(
-        pattern=r"^/[a-z0-9/_-]*(\?[a-z0-9_=&.-]+)?$", max_length=120
+        pattern=r"^/[a-z0-9/_-]*(\?[A-Za-z0-9_=&.-]+)?$", max_length=120
     )
     check: LessonCheck = Field(discriminator="kind")
     questions: list[LessonQuestion] = Field(min_length=2, max_length=4)

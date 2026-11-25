@@ -244,6 +244,18 @@ describe("poligon: „Czeka na Ciebie” na pulpicie", () => {
   });
 });
 
+describe("poligon: plan przelewów", () => {
+  // Lekcja „Zajęcia i spory” (25.11.2026): POST planu to odczyt, a Poligon
+  // odpowiadał na niego 409 i ekran Przelewów pokazywał błąd pobrania.
+  it("POST planu to odczyt z zestawu z fakturą przypiętą do kontraktu ćwiczebnego", () => {
+    const { store } = setup();
+    const res = store.handle({ method: "post", url: "/api/finance/payments/plan", body: { until: "2026-11-27" } });
+    expect(res).toMatchObject({ status: 200 });
+    const items = (res as { data: { items: Array<{ contract_id: number | null }> } }).data.items;
+    expect(items.some((i) => i.contract_id === 990521)).toBe(true);
+  });
+});
+
 describe("poligon: baza kandydatów", () => {
   it("lista bazy to osoby ćwiczebne, szukanie zawęża i zgłasza zdarzenie", () => {
     const { store, actions } = setup();

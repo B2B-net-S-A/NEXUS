@@ -4876,6 +4876,7 @@
     "audience": { "roles": ["finance", "admin"] },
     "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
     "href": "/finance",
+    "practice_href": "/finance?view=settlements&stSub=rules",
     "section": "finance",
     "dot_anchor": "clients.rules.client_invoice"
   },
@@ -5199,6 +5200,7 @@
     "audience": { "roles": ["finance", "admin"] },
     "where": "Finanse → Rozliczenia klientów → osoba → Dodatki do faktury",
     "href": "/finance",
+    "practice_href": "/finance?view=settlements",
     "section": "finance",
     "dot_anchor": "clients.settlement-extras.add"
   }

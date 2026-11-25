@@ -206,6 +206,7 @@
   "GET /api/reports/clients?min_closed=0&period=year",
   "GET /api/start-documents/clients/990501",
   "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
+  "POST /api/finance/payments/plan",
   "POST /api/pipeline/stages/990305/screening/reassign-suggestions"
  ],
  "ready_cv_candidate_id": 990106,

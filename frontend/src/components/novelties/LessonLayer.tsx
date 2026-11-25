@@ -64,7 +64,14 @@ export function LessonLayer() {
   const [outcome, setOutcome] = useState<Outcome>({ kind: "none" });
   const passing = useRef(false);
 
+  // Etap „sam” ocenia warunek „page” tylko w dokumencie, który wczytał się już
+  // w tym etapie: przejście z pokazu (`goToStage`) przeładowuje kartę na
+  // `solo_href`, a do tego czasu adres to ostatni ekran pokazu (25.11.2026:
+  // pokaz kończący się na ekranie z warunku zaliczał „sam” bez żadnego ruchu).
+  const soloAtLoad = useRef(false);
+
   useEffect(() => {
+    soloAtLoad.current = readRun()?.stage === "solo";
     setRun(readRun());
     const onRun = () => setRun(readRun());
     window.addEventListener(LESSON_RUN_EVENT, onRun);
@@ -153,10 +160,22 @@ export function LessonLayer() {
     });
   }, [solo, soloPassed, soloFailed]);
 
-  // Warunek „page”: osoba sama doszła do ekranu.
+  // Warunek „page”: osoba sama doszła do ekranu. Zakładki i filtry zmieniają
+  // samo query przez `history.replaceState`, bez zmiany ścieżki, więc adres
+  // sprawdzamy też co pół sekundy (25.11.2026: „Opieka i rozmowy”, „Zamówione
+  // po końcu” i „Nagrania” nie zaliczały się nigdy).
   useEffect(() => {
-    if (!solo || solo.lesson.check.kind !== "page") return;
-    if (judgePage(solo.lesson.check, pathname, window.location.search)) void soloPassed(solo);
+    if (!solo || solo.lesson.check.kind !== "page" || !soloAtLoad.current) return;
+    let id = 0;
+    const check = () => {
+      if (!judgePage(solo.lesson.check, window.location.pathname, window.location.search)) return;
+      // Raz: nieudany zapis pokazuje błąd, a nie wysyła zdarzenia co pół sekundy.
+      window.clearInterval(id);
+      void soloPassed(solo);
+    };
+    id = window.setInterval(check, 500);
+    check();
+    return () => window.clearInterval(id);
   }, [solo, pathname, soloPassed]);
 
   const options = useMemo(() => {

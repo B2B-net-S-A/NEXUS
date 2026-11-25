@@ -2715,7 +2715,7 @@
     "novelties": [
       "dodatki-do-rozliczenia-kontraktora"
     ],
-    "task": "W rozliczeniach klientów otwórz rozliczenie dowolnej osoby i zacznij dodawać dodatek za szkolenie. Na Poligonie nic się nie zapisze.",
+    "task": "W rozliczeniach klientów otwórz rozliczenie dowolnej osoby (kliknij jej nazwisko w tabeli; „Wszyscy” pokaże wszystkie osoby) i zacznij dodawać dodatek za szkolenie. Na Poligonie nic się nie zapisze.",
     "solo_href": "/finance?view=settlements",
     "check": {
       "kind": "click",

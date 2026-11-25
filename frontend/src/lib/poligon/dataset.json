@@ -207,6 +207,7 @@
    "GET /api/reports/clients?min_closed=0&period=year",
    "GET /api/start-documents/clients/990501",
    "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
+   "POST /api/finance/payments/plan",
    "POST /api/pipeline/stages/990305/screening/reassign-suggestions"
   ],
   "ready_cv_candidate_id": 990106,
@@ -22911,6 +22912,56 @@
    "finance": null,
    "rate_changes": [],
    "rate_changes_by_others": []
+  },
+  "POST /api/finance/payments/plan": {
+   "until": "@reld:7",
+   "items": [
+    {
+     "entry_id": 990611,
+     "invoice_number": "FV/ĆW/2026/10",
+     "ksef_number": null,
+     "seller_name": "Filip Bukowiec",
+     "seller_nip": null,
+     "category": "contractor",
+     "due_date": "@reld:2",
+     "currency": "PLN",
+     "gross_amount": "21697.20",
+     "vat_amount": "4057.20",
+     "to_pay": "21697.20",
+     "amount_note": null,
+     "account_note": null,
+     "mode": null,
+     "mode_label": null,
+     "mode_suggested": false,
+     "account": null,
+     "account_source": null,
+     "account_source_label": null,
+     "title": "FV/ĆW/2026/10",
+     "white_list": {
+      "state": "off",
+      "label": "Na Poligonie wykazu VAT nie sprawdzamy"
+     },
+     "selectable": false,
+     "block": "poligon",
+     "block_label": "Na Poligonie przelewów się nie wysyła.",
+     "acks": [],
+     "hints": [],
+     "batch_id": null,
+     "preselect": false,
+     "contract_id": 990521,
+     "period_month": "@relm:-1",
+     "settlement_id": 990612,
+     "hold": null,
+     "contractor_amount": null,
+     "garnishments": []
+    }
+   ],
+   "count": 1,
+   "selectable": 0,
+   "blocked": 1,
+   "totals": {
+    "PLN": "21697.20"
+   }
   }
  }
 }

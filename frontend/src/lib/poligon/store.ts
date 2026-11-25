@@ -699,6 +699,10 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     "/api/my-people/matches/seen",
     // Podgląd maila odrzucenia w przeglądzie Delivery Leada — nic nie wysyła.
     "/api/rejection-emails/preview",
+    // Plan przelewów (Finanse → Przelewy): POST, bo serwer sprawdza wykaz VAT.
+    // Na Poligonie faktura kontraktora ćwiczebnego, nie prawdziwe faktury
+    // (lekcja „Zajęcia i spory”, 25.11.2026: ekran pokazywał błąd pobrania).
+    "/api/finance/payments/plan",
   ]);
 
   const tools = createTools({
