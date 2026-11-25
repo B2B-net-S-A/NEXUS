@@ -173,8 +173,6 @@ export interface CustomDocumentBody {
 
 const BASE = "/api/b2b-generator/custom-templates";
 /** Klient `api` ma domyślnie JSON — formularz z plikiem musi to nadpisać. */
-const MULTIPART = { headers: { "Content-Type": "multipart/form-data" } };
-
 export const CUSTOM_TEMPLATES_KEY = "b2b-custom-templates" as const;
 
 export const customTemplatesKeys = {
@@ -207,7 +205,7 @@ export const customTemplatesApi = {
     if (body.instruction) form.append("instruction", body.instruction);
     if (body.file) form.append("file", body.file);
     return api
-      .post<CustomTemplateDetail>(BASE, form, MULTIPART)
+      .post<CustomTemplateDetail>(BASE, form, { headers: { "Content-Type": "multipart/form-data" } })
       .then((r) => r.data);
   },
   redraft: (id: number, instruction: string) =>
@@ -216,7 +214,9 @@ export const customTemplatesApi = {
     const form = new FormData();
     form.append("file", file);
     return api
-      .post<CustomTemplateDetail>(`${BASE}/${id}/upload`, form, MULTIPART)
+      .post<CustomTemplateDetail>(`${BASE}/${id}/upload`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
       .then((r) => r.data);
   },
   update: (id: number, body: CustomSettingsBody) =>

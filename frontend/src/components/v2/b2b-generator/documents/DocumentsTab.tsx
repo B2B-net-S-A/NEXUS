@@ -253,8 +253,10 @@ export function DocumentsTabContent({
       ) : null}
 
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-          <div>
+        {/* Zawijanie: na telefonie dwa przyciski schodzą pod opis (bez poziomego
+            przewijania strony przy 360 px). */}
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+          <div className="min-w-0 flex-1 basis-64">
             <CardTitle className="text-base">Dokumenty do umów</CardTitle>
             <CardDescription>
               Porozumienia i wypowiedzenia do umów z rejestru oraz umowy

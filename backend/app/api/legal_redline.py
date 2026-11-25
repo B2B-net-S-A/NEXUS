@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.core.config import settings
 from app.api.b2b_contract_generator import _load_generated_for_download
 from app.api.contracts import _assert_contract, _assert_contract_document_client_access
 from app.api.permission_access import AmountsViewUser
@@ -283,7 +284,15 @@ async def _load_source(
             status_code=422, detail="Dodaj plik DOCX albo wskaż dokument kontraktu."
         )
     name = _docx_name(file.filename)
-    data = await file.read()
+    # Odczyt z sufitem (wzorzec ``_read_upload_bounded``): za duży plik nie
+    # trafia w całości do pamięci procesu.
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Plik jest za duży (limit {settings.MAX_UPLOAD_SIZE_MB} MB).",
+        )
     return _Source(
         data, name, contract=contract, generated_id=generated_id, entities=entities
     )

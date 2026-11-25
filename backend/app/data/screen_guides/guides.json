@@ -672,17 +672,17 @@
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
-        "q": "Umowa ma czerwony znacznik „Kontrakt usunięty — brak kontraktora” — co zrobić?",
-        "a": "Jeśli kontrakt tej osoby istnieje, kliknij przy umowie „Powiąż z kontraktem” i wpisz jego numer (admin albo Delivery Lead). Umowa zostaje taka sama, trafia do zakładki Dokumenty kontraktu, a w historii umowy pojawia się wpis."
-      },
-      {
-        "q": "Partner się wycofał przed podpisem — co zrobić?",
-        "a": "Kliknij ołówek przy statusie umowy („Zmień status umowy”) i wybierz „Anulowana”. Wpis zostaje w „Umowach” w fazie „Bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
+        "q": "Umowa ma znacznik „Kontrakt usunięty” albo Partner się wycofał — co zrobić?",
+        "a": "Kontrakt usunięty: przy umowie „Powiąż z kontraktem” i numer kontraktu tej osoby (admin albo Delivery Lead) — umowa trafi do Dokumentów kontraktu. Wycofanie przed podpisem: ołówek przy statusie → „Anulowana”; wpis zostaje w „Bieżących”, numer nie wraca do puli, powrót na „W trakcie” jednym kliknięciem."
       },
       {
         "q": "Jak przygotować aneks?",
         "a": "W „Nowym aneksie” wybierz typ, wpisz nazwisko osoby i wskaż jej umowę. Kontrakt bez umowy w rejestrze widzi osoba prowadząca kontrakty; pozostali zapisują aneks „Bez kontraktu”. Pobierz DOCX — aneks trafia do rejestru pod kreatorem. Po podpisie kliknij tam „Oznacz jako podpisany” i dołącz skan — dopiero wtedy zmienia się kontrakt.",
         "anchor": "contracts.b2b_generator.tabs"
+      },
+      {
+        "q": "Jak poprawić umowę w Wordzie albo dodać nowy wzór umowy?",
+        "a": "Przy umowie w „Umowach” ikona „Popraw dokument”: asystent proponuje zmiany z podstawą prawną, każdą przyjmujesz albo odrzucasz, wynik to DOCX ze śledzeniem zmian. Nowy wzór (np. umowa o poprowadzeniu szkolenia): „Dokumenty” → „Nowy wzór z asystentem”; po zatwierdzeniu przez administratora jest w „Nowy dokument” → „Wzory własne”."
       }
     ],
     "pitfalls": [

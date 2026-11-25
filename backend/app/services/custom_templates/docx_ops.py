@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 from docx.document import Document as _Doc
 from docx.oxml.ns import qn
+
+from app.core.docx_cells import row_texts
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
@@ -178,7 +180,7 @@ def doc_to_html(doc: _Doc) -> str:
         if isinstance(block, Table):
             rows = "".join(
                 "<tr>"
-                + "".join(f"<td>{_esc(c.text.strip())}</td>" for c in row.cells)
+                + "".join(f"<td>{_esc(t.strip())}</td>" for t in row_texts(row))
                 + "</tr>"
                 for row in block.rows
             )
