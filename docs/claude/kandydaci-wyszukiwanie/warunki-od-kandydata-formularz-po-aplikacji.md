@@ -55,6 +55,14 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   grafitowy przycisk, jasna stopka, ciemny tryb. Wygasły link mówi tylko, że
   zgłoszenie z CV nadal jest u nas: bez obietnicy nowego linku (wysyłka najwyżej
   raz na 30 dni i tylko przy brakach) i bez przycisku do ofert.
+- **Kolory wariantu 5 „Czerwień w gradientach tech” (decyzja Artura 25.11.2026,
+  jak strona główna i strona kariery #4009):** mail, `/warunki/<token>` i mail
+  potwierdzenia biorą czerwień `#C42329`, tekst czerwony `#B0222A`,
+  burgund-obsydian `#1F1115` zamiast grafitu (przycisk, tekst), tło `#F4EAE8`,
+  linie `#E6D6D3`. W mailu bez gradientów (Outlook ich nie rysuje). Ciemny tryb:
+  tło `#1F1115`, karta `#2E1A1F`, czerwień `#D43424` (`#C42329` miałaby tam
+  2,82:1), linki i drobny czerwony tekst morelowe `#FFD6C9`. Limonki nie ma.
+  Każda para tekst/tło ma co najmniej WCAG AA; nowy kolor = policz kontrast.
 - **Bez zgody na inne rekrutacje** (decyzja Artura 19.11.2026: „i tak będziemy
   dzwonić z czymś innym, ale nie pisz tego i nie zbieraj zgody”). Formularz nie ma
   pola zgody i nie wysyła `future_consent`; backend dalej przyjmuje to pole jako
