@@ -454,7 +454,7 @@ def test_migration_reads_the_same_ddl() -> None:
     module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     assert module.revision == "0781_legal_case_law"
-    assert module.down_revision == "0778_b2b_document_preliminary_jdg"
+    assert module.down_revision == "0780_custom_document_templates"
     assert module.schema.ALL_DDL is schema.ALL_DDL
 
 
