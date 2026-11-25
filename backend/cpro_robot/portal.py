@@ -269,7 +269,15 @@ class ItemRun:
         page.locator("#profileSearch").fill(
             f"{self.candidate['first_name']} {self.candidate['last_name']}"
         )
-        page.locator("#searchButton").click()
+        # Wyszukiwarka to AJAX (loadDiv → ProfileController…dosearchwithjq);
+        # czekamy na jej odpowiedź, a nie tylko na ciszę sieci.
+        try:
+            with page.expect_response(
+                lambda r: "dosearchwithjq" in r.url, timeout=STEP_TIMEOUT_MS
+            ):
+                page.locator("#searchButton").click()
+        except Exception:
+            pass
         page.wait_for_load_state("networkidle")
         found = page.evaluate(
             """() => ({
@@ -294,19 +302,48 @@ class ItemRun:
             if not created:
                 self.upload_cv()
             return
+        orphan = any(
+            rules.norm(f"{first} {last}") in rules.norm(t) for t in found["orphans"]
+        )
         if created:
             raise _fail(
                 "other",
-                "Konsultant zapisany w Cpro, ale jego profilu nie widać na requeście.",
+                "Po zapisie konsultanta nie widać jego profilu na requeście "
+                f"(profile w wynikach: {len(found['profiles'])}, "
+                f"bez profilu: {'tak' if orphan else 'nie'}, "
+                f"na liście Consultants: {self.consultants_named()}).",
             )
-        if any(
-            rules.norm(f"{first} {last}") in rules.norm(t) for t in found["orphans"]
-        ):
+        if orphan:
             raise _fail(
                 "other", "Konsultant jest w Cpro bez profilu; dodaj profil ręcznie."
             )
+        # Bez profilu na requeście nie zakładamy konsultanta, który już jest
+        # w Cpro (np. zapisany przez poprzedni bieg) — duplikat widzi Nordea.
+        existing = self.consultants_named()
+        if existing:
+            raise _fail(
+                "other",
+                f"W Cpro jest już konsultant o tym imieniu i nazwisku ({existing}), "
+                "ale bez profilu na tym requeście; robot nie zakłada drugiego.",
+            )
+        self.open_request()  # okno „Add Consultant” otwiera się ze strony requestu
         self.add_consultant()
         self.open_offer_from_profile(created=True)
+
+    def consultants_named(self) -> int:
+        """Ilu konsultantów o tym imieniu i nazwisku ma lista Consultants vendora."""
+
+        page = self.page
+        last = self.candidate["last_name"]
+        page.goto(
+            urljoin(self.base, f"vendor/ConsultantController?search={quote(last)}")
+        )
+        page.wait_for_load_state("domcontentloaded")
+        rows = page.evaluate(
+            "() => [...document.querySelectorAll('table tbody tr')].map(tr => tr.innerText)"
+        )
+        who = rules.norm(f"{self.candidate['first_name']} {last}")
+        return sum(1 for text in rows if who in rules.norm(text))
 
     def add_consultant(self) -> None:
         self.step = "add_consultant"
