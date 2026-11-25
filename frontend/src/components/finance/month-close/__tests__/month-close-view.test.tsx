@@ -29,6 +29,7 @@ vi.mock("../IssuesByLevel", async (importOriginal) => ({
   IssuesByLevel: (p: { reasons: { key: string }[] }) => <div data-testid="issues">{p.reasons.map((r) => r.key).join(",")}</div>,
 }));
 vi.mock("../ClosingPanel", () => ({ ClosingPanel: (p: { month: string }) => <div data-testid="closing" data-month={p.month} /> }));
+vi.mock("../MonthCheckPanel", () => ({ MonthCheckPanel: (p: { month: string }) => <div data-testid="month-check" data-month={p.month} /> }));
 
 const STAGES: MonthCloseStages = {
   people: 6,
@@ -91,6 +92,7 @@ function setup(res: Responses = {}) {
     if (url.endsWith("/overview")) return pick(res.overview ?? overview());
     if (url.endsWith("/team")) return pick(res.team ?? { month: "2026-12", people: [] });
     if (url.endsWith("/reminders")) return pick(res.reminders ?? { clients: [] });
+    if (url.endsWith("/month-check")) return pick({ month: "2026-12", summary: { open: 4 }, cases: [] });
     return Promise.reject(new Error(`nieoczekiwany adres ${url}`));
   });
   render(
@@ -124,6 +126,16 @@ describe("MonthCloseView", () => {
     expect(select.options[1].textContent).toBe("grudzień 2026");
     await screen.findByTestId("stage-table");
     expect(monthParams()).toContain("2026-12");
+  });
+
+  it("zakładka „Rozbieżności” z adresu i liczba otwartych spraw", async () => {
+    window.history.replaceState(null, "", "/finance?view=month-close&mcTab=diff");
+    setup();
+    const panel = await screen.findByTestId("month-check");
+    expect(panel.dataset.month).toBe("2026-12");
+    const tab = await screen.findByRole("button", { name: /Rozbieżności/ });
+    await waitFor(() => expect(tab.textContent).toContain("4"));
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("ładowanie przed odpowiedzią przeglądu", () => {

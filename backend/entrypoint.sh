@@ -5300,7 +5300,8 @@ _COLUMN_STATEMENTS = [
             'contract_ending', 'cost_budget_low', 'new_contractor_draft',
             'md_base_usage_high', 'candidate_conflict_expired',
             'invoice_without_order_line', 'framework_over_limit',
-            'settlement_over_order', 'settlement_rate_mismatch')),
+            'settlement_over_order', 'settlement_rate_mismatch',
+            'month_check_data')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -9992,7 +9993,8 @@ _CONSTRAINT_STATEMENTS = [
                 'contract_ending', 'cost_budget_low', 'new_contractor_draft',
                 'md_base_usage_high', 'candidate_conflict_expired',
                 'invoice_without_order_line', 'framework_over_limit',
-                'settlement_over_order', 'settlement_rate_mismatch'
+                'settlement_over_order', 'settlement_rate_mismatch',
+                'month_check_data'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i

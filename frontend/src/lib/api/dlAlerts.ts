@@ -35,7 +35,9 @@ export type DlAlertType =
   // Rozliczenie klienta ponad pulę albo na zamówieniu zakończonym (0775).
   | "settlement_over_order"
   // Stawka linii zamówienia inna niż kontrakt albo ostatnia faktura (0775).
-  | "settlement_rate_mismatch";
+  | "settlement_rate_mismatch"
+  // Kontrola miesiąca (0784): faktura osoby bez kontraktu albo zamówienia.
+  | "month_check_data";
 
 /** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */
 export type DlAlertSection = "ending" | "new_contractor" | "order_mail" | "decision";

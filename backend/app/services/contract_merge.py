@@ -205,6 +205,9 @@ _KNOWN_CONTRACT_FKS = {
     # a pętla `contract_rate_history` przelicza zachowany. Wpisane kroki
     # harmonogramu idą za kontraktem jak każde `contract_*_rates`.
     ("contract_rate_history_findings", "contract_id"),
+    # Sprawy kontroli miesiąca (0784): kontrakt to tylko odnośnik do rozliczenia,
+    # klucz sprawy to osoba i miesiąc — idą za kontraktem zachowanym.
+    ("month_check_cases", "contract_id"),
     # Dane firmy z umowy (0755) idą za kontraktem razem z plikiem; decyzja
     # i potwierdzone dane należą do tej samej współpracy.
     ("contract_partner_reads", "contract_id"),

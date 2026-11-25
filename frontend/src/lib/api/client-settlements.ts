@@ -1467,3 +1467,100 @@ export async function fetchContractKcp(
     })
   ).data;
 }
+
+// ── Kontrola miesiąca: rozbieżności faktur klient ↔ konsultant (0784) ──────
+
+export type MonthCheckKind = "hours_mismatch" | "cost_without_sale" | "sale_without_cost" | "over_working_days";
+export type MonthCheckState = "new" | "to_correct" | "explained" | "closed";
+export type MonthCheckAction = "explained" | "to_correct" | "new";
+
+export interface MonthCheckInvoice {
+  number: string;
+  issue_date?: string;
+  net?: string | null;
+  correction?: boolean;
+}
+
+export interface MonthCheckCase {
+  id: number;
+  kind: MonthCheckKind;
+  kind_label: string;
+  month: string;
+  candidate_id: number;
+  person: string;
+  contract_id: number | null;
+  client_id: number | null;
+  client: string;
+  /** `null` bez dostępu do kwot albo gdy kwoty nie da się policzyć (brak stawki). */
+  amount: string | null;
+  currency: string;
+  data_issue: "no_contract" | "no_order" | null;
+  data_issue_label: string | null;
+  details: {
+    client_hours?: string | null;
+    client_net?: string | null;
+    sales_invoices?: string[];
+    contractor_net?: string | null;
+    contractor_invoices?: MonthCheckInvoice[];
+    contractor_hours?: string | null;
+    expected_cost?: string | null;
+    cost_rate?: string | null;
+    working_days?: number;
+    limit_hours?: string;
+    excess_hours?: string;
+  };
+  state: MonthCheckState;
+  reason: string | null;
+  decided_at: string | null;
+  first_seen_at: string | null;
+  closed_at: string | null;
+}
+
+export interface MonthCheckSummary {
+  person_months: number | null;
+  matched: number | null;
+  skipped: Record<string, number>;
+  overtime_confirmed: number | null;
+  cases: number;
+  cases_amount: string | null;
+  open: number;
+  open_amount: string | null;
+  by_state: Record<MonthCheckState, number>;
+  by_kind: Record<MonthCheckKind, number>;
+}
+
+export interface MonthCheckView {
+  month: string;
+  /** Chwila przebiegu, który policzył ten miesiąc; `null` — jeszcze nie sprawdzony. */
+  checked_at: string | null;
+  /** Do tego dnia (15. następnego miesiąca) brak faktury po jednej stronie to jeszcze nie sprawa. */
+  waits_until: string | null;
+  summary: MonthCheckSummary;
+  cases: MonthCheckCase[];
+  amounts: boolean;
+}
+
+export const monthCheckKey = (month: string) => ["client-settlements", "month-check", month] as const;
+
+export function useMonthCheck(month: string) {
+  return useQuery({
+    queryKey: monthCheckKey(month),
+    queryFn: async () => (await api.get<MonthCheckView>(`${BASE}/month-check`, { params: { month } })).data,
+  });
+}
+
+export function useMonthCheckDecision(month: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: number; action: MonthCheckAction; reason?: string }) =>
+      (
+        await api.post<MonthCheckCase>(`${BASE}/month-check/${input.id}/decision`, {
+          action: input.action,
+          reason: input.reason ?? null,
+        })
+      ).data,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: monthCheckKey(month) });
+    },
+  });
+}
