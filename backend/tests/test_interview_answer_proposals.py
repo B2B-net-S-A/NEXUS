@@ -186,7 +186,7 @@ def _row(source, answer=None, stored=None):
             _row(InterviewQuestionSource.client_debrief, "Od DL", "manual"),
             ("Od DL", "manual"),
         ),
-        # Zapisane przed 0779 (źródło NULL) — jak backfill.
+        # Zapisane przed 0778 (źródło NULL) — jak backfill.
         (_row(InterviewQuestionSource.legacy_import, "Stare"), ("Stare", "excel")),
         (_row(InterviewQuestionSource.client_debrief, "Stare"), ("Stare", "manual")),
         # Nagłówek działu po nocnym biegu.
@@ -248,12 +248,12 @@ def _squash(text: str) -> str:
 
 
 def test_migration_is_mirrored_in_entrypoint() -> None:
-    path = BACKEND / "alembic" / "versions" / "0779_interview_answer_proposal.py"
+    path = BACKEND / "alembic" / "versions" / "0778_interview_answer_proposal.py"
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    assert module.down_revision == "0778_client_cv_file_format"
+    assert module.down_revision == "0777_claim_handover"
     migration = _squash(path.read_text())
     entry = _squash((BACKEND / "entrypoint.sh").read_text())
     for ddl in (

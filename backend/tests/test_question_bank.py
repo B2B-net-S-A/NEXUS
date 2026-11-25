@@ -105,7 +105,7 @@ async def test_manual_bank_question_is_not_listed(app_client: AsyncClient):
     assert manual not in ids
 
 
-# ── Odpowiedź pod pytaniem (0779, F55, decyzja Artura 25.11.2026) ───────────
+# ── Odpowiedź pod pytaniem (0778, F55, decyzja Artura 25.11.2026) ───────────
 
 
 async def _set_answer(question_id: int, answer: str | None, source: str | None) -> None:
@@ -120,7 +120,7 @@ async def test_answer_and_its_source_are_in_the_bank(app_client: AsyncClient):
     _, headers = await _admin()
     w = await _world()
     excel = await _bank_question(w["client"], "Czym jest MQ?")
-    legacy = await _bank_question(w["client"], "Odpowiedź sprzed 0779")
+    legacy = await _bank_question(w["client"], "Odpowiedź sprzed 0778")
     ai = await _bank_question(w["client"], "Playwright")
     heading = await _bank_question(w["client"], "Bazy danych i optymalizacja")
     pending = await _bank_question(w["client"], "Czy zna RLS")

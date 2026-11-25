@@ -439,7 +439,7 @@ class QuestionBankItemOut(BaseModel):
     managers: list[str] = []
     asked_count: int = 0
     last_asked_at: Optional[datetime] = None
-    # 0779 (decyzja Artura 25.11.2026): proponowana odpowiedź pod pytaniem.
+    # 0778 (decyzja Artura 25.11.2026): proponowana odpowiedź pod pytaniem.
     # ``excel`` — archiwum, ``manual`` — człowiek, ``ai`` — nocny bieg F55
     # (do sprawdzenia), ``none`` — nocny bieg uznał wiersz za nagłówek działu
     # (``answer`` = None); None — jeszcze nie przeliczone.
