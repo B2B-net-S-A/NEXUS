@@ -212,3 +212,35 @@ def test_jednostka_tabeli_raz_dla_calej_tabeli():
     # Przy MD rozliczenia decyduje suma wiersza osoby.
     assert service._row_unit(split, split.rows[0], D("2"), D("8")) == order_split.HOURS
     assert service._row_unit(split, split.rows[0], D("16"), D("8")) == order_split.MD
+
+
+def test_podzial_z_pul_ma_wlasny_tytul_i_bez_uwagi():
+    old = _order(21, "ZAM-STARE", available="10")
+    new = _order(22, "ZAM-NOWE", available="40", revenue="900")
+    r = compute(
+        _inputs(
+            "15", (SplitPart(old, D("10")), SplitPart(new, D("5"))), split_auto=True
+        )
+    )
+
+    assert r.status == "ok"
+    assert "Podział na kolejne zamówienia kontraktu" in _titles(r)
+    assert "Podział według maila klienta" not in _titles(r)
+    assert [o["md"] for o in r.orders] == ["10.000", "5.000"]
+
+
+def test_podzial_z_pul_przy_pracy_dodatkowej_wraca_po_cichu_na_jedno_zamowienie():
+    old = _order(21, "ZAM-STARE", available="10")
+    new = _order(22, "ZAM-NOWE", available="40")
+    r = compute(
+        _inputs(
+            "15",
+            (SplitPart(old, D("10")), SplitPart(new, D("5"))),
+            split_auto=True,
+            md_extra=D("1"),
+            order=new,
+        )
+    )
+
+    assert not r.orders
+    assert "Podział z maila klienta nie wszedł" not in _titles(r)
