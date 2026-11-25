@@ -174,7 +174,7 @@ export function UnknownBuyersPanel() {
                 </TableCell>
                 <TableCell className="text-right">
                   {buyer.assignable ? (
-                    <div className="flex flex-nowrap justify-end gap-1">
+                    <div className="flex flex-wrap justify-end gap-1">
                       {buyer.suggestion?.state === "add" ? (
                         <Button
                           size="sm"
@@ -192,7 +192,7 @@ export function UnknownBuyersPanel() {
                           title={`Dopisz jako dodatkowy numer klienta ${buyer.suggestion.client_name}`}
                           onClick={() => void confirmExtra(buyer)}
                         >
-                          Dopisz jako dodatkowy
+                          Jako dodatkowy
                         </Button>
                       ) : null}
                       <Button

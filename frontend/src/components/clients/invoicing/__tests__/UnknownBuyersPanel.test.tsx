@@ -118,7 +118,7 @@ describe("UnknownBuyersPanel", () => {
     const user = userEvent.setup();
     post.mockResolvedValue({ data: { buyer_number: { retried: 2, matched: 1, extra: true } } });
     renderPanel();
-    await user.click(within(await row("NO123456789")).getByRole("button", { name: "Dopisz jako dodatkowy" }));
+    await user.click(within(await row("NO123456789")).getByRole("button", { name: "Jako dodatkowy" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("Klient ma już inny numer");
     await user.click(within(dialog).getByRole("button", { name: "Dopisz jako dodatkowy" }));
