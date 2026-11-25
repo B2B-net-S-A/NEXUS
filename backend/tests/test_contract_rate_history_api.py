@@ -1,4 +1,4 @@
-"""Historia stawek z faktur KSeF (0781): przebieg, wpis automatyczny, karta, cofnięcie.
+"""Historia stawek z faktur KSeF (0782): przebieg, wpis automatyczny, karta, cofnięcie.
 
 Faktury sprzedaży i faktury konsultanta wstawiane wprost. Baza wspólna
 i nieczyszczona: przebieg zawężony do własnego kontraktu, asercje wyłącznie

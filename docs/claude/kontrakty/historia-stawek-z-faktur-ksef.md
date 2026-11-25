@@ -1,4 +1,4 @@
-# Historia stawek kontraktu z faktur KSeF (0781, 25.11.2026)
+# Historia stawek kontraktu z faktur KSeF (0782, 25.11.2026)
 <!-- indeks: stawka klienta z ceny pozycji faktury sprzedaży, stawka kosztowa = netto faktury konsultanta ÷ godziny klienta, okres stałej stawki ≥ 2 miesiące ±1%, krok bazowy od startu, wpis automatyczny tylko historii, karta „Faktury KSeF pokazują inną stawkę”, pigułka „Stawka z faktur”, `contract_rate_history_findings`, `CONTRACT_RATE_HISTORY_AUTO_APPLY` -->
 
 Audyt finansów 25.11.2026: kontrakty często trzymają tylko bieżącą stawkę

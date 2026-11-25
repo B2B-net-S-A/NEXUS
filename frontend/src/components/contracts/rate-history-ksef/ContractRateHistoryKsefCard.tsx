@@ -1,6 +1,6 @@
 "use client";
 
-// Historia stawek z faktur KSeF (0781, decyzje Artura 25.11.2026).
+// Historia stawek z faktur KSeF (0782, decyzje Artura 25.11.2026).
 // Nad zakładkami kontraktu: karta „Faktury pokazują inną stawkę” do decyzji
 // albo pasek „NEXUS uzupełnił historię stawek… · Cofnij” po wpisie automatycznym.
 

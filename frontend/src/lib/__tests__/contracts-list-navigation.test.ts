@@ -313,7 +313,7 @@ describe("„Stawka z dokumentu” w adresie listy (0739)", () => {
   });
 });
 
-describe("„Stawka z faktur” w adresie listy (0781)", () => {
+describe("„Stawka z faktur” w adresie listy (0782)", () => {
   it("odczytuje i zapisuje rate_hist=1 bez domyślnych statusów", () => {
     const parsed = parseContractsListState("?rate_hist=1");
     expect(parsed.explicit).toBe(true);

@@ -1,5 +1,5 @@
 /**
- * Historia stawek z faktur KSeF (0781): karta do decyzji, pasek po wpisie
+ * Historia stawek z faktur KSeF (0782): karta do decyzji, pasek po wpisie
  * automatycznym, kwoty pod bramką i awaria, która nie wygląda jak pusto.
  * Kwoty i numery faktur zmyślone.
  */

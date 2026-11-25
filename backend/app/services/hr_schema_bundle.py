@@ -212,7 +212,7 @@ MODULES = (
     contractor_payment_blocks,
     # 0774: informacja zwrotna o wadach rozliczenia — wada × kontrakt × miesiąc (24.11.2026).
     settlement_feedback,
-    # 0781: historia stawek kontraktu z faktur KSeF (25.11.2026).
+    # 0782: historia stawek kontraktu z faktur KSeF (25.11.2026).
     contract_rate_history,
 )
 

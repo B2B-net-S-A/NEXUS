@@ -1,4 +1,4 @@
-"""Kroki stawek kontraktu z faktur KSeF, których nie ma w harmonogramie (0781).
+"""Kroki stawek kontraktu z faktur KSeF, których nie ma w harmonogramie (0782).
 
 Wiersz = kontrakt. ``steps`` to propozycja reguły
 (``services/contract_rate_history/infer.py``), ``status`` — co z nią zrobił

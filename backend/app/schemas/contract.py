@@ -519,7 +519,7 @@ class ContractResponse(BaseModel):
     # {"from", "rate", "kind", "category"} pierwszego kroku otwartej różnicy.
     # Tylko w wierszach listy; redagowane razem z kwotami.
     rate_document_change: Optional[dict] = None
-    # Stawka z faktur KSeF, której nie ma w harmonogramie (0781):
+    # Stawka z faktur KSeF, której nie ma w harmonogramie (0782):
     # {"from", "leg", "rate", "category", "count"} pierwszego kroku podpowiedzi.
     # Tylko w wierszach listy; redagowane razem z kwotami.
     rate_history_change: Optional[dict] = None

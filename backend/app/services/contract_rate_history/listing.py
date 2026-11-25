@@ -1,4 +1,4 @@
-"""Stawka z faktur KSeF na liście kontraktów (0781): filtr i pole wiersza."""
+"""Stawka z faktur KSeF na liście kontraktów (0782): filtr i pole wiersza."""
 
 from __future__ import annotations
 

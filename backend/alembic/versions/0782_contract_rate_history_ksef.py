@@ -1,7 +1,7 @@
 """Historia stawek kontraktu z faktur KSeF (decyzje Artura 25.11.2026).
 
-Revision ID: 0781_contract_rate_history_ksef
-Revises: 0780_client_cv_file_format
+Revision ID: 0782_contract_rate_history_ksef
+Revises: 0781_client_buyer_numbers
 
 Tabela ``contract_rate_history_findings`` — kroki stawki klienta i kosztowej
 wyprowadzone z faktur sprzedaży i faktur konsultantów w KSeF, których nie ma
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services.contract_rate_history import schema_sql as schema
 
-revision = "0781_contract_rate_history_ksef"
-down_revision = "0780_client_cv_file_format"
+revision = "0782_contract_rate_history_ksef"
+down_revision = "0781_client_buyer_numbers"
 branch_labels = None
 depends_on = None
 

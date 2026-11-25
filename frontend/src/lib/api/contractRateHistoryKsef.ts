@@ -1,4 +1,4 @@
-// Historia stawek kontraktu z faktur KSeF (0781).
+// Historia stawek kontraktu z faktur KSeF (0782).
 //
 // Backend: `services/contract_rate_history`. Reguła porównuje cenę z faktur
 // sprzedaży i netto faktur konsultanta ÷ godziny z harmonogramem kontraktu.

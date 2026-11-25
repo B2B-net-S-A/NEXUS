@@ -1679,7 +1679,7 @@ def _apply_contract_list_filters(
     if bucket == "rate_document":
         query = query.where(Contract.id.in_(open_rate_document_contracts()))
     if bucket == "rate_history":
-        # „Stawka z faktur” (0781): faktury KSeF pokazują inną stawkę niż
+        # „Stawka z faktur” (0782): faktury KSeF pokazują inną stawkę niż
         # harmonogram, podpowiedź czeka na decyzję człowieka.
         query = query.where(Contract.id.in_(open_rate_history_contracts()))
     if bucket == "order_after_end":
@@ -2372,7 +2372,7 @@ async def list_contracts(
             "(`contract_service.ending_bucket_clause`). `rate_document` = umowa "
             "albo aneks w Dokumentach podaje stawkę, której nie ma w harmonogramie "
             "(0739). `rate_history` = faktury KSeF pokazują stawkę, której nie ma "
-            "w harmonogramie (0781). `order_after_end` = kończący się albo zakończony kontrakt "
+            "w harmonogramie (0782). `order_after_end` = kończący się albo zakończony kontrakt "
             "z zamówieniem po końcu projektu (19.11.2026). Łączy się ze `status` (AND)."
         ),
     ),
@@ -6413,7 +6413,7 @@ async def get_contract_rate_history_ksef(
     current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Stawka z faktur KSeF, której nie ma w harmonogramie kontraktu (0781).
+    """Stawka z faktur KSeF, której nie ma w harmonogramie kontraktu (0782).
 
     Podpowiedź do decyzji albo wpis automatyczny w oknie „Cofnij”. Kwoty
     i skutek tylko pod bramką kwot kontraktu — bez niej karta mówi, od kiedy
@@ -6487,7 +6487,7 @@ async def apply_contract_rate_history_ksef(
     current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """„Wprowadź do harmonogramu” — kroki z faktur KSeF bez aneksu (0781)."""
+    """„Wprowadź do harmonogramu” — kroki z faktur KSeF bez aneksu (0782)."""
     return await _rate_history_decision(contract_id, current_user, db, "apply")
 
 

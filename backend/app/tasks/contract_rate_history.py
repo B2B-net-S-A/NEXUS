@@ -1,4 +1,4 @@
-"""Pętla historii stawek z faktur KSeF (0781, worker).
+"""Pętla historii stawek z faktur KSeF (0782, worker).
 
 Co ``_TICK_SECONDS``: reguła ``contract_rate_history.infer`` dla wszystkich
 kontraktów z fakturami (sprzedaż i faktury konsultantów z KSeF), podpowiedzi

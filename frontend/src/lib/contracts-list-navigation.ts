@@ -41,7 +41,7 @@ export interface ContractsListState {
    */
   rateDocument?: boolean;
   /**
-   * „Stawka z faktur” (`?rate_hist=1`, 0781): faktury KSeF pokazują stawkę,
+   * „Stawka z faktur” (`?rate_hist=1`, 0782): faktury KSeF pokazują stawkę,
    * której nie ma w harmonogramie. Filtruje serwer (`bucket=rate_history`).
    */
   rateHistory?: boolean;

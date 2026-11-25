@@ -1682,7 +1682,7 @@ export default function ContractDetailPage() {
       {!editing && (
         <ContractRateDocumentsCard contractId={id} canDismiss={canEditContract} />
       )}
-      {/* Stawka z faktur KSeF (0781): podpowiedź historii stawek albo pasek
+      {/* Stawka z faktur KSeF (0782): podpowiedź historii stawek albo pasek
           „Cofnij” po wpisie automatycznym — znika, gdy nie ma czego pokazać. */}
       {!editing && (
         <ContractRateHistoryKsefCard contractId={id} canDismiss={canEditContract} />

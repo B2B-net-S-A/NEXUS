@@ -1212,7 +1212,7 @@ async def lifespan(app: FastAPI):
             "contract_rate_documents": asyncio.create_task(
                 contract_rate_documents_loop()
             ),
-            # 0781: historia stawek kontraktu z faktur KSeF — podpowiedzi na
+            # 0782: historia stawek kontraktu z faktur KSeF — podpowiedzi na
             # karcie, wpis automatyczny historii za flagą.
             "contract_rate_history": asyncio.create_task(contract_rate_history_loop()),
             # 0755: dane firmy Partnera z podpisanej umowy do potwierdzenia

@@ -183,7 +183,7 @@ interface ContractRow {
  missing_fields?: string[];
  // Stawka z dokumentu, której nie ma w harmonogramie (0739, redagowana z kwotami).
  rate_document_change?: RateDocumentChange | null;
- // Stawka z faktur KSeF, której nie ma w harmonogramie (0781, redagowana z kwotami).
+ // Stawka z faktur KSeF, której nie ma w harmonogramie (0782, redagowana z kwotami).
  rate_history_change?: RateHistoryChange | null;
  // „Klient zamówił okres po zakończeniu” (19.11.2026): pierwsze takie zamówienie.
  order_after_end?: OrderAfterEndSummary | null;
@@ -870,7 +870,7 @@ export function ContractsListV2({
  );
  // „Zamówione po końcu” (19.11.2026): kończący się albo zakończony kontrakt
  // z zamówieniem po końcu projektu — zbiór liczy serwer (`bucket=order_after_end`).
- // „Stawka z faktur” (0781): faktury KSeF pokazują stawkę, której nie ma
+ // „Stawka z faktur” (0782): faktury KSeF pokazują stawkę, której nie ma
  // w harmonogramie — zbiór liczy serwer (`bucket=rate_history`).
  const [rateHistory, setRateHistory] = useState(
  initialListState.state.rateHistory ?? false,

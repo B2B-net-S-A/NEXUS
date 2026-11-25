@@ -200,7 +200,7 @@ _KNOWN_CONTRACT_FKS = {
     # Unikat (plik, wersja czytnika) nie zależy od kontraktu, a różnicę
     # z harmonogramem zachowanego przelicza pętla `contract_rate_documents`.
     ("contract_document_rate_reads", "contract_id"),
-    # Podpowiedź historii stawek z faktur KSeF (0781): dane wyliczane, jeden
+    # Podpowiedź historii stawek z faktur KSeF (0782): dane wyliczane, jeden
     # wiersz na kontrakt — wiersze przegranych kasuje ``_resolve_child_duplicates``,
     # a pętla `contract_rate_history` przelicza zachowany. Wpisane kroki
     # harmonogramu idą za kontraktem jak każde `contract_*_rates`.

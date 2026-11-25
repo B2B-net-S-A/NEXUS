@@ -1,4 +1,4 @@
-"""Historia stawek z faktur KSeF: podpowiedzi, wpis, odrzucenie i cofnięcie (0781).
+"""Historia stawek z faktur KSeF: podpowiedzi, wpis, odrzucenie i cofnięcie (0782).
 
 * ``run`` — przebieg pętli: reguła dla wszystkich kontraktów z fakturami,
   podpowiedzi w ``contract_rate_history_findings`` (``refresh``), potem wpis

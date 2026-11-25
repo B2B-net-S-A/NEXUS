@@ -1,6 +1,6 @@
-"""Historia stawek z faktur KSeF (0781): SQL migracji i lustra entrypointu.
+"""Historia stawek z faktur KSeF (0782): SQL migracji i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0781_contract_rate_history_ksef.py``
+Jedno źródło instrukcji dla ``alembic/versions/0782_contract_rate_history_ksef.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja idempotentna.
 
