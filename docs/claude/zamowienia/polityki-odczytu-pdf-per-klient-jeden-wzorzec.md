@@ -6,7 +6,7 @@ fail-closed:
 
 | Klient | Env | Reguła |
 |---|---|---|
-| Nordea | `NORDEA_ORDER_NUMBER_CLIENT_IDS` | numer tylko z „Call Off Agreement number”; zawsze netto/h bez ÷1,23; Quantity/MD ignorowane; summary pomijane przed modelem i planem |
+| Nordea | `NORDEA_ORDER_NUMBER_CLIENT_IDS` | numer tylko z „Call Off Agreement number”; zawsze netto/h bez ÷1,23; Quantity/MD ignorowane; summary pomijane przed modelem i planem; kwota z przecinkiem albo kropką dziesiętną; nazwisko złamane na łączniku sklejane z linią pod wierszem |
 | Bank Pocztowy | `BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS` | numer pisma; netto MD ÷ 8 (w górę) |
 | Credit Agricole | `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` | stawka tylko z „Wynagrodzenie za 1MD (8h)”, MD tylko z „Szacowana ilość MD” |
 | BNP | `BNP_ORDER_EXTRACTION_CLIENT_IDS` | dokument JEDNOOSOBOWY; „Cena netto” → stawka za 1 MD, „Szt.” → liczba MD, „MM-RRRR do MM-RRRR” → pierwszy/ostatni dzień miesiąca |
@@ -163,3 +163,25 @@ fail-closed:
   z wiersza wyżej sklejała się z „Szt.” z wiersza niżej i do liczby MD
   trafiała STAWKA) oraz brak spacji w klasie cyfr (separator tysięcy sklejał
   numer porządkowy z ilością: „1 105 szt.” → 1105 zamiast 105).
+- **Nordea: kwota bywa z KROPKĄ, a nazwisko łamie się na łączniku** (25.11.2026).
+  COA 3.17 z DocuSign ma stawki „175.00 PLN   300 000.00 PLN” i „175,00 PLN”
+  w tym samym szablonie; wyrażenie wiersza znało tylko przecinek, więc 11 z 19
+  wstrzymanych zamówień miało zero osób („no_people”, „row_evidence_missing”),
+  a model widział w surowym fragmencie same „PLN” (liczby przed stawką są
+  maskowane „…”). To NIE pola formularza DocuSign — warstwa tekstu ma kwotę.
+  Separator dziesiętny to `,` albo `.`, tysiące wyłącznie spacją. Komórka osoby
+  zawija się do linii pod wierszem („Jan Testowy-” ⏎ „Nowakowski Warsaw”):
+  nazwa zakończona łącznikiem bierze pierwsze słowo następnej linii, chyba że
+  ta linia jest wierszem tabeli albo sumą — wtedy wiersz idzie do sprawdzenia
+  („nazwisko urywa się na łączniku”), nigdy nie skleja dwóch osób.
+- **Odczyt modelu ze STAREGO rzutu dostaje ponowny odczyt AI**
+  (`model_projection_version` w rejestrze, znacznik `document_meta["model_projection"]`).
+  Zapisany odczyt modelu jest dowodem tylko dla tekstu, który model widział.
+  Po zmianie rzutu Nordei wpisy w kolejce miały osoby bez stawek — bez
+  ponowienia bramka wiecznie mówiłaby „odczyt modelu nie potwierdził stawki”.
+  Znacznik stawia wyłącznie odczyt modelu (nowy mail, udane ponowienie);
+  „Przelicz plan” go przenosi (`_AI_RETRY_META_KEYS`), ale nie odświeża.
+  Ponowienie idzie ścieżką odczytu awaryjnego (`retry_ai_fallback_documents`,
+  najwyżej 3 próby, potem powód „Ponowny odczyt AI nie powiódł się”).
+  Wersję rzutu podbijaj TYLKO, gdy zmienia się to, co widzi model — każda
+  zmiana to jeden odczyt AI na każdy wstrzymany wpis klienta.
