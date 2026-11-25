@@ -583,6 +583,52 @@ async def test_correction_of_accepted_invoice(client, seed):
         assert stored.match_method == "correction"
 
 
+async def test_parallel_corrections_make_one_draft(client, seed, monkeypatch):
+    # Dwa równoległe „Wystaw korektę” do tej samej faktury (audyt r5, 25.11.2026):
+    # oba czytały „korekta w toku” bez blokady, zanim drugie wstawiło szkic,
+    # i powstawały dwa szkice KOR. Bariera na wczytaniu ustawień (zaraz po tym
+    # sprawdzeniu) trzyma pierwsze żądanie, aż drugie dojdzie do swojego (bez
+    # blokady) albo minie sekunda (z blokadą drugie czeka na fakturę).
+    await _settings(client, seed)
+    original_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    await _send(client, seed, original_id)
+
+    original_load = issue_settings.load
+    arrived: list[int] = []
+    both = asyncio.Event()
+
+    async def held(db, **kwargs):
+        found = await original_load(db, **kwargs)
+        arrived.append(1)
+        if len(arrived) == 2:
+            both.set()
+        try:
+            await asyncio.wait_for(both.wait(), timeout=1)
+        except asyncio.TimeoutError:
+            pass
+        return found
+
+    monkeypatch.setattr(issue_settings, "load", held)
+
+    async def correct():
+        return await client.post(
+            f"{BASE}/{original_id}/correction",
+            json={"reason": "Zużycie MD po weryfikacji klienta"},
+            headers=_h(seed),
+        )
+
+    responses = await asyncio.gather(correct(), correct())
+    codes = sorted(r.status_code for r in responses)
+    assert codes == [201, 409], [r.text for r in responses]
+    refused = next(r for r in responses if r.status_code == 409)
+    assert "korektę w toku" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        corrections = await db.scalar(
+            select(func.count()).where(ClientIssuedInvoice.corrects_id == original_id)
+        )
+    assert corrections == 1
+
+
 async def test_advance_invoice_minimal(client, seed):
     await _settings(client, seed)
     created = await client.post(

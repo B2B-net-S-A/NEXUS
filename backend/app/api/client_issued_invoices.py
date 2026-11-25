@@ -745,7 +745,10 @@ async def correction(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
-    original = await _invoice(db, invoice_id)
+    # Blokada faktury pierwotnej do commita (audyt r5, 25.11.2026): sprawdzenie
+    # „korekta w toku” w `create_correction` czyta bez blokady, więc dwa
+    # równoległe „Wystaw korektę” zakładały dwa szkice KOR do jednej faktury.
+    original = await _invoice(db, invoice_id, lock=True)
     with _http_errors():
         invoice = await issue.create_correction(
             db,

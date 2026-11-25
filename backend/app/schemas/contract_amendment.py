@@ -1,8 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.contract_amendment import ContractAmendmentType
 
@@ -17,10 +17,13 @@ class ContractAmendmentCreate(BaseModel):
     # will be applied to the contract. Everything else is captured in
     # old_values / new_values for audit.
     new_end_date: Optional[date] = None
-    new_rate_candidate: Optional[Decimal] = None
-    new_rate_client: Optional[Decimal] = None
-    new_rate_unit: Optional[str] = None
-    new_billing_hours_per_month: Optional[int] = None
+    # Audyt r5 (25.11.2026): kwota 0 albo ujemna, zero godzin i nieznana
+    # jednostka szły prosto do harmonogramu stawek, marży i dzwonka Finansów.
+    # Jednostki = wartości `RateUnit` (dzienną odrzuca handler, z komunikatem).
+    new_rate_candidate: Optional[Decimal] = Field(default=None, gt=0)
+    new_rate_client: Optional[Decimal] = Field(default=None, gt=0)
+    new_rate_unit: Optional[Literal["hourly", "daily", "monthly"]] = None
+    new_billing_hours_per_month: Optional[int] = Field(default=None, ge=1)
     new_project_name: Optional[str] = None
     new_team_name: Optional[str] = None
 

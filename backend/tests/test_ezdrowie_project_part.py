@@ -89,6 +89,21 @@ async def _seed_structure(client_id: int, parts: tuple[str, ...]) -> dict[str, i
         return ids
 
 
+async def _new_candidate() -> int:
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name=f"New {suffix}", lastname=f"Tester{suffix}")
+        db.add(cand)
+        await db.commit()
+        return cand.id
+
+
+async def _drop_candidates(*cand_ids: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(Candidate.__table__.delete().where(Candidate.id.in_(cand_ids)))
+        await db.commit()
+
+
 async def _cleanup(client_id: int, cand_id: int) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -214,8 +229,12 @@ async def test_flow_b_requires_executive_contract_and_forbids_for_others(
     app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
 ):
     """Flow B (atomic Contract+Order) idzie przez tę samą walidację co Flow A."""
-    ez_client, ez_cand, _ = await _seed()
-    other_client, other_cand, _ = await _seed()
+    ez_client, ez_seeded, _ = await _seed()
+    other_client, other_seeded, _ = await _seed()
+    # Osoba z `_seed` ma już żywy kontrakt u klienta, a Flow B odmawia wtedy
+    # 409 (blokada duplikatu, audyt r5) — „nowy kontraktor” to druga osoba.
+    ez_cand = await _new_candidate()
+    other_cand = await _new_candidate()
     monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", ez_client)
     executives = await _seed_structure(ez_client, ("cz5",))
     try:
@@ -282,8 +301,9 @@ async def test_flow_b_requires_executive_contract_and_forbids_for_others(
         assert resp.status_code == 422
         assert "wyłącznie Centrum e-Zdrowia" in resp.text
     finally:
-        await _cleanup(ez_client, ez_cand)
-        await _cleanup(other_client, other_cand)
+        await _cleanup(ez_client, ez_seeded)
+        await _cleanup(other_client, other_seeded)
+        await _drop_candidates(ez_cand, other_cand)
 
 
 async def test_patch_part_validation(

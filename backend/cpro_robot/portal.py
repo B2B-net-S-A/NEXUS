@@ -256,7 +256,13 @@ class ItemRun:
             )
 
     # --- profil i nowa oferta -----------------------------------------------
-    def open_offer_from_profile(self) -> None:
+    def open_offer_from_profile(self, *, created: bool = False) -> None:
+        """Oferta z profilu na requeście; bez profilu — nowy konsultant i drugi raz.
+
+        ``created``: konsultant właśnie zapisany razem z CV, więc bez drugiego
+        uploadu i bez kolejnego zakładania, gdy profilu nadal nie widać.
+        """
+
         self.step = "profile"
         page = self.page
         self.open_request()
@@ -285,8 +291,14 @@ class ItemRun:
                 raise _fail("other", "Profil bez przycisku „Offer…”.")
             page.goto(mine[0]["offer"])
             self._wait_offer_form()
-            self.upload_cv()
+            if not created:
+                self.upload_cv()
             return
+        if created:
+            raise _fail(
+                "other",
+                "Konsultant zapisany w Cpro, ale jego profilu nie widać na requeście.",
+            )
         if any(
             rules.norm(f"{first} {last}") in rules.norm(t) for t in found["orphans"]
         ):
@@ -294,6 +306,7 @@ class ItemRun:
                 "other", "Konsultant jest w Cpro bez profilu; dodaj profil ręcznie."
             )
         self.add_consultant()
+        self.open_offer_from_profile(created=True)
 
     def add_consultant(self) -> None:
         self.step = "add_consultant"
@@ -323,14 +336,33 @@ class ItemRun:
         _put(
             form, "profile_description", self.candidate.get("profile_description") or ""
         )
-        self.verify_account()
-        self.step = "add_consultant:offer"
-        _js_click(
-            form.locator("button[value='Offer...'], input[value='Offer...']"),
-            "Offer...",
+        # Formularz konsultanta ma własny Save (#saveButton); „Offer…” w tym
+        # oknie należy do innego formularza (bieg 11). Najpierw walidacja HTML
+        # — przeglądarka po cichu nie wysłałaby niepełnego formularza.
+        invalid = form.evaluate(
+            "f => [...f.elements].filter(e => e.willValidate && !e.checkValidity()).map(e => e.name)"
         )
-        self.saved = True  # profil konsultanta już istnieje w Cpro
-        self._wait_offer_form()
+        if invalid:
+            raise _fail(
+                "other",
+                "Formularz konsultanta niekompletny: "
+                + ", ".join(sorted(set(invalid)))[:200],
+            )
+        self.verify_account()
+        self.step = "add_consultant:save"
+        _js_click(form.locator("#saveButton"), "Save")
+        self.saved = True  # od tej chwili konsultant może już istnieć w Cpro
+        page.wait_for_load_state("networkidle")
+        rejected = page.evaluate(
+            """() => [...document.querySelectorAll('#newConsultantForm .is-invalid')].map(e => e.name)"""
+        )
+        if rejected:
+            self.saved = False
+            raise _fail(
+                "other",
+                "Cpro odrzucił formularz konsultanta: "
+                + ", ".join(sorted(set(rejected)))[:200],
+            )
 
     # --- formularz oferty ---------------------------------------------------
     def _wait_offer_form(self) -> None:

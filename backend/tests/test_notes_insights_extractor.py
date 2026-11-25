@@ -302,7 +302,7 @@ def test_prompt_mentions_onsite_days_and_version_bumped():
 
     assert "max_onsite_days_per_week" in PROMPT
     assert '"work_modes"' in PROMPT
-    assert PROMPT_VERSION == "v6-note-kinds"
+    assert PROMPT_VERSION == "v7-no-send-notes"
 
 
 def test_work_modes_fill_empty_preferences_from_hybrid_with_days():

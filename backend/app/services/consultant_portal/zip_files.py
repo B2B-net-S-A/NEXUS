@@ -12,7 +12,8 @@ go odrzucał i 6 osobo-miesięcy stało bez MD.
   (decyzja Artura z 23.11.2026). Hasła nie ma w kodzie ani w logach. Plik
   szyfrowany AES (WinZip) zostaje w archiwum: biblioteka standardowa go nie otwiera.
 * ZIP, z którego nic nie wyszło (złe hasło, uszkodzony), zostaje na liście jak
-  dotąd; czytnik pominie go jako plik spoza listy typów.
+  dotąd; czytnik pominie go jako plik spoza listy typów. Plik z uszkodzonym albo
+  źle odszyfrowanym strumieniem (``zlib.error`` przy deflate) pomijamy, nie rzucamy.
 """
 
 from __future__ import annotations
@@ -20,8 +21,10 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import lzma
 import posixpath
 import zipfile
+import zlib
 from typing import Any, Optional
 
 from app.core.config import settings
@@ -36,6 +39,9 @@ MAX_ENTRIES = 50
 _OFFICE_MARKERS = ("[Content_Types].xml",)
 _UTF8_FLAG = 0x800
 _AES = 99
+#: Uszkodzony albo źle odszyfrowany strumień pliku. ``zlib.error`` i ``LZMAError`` nie
+#: są ``OSError``; wypuszczone z ``expand`` zatrzymywały czytnik poczty na jednym mailu.
+_BROKEN_STREAM = (zipfile.BadZipFile, zlib.error, lzma.LZMAError, OSError, EOFError)
 
 
 def configured_passwords() -> tuple[bytes, ...]:
@@ -71,12 +77,14 @@ def _read(
                 data = handle.read(MAX_ENTRY_BYTES + 1)
         except RuntimeError:  # złe hasło
             continue
-        except zipfile.BadZipFile:
-            # Bajt kontrolny ZipCrypto przepuszcza co 256. złe hasło; CRC je łapie.
+        except _BROKEN_STREAM:
+            # Bajt kontrolny ZipCrypto przepuszcza co 256. złe hasło: odszyfrowany
+            # strumień to wtedy śmieci (CRC, deflate, bzip2, lzma) i próbujemy dalej.
+            # Bez hasła to uszkodzony plik.
             if encrypted:
                 continue
             return None
-        except (NotImplementedError, OSError, EOFError):
+        except NotImplementedError:  # metoda kompresji spoza biblioteki standardowej
             return None
         return data if len(data) <= MAX_ENTRY_BYTES else None
     return None

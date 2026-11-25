@@ -1,8 +1,8 @@
 """ZIP z hasłem (tradycyjne szyfrowanie PKWARE, „ZipCrypto”) do testów.
 
 ``zipfile`` takie pliki czyta, ale nie zapisuje. Raport Credit Agricole przychodzi
-w takim ZIP-ie, więc testy budują go same: metoda „stored”, nagłówek 12 bajtów
-z ostatnim bajtem równym górnemu bajtowi CRC (tak sprawdza go ``zipfile``).
+w takim ZIP-ie, więc testy budują go same: metoda „stored” albo „deflate”, nagłówek
+12 bajtów z ostatnim bajtem równym górnemu bajtowi CRC (tak sprawdza go ``zipfile``).
 """
 
 from __future__ import annotations
@@ -51,8 +51,12 @@ class _Keys:
         return bytes(out)
 
 
-def encrypted_zip(files: dict[str, bytes], password: bytes) -> bytes:
+def encrypted_zip(
+    files: dict[str, bytes], password: bytes, *, deflate: bool = False
+) -> bytes:
     """Archiwum, w którym każdy plik jest zaszyfrowany ``password``."""
+
+    method = 8 if deflate else 0
 
     local = bytearray()
     central = bytearray()
@@ -61,14 +65,18 @@ def encrypted_zip(files: dict[str, bytes], password: bytes) -> bytes:
         crc = zlib.crc32(data) & 0xFFFFFFFF
         keys = _Keys(password)
         header = os.urandom(11) + bytes([crc >> 24])
-        body = keys.encrypt(header) + keys.encrypt(data)
+        payload = data
+        if deflate:
+            packer = zlib.compressobj(9, zlib.DEFLATED, -15)
+            payload = packer.compress(data) + packer.flush()
+        body = keys.encrypt(header) + keys.encrypt(payload)
         offset = len(local)
         local += struct.pack(
             "<IHHHHHIIIHH",
             0x04034B50,
             20,
             1,
-            0,
+            method,
             0,
             0x21,
             crc,
@@ -84,7 +92,7 @@ def encrypted_zip(files: dict[str, bytes], password: bytes) -> bytes:
             20,
             20,
             1,
-            0,
+            method,
             0,
             0x21,
             crc,

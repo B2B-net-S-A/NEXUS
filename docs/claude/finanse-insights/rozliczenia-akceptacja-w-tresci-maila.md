@@ -52,6 +52,12 @@ nie zmienia.
   i `all` powstaje karta do ręcznego przypisania, a w pilotażu mail jest pomijany. Sprawa
   powstaje w każdym z tych przypadków.
 
+Odpowiedź na paczkę KCP (`mailbox._store_client_reply`, domena z `cl.client_acceptance`)
+kończy czytanie maila tylko wtedy, gdy mail zapisano jako akceptację klienta. Każdy inny
+mail z tej domeny idzie dalej zwykłą ścieżką: konsultant ze skrzynką u klienta wysyła KCP
+w załączniku, a odmowa klienta („W KCP jest błąd”) staje się dokumentem albo kartą.
+Do 24.11.2026 oba przepadały bez śladu (audyt czytnika skrzynki).
+
 Skutek uboczny: pytanie od pracownika takiego klienta na rozliczenia@ bez załącznika daje
 sprawę i dodatkowo kartę w rozliczeniach. W archiwum IX–X był jeden taki mail (BNP, odpowiedź
 o numer faktury).

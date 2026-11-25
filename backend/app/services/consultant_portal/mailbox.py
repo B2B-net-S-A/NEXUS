@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import logging
 import re
@@ -41,9 +42,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Protocol
 from urllib.parse import quote
 
+import httpx
 from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -1384,8 +1387,12 @@ async def _store_client_reply(
 ) -> Optional[int]:
     """Odpowiedź klienta na paczkę KCP (E6.5, Bank Pocztowy): nadawca z domeny
     adresu z reguły ``cl.client_acceptance``. Zapisujemy cały mail bez kontraktu
-    tylko wtedy, gdy akceptuje; zapis sam zaznacza akceptację osób. ``None`` —
-    to nie mail od takiego klienta (zwykła ścieżka)."""
+    tylko wtedy, gdy akceptuje; zapis sam zaznacza akceptację osób. Liczba (także 0
+    przy duplikacie) — mail zapisany jako akceptacja, koniec czytania. ``None`` —
+    zwykła ścieżka: nadawca spoza takiej domeny albo mail z niej, który nie jest
+    akceptacją. Z domeny banku piszą też konsultanci ze skrzynką u klienta (KCP
+    w załączniku), a odmowa klienta ma trafić do ludzi; ``0`` kończył oba maile
+    bez śladu (audyt 24.11.2026)."""
 
     from app.services.client_settlements import client_acceptance
 
@@ -1396,12 +1403,12 @@ async def _store_client_reply(
         return None
     fetch = getattr(mailbox, "mime", None)
     if fetch is None:
-        return 0
+        return None
     try:
         content = await fetch(str(message["id"]))
         reply = client_acceptance.read_reply(content or b"", "message/rfc822")
         if not content or reply is None or not reply.accepted:
-            return 0
+            return None
         stored = await documents.store(
             db,
             contract_id=None,
@@ -1420,7 +1427,7 @@ async def _store_client_reply(
         logger.info(
             "rozliczenia@: odpowiedź klienta pominięta (%s)", type(exc).__name__
         )
-        return 0
+        return None
     return 0 if stored.duplicate else 1
 
 
@@ -1946,10 +1953,18 @@ async def run_once(
             f"http_{exc.status}" if isinstance(exc, GraphRequestError) else "no_token"
         )
         logger.warning("consultant_portal_mailbox: list failed %s", code)
-        await _write_state(db, now=moment, status="error", error=code)
+        # Licznik i porzucone zostają obok kodu błędu: inaczej po awarii Graph
+        # porzucony mail wracałby w ``OVERLAP`` i dostawał drugą kartę.
+        kept = _failing_state(*_failing_message(current))
+        error = f"{code};{kept}" if kept else code
+        await _write_state(db, now=moment, status="error", error=error)
         return {"status": "error", "reason": code}
-    created = skipped = failed = 0
+    created = skipped = failed = abandoned = 0
     newest = seen
+    failing_key, failing_count, abandoned_keys = _failing_message(current)
+    # Porzucone, które już wyszły z zakładki ``OVERLAP``, nie wrócą: nie trzymamy ich.
+    listed = {_message_key(m) for m in messages}
+    abandoned_keys = [k for k in abandoned_keys if k in listed]
     acceptance = await support_mail_route.acceptance_clients(db)
     declaring = await support_mail_route.declaration_clients(db)
     for message in messages:
@@ -1973,6 +1988,16 @@ async def run_once(
             if received and (newest is None or received > newest):
                 newest = received
             continue
+        key = _message_key(message)
+        if key in abandoned_keys:
+            # Porzucona w poprzednim biegu (alarm i karta poszły), a wraca w zakładce
+            # ``OVERLAP``: nie czytamy jej znowu, bo zablokowałaby nowsze maile.
+            # Lista porzuconych jest osobno od licznika, bo inny padający mail
+            # nadpisywał licznik i porzucony wracał w kółko (przegląd PR #3953).
+            received = _parse_time(message.get("receivedDateTime"))
+            if received and (newest is None or received > newest):
+                newest = received
+            continue
         try:
             async with db.begin_nested():
                 made, ignored = await _ingest_message(
@@ -1987,30 +2012,152 @@ async def run_once(
                 )
             created += made
             skipped += ignored
+            if key == failing_key:
+                failing_key, failing_count = None, 0
         except Exception as exc:  # noqa: BLE001 — jedna wiadomość nie zatrzymuje reszty
-            failed += 1
-            logger.warning(
-                "consultant_portal_mailbox: message failed (%s)", type(exc).__name__
+            if not _transient(exc):
+                failing_count = (failing_count if key == failing_key else 0) + 1
+                failing_key = key
+            attempts = failing_count if key == failing_key else 0
+            if attempts < MAX_MESSAGE_ATTEMPTS:
+                failed += 1
+                logger.warning(
+                    "consultant_portal_mailbox: message failed (%s), attempt %d/%d",
+                    type(exc).__name__,
+                    attempts,
+                    MAX_MESSAGE_ATTEMPTS,
+                )
+                # Znacznik nie idzie poza pierwszą porażkę: spróbujemy jej ponownie.
+                break
+            # Ten sam mail pada bieg po biegu: znacznik idzie dalej, żeby jeden mail
+            # nie zatrzymał czytnika na zawsze. Alarm (Sentry z logu ERROR) i karta
+            # z całym mailem do ręcznego przypisania, żeby nie przepadł bez śladu.
+            abandoned += 1
+            logger.error(
+                "consultant_portal_mailbox: message abandoned after %d attempts (%s)",
+                attempts,
+                type(exc).__name__,
             )
-            # Znacznik nie idzie poza pierwszą porażkę: spróbujemy jej ponownie.
-            break
+            created += await _store_abandoned(
+                db, reader, message, state=state, now=moment
+            )
+            abandoned_keys = (abandoned_keys + [key])[-MAX_ABANDONED_KEYS:]
+            failing_key, failing_count = None, 0
         received = _parse_time(message.get("receivedDateTime"))
         if received and (newest is None or received > newest):
             newest = received
+    run_status = "partial" if failed or abandoned else "ok"
     await _write_state(
         db,
         now=moment,
-        status="partial" if failed else "ok",
-        error=None,
+        status=run_status,
+        error=_failing_state(failing_key, failing_count, abandoned_keys),
         seen=newest,
     )
     return {
-        "status": "partial" if failed else "ok",
+        "status": run_status,
         "messages": len(messages),
         "created": created,
         "skipped": skipped,
         "failed": failed,
+        "abandoned": abandoned,
     }
+
+
+#: Tyle biegów z rzędu (co 15 min) ten sam mail może zatrzymywać znacznik. Awaria
+#: Graph albo bazy (``_transient``) się nie liczy: po niej mail czyta się normalnie.
+MAX_MESSAGE_ATTEMPTS = 5
+#: Licznik porażek trzymamy w ``last_error`` (bez migracji): skrót id maila i liczba.
+_FAILING_PREFIX = "message_failed:"
+#: Obok, po ``;``, skróty porzuconych maili, które jeszcze wracają w ``OVERLAP``.
+_ABANDONED_PREFIX = "message_abandoned:"
+#: Tyle porzuconych naraz mieści ``last_error`` (``String(200)``) obok licznika.
+MAX_ABANDONED_KEYS = 8
+
+
+def _message_key(message: dict[str, Any]) -> str:
+    """Skrót id maila z Graph: krótki i bez treści maila w stanie czytnika."""
+
+    return hashlib.sha256(str(message.get("id") or "").encode()).hexdigest()[:16]
+
+
+def _failing_message(
+    state: Optional[CpMailboxState],
+) -> tuple[Optional[str], int, list[str]]:
+    """Mail, który teraz pada (skrót i liczba biegów), i lista porzuconych."""
+
+    error = state.last_error if state else None
+    key: Optional[str] = None
+    count = 0
+    abandoned: list[str] = []
+    for part in (error or "").split(";"):
+        if part.startswith(_FAILING_PREFIX):
+            raw_key, _, raw_count = part[len(_FAILING_PREFIX) :].partition(":")
+            key = raw_key or None
+            count = int(raw_count) if raw_count.isdigit() else 0
+        elif part.startswith(_ABANDONED_PREFIX):
+            abandoned = [k for k in part[len(_ABANDONED_PREFIX) :].split(",") if k]
+    return key, count, abandoned
+
+
+def _failing_state(
+    key: Optional[str], count: int, abandoned: list[str]
+) -> Optional[str]:
+    parts = []
+    if key:
+        parts.append(f"{_FAILING_PREFIX}{key}:{count}")
+    if abandoned:
+        parts.append(_ABANDONED_PREFIX + ",".join(abandoned[-MAX_ABANDONED_KEYS:]))
+    return ";".join(parts) or None
+
+
+def _transient(exc: Exception) -> bool:
+    """Awaria po stronie Graph albo połączenia z bazą, nie wina samego maila."""
+
+    if isinstance(exc, GraphRequestError):
+        return exc.status == 429 or exc.status >= 500
+    return isinstance(
+        exc,
+        (
+            AppOnlyTokenUnavailable,
+            OperationalError,
+            InterfaceError,
+            TimeoutError,
+            httpx.TransportError,
+        ),
+    )
+
+
+async def _store_abandoned(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    state: portal_settings.PortalSettings,
+    now: datetime,
+) -> int:
+    """Porzucony mail jako ``.eml`` bez kontraktu: karta do ręcznego przypisania.
+    W pilotażu kart bez osoby nie robimy (jak przy nieznanym nadawcy), zostaje alarm."""
+
+    if not state.any_sender:
+        return 0
+    try:
+        async with db.begin_nested():
+            return await _store_eml(
+                db,
+                mailbox,
+                message,
+                None,
+                subject=str(message.get("subject") or ""),
+                received=_parse_time(message.get("receivedDateTime")) or now,
+                now=now,
+            )
+    except Exception as exc:  # noqa: BLE001 — karta nie może znowu zatrzymać czytnika
+        logger.warning(
+            "consultant_portal_mailbox: card for abandoned message failed (%s)",
+            type(exc).__name__,
+        )
+        return 0
 
 
 async def status(db: AsyncSession) -> dict[str, Any]:
@@ -2019,5 +2166,16 @@ async def status(db: AsyncSession) -> dict[str, Any]:
         "configured": mailbox_upn() is not None,
         "last_run_at": row.last_run_at.isoformat() if row and row.last_run_at else None,
         "last_status": row.last_status if row else None,
-        "last_error": row.last_error if row else None,
+        "last_error": _public_error(row.last_error) if row else None,
     }
+
+
+def _public_error(error: Optional[str]) -> Optional[str]:
+    """Kod błędu dla ekranu bez wewnętrznego licznika porażek i porzuconych maili."""
+
+    parts = [
+        part
+        for part in (error or "").split(";")
+        if part and not part.startswith((_FAILING_PREFIX, _ABANDONED_PREFIX))
+    ]
+    return ";".join(parts) or None

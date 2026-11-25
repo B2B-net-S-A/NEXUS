@@ -34,7 +34,6 @@ import {
   Combine,
   Copy,
   FileText,
-  Linkedin,
   Mail,
   MessageSquare,
   MoreHorizontal,
@@ -48,6 +47,7 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
+import { Linkedin } from "@/components/icons/Linkedin";
 
 import { useToast } from "@/components/Toast";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";

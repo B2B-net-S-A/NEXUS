@@ -41,7 +41,7 @@ from app.models.contract import Contract
 from app.models.interview_feedback import InterviewFeedback
 from app.models.job import Job
 from app.models.note import Note
-from app.services import note_kinds
+from app.services import note_kinds, recruitment_rate_hints
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
@@ -64,7 +64,12 @@ MAX_TOKENS = 1200
 
 # Changing this value invalidates every previously generated row even when the
 # prompt happens to retain the same version.
-CONTENT_POLICY_VERSION = "candidate-summary-no-finance-v3"
+# v4 (24.11.2026, audyt r3): wsad bez notatki Delivery Leada z wysyłki
+# („Wysłany 150/100-110”). GET oddaje wiersz także przy innym
+# ``source_version`` (``is_stale`` to tylko plakietka), a DLP kwot nie łapie
+# „X/Y-Z”, więc wiersze sprzed poprawki przestają pasować dopiero tutaj.
+# Koszt: zero wywołań AI — nowe podsumowanie powstaje na kliknięcie „Aktualizuj”.
+CONTENT_POLICY_VERSION = "candidate-summary-no-finance-v4"
 VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v3"
 
 # Input caps so a hyperactive candidate cannot create an unbounded prompt.
@@ -871,6 +876,12 @@ async def _notes_section(
     )
     query_truncated = max(0, len(rows) - _MAX_NOTES)
     rows = rows[:_MAX_NOTES]
+    # Decyzja C (14.10.2026): notatka Delivery Leada z wysyłki („Wysłany
+    # 150/100-110”) to cena dla klienta, a DLP kwot nie łapie „X/Y-Z”.
+    # Polityka podsumowania to „bez finansów” dla każdej roli (cache jest per
+    # osoba, ale żadna nie dostaje w nim kwot), więc wypada dla wszystkich.
+    send_ids = await recruitment_rate_hints.send_note_ids(db, [n.id for n in rows])
+    rows = [note for note in rows if note.id not in send_ids]
     stats = _RedactionStats()
     lines: list[str] = []
     for note in rows:

@@ -82,6 +82,7 @@ from app.services.client_settlements import (
     timesheet_pko,
     timesheet_plus,
     travel_acceptance,
+    vendor_file,
 )
 from app.services.client_settlements import auto_accept
 from app.services.client_settlements import settings as module_settings
@@ -1226,6 +1227,9 @@ async def _acceptance(
         group.fail("proof.accept_has_hours", verdict.title, verdict.detail)
         if group.checks:
             group.checks[-1]["todo"] = "Popraw akceptację"
+            if verdict.acceptors:
+                # Do kogo przypomnieć o odpowiedzi (informacja zwrotna o wadach).
+                group.checks[-1]["acceptors"] = list(verdict.acceptors)
     group.close()
     return result
 
@@ -1660,6 +1664,17 @@ async def _read_file(
         md = result.md_regular
         return await accepted(
             result, md * timesheet.per_md(rules) if md else None, month if md else None
+        )
+    # Zestawienie dostawcy BNP Paribas CIB („Vendor's file”) z „Act MD” osoby.
+    vendor = await asyncio.to_thread(vendor_file.parse, content, mime)
+    found_vendor = (
+        vendor_file.declared_for(vendor, person_name, timesheet.per_md(rules))
+        if vendor
+        else None
+    )
+    if found_vendor is not None:
+        return await accepted(
+            declared_result(found_vendor), found_vendor.hours, found_vendor.month
         )
     # Time Sheet w godzinach (E6.2): XLSX, polski wariant albo PDF.
     sheet = await asyncio.to_thread(timesheet.parse, content, mime)

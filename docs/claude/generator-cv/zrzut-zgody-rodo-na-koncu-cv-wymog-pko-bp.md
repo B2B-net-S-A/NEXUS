@@ -104,3 +104,10 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   `consent_screenshot_token` i dołącza zgodę (`attach_to_stage_copy`) w tej samej
   transakcji co kopię. Zły zrzut = 422 i brak kopii, nie CV ze starą zgodą.
   Okno „Użyj innego CV” i kopia bez tokenu działają jak dotąd.
+- **PDF „Nowe CV” nie pomija zrzutu po cichu (audyt 24.11.2026).** Upload przyjmuje
+  PNG, JPEG i WEBP, a `cv_new_pdf` rozpoznawało tylko PNG i JPEG: zrzut WEBP
+  wypadał z PDF, choć bramka pobrania (`cv_consent_gate`) widziała zapisane bajty
+  i przepuszczała plik. Teraz `_consent_image` przepisuje WEBP (i każdy inny
+  format, który czyta PIL) na PNG, a bajty nieczytelne dają `NewCvPdfError`
+  z komunikatem o zrzucie (503) zamiast PDF bez zgody. Fail-soft z punktu wyżej
+  dotyczy generacji, nie pliku, który idzie do klienta.

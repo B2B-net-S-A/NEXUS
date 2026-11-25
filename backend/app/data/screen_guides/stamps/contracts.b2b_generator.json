@@ -3,7 +3,7 @@
   "guide": "contracts.b2b_generator",
   "sources": {
     "frontend/src/components/v2/b2b-generator/MandateAgreementForm.tsx": "6e3694cd9fc84543afae9822b28dfdf49d8c86b310b25dd023060ad5f7a718e7",
-    "frontend/src/components/v2/b2b-generator/wizard/AgreementWizard.tsx": "27834e94182844fd2b83d165afacfe8ba019ba6e96f1efa94d2b42292a6dad3f",
-    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "4fa0161542fb770039b80d452024ff0867e41c45c6e9d68b7243febd37cba2eb"
+    "frontend/src/components/v2/b2b-generator/wizard/AgreementWizard.tsx": "52e82dc1e8cdade1a5d337b01c35648a8ad8ce2507fd16fce968a7d17520dde6",
+    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "8c0ed6d34dfddafa6d5c74a7c02ae98e8f41f8a510eba77a86bb96d05627542c"
   }
 }

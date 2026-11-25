@@ -444,6 +444,9 @@ class Verdict:
     detail: Optional[str] = None
     #: Klient potwierdził liczbę równą dowodowi, nie samo „Akceptuję”.
     counted: bool = False
+    #: Adresy akceptujących u klienta z prośby bez odpowiedzi („Do:”, „DW:”),
+    #: dla informacji zwrotnej (``client_settlements/feedback``).
+    acceptors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -521,6 +524,31 @@ def addresses(mails: list[Mail]) -> set[str]:
         for sender, _text in _messages(mail)
         if (match := _ADDRESS.search(sender or "")) is not None
     }
+
+
+#: „Do:”/„DW:” w cytowanej prośbie (Outlook i Gmail, po polsku i po angielsku).
+_RECIPIENT_LINE = re.compile(
+    r"^\s*>?\s*\*?(?:to|do|cc|dw|kopia)\s*:\s*\*?(.+)$", re.IGNORECASE
+)
+
+
+def request_recipients(mail: Mail, senders: Senders) -> tuple[str, ...]:
+    """Adresaci prośby o akceptację, którzy mogą ją zaakceptować (domena klienta,
+    bez konsultanta): nagłówki maila i linie „Do:”/„DW:” cytowanego wątku."""
+
+    raw = [mail.to, mail.cc]
+    raw.extend(
+        head.group(1)
+        for line in mail.body.splitlines()
+        if (head := _RECIPIENT_LINE.match(line)) is not None
+    )
+    out: list[str] = []
+    for text in raw:
+        for match in _ADDRESS.finditer(text or ""):
+            address = match.group(0).lower()
+            if address not in out and senders.accepts_from(address):
+                out.append(address)
+    return tuple(out)
 
 
 def approved(mails: list[Mail], senders: Senders) -> bool:
@@ -690,6 +718,7 @@ def judge(
                     False,
                     "Mail bez odpowiedzi akceptującego",
                     "Jest prośba o akceptację, ale nie ma potwierdzenia.",
+                    acceptors=request_recipients(mail, senders),
                 )
             )
             continue

@@ -35,6 +35,25 @@ Credit Agricole (trzy kontrakty × IX i X) i „Dokumenty.zip” konsultanta PKO
   testach ani logach. Testy używają fikcyjnego hasła i budują ZIP w `tests/zip_crypto.py`.
 - Pusta zmienna = ZIP z hasłem czeka na człowieka (jak przed 23.11).
 
+## Zły ZIP albo zły mail nie zatrzymuje czytnika (audyt 24.11.2026)
+
+- Złe hasło, które przeszło bajt kontrolny, daje przy deflate `zlib.error`, a nie błąd
+  CRC. Uszkodzony strumień (`zlib.error`, `LZMAError`, bzip2 `OSError`) przy pliku
+  z hasłem znaczy „próbuj następnego hasła”, bez hasła — plik pominięty. Wcześniej
+  `zlib.error` wychodził z `zip_files.expand` i czytnik stawał na tym mailu.
+- `mailbox.run_once`: mail, na którym `_ingest_message` rzuca wyjątek, zatrzymuje
+  znacznik najwyżej `MAX_MESSAGE_ATTEMPTS` (5) biegów z rzędu. Potem znacznik idzie
+  dalej, w logu idzie ERROR (alarm w Sentry), a przy `internal`/`all` cały mail
+  zostaje kartą `.eml` bez kontraktu do ręcznego przypisania (w pilotażu sam alarm).
+- Awaria Graph (429, 5xx, brak tokenu) albo połączenia z bazą nie liczy się do limitu.
+- Licznik stoi w `cp_mailbox_state.last_error` jako `message_failed:<skrót id>:<n>`
+  (bez migracji), a obok, po `;`, `message_abandoned:<skrót>,<skrót>` — porzucone
+  maile, które jeszcze wracają w zakładce `OVERLAP` (najwyżej `MAX_ABANDONED_KEYS`, 8).
+  Porzucone trzymamy osobno od licznika, bo przy jednym polu drugi padający mail
+  nadpisywał licznik, porzucony wracał, padał od nowa i znacznik stał w kółko
+  (przegląd PR #3953). Błąd listy z Graph zapisuje kod błędu przed tym stanem,
+  nie zamiast niego.
+
 ## Raport „Raport rozliczenia outsourcingu” (`client_settlements/report_ca.py`)
 
 - Klient generuje go dla dostawcy co miesiąc; DL przekazuje go na rozliczenia@ z adresu

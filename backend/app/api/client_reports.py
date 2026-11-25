@@ -5,7 +5,9 @@ wejście w Klientach (tryb „Raporty dla klientów”) i w karcie klienta,
 wpis zatwierdza DL klienta (zgodność: admin), raport wysyła DL sam, a NEXUS
 zapisuje wysyłkę. Bramki: sekcja Delivery na routerze, odczyt „podgląd
 Delivery”, zapis „edycja klientów”, zakres klientów DL-a w handlerze, kwoty
-w pliku — „Stawki i kwoty: podgląd” (sprawdzane per generator).
+w pliku — „Stawki i kwoty: podgląd” (sprawdzane per generator) w portfelu kwot
+klienta (``can_read_client_finance``): zakres Delivery hybrydy DL + TCM to
+wszyscy klienci, kwoty — tylko klienci z przypisania (audyt 24.11.2026).
 """
 
 import hashlib
@@ -31,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import NOT_READ_ONLY, user_can_view_client_rate
 from app.api.client_framework_contracts import LegalDocsReader
+from app.api.financial_access import can_read_client_finance
 from app.api.permission_access import (
     AmountsViewUser,
     ClientsEditUser,
@@ -47,8 +50,10 @@ from app.models.user import User
 from app.services import client_reports_schema as schema
 from app.services import storage_service
 from app.services.access_scope import (
+    DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
 )
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_reports import catalog, schedule, suggest
@@ -198,15 +203,42 @@ async def _check_source(db: AsyncSession, client_id: int, body: DefinitionIn) ->
         raise HTTPException(422, "Umowa źródłowa nie należy do tego klienta.")
 
 
-def _gate_generator(user: User, definition: ClientReportDefinition) -> Any:
+async def _amounts_clients(db: AsyncSession, user: User) -> Optional[frozenset[int]]:
+    """Granica kwot konta rządzonego portfelem DL (``None`` = bez tej granicy)."""
+    return await resolve_delivery_lead_finance_client_ids(user, db)
+
+
+def _reads_amounts(
+    user: User, client_id: int, finance_clients: Optional[frozenset[int]]
+) -> bool:
+    """Kwoty raportu jednego klienta: uprawnienie i portfel kwot.
+
+    Zakres Delivery (``_scope``) tu nie wystarcza: hybryda DL + TCM widzi
+    w Delivery wszystkich klientów, a kwoty tylko u klientów z przypisania.
+    """
+    return has_permission(user, ProductAction.amounts_view) and can_read_client_finance(
+        user, client_id=client_id, delivery_lead_finance_client_ids=finance_clients
+    )
+
+
+async def _assert_reads_amounts(db: AsyncSession, user: User, client_id: int) -> None:
+    if not has_permission(user, ProductAction.amounts_view):
+        raise permission_denied(ProductAction.amounts_view)
+    if not _reads_amounts(user, client_id, await _amounts_clients(db, user)):
+        raise HTTPException(403, DL_CLIENT_OUT_OF_SCOPE_DETAIL)
+
+
+async def _gate_generator(
+    db: AsyncSession, user: User, definition: ClientReportDefinition
+) -> Any:
     generator = get_generator(definition.generator_key)
     if generator is None:
         raise HTTPException(
             409,
             "Ten raport nie ma generatora — przygotuj plik poza NEXUSEM i wgraj go przy wysyłce.",
         )
-    if generator.needs_amounts and not has_permission(user, ProductAction.amounts_view):
-        raise permission_denied(ProductAction.amounts_view)
+    if generator.needs_amounts:
+        await _assert_reads_amounts(db, user, definition.client_id)
     if generator.needs_client_rate and not user_can_view_client_rate(user):
         raise HTTPException(
             403, "Raport zawiera stawki do klienta, których Twoja rola nie widzi."
@@ -247,7 +279,7 @@ async def _payloads(
     allowed: Optional[frozenset[int]],
 ) -> list[dict[str, Any]]:
     today = business_today()
-    can_view_amounts = has_permission(user, ProductAction.amounts_view)
+    finance_clients = await _amounts_clients(db, user)
     assignments = await catalog.dl_assignments(db, {d.client_id for d in definitions})
     users = await catalog.user_names(
         db, [d.preparer_user_id for d in definitions if d.preparer_user_id]
@@ -266,7 +298,9 @@ async def _payloads(
                 confirmable=catalog.can_confirm(
                     user, definition.family, definition.client_id, allowed
                 ),
-                can_view_amounts=can_view_amounts,
+                can_view_amounts=_reads_amounts(
+                    user, definition.client_id, finance_clients
+                ),
             )
         )
     return out
@@ -410,7 +444,11 @@ async def update_definition(
     if (
         generator
         and generator.needs_amounts
-        and not has_permission(current_user, ProductAction.amounts_view)
+        and not _reads_amounts(
+            current_user,
+            definition.client_id,
+            await _amounts_clients(db, current_user),
+        )
     ):
         # Formularz bez podglądu kwot nie widział progów — nie kasujemy ich.
         hidden = {
@@ -600,7 +638,7 @@ async def preview_report(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     definition, _ = await _definition(db, current_user, definition_id)
-    generator = _gate_generator(current_user, definition)
+    generator = await _gate_generator(db, current_user, definition)
     span = _period(definition, period)
     _, data = await _load(db, definition, generator, span)
     return {
@@ -640,7 +678,7 @@ async def export_report(
 ) -> Response:
     """Plik raportu; kopia trafia do historii jako „wygenerowany”."""
     definition, _ = await _definition(db, current_user, definition_id)
-    generator = _gate_generator(current_user, definition)
+    generator = await _gate_generator(db, current_user, definition)
     span = _period(definition, period)
     client, data = await _load(db, definition, generator, span)
     if data.file_bytes is not None:
@@ -808,6 +846,9 @@ async def run_file(
     if run is None or not run.file_path:
         raise HTTPException(404, "Ten wpis historii nie ma pliku.")
     definition, _ = await _definition(db, current_user, run.definition_id)
+    # Każdy plik historii traktujemy jak plik z kwotami (docstring wyżej), więc
+    # i portfel kwot sprawdzamy bez względu na generator.
+    await _assert_reads_amounts(db, current_user, definition.client_id)
     generator = get_generator(definition.generator_key)
     if (
         generator

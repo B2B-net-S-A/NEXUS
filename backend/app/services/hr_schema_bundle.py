@@ -43,6 +43,7 @@ from app.services import board_reports_schema as board_reports
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_settlement_extras_schema as settlement_extras
 from app.services import client_settlement_reminders_schema as settlement_reminders
+from app.services import client_settlement_feedback_schema as settlement_feedback
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
 from app.services import client_reports_schema as client_reports
@@ -208,6 +209,8 @@ MODULES = (
     settlement_reminders,
     # 0765: zajęcia wierzytelności i spór przy płatnościach kontraktorów (23.11.2026).
     contractor_payment_blocks,
+    # 0774: informacja zwrotna o wadach rozliczenia — wada × kontrakt × miesiąc (24.11.2026).
+    settlement_feedback,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
@@ -243,4 +246,5 @@ ENUM_DDL: tuple[str, ...] = (
     back_office_role.ENUM_DDL,
     *notifications.ENUM_DDL,
     *settlement_reminders.ENUM_DDL,
+    *settlement_feedback.ENUM_DDL,
 )
