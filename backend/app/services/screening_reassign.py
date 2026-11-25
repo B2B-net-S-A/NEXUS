@@ -43,6 +43,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import hidden_send_note_ids
 from app.api.recruitment_access import job_read_scope_clause, user_can_edit_rates
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
@@ -381,12 +382,17 @@ def validate_suggestions(
 
 
 async def _job_scoped_notes(
-    db: AsyncSession, *, candidate_id: int, job_ids: tuple[int, int]
+    db: AsyncSession, *, candidate_id: int, job_ids: tuple[int, int], user: User
 ) -> str:
     """Notatki kandydata WYŁĄCZNIE z tych dwóch rekrutacji (źródłowej
     i docelowej) — nie ze wszystkich jego procesów. Notatka z niezwiązanej
     rekrutacji (negocjacje, sprawy osobiste) nie może trafić do modelu ani
-    wrócić w cytacie podpowiedzi."""
+    wrócić w cytacie podpowiedzi.
+
+    Bez notatki Delivery Leada z wysyłki („Wysłany 150/100-110”), gdy `user`
+    nie widzi stawki do klienta (decyzja C, 14.10.2026): rekruter ma prawo do
+    stawek kandydata, więc ``mask_money`` go nie chroni, a „X/Y-Z” i tak nie
+    jest dla niej kwotą. Wycięcie przed limitem notatek."""
 
     rows = (
         await db.execute(
@@ -396,12 +402,14 @@ async def _job_scoped_notes(
                 "content FROM notes "
                 "WHERE candidate_id = :c AND job_id = ANY(:jobs) "
                 f"AND {note_kinds.ai_readable_sql()} "
-                "ORDER BY created_at DESC LIMIT :lim"
+                "ORDER BY created_at DESC"
             ),
-            {"c": candidate_id, "jobs": list(job_ids), "lim": NOTES_ROW_LIMIT},
+            {"c": candidate_id, "jobs": list(job_ids)},
         )
     ).all()
-    return build_notes_blob(list(rows))
+    hidden = await hidden_send_note_ids(db, user, [row[0] for row in rows])
+    kept = [row for row in rows if row[0] not in hidden]
+    return build_notes_blob(kept[:NOTES_ROW_LIMIT])
 
 
 def _earlier_answers(conversations: Sequence[dict]) -> list[EarlierAnswer]:
@@ -568,6 +576,7 @@ async def suggest_answers(
                 db,
                 candidate_id=candidate_id,
                 job_ids=(ctx.reassign.source_job_id, job_id),
+                user=user,
             )
         )[:NOTES_CHAR_LIMIT]
     answers = ctx.answers

@@ -7,9 +7,9 @@ import {
   CheckCircle2,
   CircleDashed,
   Database,
-  Linkedin,
   LockKeyhole,
 } from "lucide-react"
+import { Linkedin } from "@/components/icons/Linkedin"
 
 import { Alert } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"

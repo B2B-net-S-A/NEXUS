@@ -168,7 +168,8 @@ async def get_kpis(
 async def recent_activity(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    limit: int = 20,
+    # Górna granica: bez niej jedno żądanie zrzucało całą tabelę Activity (audyt r5).
+    limit: int = Query(20, ge=1, le=100),
 ):
     """Recent activity feed for dashboard.
 

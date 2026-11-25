@@ -7,6 +7,7 @@ import {
   type RateBenchmarkRow,
   type SeniorityLevel,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { RequireRole } from "@/components/RequireRole";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Plus, Trash2, Upload, X, Save } from "lucide-react";
@@ -156,7 +157,10 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
             />
             <button
               type="button"
-              onClick={() => setAdding(true)}
+              onClick={() => {
+                createMut.reset();
+                setAdding(true);
+              }}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-sm px-3 py-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -165,6 +169,19 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         )}
       </header>
+
+      {/* Nieudany import albo usunięcie mówi dlaczego (wcześniej ekran milczał,
+          a wiersz i rejestr zostawały bez słowa). */}
+      {!readOnly && importMut.isError && (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {apiErrorMessage(importMut.error, "Nie udało się wczytać pliku CSV.")}
+        </p>
+      )}
+      {!readOnly && deleteMut.isError && (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {apiErrorMessage(deleteMut.error, "Nie udało się usunąć wpisu.")}
+        </p>
+      )}
 
       {!readOnly && importResult && (
         <div className="rounded-lg border border-border dark:border-border p-4 text-sm bg-muted dark:bg-muted">
@@ -203,6 +220,11 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
           onSubmit={(payload) => createMut.mutate(payload)}
           onCancel={() => setAdding(false)}
           submitting={createMut.isPending}
+          error={
+            createMut.isError
+              ? apiErrorMessage(createMut.error, "Nie udało się zapisać stawki.")
+              : null
+          }
         />
       )}
 
@@ -296,6 +318,7 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
                           }
                         }}
                         className="text-destructive hover:underline"
+                        aria-label={`Usuń wpis: ${row.role}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -328,9 +351,11 @@ interface BenchmarkFormProps {
   onSubmit: (data: Partial<RateBenchmarkRow>) => void;
   onCancel: () => void;
   submitting: boolean;
+  /** Odmowa zapisu; formularz zostaje z wpisanymi danymi. */
+  error?: string | null;
 }
 
-function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
+function BenchmarkForm({ onSubmit, onCancel, submitting, error }: BenchmarkFormProps) {
   const [form, setForm] = useState({
     role: "",
     seniority: "mid" as SeniorityLevel,
@@ -494,6 +519,11 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
           />
         </label>
       </div>
+      {error && (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       <div className="flex justify-end gap-2">
         <button
           type="button"

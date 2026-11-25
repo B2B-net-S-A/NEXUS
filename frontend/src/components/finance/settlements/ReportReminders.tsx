@@ -6,15 +6,20 @@
 import { StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Switch } from "@/components/ui/switch";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  FEEDBACK_EXTERNAL_OPTIONS,
+  FEEDBACK_MODE_OPTIONS,
   recipientText,
   useReminderOverview,
   useReminderSwitch,
   useSendReminders,
+  useSetFeedbackSettings,
   useSetReminderSwitch,
+  type FeedbackSettings,
   type ReminderClient,
   type ReminderSendResult,
 } from "@/lib/api/settlement-reminders";
@@ -182,6 +187,70 @@ export function ReportReminderSwitch() {
         <Switch checked={state.data.enabled} disabled={save.isPending} onCheckedChange={toggle} />
         Przypomnienia o raportach godzin
       </label>
+    </>
+  );
+}
+
+/**
+ * Informacja zwrotna o wadach rozliczenia (karta „Start rozliczeń”, admin): tryb
+ * i wysyłka poza firmę. Każda zmiana z potwierdzeniem; poza firmę = decyzja Artura.
+ */
+export function FeedbackSwitch() {
+  const state = useReminderSwitch(true);
+  const save = useSetFeedbackSettings();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const { showError } = useToast();
+
+  const current = state.data?.feedback;
+  if (!state.isSuccess || !current) return null;
+
+  async function change(field: "mode" | "external", next: string) {
+    if (!current || next === current[field]) return;
+    const options = field === "mode" ? FEEDBACK_MODE_OPTIONS : FEEDBACK_EXTERNAL_OPTIONS;
+    const option = options.find((o) => o.value === next);
+    if (!option) return;
+    const ok = await askConfirm({
+      title:
+        field === "mode"
+          ? `Informacja zwrotna o wadach: ${option.label.toLowerCase()}?`
+          : `Wysyłka poza firmę: ${option.label.toLowerCase()}?`,
+      description: option.confirm,
+      confirmLabel: "Tak",
+      cancelLabel: "Zostaw",
+    });
+    if (!ok) return;
+    try {
+      await save.mutateAsync({ [field]: next } as Partial<FeedbackSettings>);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zapisać informacji zwrotnej."));
+    }
+  }
+
+  return (
+    <>
+      {confirmDialog}
+      <span className="flex flex-wrap items-center gap-2">
+        <span id="start-feedback-mode">Informacja zwrotna o wadach</span>
+        <SegmentedRadio
+          labelledBy="start-feedback-mode"
+          size="sm"
+          value={current.mode}
+          disabled={save.isPending}
+          options={FEEDBACK_MODE_OPTIONS.map(({ value, label }) => ({ value, label }))}
+          onChange={(next) => void change("mode", next)}
+        />
+      </span>
+      <span className="flex flex-wrap items-center gap-2">
+        <span id="start-feedback-external">Poza firmę</span>
+        <SegmentedRadio
+          labelledBy="start-feedback-external"
+          size="sm"
+          value={current.external}
+          disabled={save.isPending}
+          options={FEEDBACK_EXTERNAL_OPTIONS.map(({ value, label }) => ({ value, label }))}
+          onChange={(next) => void change("external", next)}
+        />
+      </span>
     </>
   );
 }

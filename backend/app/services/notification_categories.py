@@ -328,6 +328,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_subscription_renewal: _C.people,
     _T.care_contact_due: _C.contracts,
     _T.settlement_report_missing: _C.contracts,
+    _T.settlement_feedback: _C.contracts,
     _T.contract_rate_annex: _C.contracts,
     _T.cpro_invoice_buyer: _C.contracts,
     _T.care_client_structure: _C.contracts,
@@ -458,6 +459,12 @@ _SPLIT_GROUPS: dict[
         "Rozliczenia: brak raportu godzin",
         _C.contracts,
         (_T.settlement_report_missing,),
+    ),
+    # 0774: wada rozliczenia do poprawy u Twoich konsultantów i klientów.
+    "contracts_settlement_feedback": (
+        "Rozliczenia: wada do poprawy",
+        _C.contracts,
+        (_T.settlement_feedback,),
     ),
     # 0764: aneks zmienił stawkę konsultanta od dnia (Finanse, rozliczenia).
     "contracts_rate_annex": (

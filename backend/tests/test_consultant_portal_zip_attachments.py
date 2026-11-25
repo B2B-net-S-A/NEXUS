@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import base64
 import io
+import struct
 import zipfile
+import zlib
 
 from app.services.consultant_portal import zip_files
 from tests.zip_crypto import encrypted_zip
@@ -71,6 +73,82 @@ def test_zip_z_haslem_bez_hasla_zostaje_zipem():
 
     assert _names(zip_files.expand(files, passwords=())) == ["raport.zip"]
     assert _names(zip_files.expand(files, passwords=(b"inne",))) == ["raport.zip"]
+
+
+def test_zip_z_haslem_deflate_otwiera_haslo_z_konfiguracji():
+    archive = encrypted_zip(
+        {"raport.xlsx": XLSX_LIKE * 20}, b"haslo-testowe", deflate=True
+    )
+
+    out = zip_files.expand(
+        [_attachment("raport.zip", archive)], passwords=(b"haslo-testowe",)
+    )
+
+    assert _names(out) == ["raport.xlsx"]
+    assert _content(out[0]) == XLSX_LIKE * 20
+
+
+def _wrong_password_past_check_byte(archive: bytes) -> bytes:
+    """Złe hasło, które przechodzi bajt kontrolny ZipCrypto (co 256.), a strumień
+    deflate po odszyfrowaniu jest zepsuty: ``zipfile`` rzuca wtedy ``zlib.error``."""
+
+    with zipfile.ZipFile(io.BytesIO(archive)) as opened:
+        info = opened.infolist()[0]
+        for n in range(200_000):
+            candidate = f"zle-{n}".encode()
+            try:
+                with opened.open(info, pwd=candidate) as handle:
+                    handle.read()
+            except RuntimeError:
+                continue
+            except zlib.error:
+                return candidate
+            except zipfile.BadZipFile:
+                continue
+    raise AssertionError("brak hasła przechodzącego bajt kontrolny")
+
+
+def test_zle_haslo_przechodzace_bajt_kontrolny_przy_deflate_nie_wywraca_czytnika():
+    # zlib.error wychodził z ``expand`` i czytnik poczty stawał na tym mailu na zawsze.
+    archive = encrypted_zip(
+        {"raport.xlsx": XLSX_LIKE * 20}, b"haslo-testowe", deflate=True
+    )
+    wrong = _wrong_password_past_check_byte(archive)
+    files = [_attachment("raport.zip", archive)]
+
+    assert _names(zip_files.expand(files, passwords=(wrong,))) == ["raport.zip"]
+    out = zip_files.expand(files, passwords=(wrong, b"haslo-testowe"))
+    assert _names(out) == ["raport.xlsx"]
+    assert _content(out[0]) == XLSX_LIKE * 20
+
+
+def _corrupt_first_entry(archive: bytes) -> bytes:
+    """Strumień deflate pierwszego pliku zamieniony na blok typu 3 (zarezerwowany)."""
+
+    with zipfile.ZipFile(io.BytesIO(archive)) as opened:
+        info = opened.infolist()[0]
+    raw = bytearray(archive)
+    name_len, extra_len = struct.unpack(
+        "<HH", raw[info.header_offset + 26 : info.header_offset + 30]
+    )
+    start = info.header_offset + 30 + name_len + extra_len
+    raw[start : start + info.compress_size] = b"\xff" * info.compress_size
+    return bytes(raw)
+
+
+def test_uszkodzony_deflate_pomija_plik_a_reszta_wychodzi():
+    archive = _corrupt_first_entry(_zip({"zepsuty.pdf": PDF * 20, "dobry.pdf": PDF}))
+
+    out = zip_files.expand([_attachment("Dokumenty.zip", archive)], passwords=())
+
+    assert _names(out) == ["dobry.pdf"]
+
+
+def test_sam_uszkodzony_deflate_zostaje_zipem():
+    archive = _corrupt_first_entry(_zip({"zepsuty.pdf": PDF * 20}))
+    files = [_attachment("Dokumenty.zip", archive)]
+
+    assert _names(zip_files.expand(files, passwords=())) == ["Dokumenty.zip"]
 
 
 def test_polskie_nazwy_z_windows_bez_flagi_utf8():

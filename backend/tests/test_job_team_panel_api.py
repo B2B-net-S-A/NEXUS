@@ -365,6 +365,147 @@ async def test_enabling_the_team_link_keeps_a_rate_the_dl_hid_on_a_position(
         assert panel.show_rate
 
 
+async def test_show_rate_on_the_team_keeps_a_position_the_dl_disabled(
+    app_client: AsyncClient,
+) -> None:
+    # Audyt 24.11.2026 (r3): „Pokazuj stawki” na zespole wołało synchronizację
+    # paneli stanowisk jak przy włączeniu linku, więc stanowisko wyłączone
+    # przez DL-a wracało do klienta.
+    world = await _world()
+    detail = await _create(app_client, world)
+    token = await _enable(app_client, world, detail["id"])
+    off = await app_client.put(
+        f"/api/client-panel/jobs/{world.job_b}",
+        headers=world.dl_headers,
+        json={"enabled": False},
+    )
+    assert off.status_code == 200, off.text
+    async with AsyncSessionLocal() as db:
+        expires_b = (
+            await db.scalar(select(ClientPanel).where(ClientPanel.job_id == world.job_b))
+        ).expires_at
+
+    for body in ({"show_rate": False}, {"show_rate": True}, {"enabled": True}):
+        response = await app_client.put(
+            f"{BASE}/{detail['id']}/panel", headers=world.dl_headers, json=body
+        )
+        assert response.status_code == 200, response.text
+        async with AsyncSessionLocal() as db:
+            panels = {
+                p.job_id: p
+                for p in (
+                    await db.scalars(
+                        select(ClientPanel).where(
+                            ClientPanel.job_id.in_([world.job_a, world.job_b])
+                        )
+                    )
+                ).all()
+            }
+        assert panels[world.job_a].enabled
+        assert not panels[world.job_b].enabled, body
+        assert panels[world.job_b].expires_at == expires_b
+        view = (await _public(app_client, token)).json()
+        assert [p["headcount"] for p in view["positions"]] == [2], body
+    # Jawna zmiana stawki dalej obejmuje stanowiska zespołu.
+    assert panels[world.job_a].show_rate and panels[world.job_b].show_rate
+
+
+async def test_changing_the_client_of_a_team_job_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    # Audyt 24.11.2026 (r3): zmiana klienta zostawiała rekrutację w zespole
+    # starego klienta, a link zespołu pokazywał ją dalej.
+    world = await _world()
+    detail = await _create(app_client, world)
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"Inny Klient {uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+    refused = await app_client.patch(
+        f"/api/jobs/{world.job_a}",
+        headers=app_auth_headers,
+        json={"client_id": other_id, "title": "Nowy tytuł"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "zdejmij ją z zespołu" in refused.text
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world.job_a)
+        assert (job.client_id, job.team_id) == (world.client_id, detail["id"])
+        assert job.title != "Nowy tytuł"
+    # Ten sam klient (okno edycji odsyła komplet pól) przechodzi.
+    same = await app_client.patch(
+        f"/api/jobs/{world.job_a}",
+        headers=app_auth_headers,
+        json={"client_id": world.client_id},
+    )
+    assert same.status_code == 200, same.text
+
+
+async def test_changing_the_client_closes_the_job_panel_and_its_link(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    world = await _world()
+    enabled = await app_client.put(
+        f"/api/client-panel/jobs/{world.job_a}",
+        headers=world.dl_headers,
+        json={"enabled": True},
+    )
+    assert enabled.status_code == 200, enabled.text
+    token = enabled.json()["url"].rsplit("/k/", 1)[1]
+    assert (await app_client.get(f"/api/public/panel/{token}")).status_code == 200
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"Inny Klient {uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+    moved = await app_client.patch(
+        f"/api/jobs/{world.job_a}",
+        headers=app_auth_headers,
+        json={"client_id": other_id},
+    )
+    assert moved.status_code == 200, moved.text
+    assert (await app_client.get(f"/api/public/panel/{token}")).status_code == 404
+    async with AsyncSessionLocal() as db:
+        panel = await db.scalar(
+            select(ClientPanel).where(ClientPanel.job_id == world.job_a)
+        )
+        assert not panel.enabled
+        # Nowy sekret: ponowne włączenie nie ożywia ramek w CV starego klienta.
+        assert panel_service.current_token(panel) not in (None, token)
+        audits = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == world.job_a,
+                    Activity.action == "client_panel_disabled",
+                )
+            )
+        ).all()
+    assert [a.details for a in audits] == [
+        {"reason": "client_changed", "previous_client_id": world.client_id}
+    ]
+
+
+async def test_team_link_skips_a_position_of_another_client(
+    app_client: AsyncClient,
+) -> None:
+    # Dane sprzed odmowy w PATCH (albo zapis z pominięciem API): stanowisko
+    # innego klienta w zespole nie trafia do linku zespołu.
+    world = await _world()
+    detail = await _create(app_client, world)
+    token = await _enable(app_client, world, detail["id"])
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"Inny Klient {uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.flush()
+        job = await db.get(Job, world.job_b)
+        job.client_id = other.id
+        await db.commit()
+    view = (await _public(app_client, token)).json()
+    assert [p["headcount"] for p in view["positions"]] == [2]
+
+
 async def test_rotate_expired_and_unknown(app_client: AsyncClient) -> None:
     world = await _world()
     detail = await _create(app_client, world)

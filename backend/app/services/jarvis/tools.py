@@ -1352,6 +1352,9 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
                 "rate_candidate",
                 "rate_client",
                 "rate_unit",
+                "currency",
+                "rate_client_currency",
+                "rate_candidate_currency",
                 "margin",
             )
         ),
@@ -1392,6 +1395,8 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
                     "rate_client",
                     "rate_unit",
                     "currency",
+                    "rate_client_currency",
+                    "rate_candidate_currency",
                     "monthly_rate_candidate",
                     "monthly_rate_client",
                     "monthly_margin",

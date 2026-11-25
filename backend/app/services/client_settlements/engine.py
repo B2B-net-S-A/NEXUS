@@ -22,6 +22,10 @@ kwoty, pozycje wyliczenia, wynik kontroli i stan.
   zamówienie” i bez blokady (decyzja Artura z 24.11.2026: klient sam wskazał
   zamówienie, a pule w NEXUS-ie bywają nieaktualne). Podział wchodzi tylko na
   same dni zwykłe i tylko, gdy suma z maila równa się MD rozliczenia.
+* Zmiana stawki kontraktora w trakcie miesiąca (``Inputs.cost_parts``,
+  ``rate_split``): dni zwykłe mają linię na każdą stawkę, a koszt to suma
+  części. MD ponad pulę to ostatnie dni miesiąca, więc idą stawką ostatniej
+  części. Przychód liczy się jak dotąd.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 if TYPE_CHECKING:
+    from app.services.client_settlements.rate_split import CostPart
     from app.services.client_settlements.rcp_checks import ProofResult
 
 MD_Q = Decimal("0.001")
@@ -76,6 +81,9 @@ class Inputs:
     proof: Optional["ProofResult"] = None
     #: Podział miesiąca na zamówienia z maila klienta; pusty = jedno ``order``.
     split: tuple[SplitPart, ...] = ()
+    #: Dni zwykłe po stawkach kosztu przy zmianie stawki w miesiącu; pusty =
+    #: jedna stawka kosztu linii zamówienia.
+    cost_parts: tuple["CostPart", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -522,15 +530,30 @@ def compute(inp: Inputs) -> Result:
 
     cost_rate = order.rate_cost if order else None
     revenue_rate = order.rate_revenue if order else None
-    lines: list[dict[str, Any]] = [
-        {
-            "label": "Dni zwykłe",
-            "md": str(regular),
-            "multiplier": "1.00",
-            "rate": None if cost_rate is None else str(_money(cost_rate)),
-            "net": None if cost_rate is None else str(_money(regular * cost_rate)),
-        },
-    ]
+    parts = inp.cost_parts if cost_rate is not None else ()
+    lines: list[dict[str, Any]] = (
+        [
+            {
+                "label": f"Dni zwykłe {part.start:%d.%m}–{part.end:%d.%m}",
+                "md": str(part.md),
+                "multiplier": "1.00",
+                "rate": str(_money(part.rate)),
+                "net": str(part.net),
+            }
+            for part in parts
+        ]
+        if parts
+        else [
+            {
+                "label": "Dni zwykłe",
+                "md": str(regular),
+                "multiplier": "1.00",
+                "rate": None if cost_rate is None else str(_money(cost_rate)),
+                "net": None if cost_rate is None else str(_money(regular * cost_rate)),
+            },
+        ]
+    )
+    over_rate = parts[-1].rate if parts else cost_rate
     if extra > 0:
         lines.append(
             {
@@ -549,12 +572,19 @@ def compute(inp: Inputs) -> Result:
                 "label": "Ponad zamówienie, bez zapłaty",
                 "md": str(-over),
                 "multiplier": "1.00",
-                "rate": None if cost_rate is None else str(_money(cost_rate)),
-                "net": None if cost_rate is None else str(_money(-over * cost_rate)),
+                "rate": None if over_rate is None else str(_money(over_rate)),
+                "net": None if over_rate is None else str(_money(-over * over_rate)),
             }
         )
     paid_md = regular + extra * multiplier - over
-    amount_cost = None if cost_rate is None else _money(paid_md * cost_rate)
+    if parts and cost_rate is not None and over_rate is not None:
+        amount_cost = _money(
+            sum((part.net for part in parts), ZERO)
+            + extra * multiplier * cost_rate
+            - over * over_rate
+        )
+    else:
+        amount_cost = None if cost_rate is None else _money(paid_md * cost_rate)
     amount_revenue = (
         None if revenue_rate is None else _money((paid_md - onboarding) * revenue_rate)
     )

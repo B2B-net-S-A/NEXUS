@@ -13,6 +13,11 @@ Kontrakt, który trwał w miesiącu (aktywny, kończący się, zakończony), bez
 i bez pliku raportu. To ten sam stan co „Brak RCP” w `service.month_view`; przy estymacji
 liczą się tylko pliki od pierwszego dnia następnego miesiąca.
 
+**Bez klientów rozliczanych z raportu klienta** (reguła `report.time_for_teams`, Nordea),
+jak w „Przebiegu miesiąca”: tam brak RCP konsultanta nie jest brakiem. Powtórka 7 próby
+IX–X (24.11.2026) dała bez tego 282–286 „braków” Nordei na miesiąc, czyli dzwonek DL-a
+o każdej z tych osób (`client_hours_clients`).
+
 ## Do kogo
 
 - **Konsultant** dostaje mail wyłącznie przez `portal_mail.send` i tylko przy panelu `pilot`
@@ -62,7 +67,10 @@ zatrzymana (`STAGING_BLOCKED_TASKS`).
 
 ## Treść maila
 
-Temat „Raport godzin za <miesiąc>: prosimy o przesłanie”. Co przysłać: RCP z akceptacją
+Klient z regułą `report.consultant_declaration` (mLeasing) dostaje inną treść:
+„Deklaracja dni pracy za <miesiąc>” z przykładem zdania („We wrześniu nie miałam/em dni
+wolnych”), bo raportem jest zdanie w mailu, a nie plik z akceptacją klienta; dzwonek
+opiekuna mówi to samo. Pozostali klienci: temat „Raport godzin za <miesiąc>: prosimy o przesłanie”. Co przysłać: RCP z akceptacją
 klienta, jako plik (PDF albo Excel), nie zrzut ekranu, z adresu firmowego. Dokąd: pierwszy
 adres z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`, a bez niego
 `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` (rozliczenia@b2bnetwork.pl). Bez adresu w konfiguracji

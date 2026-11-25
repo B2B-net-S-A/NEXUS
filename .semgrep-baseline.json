@@ -1507,10 +1507,26 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/notes_insights_extractor.py",
-      "line": 165,
-      "fingerprint": "0adb51cbba84d9a6",
+      "line": 177,
+      "fingerprint": "642ed1188455e718",
       "status": "zweryfikowane",
-      "reason": "priority ze stałej note_kinds.AI_PRIORITY_KINDS, warunek z facts_readable_sql() (stałe rodzaje i SYSTEM_SOURCE); id kandydatów i limit przez bind (:ids, :lim)."
+      "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
+    },
+    {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/notes_insights_extractor.py",
+      "line": 187,
+      "fingerprint": "84686e6be4907d6b",
+      "status": "zweryfikowane",
+      "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
+    },
+    {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/notes_insights_extractor.py",
+      "line": 223,
+      "fingerprint": "eb62eb6c6815ea77",
+      "status": "zweryfikowane",
+      "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1707,10 +1723,10 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/requirement_evidence.py",
-      "line": 229,
-      "fingerprint": "fd022519bdeabcbc",
+      "line": 236,
+      "fingerprint": "b77f6d0faf1af397",
       "status": "zweryfikowane",
-      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() — warunek ze stałych rodzajów (AI_EXCLUDED_KINDS, SYSTEM_SOURCE); wzorzec regex z etykiet idzie przez bind (:pattern), też :cid, :types, :lim."
+      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() — warunek ze stałych rodzajów (AI_EXCLUDED_KINDS, SYSTEM_SOURCE); wzorzec regex z etykiet idzie przez bind (:pattern), też :cid, :types, :lim; dopisana kolumna n.author_id bez wejścia użytkownika."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1723,10 +1739,10 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/screening_reassign.py",
-      "line": 393,
-      "fingerprint": "2b58fcfa79ce8066",
+      "line": 399,
+      "fingerprint": "92dc99f6d3c86b17",
       "status": "zweryfikowane",
-      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() ze stałych rodzajów; kandydat, rekrutacje i limit przez bind (:c, :jobs, :lim)."
+      "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",

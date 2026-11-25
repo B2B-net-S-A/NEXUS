@@ -24,6 +24,11 @@ https://claude.ai/artifact/JGLe9uz3RDwYsU7skyVZbR
   pamięta, za kogo przyszło; ekrany i mail mówią „w zastępstwie za …”.
 - **Skaner „już wysłano tej osobie” pyta o `Notification.addressee_id`,** nie
   o `user_id`. Inaczej po przekazaniu wysyłałby powiadomienie codziennie od nowa.
+- **Alert DL-a w panelu „Moi klienci” u zastępcy dostaje też mail** (audyt
+  24.11.2026): zastępca zwykle nie jest przypisany do klienta, więc bramka
+  maila (`DeliveryAlertRecipientScope.email_allowed`) wpuszcza go, gdy
+  nominalny DL z `event_key` jest odbiorcą spraw klienta, a zastępca sam ma
+  rolę DL i dostęp do Delivery.
 - **Zastępca widzi kolejki nieobecnej osoby:** `reviews_as_dl`,
   `reviewer_scope_clause`, `dl_review_portfolio`, `board_flow`, `cv_in_transit`,
   `cv_topic` liczą osoby przez `operational_owner_ids`. Pętla w tle musi wcześniej

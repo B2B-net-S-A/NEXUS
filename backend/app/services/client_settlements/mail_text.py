@@ -442,6 +442,9 @@ class Verdict:
     ok: bool
     title: str
     detail: Optional[str] = None
+    #: Adresy akceptujących u klienta z prośby bez odpowiedzi („Do:”, „DW:”),
+    #: dla informacji zwrotnej (``client_settlements/feedback``).
+    acceptors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -521,10 +524,57 @@ def addresses(mails: list[Mail]) -> set[str]:
     }
 
 
+#: „Do:”/„DW:” w cytowanej prośbie (Outlook i Gmail, po polsku i po angielsku).
+_RECIPIENT_LINE = re.compile(
+    r"^\s*>?\s*\*?(?:to|do|cc|dw|kopia)\s*:\s*\*?(.+)$", re.IGNORECASE
+)
+
+
+def request_recipients(mail: Mail, senders: Senders) -> tuple[str, ...]:
+    """Adresaci prośby o akceptację, którzy mogą ją zaakceptować (domena klienta,
+    bez konsultanta): nagłówki maila i linie „Do:”/„DW:” cytowanego wątku."""
+
+    raw = [mail.to, mail.cc]
+    raw.extend(
+        head.group(1)
+        for line in mail.body.splitlines()
+        if (head := _RECIPIENT_LINE.match(line)) is not None
+    )
+    out: list[str] = []
+    for text in raw:
+        for match in _ADDRESS.finditer(text or ""):
+            address = match.group(0).lower()
+            if address not in out and senders.accepts_from(address):
+                out.append(address)
+    return tuple(out)
+
+
 def approved(mails: list[Mail], senders: Senders) -> bool:
     """Słowo akceptacji w którejś wiadomości od akceptującego (``senders``)."""
 
     return any(_approved_by(mail, senders) for mail in mails)
+
+
+def approver(mail: Mail, senders: Senders) -> Optional[str]:
+    """Adres akceptującego (``senders``), który w wątku napisał słowo akceptacji."""
+
+    for sender, text in _messages(mail):
+        lines = [line for line in text.splitlines() if not _HEADER_LINE.match(line)]
+        if senders.accepts_from(sender) and _APPROVED.search("\n".join(lines)):
+            match = _ADDRESS.search(sender or "")
+            return match.group(0).lower() if match else None
+    return None
+
+
+def from_printout(text: str) -> Optional[Mail]:
+    """Tekst wydruku maila (PDF) jako wątek; bez nagłówka „From:” z adresem
+    (faktura, RCP) to nie wydruk maila."""
+
+    for line in text.splitlines():
+        head = _QUOTED_FROM.match(line)
+        if head and _ADDRESS.search(head.group(1)):
+            return Mail(body=text)
+    return None
 
 
 def _fmt(value: Decimal) -> str:
@@ -666,6 +716,7 @@ def judge(
                     False,
                     "Mail bez odpowiedzi akceptującego",
                     "Jest prośba o akceptację, ale nie ma potwierdzenia.",
+                    acceptors=request_recipients(mail, senders),
                 )
             )
             continue

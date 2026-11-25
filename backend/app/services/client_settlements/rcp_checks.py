@@ -18,11 +18,14 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 from app.services.client_settlements import acceptance_mail
 from app.services.client_settlements.acceptance_mail import MailMessage
 from app.services.client_settlements.rcp_bnp import ParsedRcp, SignatureInfo
+
+if TYPE_CHECKING:
+    from app.services.client_settlements.travel_acceptance import Verdict
 
 PDF = "application/pdf"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -42,6 +45,9 @@ class ProofResult:
     warn: bool = False
     #: Dane odczytu dla karty i listy (np. ``kesu`` w E6.3), poza kontrolami.
     meta: dict[str, Any] = field(default_factory=dict)
+    #: Godziny dzień po dniu od 1. dnia miesiąca (RCP BNP), do podziału kosztu
+    #: przy zmianie stawki (``rate_split``). Nie trafia do zapisu.
+    day_hours: tuple[Decimal, ...] = ()
 
 
 def _fmt(value: Decimal) -> str:
@@ -144,10 +150,13 @@ def evaluate(
     mails: Sequence[MailMessage] = (),
     client_mail: Optional[bool] = None,
     acceptor: str = "klienta",
+    travel: Optional["Verdict"] = None,
 ) -> ProofResult:
     """``client_mail``: czy w mailach miesiąca jest wiadomość klienta
     (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
-    ``acceptor``: kto akceptuje (``mail_text.Senders.who``)."""
+    ``acceptor``: kto akceptuje (``mail_text.Senders.who``).
+    ``travel``: akceptacja kosztów delegacji przez klienta
+    (``travel_acceptance``); ``None`` = nie znaleziono."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     rcp = _Group(result, rules, "RCP")
@@ -163,6 +172,7 @@ def evaluate(
 
     result.md_regular = parsed.md_regular
     result.md_extra = parsed.md_extra
+    result.day_hours = parsed.day_totals
     # „OPIS PRAC” bez wierszy z MD (konsultant wypełnił tylko godziny): suma z
     # podsumowania to MD podstawowe. Bez tego NEXUS liczył 0 MD (próba IX–XI 2026).
     md_from_total = not parsed.summary
@@ -372,15 +382,24 @@ def evaluate(
     extra.close()
 
     if parsed.travel_total and parsed.travel_total > 0:
-        travel = _Group(result, rules, "Delegacje")
-        # Uwaga z tytułem: sama informacja dawała „Z uwagami” bez powodu na ekranach.
-        travel.warn(
-            "Delegacja do sprawdzenia",
-            f"Koszty delegacji w RCP: {_fmt(parsed.travel_total)} zł brutto. "
-            "Faktury kosztów i zasadność wyjazdu sprawdza człowiek.",
-            key=TRAVEL_IN_RCP,
-        )
-        travel.close()
+        costs = _Group(result, rules, "Delegacje")
+        if travel is not None and travel.ok:
+            costs.ok(travel.title, travel.detail)
+        else:
+            # Uwaga z tytułem: sama informacja dawała „Z uwagami” bez powodu na ekranach.
+            costs.warn(
+                "Delegacja do sprawdzenia",
+                f"Koszty delegacji w RCP: {_fmt(parsed.travel_total)} zł brutto. "
+                + (
+                    f"{travel.detail} "
+                    if travel is not None and travel.detail
+                    else "Brak akceptacji kosztów od klienta (mail z domeny klienta "
+                    "z kwotą albo pozycjami jak w RCP albo RCP podpisany przez klienta). "
+                )
+                + "Faktury kosztów i zasadność wyjazdu sprawdza człowiek.",
+                key=TRAVEL_IN_RCP,
+            )
+        costs.close()
     return result
 
 

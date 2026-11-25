@@ -519,7 +519,9 @@ async def list_pool_candidates(
         select(TalentPoolMembership, Candidate)
         .join(Candidate, TalentPoolMembership.candidate_id == Candidate.id)
         .where(TalentPoolMembership.talent_pool_id == pool_id)
-        .order_by(TalentPoolMembership.added_at.desc())
+        # added_at = now() transakcji: sweeper dodaje setki wpisów naraz,
+        # bez rozstrzygnięcia po id strony dublują i gubią osoby (audyt r5).
+        .order_by(TalentPoolMembership.added_at.desc(), TalentPoolMembership.id.desc())
         .limit(limit)
         .offset(offset)
     )

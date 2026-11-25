@@ -1,6 +1,7 @@
 "use client";
 
-import { Linkedin, Mail, Pencil, Plus } from "lucide-react";
+import { Mail, Pencil, Plus } from "lucide-react";
+import { Linkedin } from "@/components/icons/Linkedin";
 import { useState } from "react";
 
 import { TruncatedText } from "@/components/ds/TruncatedText";

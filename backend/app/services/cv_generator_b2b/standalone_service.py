@@ -47,6 +47,7 @@ from app.services import object_storage
 from app.services import champion_view
 from app.services import note_kinds
 from app.services import recommendation_cards
+from app.services import recruitment_rate_hints
 from app.services.money_text import strip_rates_and_availability
 from app.services.cv_role_order import sort_experience
 from app.services.cv_source_dates import restore_experience_dates
@@ -2534,11 +2535,16 @@ async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -
             .limit(20)
         )
     ).all()
+    # Decyzja C (14.10.2026): notatka Delivery Leada z wysyłki („Wysłany
+    # 150/100-110”) niesie cenę i stawkę osoby, a ``strip_rates_and_availability``
+    # nie rozpoznaje „X/Y-Z” jako kwoty. CV idzie do klienta — wypada zawsze.
+    send_ids = await recruitment_rate_hints.send_note_ids(db, [n.id for n in notes])
     bodies = (
         strip_rates_and_availability(
             redact_card_text(note.content, CV_HIDDEN_FIELDS)
         ).strip()
         for note in notes
+        if note.id not in send_ids
     )
     return "\n\n".join(f"[Notatka kandydata]\n{body}" for body in bodies if body)
 

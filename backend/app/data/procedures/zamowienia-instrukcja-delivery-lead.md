@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 24.11.2026
+> **Zgodność z systemem sprawdzona:** 25.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -443,6 +443,10 @@ Jeżeli konsultant jest już obsadzony na **zamówieniu MD** u tego klienta, sys
 To nie jest ograniczenie na siłę: oba zapisy wiszą na tej samej umowie, więc
 duplikat mylił liczby i przy zakończeniu jednego znikał drugi. Gdy trzeba zmienić
 warunki — edytuj linię w zamówieniu zbiorczym.
+
+Tak samo **„Nowy kontraktor / zamówienie”** odmówi, gdy osoba ma już u tego
+klienta żywy kontrakt (także szkic) — komunikat wskaże istniejący kontrakt, a
+nowe warunki wpisujesz w nim. Kontrakt zakończony albo unieważniony nie blokuje.
 
 Dwa **zamówienia okresowe** tej samej osoby u klienta też nie mogą obowiązywać
 w tym samym czasie. Przedłużenie, które nachodzi na obowiązujące (albo

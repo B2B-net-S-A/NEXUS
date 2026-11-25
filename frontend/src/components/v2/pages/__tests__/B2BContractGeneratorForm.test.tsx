@@ -9,7 +9,13 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -516,6 +522,43 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
       { timeout: PREFILL_WAIT },
     );
     expect(screen.queryByText(/Ta osoba ma już umowę/)).toBeNull();
+  });
+
+  it("awaria listy umów rekrutacji — alert z ponowieniem i wstrzymane pobranie, nie cisza", async () => {
+    const user = setupUser();
+    mocks.generated.mockRejectedValue(new Error("Serwer nie odpowiada"));
+    renderForm();
+
+    const alert = await screen.findByRole(
+      "alert",
+      {},
+      { timeout: PREFILL_WAIT },
+    );
+    expect(alert).toHaveTextContent(
+      "Nie udało się sprawdzić, czy ta osoba ma już umowę w tej rekrutacji",
+    );
+    expect(
+      screen.getByRole("button", { name: "Pobierz DOCX (PL)" }),
+    ).toBeDisabled();
+
+    mocks.generated.mockResolvedValue([existing()]);
+    await user.click(
+      within(alert).getByRole("button", { name: "Spróbuj ponownie" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Ta osoba ma już umowę 1490/2026 (W trakcie) w tej rekrutacji",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Nie udało się sprawdzić, czy ta osoba ma już umowę w tej rekrutacji",
+      ),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Pobierz DOCX (PL)" }),
+    ).toBeEnabled();
   });
 
   it("waluta to zamknięta lista", async () => {

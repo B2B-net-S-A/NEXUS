@@ -279,6 +279,10 @@ _KNOWN_CONTRACT_FKS = {
     # miesiąc, kanał, dzień) — ten sam dzień u obu duplikatów rozstrzyga
     # ``_resolve_child_duplicates`` (zostaje wpis zachowanego).
     ("client_settlement_reminders", "contract_id"),
+    # Informacja zwrotna o wadach (0774): UNIQUE (kontrakt, miesiąc, wada) — ta sama
+    # wada u obu duplikatów rozstrzyga ``_resolve_child_duplicates`` (otwarta
+    # wygrywa z poprawioną, remis → zachowany).
+    ("client_settlement_feedback", "contract_id"),
     # Lista płac K7a (0704): pozycje list to migawka wypłaty (paski, KEDU i PIT-11
     # liczą się z nich po osobie, nie po kontrakcie) — idą za kontraktem
     # zachowanym. Dwie pozycje duplikatów na jednej liście (UNIQUE lista +
@@ -3502,6 +3506,27 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["client_settlement_reminders_duplicates_removed"] = len(losers)
+
+    if ("client_settlement_feedback", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, period_month, code, "
+            "CASE WHEN resolved_on IS NULL THEN 'open' ELSE 'resolved' END AS status "
+            "FROM client_settlement_feedback WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (row["period_month"], row["code"]),
+            rank={"open": 0, "resolved": 1},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM client_settlement_feedback WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["client_settlement_feedback_duplicates_removed"] = len(losers)
 
     if ("payroll_gross_inputs", "contract_id") in present:
         rows = await _child_rows(

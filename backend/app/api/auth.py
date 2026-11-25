@@ -2,7 +2,15 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
@@ -110,6 +118,25 @@ SSO_ONLY_PASSWORD_DETAIL = (
 WRONG_CURRENT_PASSWORD_DETAIL = "Aktualne hasło jest nieprawidłowe."
 
 logger = logging.getLogger(__name__)
+
+
+async def _send_mail_after_response(kind: str, user_id: int, send, /, **kwargs) -> None:
+    """Wysyłka maila z publicznej trasy auth — w ``BackgroundTasks``, w wątku.
+
+    Audyt r3 (24.11.2026): trasa czekała na połączenie z Graphem/SMTP tylko
+    wtedy, gdy konto istniało (albo było na liście kont awaryjnych), więc czas
+    odpowiedzi odróżniał adresy mimo tej samej treści. Token i ``Activity``
+    powstają w żądaniu (commit przed zadaniem w tle, ``core/database.get_db``);
+    tu tylko wysyłka. Odpowiedź już poszła, więc błąd nie ma dokąd wrócić —
+    trafia do logu, bez adresu (dane osobowe).
+    """
+    try:
+        sent = await asyncio.to_thread(send, **kwargs)
+    except Exception:
+        logger.exception("auth mail failed kind=%s user_id=%s", kind, user_id)
+        return
+    if sent is False:
+        logger.warning("auth mail not sent kind=%s user_id=%s", kind, user_id)
 
 
 def _password_login_break_glass(email: str | None) -> bool:
@@ -308,7 +335,10 @@ async def login(
 )
 @limiter.limit("3/minute")
 async def register(
-    request: Request, data: SelfRegisterRequest, db: AsyncSession = Depends(get_db)
+    request: Request,
+    data: SelfRegisterRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     """Self-service email/password registration. Rate-limited: 3 req/min per IP.
 
@@ -365,10 +395,14 @@ async def register(
             plain_token = await create_verification_token(
                 db, existing.id, requested_ip=requester_ip
             )
-            # Wysyłka synchroniczna (MSAL + httpx albo smtplib) — w wątku, żeby
-            # nie blokować pętli zdarzeń na czas połączenia z Graphem/SMTP
-            # (audyt 25.09.2026). Obie ścieżki rejestracji czekają tak samo.
-            await asyncio.to_thread(
+            # Wysyłka synchroniczna (MSAL + httpx albo smtplib) — w wątku
+            # (audyt 25.09.2026) i po odpowiedzi (audyt r3, 24.11.2026): żadna
+            # ścieżka rejestracji nie czeka na Graph/SMTP, więc czas odpowiedzi
+            # nie zdradza, że adres jest zajęty.
+            background_tasks.add_task(
+                _send_mail_after_response,
+                "email_verification",
+                existing.id,
                 send_email_verification_email,
                 to_email=existing.email,
                 recipient_name=existing.name,
@@ -408,7 +442,10 @@ async def register(
     plain_token = await create_verification_token(
         db, user.id, requested_ip=requester_ip
     )
-    await asyncio.to_thread(
+    background_tasks.add_task(
+        _send_mail_after_response,
+        "email_verification",
+        user.id,
         send_email_verification_email,
         to_email=user.email,
         recipient_name=user.name,
@@ -474,6 +511,7 @@ async def verify_email(
 async def resend_verification(
     request: Request,
     data: ResendVerificationRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Re-send the verification link for an unconfirmed account.
@@ -494,7 +532,10 @@ async def resend_verification(
         )
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         verify_url = f"{base}/register/verify?token={plain_token}"
-        await asyncio.to_thread(
+        background_tasks.add_task(
+            _send_mail_after_response,
+            "email_verification",
+            user.id,
             send_email_verification_email,
             to_email=user.email,
             recipient_name=user.name,
@@ -746,6 +787,7 @@ async def logout(request: Request) -> Response:
 async def forgot_password(
     request: Request,
     data: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Request a password reset link via email.
@@ -787,7 +829,12 @@ async def forgot_password(
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         reset_url = f"{base}/login/reset?token={plain_token}"
 
-        await asyncio.to_thread(
+        # Po odpowiedzi (audyt r3, 24.11.2026): adres z listy kont awaryjnych
+        # i istniejące konto nie mogą odpowiadać wolniej niż pozostałe.
+        background_tasks.add_task(
+            _send_mail_after_response,
+            "password_reset",
+            user.id,
             send_password_reset_email,
             to_email=user.email,
             recipient_name=user.name,

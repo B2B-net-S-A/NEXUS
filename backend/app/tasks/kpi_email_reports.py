@@ -231,8 +231,10 @@ async def _recipients(db: AsyncSession, roles: tuple[UserRole, ...]) -> list[Use
 
     Sekcja jest sprawdzana, bo raport niesie te same liczby co ekran —
     konto, któremu admin odebrał Insights, nie może dostać ich mailem.
+    Politykę dołączamy z bazy jak w ``_board_recipients`` — pętla w tle nie
+    przechodzi przez uwierzytelnienie żądania (audyt r3, 24.11.2026).
     """
-    users = (
+    users = list(
         (
             await db.execute(
                 select(User)
@@ -247,6 +249,8 @@ async def _recipients(db: AsyncSession, roles: tuple[UserRole, ...]) -> list[Use
         .scalars()
         .all()
     )
+    for start in range(0, len(users), _ACCESS_BATCH):
+        await resolve_effective_access(db, users[start : start + _ACCESS_BATCH])
     return [
         u
         for u in users

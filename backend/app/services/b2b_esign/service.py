@@ -30,6 +30,7 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_document import B2BSigningDocument
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.hr_leave import LeaveRequest
+from app.models.notification import NotificationType
 from app.models.user import User
 from app.services import storage_service
 from app.services.b2b_esign import long_term
@@ -210,6 +211,41 @@ async def bell_recipients(
         if substitute is not None and substitute.is_active:
             ids = [*ids, absence.substitute_id]
     return list(dict.fromkeys(ids))
+
+
+async def active_company_signer(
+    db: AsyncSession, request: B2BSigningRequest
+) -> User | None:
+    """Reprezentant firmy wskazany przy wysyłce — tylko z aktywnym kontem.
+
+    Wyłączone konto nie dostaje maila ani dzwonka (dzwonek do nieaktywnego
+    konta i tak ginie w ``emit``), więc sprawa idzie wtedy do osób wysyłki
+    (audyt r4, 24.11.2026) — ``company_signer_missing_message``.
+    """
+    if not request.company_signer_id:
+        return None
+    signer = await db.get(User, request.company_signer_id)
+    return signer if signer is not None and signer.is_active else None
+
+
+#: Typ dzwonka o wyłączonym reprezentancie. Nie ``signature_sent``: dzienny
+#: dedup (osoba + typ + wniosek, ``ix_notif_dedup_daily``) zjadałby go, gdy tego
+#: samego dnia obsługujący dostał przypomnienie „czeka na podpis kontraktora”
+#: albo dzwonek o przejęciu obsługi, a dla niego to jedyny sygnał (przegląd PR-a
+#: z audytu r4, 25.11.2026). ``signature_failed`` idzie tą samą drogą (kategoria,
+#: sekcja, zastępca), a przy tym wniosku pada tylko przy wygaśnięciu linku
+#: (etap kontraktora). Zbieg zostaje tylko przy wygaśnięciu, nowym linku i podpisie
+#: tego samego dnia. Własny typ wymagałby migracji enuma.
+COMPANY_SIGNER_MISSING_TYPE = NotificationType.signature_failed
+
+
+def company_signer_missing_message(contractor_name: str, number: str) -> str:
+    """Dzwonek dla osób wysyłki, gdy reprezentanta firmy nie ma (konto wyłączone)."""
+    return (
+        f"{contractor_name} podpisał(a) umowę {number}, ale konto osoby wskazanej "
+        "do podpisu za B2Bnetwork jest wyłączone. Ustal, kto podpisze umowę "
+        "za firmę."
+    )
 
 
 def _event(kind: str, at: datetime, **extra: object) -> dict:

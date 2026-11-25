@@ -8,6 +8,7 @@ kontraktu, akceptuje osoby wysłane przed nią; opis pozycji idzie ze wzoru regu
 
 from __future__ import annotations
 
+import base64
 import io
 import zipfile
 from datetime import timedelta
@@ -16,10 +17,13 @@ from email.utils import format_datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import local_now
+from app.core.scheduling import business_today, local_now
 from app.models.client_order import ClientOrder
+from app.models.client_settlement import ClientSettlementRuleSet
+from app.models.consultant_portal import CpDocument
 from app.models.contract import RateUnit
 from app.services.client_settlements import (
     client_acceptance,
@@ -28,6 +32,12 @@ from app.services.client_settlements import (
     service,
 )
 from app.services.client_settlements.service import SettlementError
+from tests.care_announcements_seed import care_on, tag  # noqa: F401  (fixture'y)
+from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
+    make_person,
+    portal_all,
+    portal_restored,
+)
 from tests.test_client_settlements_client_invoice_db import _month, _rules
 from tests.test_client_settlements_consultant_db import _module, _restore
 from tests.test_client_settlements_kcp import _card_rows, _workbook
@@ -309,7 +319,8 @@ async def test_odpowiedz_banku_na_rozliczenia_zapisuje_sie_i_akceptuje(
                 subject=message("x")["subject"],
                 now=local_now(),
             )
-            assert refused == 0
+            # Bez akceptacji: zwykła ścieżka, nie koniec czytania maila.
+            assert refused is None
             made = await mailbox._store_client_reply(
                 db,
                 _Mailbox(_reply(month, "Potwierdzam.")),
@@ -324,6 +335,98 @@ async def test_odpowiedz_banku_na_rozliczenia_zapisuje_sie_i_akceptuje(
     finally:
         await _restore(previous)
         await _cleanup(client_id)
+
+
+class _MailboxWithFiles(_Mailbox):
+    def __init__(self, content: bytes, files: list[dict]) -> None:
+        super().__init__(content)
+        self.files = files
+
+    async def attachments(self, message_id: str) -> list[dict]:
+        return self.files
+
+
+@pytest.mark.usefixtures("care_on", "portal_all")
+async def test_mail_konsultanta_z_domeny_banku_bez_akceptacji_idzie_zwykla_sciezka(
+    tmp_path, monkeypatch
+) -> None:
+    """Konsultant ze skrzynką w domenie klienta z ``cl.client_acceptance`` wysyła KCP.
+    ``_store_client_reply`` nie uznaje maila za akceptację, więc czytnik czyta go
+    dalej jak każdy inny; dotąd kończył na ``(0, 0)`` i plik przepadał bez śladu."""
+
+    from app.services import storage_service
+    from app.services.consultant_portal import mailbox, portal_settings
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    domain = f"bank-{tag()}.example"
+    person = await make_person(email=f"konsultant.{tag()}@{domain}")
+    month = _month(-1)
+    year, mon = (int(x) for x in month.split("-"))
+    previous = await _module(True)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientSettlementRuleSet(
+                client_id=person.client_id,
+                effective_from="2020-01",
+                rules={
+                    "cl.client_acceptance": {
+                        "level": "warn",
+                        "params": {"email": f"body@{domain}"},
+                    },
+                },
+            )
+        )
+        await db.commit()
+    try:
+        word = kcp.MONTHS_PL[mon - 1].lower()
+        message = {
+            "id": f"msg-kcp-{tag()}",
+            "subject": f"KCP {word} {year}",
+            "from": {"emailAddress": {"address": person.email}},
+            "receivedDateTime": local_now().isoformat(),
+            "hasAttachments": True,
+        }
+        reader = _MailboxWithFiles(
+            _reply(month, "W załączniku przesyłam KCP.", sender=person.email),
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "KCP.pdf",
+                    "isInline": False,
+                    "contentBytes": base64.b64encode(b"%PDF-1.4 fikcyjne KCP").decode(),
+                }
+            ],
+        )
+        async with AsyncSessionLocal() as db:
+            assert await client_acceptance.is_client_domain(db, person.email, month)
+            made, ignored = await mailbox._ingest_message(
+                db,
+                reader,
+                message,
+                state=await portal_settings.load(db),
+                today=business_today(),
+                now=local_now(),
+            )
+            await db.commit()
+        assert (made, ignored) == (1, 0)
+        async with AsyncSessionLocal() as db:
+            names = (
+                await db.scalars(
+                    select(CpDocument.file_name).where(
+                        CpDocument.contract_id == person.contract_id
+                    )
+                )
+            ).all()
+        assert names == ["KCP.pdf"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientSettlementRuleSet).where(
+                    ClientSettlementRuleSet.client_id == person.client_id
+                )
+            )
+            await db.commit()
+        await _restore(previous)
 
 
 async def test_wgranie_odpowiedzi_klienta_przez_api(

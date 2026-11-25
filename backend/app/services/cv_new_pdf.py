@@ -23,6 +23,10 @@ MSG_RENDER_FAILED = (
     "Nie udało się przygotować PDF w układzie „Nowe CV”. "
     "Pobierz klasyczny plik Word albo spróbuj ponownie."
 )
+MSG_CONSENT_UNREADABLE = (
+    "Nie udało się odczytać zrzutu zgody RODO dołączonego do CV, więc PDF "
+    "w układzie „Nowe CV” nie powstał. Wgraj zrzut ponownie (PNG, JPEG albo WEBP)."
+)
 _SLOTS = asyncio.Semaphore(2)
 
 
@@ -94,14 +98,32 @@ async def cv_facts(db, candidate_id: Optional[int], job_id: Optional[int]) -> Cv
     return CvFacts((location or "").strip(), must_names(profile))
 
 
-def _image_mime(data: Optional[bytes]) -> Optional[str]:
+def _consent_image(data: Optional[bytes]) -> tuple[Optional[bytes], Optional[str]]:
+    """Zrzut zgody gotowy do wklejenia: PNG i JPEG bez zmian, reszta (WEBP,
+    który przyjmuje upload) przepisana przez PIL na PNG.
+
+    Bajty, których nie da się odczytać, to ``NewCvPdfError``, nie PDF bez zgody:
+    bramka pobrania (``cv_consent_gate``) widzi zapisany obraz i przepuszcza,
+    więc cichy pominięty zrzut dawał klientowi CV bez wymaganej zgody.
+    """
     if not data:
-        return None
+        return None, None
     if data.startswith(b"\x89PNG"):
-        return "image/png"
+        return data, "image/png"
     if data.startswith(b"\xff\xd8"):
-        return "image/jpeg"
-    return None
+        return data, "image/jpeg"
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(data)) as image:
+            image.load()
+            out = BytesIO()
+            image.save(out, format="PNG")
+    except Exception as error:  # noqa: BLE001 — każdy nieczytelny obraz to odmowa
+        raise NewCvPdfError(MSG_CONSENT_UNREADABLE) from error
+    return out.getvalue(), "image/png"
 
 
 def _render(
@@ -122,7 +144,7 @@ def _render(
     content = cv_json_from_editor_html(
         content_html, language=language, blind=blind, fallback=fallback
     )
-    mime = _image_mime(consent)
+    consent, mime = _consent_image(consent)
     facts = facts or CvFacts()
     document = NewCvDocument.from_cv_json(
         {
@@ -134,7 +156,7 @@ def _render(
         wreath=page1_wreath(extras),
         # Renderer wstawia klauzulę jako HTML — tekst z edytora idzie escapowany.
         rodo_clause_html=html.escape(content.rodo_clause) or None,
-        consent_image=consent if mime else None,
+        consent_image=consent,
         consent_image_mime=mime,
     )
     pdf, report = render_new_cv_pdf_with_report(document)
@@ -172,6 +194,8 @@ async def render_new_cv_pdf(
                 consent=consent,
                 facts=facts,
             )
+        except NewCvPdfError:
+            raise
         except Exception as error:  # noqa: BLE001 — każdy błąd renderu to 503
             logging.getLogger(__name__).exception("new CV PDF render failed")
             raise NewCvPdfError(MSG_RENDER_FAILED) from error

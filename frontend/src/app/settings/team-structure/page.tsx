@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import api from "@/lib/api"
+import { apiErrorMessage } from "@/lib/api-error"
 import { fetchAllClientOptions } from "@/lib/admin-client-options"
 import { cn } from "@/lib/utils"
 import { hasRole, useAuthStore } from "@/store/auth"
@@ -230,6 +231,20 @@ function DlClientsSection({
             {assign.isPending ? "Przypisuję…" : "Przypisz"}
           </Button>
         </div>
+
+        {/* Odmowa serwera zostawia wybrane pola i mówi dlaczego (wcześniej
+            przycisk wracał do „Przypisz” bez słowa). */}
+        {assign.isError && (
+          <p
+            role="alert"
+            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {apiErrorMessage(
+              assign.error,
+              "Nie udało się przypisać Delivery Leada do klienta.",
+            )}
+          </p>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

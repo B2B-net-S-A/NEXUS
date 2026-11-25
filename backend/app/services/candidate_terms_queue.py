@@ -166,16 +166,26 @@ async def expire_stale(db: AsyncSession, now: datetime) -> int:
     return int(result.rowcount or 0)
 
 
-def _deliver(message: rules.TermsEmail, *, to: str, event_at, unsubscribe=None):
+def _deliver(
+    message: rules.TermsEmail, *, to: str, event_at, unsubscribe=None
+) -> tuple[bool, bool]:
     """Wątek wysyłki: polityka sprawdzana jeszcze raz tuż przed nadawcą.
 
     ``unsubscribe`` = wypis jednym kliknięciem w nagłówku (Gmail/Yahoo dla
     nadawców masowych); w Graph przełącza wysyłkę na MIME z częścią tekstową.
+
+    Zwraca ``(ok, uncertain)``. „Nie wiadomo” (502/504 po POST do Graphu) żyje
+    we fladze wątku wysyłki, więc czytamy ją tutaj — w pętli zdarzeń po
+    ``asyncio.to_thread`` flaga jest zawsze pusta (audyt r4, 24.11.2026).
     """
     from app.services.email import send_email
-    from app.services.notification_delivery import guarded_send
+    from app.services.m365.app_mail import last_delivery_uncertain
+    from app.services.notification_delivery import (
+        guarded_send,
+        last_send_policy_blocked,
+    )
 
-    return guarded_send(
+    ok = guarded_send(
         rules.KIND,
         event_at,
         send_email,
@@ -187,6 +197,13 @@ def _deliver(message: rules.TermsEmail, *, to: str, event_at, unsubscribe=None):
         settings.CANDIDATE_MAIL_SENDER_UPN or None,
         list_unsubscribe=unsubscribe,
     )
+    uncertain = bool(
+        not ok
+        and settings.M365_APP_MAIL_ENABLED
+        and not last_send_policy_blocked()
+        and last_delivery_uncertain()
+    )
+    return bool(ok), uncertain
 
 
 async def send_one(
@@ -235,8 +252,9 @@ async def send_one(
     # w trakcie nie wyśle drugiego maila (niepewny wynik zostaje „sent”).
     row.status, row.sent_at = "sent", now
     await db.commit()
+    uncertain = False
     try:
-        ok = await asyncio.to_thread(
+        ok, uncertain = await asyncio.to_thread(
             _deliver,
             message,
             to=candidate.email,
@@ -248,12 +266,9 @@ async def send_one(
     except Exception as exc:  # noqa: BLE001
         logger.warning("[candidate-terms] send failed: %s", type(exc).__name__)
         ok = False
-    if not ok:
-        from app.services.m365.app_mail import last_delivery_uncertain
-
-        if not (settings.M365_APP_MAIL_ENABLED and last_delivery_uncertain()):
-            row.status, row.sent_at, row.token_sha256 = "failed", None, None
-            row.expires_at = None
+    if not ok and not uncertain:
+        row.status, row.sent_at, row.token_sha256 = "failed", None, None
+        row.expires_at = None
     return row.status
 
 

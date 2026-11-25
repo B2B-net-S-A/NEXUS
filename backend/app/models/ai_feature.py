@@ -306,7 +306,7 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.cv_parser: [
         "Treść CV kandydatów (PDF/DOCX → tekst)",
     ],
-    # Lustro polityki `candidate-summary-no-finance-v3`
+    # Lustro polityki `candidate-summary-no-finance-v4`
     # (`candidate_activity_summary_service.CONTENT_POLICY_VERSION`): stawki,
     # kwoty i inne dane finansowe NIE trafiają do modelu — profil kandydata
     # mówi to wprost, więc ten opis nie może obiecywać czegoś odwrotnego (B13).

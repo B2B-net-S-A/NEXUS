@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   MoreHorizontal,
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -145,11 +146,15 @@ export function AdminUsersTab({
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const hrProgram = useHrProgram();
 
-  const { data: users, isLoading } = useQuery({
+  const usersQuery = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => adminApi.listUsers().then((r) => r.data as AdminUser[]),
     enabled: subTab === "users",
   });
+  const { data: users, isLoading } = usersQuery;
+  // „Brak użytkowników” i licznik 0 tylko po udanym pobraniu — awaria listy
+  // kont to komunikat z ponowieniem, nie pusta firma.
+  const usersLoaded = usersQuery.isSuccess;
 
   // Zmiana konta rusza też ekran uprawnień: liczbę osób z rolą i to, co role
   // dają tej osobie.
@@ -227,21 +232,30 @@ export function AdminUsersTab({
     onError: (error) => showError(apiErrorMessage(error, "Nie udało się zmienić konta.")),
   });
 
+  // Nieudany reset zostawia okno otwarte i mówi w nim, co poszło nie tak
+  // (wcześniej przycisk tylko wracał do „Resetuj hasło”).
+  const [resetError, setResetError] = useState<string | null>(null);
   const resetPasswordMutation = useMutation({
     mutationFn: ({ id, password }: { id: number; password: string }) =>
       adminApi.resetPassword(id, password),
+    onMutate: () => setResetError(null),
     onSuccess: () => {
       setModal(null);
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     },
+    onError: (error) =>
+      setResetError(apiErrorMessage(error, "Nie udało się ustawić nowego hasła.")),
   });
 
   const sendResetLinkMutation = useMutation({
     mutationFn: (id: number) => adminApi.sendResetLink(id),
+    onMutate: () => setResetError(null),
     onSuccess: () => {
       setModal(null);
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     },
+    onError: (error) =>
+      setResetError(apiErrorMessage(error, "Nie udało się wysłać linku do zmiany hasła.")),
   });
 
   // Filtr po statusie, roli i wyszukiwarce + domyślne sortowanie alfabetyczne
@@ -521,14 +535,34 @@ export function AdminUsersTab({
               <option value="name">Sortuj: imię</option>
               <option value="activity">Sortuj: ostatnia aktywność</option>
             </select>
-            <span className="ml-auto text-xs text-muted-foreground dark:text-muted-foreground">
-              {displayedUsers.length}
-              {filtersActive && users ? ` z ${users.length}` : ""}{" "}
-              {displayedUsers.length === 1 && !filtersActive ? "użytkownik" : "użytkowników"}
-            </span>
+            {usersLoaded ? (
+              <span className="ml-auto text-xs text-muted-foreground dark:text-muted-foreground">
+                {displayedUsers.length}
+                {filtersActive && users ? ` z ${users.length}` : ""}{" "}
+                {displayedUsers.length === 1 && !filtersActive ? "użytkownik" : "użytkowników"}
+              </span>
+            ) : null}
           </div>
           {isLoading ? (
             <div className="p-8 text-center text-muted-foreground dark:text-muted-foreground">Ładowanie...</div>
+          ) : usersQuery.isError ? (
+            <div className="p-4">
+              <Alert variant="error" role="alert" title="Nie udało się pobrać listy kont">
+                <p className="mt-0.5 text-xs opacity-90">
+                  {apiErrorMessage(usersQuery.error, "Spróbuj ponownie za chwilę.")}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  disabled={usersQuery.isFetching}
+                  onClick={() => void usersQuery.refetch()}
+                >
+                  {usersQuery.isFetching ? "Ponawiam…" : "Spróbuj ponownie"}
+                </Button>
+              </Alert>
+            </div>
           ) : (
             // Siedem kolumn nie mieści się na telefonie: tabela przewija się
             // w poziomie, a kolumna „Imię” zostaje przyklejona (decyzja 23.09.2026).
@@ -672,7 +706,7 @@ export function AdminUsersTab({
                     </td>
                   </tr>
                 ))}
-                {displayedUsers.length === 0 && (
+                {usersLoaded && displayedUsers.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                       {filtersActive
@@ -744,12 +778,16 @@ export function AdminUsersTab({
       {modal === "reset" && selectedUser && (
         <ResetPasswordModal
           user={selectedUser}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            setResetError(null);
+            setModal(null);
+          }}
           onSaveManual={(pw) =>
             resetPasswordMutation.mutate({ id: selectedUser.id, password: pw })
           }
           onSendLink={() => sendResetLinkMutation.mutate(selectedUser.id)}
           loading={resetPasswordMutation.isPending || sendResetLinkMutation.isPending}
+          error={resetError}
         />
       )}
     </div>

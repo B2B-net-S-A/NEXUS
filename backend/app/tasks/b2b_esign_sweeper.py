@@ -41,14 +41,16 @@ from app.core.scheduling import (
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.notification import NotificationType
-from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import remote as esign_remote
 from app.services.b2b_esign.service import (
+    COMPANY_SIGNER_MISSING_TYPE,
     EXPIRED_LINK_DAYS,
     SIGNED_COPY_DAYS,
+    active_company_signer,
     bell_recipients,
+    company_signer_missing_message,
     handler_id,
     link_sent_at,
 )
@@ -164,21 +166,33 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             if not company_reminder_due(stage_start, request.last_reminder_at, now):
                 return None
             request.last_reminder_at = now
+            signer = await active_company_signer(db, request)
+            if signer is None:
+                # Konto reprezentanta wyłączone: bez maila na jego adres, dzwonek
+                # do osób wysyłki (obsługujący, nadawca, DW, zastępca z urlopu).
+                for watcher_id in await bell_recipients(db, request, business_today()):
+                    await _notify(
+                        db,
+                        user_id=watcher_id,
+                        title=f"Umowa {number} nadal czeka na podpis B2Bnetwork",
+                        message=company_signer_missing_message(
+                            request.contractor_name, number
+                        ),
+                        ntype=COMPANY_SIGNER_MISSING_TYPE,
+                        request_id=request.id,
+                    )
+                await db.commit()
+                return "reminded"
             await _notify(
                 db,
-                user_id=request.company_signer_id,
+                user_id=signer.id,
                 title=f"Umowa {number} nadal czeka na Twój podpis",
                 message=f"{request.contractor_name} podpisał(a) umowę — brakuje podpisu B2Bnetwork.",
                 ntype=NotificationType.signature_sent,
                 request_id=request.id,
             )
             await db.commit()
-            signer = (
-                await db.get(User, request.company_signer_id)
-                if request.company_signer_id
-                else None
-            )
-            if signer is not None and signer.email:
+            if signer.email:
                 subject, body = esign_mail.company_signer_message(
                     number=number,
                     contractor_name=request.contractor_name,

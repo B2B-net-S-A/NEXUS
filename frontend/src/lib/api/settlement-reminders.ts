@@ -70,6 +70,66 @@ export interface ReminderSendResult {
   failed: number;
 }
 
+/**
+ * Informacja zwrotna o wadach rozliczenia (`services/client_settlements/feedback.py`):
+ * `off` nic, `dry_run` zapisuje „wysłałbym: komu, co, kiedy”, `on` wysyła.
+ * `external`: do ludzi spoza firmy nic (`off`), tylko przy otwartym panelu (`panel`), wszyscy (`all`).
+ */
+export type FeedbackMode = "off" | "dry_run" | "on";
+export type FeedbackExternal = "off" | "panel" | "all";
+
+export interface FeedbackSettings {
+  mode: FeedbackMode;
+  external: FeedbackExternal;
+  every_days: number;
+}
+
+export interface ReminderSwitchState {
+  enabled: boolean;
+  /** Brak pola = backend sprzed informacji zwrotnej (przełącznik się nie pokazuje). */
+  feedback?: FeedbackSettings;
+}
+
+export const FEEDBACK_MODE_OPTIONS: { value: FeedbackMode; label: string; confirm: string }[] = [
+  {
+    value: "off",
+    label: "Wyłączona",
+    confirm: "NEXUS przestanie zapisywać wady i wysyłać komunikaty. Dziennik zostaje.",
+  },
+  {
+    value: "dry_run",
+    label: "Na sucho",
+    confirm:
+      "NEXUS zapisze w dzienniku, komu, co i kiedy by wysłał, ale nic nie wyśle. Dobre na pierwszy miesiąc.",
+  },
+  {
+    value: "on",
+    label: "Włączona",
+    confirm:
+      "NEXUS wyśle komunikaty o wadach i przypomnienia do skutku. Bez wysyłki poza firmę dostają je tylko opiekunowie (dzwonek).",
+  },
+];
+
+export const FEEDBACK_EXTERNAL_OPTIONS: { value: FeedbackExternal; label: string; confirm: string }[] = [
+  {
+    value: "off",
+    label: "Nie",
+    confirm: "Do konsultantów i klientów nic nie wyjdzie. Wady do przekazania dostaje opiekun.",
+  },
+  {
+    value: "panel",
+    label: "Przy panelu",
+    confirm:
+      "Maile do konsultantów i akceptujących u klienta tylko przy kontraktach z otwartym panelem konsultanta. To wysyłka do ludzi spoza firmy.",
+  },
+  {
+    value: "all",
+    label: "Wszyscy",
+    confirm:
+      "Maile do wszystkich konsultantów i akceptujących u klienta, także przy panelu „Tylko zespół”. To wysyłka do ludzi spoza firmy.",
+  },
+];
+
 export const reminderKeys = {
   switch: ["settlement-reminders", "switch"] as const,
   overview: (month: string, clientId: number | null) =>
@@ -103,9 +163,20 @@ export function useSendReminders() {
 export function useReminderSwitch(enabled: boolean) {
   return useQuery({
     queryKey: reminderKeys.switch,
-    queryFn: async () => (await api.get<{ enabled: boolean }>(`${BASE}/settings`)).data,
+    queryFn: async () => (await api.get<ReminderSwitchState>(`${BASE}/settings`)).data,
     enabled,
     retry: false,
+  });
+}
+
+export function useSetFeedbackSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (feedback: Partial<FeedbackSettings>) =>
+      (await api.put<{ feedback: FeedbackSettings }>(`${BASE}/settings`, { feedback })).data,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["settlement-reminders"] });
+    },
   });
 }
 

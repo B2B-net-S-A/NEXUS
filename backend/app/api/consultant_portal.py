@@ -62,6 +62,7 @@ from app.services.consultant_panel_schema import (
     TRAINER_TEXT_MAX,
 )
 from app.services.consultant_portal_schema import COMMENT_MAX, REASON_MAX, TOPICS
+from app.services.equipment import protocol_document
 from app.services.equipment import protocols as equipment_protocols
 from app.services.equipment.errors import EquipmentError
 from app.models.training import Training, TrainingFile
@@ -663,6 +664,13 @@ async def equipment_protocol_pdf(
         data = await equipment_protocols.render_pdf(db, protocol)
     except EquipmentError as exc:
         raise HTTPException(exc.status, exc.message) from exc
+    except protocol_document.ProtocolPdfUnavailable as exc:
+        # Brak LibreOffice, kolejka albo limit czasu — chwilowe, nie błąd
+        # serwera (wzór: ``api/equipment_public.py``).
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "PDF jest chwilowo niedostępny. Spróbuj za chwilę.",
+        ) from exc
     name = equipment_protocols.protocol_filename(protocol, "pdf")
     return Response(
         data,

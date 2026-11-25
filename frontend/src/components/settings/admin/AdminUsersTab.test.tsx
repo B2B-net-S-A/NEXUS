@@ -526,3 +526,31 @@ describe("lista kont: domyślnie aktywni, liczniki, „Bez aktywności”, kolej
     expect(screen.queryByRole("button", { name: "Następne" })).toBeNull();
   });
 });
+
+describe("lista kont: awaria ≠ pusta firma (audyt 24.11.2026)", () => {
+  it("awaria listy kont: komunikat z ponowieniem zamiast „Brak użytkowników” i licznika 0", async () => {
+    vi.mocked(adminApi.listUsers)
+      .mockRejectedValueOnce(refusal(500, { message: "Baza chwilowo niedostępna" }))
+      .mockResolvedValue({ data: USERS } as never);
+    const user = userEvent.setup();
+    renderTab();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nie udało się pobrać listy kont");
+    expect(screen.queryByText(/^Brak użytkowników/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\s+użytkowników/)).not.toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "Spróbuj ponownie" }));
+
+    expect(await screen.findByRole("row", { name: /Celina Wzorcowa/ })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("pusta lista po udanym pobraniu nadal mówi „Brak użytkowników”", async () => {
+    vi.mocked(adminApi.listUsers).mockResolvedValue({ data: [] } as never);
+    renderTab();
+    // W Ustawieniach domyślny filtr „Aktywni” — stąd wariant „…pasujących do filtrów”.
+    expect(await screen.findByText(/^Brak użytkowników/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});

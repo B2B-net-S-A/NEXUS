@@ -21,6 +21,11 @@ SQL `services/client_panel_schema.py` (lustro w `entrypoint.sh`, sondy w `/api/h
   zamknięta = 410, `noindex`, `no-referrer`, `no-store`, limity tras. „Odwołaj link”
   zmienia `nonce`. Zmiana `SECRET_KEY` unieważnia wszystkie linki: nowy link daje
   dopiero „Odwołaj link”. Ważność przy włączeniu: koniec dnia za 60 dni.
+- **Zmiana klienta rekrutacji wyłącza panel i wydaje nowy link**
+  (`close_for_client_change`, audyt 24.11.2026): link i ramki w CV poszły do
+  poprzedniego klienta. Nowy `nonce` także na wyłączonym panelu, bo ponowne
+  włączenie ożywiłoby stare ramki. Audyt `client_panel_disabled` (albo
+  `client_panel_link_rotated` przy wyłączonym) z `reason=client_changed`.
 - **Domyślnie wyłączony na każdej rekrutacji i tylko na żądanie** (potwierdzone
   przez Artura 08.11.2026, gdy audyt 2 proponował włączanie przy pierwszym CV:
   niektórzy klienci mogą tego zakazać, więc link nigdy nie idzie do klienta

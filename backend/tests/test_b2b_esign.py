@@ -1203,6 +1203,61 @@ async def test_unexpected_confirm_failure_still_tells_the_sender(
     assert any("oznacz ją w rejestrze" in t for t in titles), titles
 
 
+@pytest.mark.asyncio
+async def test_failed_file_attach_asks_the_sender_to_attach_it_by_hand(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Audyt r5: kontrakt powstał, ale podpisany PDF nie trafił do Dokumentów
+    (np. błąd dysku) — dzwonek nie twierdzi, że plik tam jest, tylko prosi
+    o ręczne dołączenie."""
+    from sqlalchemy import select
+
+    from app.api import b2b_esign
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.notification import Notification
+
+    async def _disk_full(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(b2b_esign.signed_file, "attach", _disk_full)
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_in_progress(created_by=admin_id)
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signature_status == "signed_both"
+        assert row.contract_id is not None and row.signed_document_id is None
+        notes = list(
+            (
+                await db.execute(
+                    select(Notification.title, Notification.message).where(
+                        Notification.user_id == admin_id,
+                        Notification.related_entity_type == "b2b_signing_request",
+                        Notification.related_entity_id == request_id,
+                    )
+                )
+            ).all()
+        )
+    signed = [n for n in notes if "podpisana" in n.title]
+    assert signed, notes
+    assert all("w Dokumentach kontraktu" not in n.message for n in signed), signed
+    assert any("dołącz" in n.message.lower() for n in signed), signed
+
+
 # ── etap 1b: reszta systemu wie, że umowa jest w podpisie (22.10.2026) ───────
 
 
@@ -2437,4 +2492,125 @@ async def test_handler_on_leave_brings_the_leave_substitute_into_the_bells(
     finally:
         async with AsyncSessionLocal() as db:
             await db.delete(await db.get(LeaveRequest, leave_id))
+            await db.commit()
+
+
+def _next_working_morning(after):
+    """Najbliższy dzień roboczy po ``after``, 10:00 w Warszawie (okno przypomnień)."""
+    from datetime import datetime, time, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from app.core.scheduling import is_business_day
+
+    warsaw = ZoneInfo("Europe/Warsaw")
+    day = after.astimezone(warsaw).date() + timedelta(days=1)
+    while True:
+        moment = datetime.combine(day, time(10, 0), warsaw).astimezone(timezone.utc)
+        if is_business_day(moment):
+            return moment
+        day += timedelta(days=1)
+
+
+@pytest.mark.asyncio
+async def test_inactive_company_signer_gets_no_mail_and_the_senders_get_the_bell(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Audyt r4 (24.11.2026): po podpisie kontraktora mail i przypomnienie szły
+    na adres wyłączonego konta reprezentanta, a dzwonek do niego ginął — nikt
+    nie wiedział, że umowa czeka. Teraz bez maila na jego adres, a dzwonek
+    dostają osoby wysyłki.
+
+    Przegląd PR-a: dzwonek o wyłączonym reprezentancie ma własny typ
+    (``signature_failed``), bo dzienny dedup (osoba + typ + wniosek) zjadał go,
+    gdy tego samego dnia obsługujący dostał przypomnienie „czeka na podpis
+    kontraktora” (``signature_sent``)."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.models.notification import Notification, NotificationType
+    from app.models.user import User
+    from app.services.b2b_esign import mail as esign_mail
+    from app.services.notification_triggers import emit as emit_notification
+    from app.tasks import b2b_esign_sweeper
+
+    mails: list[dict[str, Any]] = []
+
+    async def _send_from(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _send_from)
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+
+    async with AsyncSessionLocal() as db:
+        # Rano tego dnia pętla przypomniała obsługującemu o podpisie kontraktora.
+        await emit_notification(
+            db,
+            user_id=esign_env["admin_id"],
+            title="Umowa czeka na podpis kontraktora",
+            message="Kontraktor jeszcze nie podpisał.",
+            ntype=NotificationType.signature_sent,
+            related_entity_type="b2b_signing_request",
+            related_entity_id=request_id,
+        )
+        signer = await db.get(User, esign_env["signer_id"])
+        signer_email = signer.email
+        signer.is_active = False
+        await db.commit()
+    try:
+        _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+        signed = await app_client.post(
+            f"/api/public/b2b-sign/{token}",
+            files={
+                "file": (
+                    "u.pdf",
+                    SOURCE + b"% podpis kontraktora\n",
+                    "application/pdf",
+                )
+            },
+        )
+        assert signed.status_code == 200, signed.text
+        assert signer_email not in [m["to"] for m in mails]
+        notices = await _notices(esign_env["admin_id"], request_id)
+        assert any("czeka na podpis B2Bnetwork" in t for t in notices), notices
+
+        async with AsyncSessionLocal() as db:
+            request = await db.get(B2BSigningRequest, request_id)
+            request.contractor_signed_at -= timedelta(days=2)
+            request.last_reminder_at = None
+            # Przypomnienie przychodzi najwcześniej po dobie: dzwonki z dnia
+            # podpisu cofamy o tyle samo, inaczej dzienny dedup (liczony od
+            # prawdziwego ``created_at``, nie od ``now`` pętli) zjadłby kolejny.
+            await db.execute(
+                update(Notification)
+                .where(
+                    Notification.related_entity_type == "b2b_signing_request",
+                    Notification.related_entity_id == request_id,
+                )
+                .values(created_at=Notification.created_at - timedelta(days=2))
+            )
+            await db.commit()
+        now = _next_working_morning(datetime.now(timezone.utc))
+        assert await b2b_esign_sweeper._handle(request_id, now) == "reminded"
+        assert signer_email not in [m["to"] for m in mails]
+        notices = await _notices(esign_env["admin_id"], request_id)
+        assert any("nadal czeka na podpis B2Bnetwork" in t for t in notices), notices
+    finally:
+        async with AsyncSessionLocal() as db:
+            (await db.get(User, esign_env["signer_id"])).is_active = True
             await db.commit()

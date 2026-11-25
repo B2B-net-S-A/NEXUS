@@ -250,3 +250,52 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
     )
   })
 })
+
+describe("AdminTeamStructurePage — nieudane przypisanie DL do klienta", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.params = new URLSearchParams("zakladka=dl")
+    users = baseUsers
+    mocks.authUser = { id: 1, name: "Admin", role: "admin", roles: ["admin"] }
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/team-structure/summary") return Promise.resolve({ data: summary })
+      if (url.startsWith("/api/users?")) return Promise.resolve({ data: users })
+      if (url === "/api/clients") {
+        return Promise.resolve({
+          data: { items: [{ id: 7, name: "Firma Testowa" }], total: 1 },
+        })
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`))
+    })
+  })
+
+  it("odmowa serwera pokazuje komunikat i zostawia wybrane pola", async () => {
+    mocks.post.mockRejectedValue({
+      response: { status: 409, data: { detail: "Ten klient ma już głównego opiekuna." } },
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    const dlSelect = await screen.findByRole("combobox", { name: "Delivery Lead do przypisania" })
+    await screen.findByRole("option", { name: "Firma Testowa" })
+    await user.selectOptions(dlSelect, "30")
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Klient do przypisania Delivery Leada" }),
+      "7",
+    )
+    await user.click(screen.getByRole("button", { name: "Przypisz" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Ten klient ma już głównego opiekuna.",
+    )
+    expect(mocks.post).toHaveBeenCalledWith("/api/team-structure/dl-clients", {
+      delivery_lead_user_id: 30,
+      client_id: 7,
+      is_head: false,
+    })
+    expect(dlSelect).toHaveValue("30")
+    expect(
+      screen.getByRole("combobox", { name: "Klient do przypisania Delivery Leada" }),
+    ).toHaveValue("7")
+  })
+})
