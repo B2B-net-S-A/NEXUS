@@ -35,6 +35,7 @@ _SENDERS = {
         "board_monthly_report",
         "board_placement_alert",
     ),
+    "app/services/month_check/mail.py": ("month_check_report",),
 }
 
 

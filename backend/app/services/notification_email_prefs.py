@@ -297,6 +297,11 @@ def _board_monthly(user: User, _: _Context) -> bool:
     )
 
 
+def _month_check(user: User, _: _Context) -> bool:
+    # Lustro odbiorców `month_check.mail.recipients` po „wysyłaj” Artura.
+    return user.has_role(UserRole.finance)
+
+
 def _board_placement(user: User, _: _Context) -> bool:
     return user.has_role(UserRole.board) and _section_read(
         user, ProductSection.insights
@@ -340,6 +345,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "kpi_weekly_report": _kpi_weekly,
     "board_monthly_report": _board_monthly,
     "board_placement_alert": _board_placement,
+    "month_check_report": _month_check,
 }
 
 

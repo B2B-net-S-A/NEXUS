@@ -5350,6 +5350,38 @@
     "dot_anchor": "contracts.rate-history"
   },
   {
+    "id": "finanse-kontrola-miesiaca-rozbieznosci",
+    "pr": 4018,
+    "title": "Rozbieżności faktur klient ↔ konsultant",
+    "why": "Co noc NEXUS porównuje faktury do klientów z fakturami konsultantów z KSeF. Sprawę oznaczasz „Wyjaśnione” z powodem albo „Do korekty”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Finanse → Przychody → Przebieg miesiąca → Rozbieżności",
+    "href": "/finance",
+    "practice_href": "/finance?view=month-close",
+    "section": "finance",
+    "dot_anchor": "finance.month-close.diff",
+    "steps": [
+      {
+        "anchor": "finance.month-close.diff",
+        "text": "Kliknij zakładkę „Rozbieżności”",
+        "hint": "Liczba przy zakładce to sprawy otwarte: nowe i „Do korekty”."
+      },
+      {
+        "anchor": "finance.month-close.diff-summary",
+        "text": "Przeczytaj podsumowanie miesiąca",
+        "hint": "Ile osobo-miesięcy się zgadza, ile spraw i na jaką kwotę. Brak faktury po jednej stronie liczy się dopiero po 15. dniu następnego miesiąca.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

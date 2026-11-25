@@ -941,6 +941,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.contract_rate_documents import contract_rate_documents_loop
     from app.tasks.contract_rate_history import contract_rate_history_loop
+    from app.tasks.month_check import month_check_loop
     from app.tasks.contract_partner_reads import contract_partner_reads_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
@@ -1216,6 +1217,7 @@ async def lifespan(app: FastAPI):
             # 0782: historia stawek kontraktu z faktur KSeF — podpowiedzi na
             # karcie, wpis automatyczny historii za flagą.
             "contract_rate_history": asyncio.create_task(contract_rate_history_loop()),
+            "month_check": asyncio.create_task(month_check_loop()),
             # 0755: dane firmy Partnera z podpisanej umowy do potwierdzenia
             # (E5a). Kończy się przed pętlą przy CONTRACT_PARTNER_READ_ENABLED=false.
             "contract_partner_reads": asyncio.create_task(
@@ -4308,6 +4310,7 @@ async def api_health_deep_check(request: Request):
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.contract_rate_history_finding import ContractRateHistoryFinding
+    from app.models.month_check_case import MonthCheckCase
     from app.models.contract_partner_read import ContractPartnerRead
     from app.models.client_order_cost_step import (
         ClientOrderCostReview,
@@ -5043,6 +5046,8 @@ async def api_health_deep_check(request: Request):
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
         ("contract_rate_history_findings", ContractRateHistoryFinding),
+        # 0784: kontrola miesiąca — rozbieżności faktur klient ↔ konsultant.
+        ("month_check_cases", MonthCheckCase),
         # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
         ("contract_partner_reads", ContractPartnerRead),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
