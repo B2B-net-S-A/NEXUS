@@ -1,14 +1,25 @@
 "use client";
 
+import type React from "react";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
-import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useSalesFormChecks } from "@/lib/api/client-invoicing";
 import { formatDayMonthPl, monthTitlePl } from "@/lib/date-pl";
 import { countPl } from "@/lib/plural-pl";
+
+/** Kropka + zdanie, które się zawija (StatusDot jest na krótkie etykiety, bez zawijania). */
+function Line({ tone, children }: { tone: "success" | "warning" | "danger"; children: React.ReactNode }) {
+  const dot = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive" }[tone];
+  return (
+    <span className="flex min-w-0 items-start gap-1.5 text-xs font-medium text-foreground">
+      <span aria-hidden className={`mt-1.5 size-1.5 shrink-0 rounded-full ${dot}`} />
+      <span className="min-w-0">{children}</span>
+    </span>
+  );
+}
 
 /**
  * Kontrola formalna faktur z KSeF wystawionych poza NEXUSEM (eBI24): data
@@ -31,13 +42,13 @@ export function FormChecksPanel({
 
   if (report.isError) {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm">
-        <StatusDot tone="danger">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm">
+        <Line tone="danger">
           {apiErrorMessage(
             report.error,
             "Nie udało się sprawdzić faktur z KSeF.",
           )}
-        </StatusDot>
+        </Line>
         <Button size="sm" variant="ghost" onClick={() => report.refetch()}>
           Spróbuj ponownie
         </Button>
@@ -81,9 +92,7 @@ export function FormChecksPanel({
             />
           )
         ) : null}
-        <StatusDot tone={rows.length ? "warning" : "success"}>
-          {title}
-        </StatusDot>
+        <Line tone={rows.length ? "warning" : "success"}>{title}</Line>
       </button>
       {open && rows.length ? (
         <ul className="max-h-[50dvh] divide-y divide-border overflow-y-auto border-t border-border">
