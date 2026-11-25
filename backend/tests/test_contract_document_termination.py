@@ -172,6 +172,23 @@ def test_unsure_text_gives_no_rule_with_a_reason(text: str, reason_part: str) ->
     assert reason_part in parsed.reason
 
 
+def test_list_items_in_one_sentence_are_read_one_by_one() -> None:
+    """Umowa z wyliczeniem trybów w jednym zdaniu: punkt d (natychmiastowy)
+    nie może wyłączyć okresu z punktów b i c."""
+    text = (
+        "§ 9\nStrony mają możliwość rozwiązania umowy w następujących trybach: "
+        "a. za porozumieniem Stron b. za wypowiedzeniem ze strony B2BNET z 30-dniowym "
+        "okresem wypowiedzenia c. za wypowiedzeniem ze strony Partnera z 30-dniowym "
+        "okresem wypowiedzenia d. w trybie natychmiastowym na warunkach z ust. 3.\n"
+    )
+    rule = parse_termination(text).rule
+    assert (rule.period_kind, rule.period_days) == (PERIOD_DAYS, 30)
+
+    different = text.replace("Partnera z 30-dniowym", "Partnera z 14-dniowym")
+    parsed = parse_termination(different)
+    assert parsed.rule is None and "więcej niż jeden okres" in parsed.reason
+
+
 def test_unrelated_deadline_after_termination_is_not_the_period() -> None:
     text = (
         "§ 4\nPartner zwróci sprzęt w terminie 7 dni od wypowiedzenia Umowy.\n"
@@ -186,6 +203,11 @@ def test_unrelated_deadline_after_termination_is_not_the_period() -> None:
 def test_document_number_and_range_ref() -> None:
     assert structure.document_number(EDITION_2025) == "12/2025"
     assert structure.document_number("Umowa o współpracy\n§ 1 ...") is None
+    # Nagłówek z PDF-u: tytuł z cyfrą („B2B”) i spacje wokół ukośnika.
+    assert (
+        structure.document_number("Umowa o współpracę B2B\nnr 1167 / 2025\nzawarta")
+        == "1167/2025"
+    )
     found = structure.markers(EDITION_2025)
     start = EDITION_2025.index("2. Każda")
     assert structure.range_ref(found, start, start + 40) == "§ 8 ust. 2"

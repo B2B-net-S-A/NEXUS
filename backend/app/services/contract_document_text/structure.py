@@ -206,8 +206,9 @@ def range_ref(found: Sequence[Marker], start: int, end: int) -> Optional[str]:
 
 _NUMBER = re.compile(
     r"\b(?:umow\w*|aneks\w*|porozumieni\w*|wypowiedzeni\w*)"
-    r"(?:\s+(?!nr\b|numer\b)[^\s\d]+){0,4}?\s+(?:nr|numer)\.?\s*"
-    r"([A-Z0-9][\w/.\-]*\d[\w/\-]*)",
+    r"(?:\s+(?!nr\b|numer\b)\S+){0,4}?\s+(?:nr|numer)\.?\s*"
+    # „12/2025”, „1167 / 2025”, „B2B/7/2026” — spacje wokół ukośnika z OCR.
+    r"([A-Z0-9][\w.\-]*(?:\s*/\s*[\w.\-]+)*)",
     re.IGNORECASE,
 )
 
@@ -215,4 +216,7 @@ _NUMBER = re.compile(
 def document_number(text: str) -> Optional[str]:
     """Numer z nagłówka dokumentu („Umowa nr 12/2025”), gdy stoi na początku."""
     match = _NUMBER.search(text[:1500])
-    return match.group(1).rstrip(".,") if match else None
+    if not match:
+        return None
+    number = re.sub(r"\s*/\s*", "/", match.group(1)).rstrip(".,")
+    return number if any(ch.isdigit() for ch in number) else None

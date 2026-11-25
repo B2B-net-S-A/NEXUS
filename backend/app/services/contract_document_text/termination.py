@@ -157,31 +157,41 @@ def _anchor(folded: str) -> Optional[str]:
     return None
 
 
+_LIST_ITEM = re.compile(r"(?:^|(?<=\s))[a-h][.)]\s+|;")
+
+
+def _fragments(folded: str) -> list[str]:
+    """Punkty wyliczenia w jednym zdaniu („a. za porozumieniem … d. w trybie
+    natychmiastowym”) — każdy oceniany osobno, bo tryb natychmiastowy w punkcie
+    d nie unieważnia okresu z punktu b."""
+    return [part for part in _LIST_ITEM.split(folded) if part.strip()]
+
+
 def _period_candidates(
     found: list[Sentence],
 ) -> list[tuple[str, str, int, Sentence]]:
-    """(rodzaj, jednostka, liczba, zdanie) dla każdego zdania z okresem wypowiedzenia."""
+    """(rodzaj, jednostka, liczba, zdanie) dla każdego zapisu o okresie wypowiedzenia."""
     out: list[tuple[str, str, int, Sentence]] = []
     for index, sentence in enumerate(found):
-        folded = sentence.folded
-        if not _TERMINATION.search(folded) or not _PERIOD_CONTEXT.search(folded):
-            continue
-        duration = _duration(folded)
-        if duration is None:
-            continue
-        if _IMMEDIATE.search(folded) and not _anchor(folded):
-            continue
-        unit, value = duration
-        anchor = _anchor(folded)
-        if anchor is None:
-            # Sposób liczenia bywa w następnym zdaniu tego samego akapitu
-            # („Okres wypowiedzenia wynosi 1 miesiąc. Okres ten liczy się…”).
-            following = found[index + 1] if index + 1 < len(found) else None
-            if following is not None and following.paragraph == sentence.paragraph:
-                anchor = _anchor(following.folded)
-        if anchor is None and unit == "days":
-            anchor = PERIOD_DAYS
-        out.append((anchor or "", unit, value, sentence))
+        for folded in _fragments(sentence.folded):
+            if not _TERMINATION.search(folded) or not _PERIOD_CONTEXT.search(folded):
+                continue
+            duration = _duration(folded)
+            if duration is None:
+                continue
+            anchor = _anchor(folded)
+            if _IMMEDIATE.search(folded) and not anchor:
+                continue
+            unit, value = duration
+            if anchor is None:
+                # Sposób liczenia bywa w następnym zdaniu tego samego akapitu
+                # („Okres wypowiedzenia wynosi 1 miesiąc. Okres ten liczy się…”).
+                following = found[index + 1] if index + 1 < len(found) else None
+                if following is not None and following.paragraph == sentence.paragraph:
+                    anchor = _anchor(following.folded)
+            if anchor is None and unit == "days":
+                anchor = PERIOD_DAYS
+            out.append((anchor or "", unit, value, sentence))
     return out
 
 
