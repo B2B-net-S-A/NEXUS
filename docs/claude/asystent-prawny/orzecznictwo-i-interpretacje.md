@@ -63,7 +63,7 @@ w lifespanie — uruchomienie ręczne (na produkcji po wdrożeniu 0781).
 
 `GET /api/legal/cases/search?q=…&courts=supreme&courts=common&since=RRRR-MM-DD&limit=5`
 → `items` (kształt `SourcePassage`), `retrieval` (`hybrid` / `keywords` /
-`none`), `links` (źródła bez API). Bramka: sekcja Delivery i „Klienci,
-kontrakty i zamówienia: podgląd” (`DeliveryViewUser`) — do wyrównania
-z bramką routera `/api/legal` części A przy scalaniu. Wzorzec:
+`none`), `links` (źródła bez API). Bramka jak reszta `/api/legal` (część A):
+sekcja Sourcing i Generator umów B2B (`B2BGeneratorAccess`), bo asystent
+stoi w tle Generatora i kontraktów. Wzorzec:
 `tests/data/authz_golden/legal_case_law.json`.

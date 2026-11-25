@@ -458,12 +458,12 @@ def test_migration_reads_the_same_ddl() -> None:
     assert module.schema.ALL_DDL is schema.ALL_DDL
 
 
-def test_route_is_gated_by_delivery_view() -> None:
+def test_route_is_gated_like_the_rest_of_legal_api() -> None:
     from app.api import legal_case_law as api
 
     route = next(r for r in api.router.routes if r.path == "/cases/search")
     names = {getattr(d.call, "__qualname__", "") for d in route.dependant.dependencies}
-    assert any("require_permission" in name for name in names)
+    assert any("require_b2b_generator_access" in name for name in names)
     assert any("require_section_access" in name for name in {
         getattr(d.dependency, "__qualname__", "") for d in api.router.dependencies
     })

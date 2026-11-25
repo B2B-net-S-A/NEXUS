@@ -31,6 +31,6 @@
   "back_office"
  ],
  "routes": {
-  "GET /api/legal/cases/search": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP"
+  "GET /api/legal/cases/search": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }
