@@ -391,6 +391,90 @@ def test_dzien_ponad_limit():
     assert _titles(_evaluate(parsed))["26 h w dniu 03.11"] == "fail"
 
 
+# ── Kilka plików na różne prace (próba VI–VIII 2026, Polkomtel) ─────────────
+
+
+def _work_sheet(desc: str, days: list[int], hours: int = 8, **kwargs):
+    return timesheet.parse_rows(
+        [_sheet([_row(d, hours, desc=desc) for d in days], project=None, **kwargs)]
+    )
+
+
+def test_dwa_pliki_na_rozne_prace_sumuja_sie_z_projektem_z_opisu():
+    first = _work_sheet("Utrzymanie systemu A", [2, 3, 4], hours=4)
+    second = _work_sheet("Automaty testów B", [2, 3])
+    merged, files = timesheet.merge_projects(first, [second])
+    assert files == 2
+    assert merged.total_hours == Decimal("28")
+    assert merged.hours_by_project() == {
+        "Utrzymanie systemu A": Decimal("12"),
+        "Automaty testów B": Decimal("16"),
+    }
+    result = _evaluate(merged, files=files)
+    assert result.md_regular == Decimal("3.5")
+    assert "Time Sheet z 2 plików" in _titles(result)
+
+
+def test_poprawiona_wersja_tej_samej_pracy_nie_dochodzi():
+    """Konsultant dosyła poprawiony Time Sheet: liczy się tylko najnowszy plik."""
+
+    newest = _work_sheet("Utrzymanie systemu A", [2, 3, 4])
+    older = _work_sheet("Utrzymanie systemu A", [2, 3])
+    merged, files = timesheet.merge_projects(newest, [older])
+    assert files == 1 and merged is newest
+
+
+def test_inny_miesiac_i_inna_osoba_nie_dochodza():
+    main = _work_sheet("Utrzymanie systemu A", [2, 3])
+    october = _work_sheet("Automaty testów B", [2], start=date(2026, 10, 1))
+    stranger = _work_sheet("Automaty testów B", [2], consultant="Anna Inna")
+    merged, files = timesheet.merge_projects(main, [october, stranger])
+    assert files == 1 and merged is main
+
+
+def test_projekty_z_naglowka_rozne_sumuja_sie():
+    alfa = timesheet.parse_rows([_sheet([_row(2, 8), _row(3, 8)], project="ALFA")])
+    beta = timesheet.parse_rows([_sheet([_row(4, 8)], project="BETA")])
+    merged, files = timesheet.merge_projects(alfa, [beta])
+    assert files == 2
+    assert merged.hours_by_project() == {"ALFA": Decimal("16"), "BETA": Decimal("8")}
+
+
+async def test_rozliczenie_liczy_oba_pliki_miesiaca(tmp_path, monkeypatch):
+    from app.models.consultant_portal import CpDocument
+    from app.services import storage_service
+    from app.services.client_settlements import service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    folder = tmp_path / "consultant_portal" / "1"
+    folder.mkdir(parents=True)
+    sheets = {
+        "a.xlsx": _sheet(
+            [_row(d, 8, desc="Utrzymanie systemu A") for d in (2, 3)], project=None
+        ),
+        "b.xlsx": _sheet(
+            [_row(d, 8, desc="Automaty testów B") for d in (4,)], project=None
+        ),
+    }
+    docs = []
+    for number, (name, rows) in enumerate(sheets.items(), start=1):
+        (folder / name).write_bytes(_xlsx(rows))
+        docs.append(
+            CpDocument(
+                id=number,
+                kind="report",
+                mime=XLSX,
+                file_path=f"consultant_portal/1/{name}",
+                file_name=name,
+            )
+        )
+    result = await service._proof(
+        docs[1], docs, month="2026-11", person_name="Jan Testowy", rules=_rules()
+    )
+    assert result.md_regular == Decimal("3")
+    assert "Time Sheet z 2 plików" in _titles(result)
+
+
 # ── Potwierdzenie usług ──────────────────────────────────────────────────────
 
 
