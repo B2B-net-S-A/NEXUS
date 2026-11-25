@@ -1,7 +1,7 @@
 """Kontrola miesiąca: rozbieżności faktur klient ↔ konsultant (decyzja Artura 25.11.2026).
 
 Revision ID: 0784_month_check_cases
-Revises: 0782_contract_rate_history_ksef
+Revises: 0783_lost_review
 
 Tabela ``month_check_cases`` — sprawy z nocnej kontroli faktur do klientów
 i faktur konsultantów z KSeF (godziny, brak faktury po jednej ze stron,
@@ -19,7 +19,7 @@ from alembic import op
 from app.services.month_check import schema_sql as schema
 
 revision = "0784_month_check_cases"
-down_revision = "0782_contract_rate_history_ksef"
+down_revision = "0783_lost_review"
 branch_labels = None
 depends_on = None
 
