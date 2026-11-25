@@ -141,6 +141,22 @@ _CITIES: dict[str, tuple[str, ...]] = {
     "Łódź": ("łódź", "lodz"),
 }
 _CITY_OF = {alias: label for label, aliases in _CITIES.items() for alias in aliases}
+_KNOWN_CITY_RE = re.compile(
+    r"(?<!\w)("
+    + "|".join(re.escape(a) for a in sorted(_CITY_OF, key=len, reverse=True))
+    + r")(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def known_city(text: str | None) -> str | None:
+    """Pierwsze z sześciu dużych miast w tekście (polska nazwa) albo ``None``.
+
+    Dla miejsca projektu w raporcie: z lokalizacji rekrutacji bierzemy tylko
+    znane miasto, nigdy resztę wpisu (adres, nazwa biura, zespół).
+    """
+    found = _KNOWN_CITY_RE.search(text or "")
+    return _CITY_OF[found.group(1).lower()] if found else None
 
 
 # ── Bez bazy ────────────────────────────────────────────────────────────────

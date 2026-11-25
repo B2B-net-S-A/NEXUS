@@ -58,7 +58,7 @@ JOBS = [
     _job(2, days=3, city="Kraków", budget=160),  # dni
     _job(3, days=2, city="Warszawa", budget=170),  # miasto
     _job(4, remote=True, budget=140),  # budżet
-    _job(5, remote=True),  # nieznany budżet przechodzi
+    _job(5, remote=True),  # nieznany budżet nie przechodzi kroku budżetu
     _job(6, days=3, city="Warszawa", budget=100),  # trzy warunki
 ]
 
@@ -69,7 +69,7 @@ def test_lejek_narastajaco_w_kolejnosci_warunkow():
         ("tech", "Otwarte projekty z Javą", 6),
         ("office_days", "Biuro do 2 dni", 4),
         ("location", "Kraków albo zdalnie", 3),
-        ("budget", "Od 150 zł/h", 2),
+        ("budget", "Od 150 zł/h", 1),
     ]
 
 
@@ -78,13 +78,19 @@ def test_budzet_rowny_stawce_przechodzi():
     assert engine._fails(_job(9, budget=149.99), _terms()) == ["budget"]
 
 
+def test_nieznany_budzet_nie_przechodzi_kroku_od_stawki():
+    assert engine._fails(_job(9, remote=True), _terms()) == ["budget"]
+    steps = engine.funnel([_job(9, remote=True)], _terms(), role="java")
+    assert steps[-1].key == "budget" and steps[-1].count == 0
+
+
 def test_tylko_zdalnie_bez_kroku_dni_w_biurze():
     t = _terms(remote_only=True, office_max=0, cities=())
     steps = engine.funnel(JOBS, t, role="java")
     assert [s.key for s in steps] == ["tech", "location", "budget"]
     assert steps[1].label == "Zdalnie"
     assert steps[1].count == 2  # zdalne 4 i 5
-    assert steps[2].count == 1
+    assert steps[2].count == 0  # 4 za nisko, 5 bez budżetu
 
 
 def test_krok_bez_mozliwosci_filtrowania_pominiety():
@@ -156,11 +162,24 @@ def test_tylko_zdalnie_dzwignia_hybrydy_z_miastem_profilu():
 
 def test_projekty_najpierw_spelniajace_potem_chybione_o_jeden():
     picked = engine.pick_jobs(JOBS, _terms())
+    # Bez budżetu (5) nie spełnia; chybione: znany budżet przed nieznanym, wyższy pierwszy.
     assert [(j.job_id, reason) for j, reason in picked] == [
         (1, None),
-        (5, None),
         (3, "poza Twoimi miastami"),
+        (2, "o 1 dzień w biurze za dużo"),
     ]
+
+
+def test_projekt_bez_budzetu_tylko_jako_chybiony_do_ustalenia():
+    picked = engine.pick_jobs([JOBS[0], JOBS[4]], _terms())
+    assert [(j.job_id, reason) for j, reason in picked] == [
+        (1, None),
+        (5, "budżet do ustalenia z rekruterem"),
+    ]
+    three = [_job(i, remote=True, budget=150 + i) for i in range(10, 13)]
+    picked = engine.pick_jobs([*three, JOBS[4]], _terms())
+    assert [(j.job_id, r) for j, r in picked] == [(12, None), (11, None), (10, None)]
+    assert all(j.budget is not None and j.budget >= 150 for j, r in picked if r is None)
 
 
 def test_powody_chybienia():
@@ -184,6 +203,42 @@ def test_miejsce_projektu():
     assert engine.place_of(_job(1, days=1)) == "1 dzień w biurze"
     assert engine.place_of(_job(1, remote=True)) == "zdalnie"
     assert engine.place_of(_job(1)) is None
+    # Polityka nieznana, ale miasto znane: samo miasto.
+    assert engine.place_of(_job(1, city="Gdańsk")) == "Gdańsk"
+
+
+def test_miasto_tylko_ze_znanych():
+    assert (
+        market_rates.known_city("Biurowiec Kometa, ul. Fikcyjna 1, 30-001 Kraków")
+        == "Kraków"
+    )
+    assert market_rates.known_city("Warsaw / hybrid") == "Warszawa"
+    assert market_rates.known_city("Kampus Orion") is None
+    assert market_rates.known_city(None) is None
+
+
+def test_umiejetnosci_tylko_krotkie_nazwy():
+    assert engine.skill_shown("Spring Boot")
+    assert not engine.skill_shown("Znajomość systemu Orion w zespole Kometa")
+    assert not engine.skill_shown("Kometa", ["Kometa"])
+
+
+def test_tytul_ogolny_z_roli_poziomu_i_technologii():
+    assert (
+        engine.generic_title("java", None, ["Java 17", "Kafka"])
+        == "Java Developer · Kafka"
+    )
+    assert (
+        engine.generic_title("java", "senior", ["Java"])
+        == "Senior Java Developer · backend"
+    )
+    assert (
+        engine.generic_title("tester", None, []) == "Tester manualny · projekt testowy"
+    )
+    assert (
+        engine.generic_title("tester", None, ["Selenium", "SQL"])
+        == "Tester automatyzujący · Selenium"
+    )
 
 
 def test_brakujaca_technologia_bez_glownej_i_bez_posiadanych():
@@ -429,6 +484,8 @@ async def test_pelny_raport_z_warunkow_formularza(db, market):
     meets = [j for j in snap.jobs if j.meets]
     assert [j.budget_max for j in meets] == [160, 150]
     assert meets[0].place == "Kraków, 2 dni w biurze"
+    assert meets[0].skills == ("Java", "Spring Boot", "Kubernetes")
+    assert meets[1].place == "zdalnie"
     near = [j for j in snap.jobs if not j.meets]
     assert [(j.budget_max, j.miss_reason) for j in near] == [
         (200, "o 1 dzień w biurze za dużo")
@@ -449,7 +506,48 @@ async def test_w_snapshocie_nigdy_nazwy_klienta(db, market):
     assert CLIENT.lower() not in dumped.lower()
     assert "Zetafirma" not in dumped
     titles = {j.title for j in snap.jobs}
-    assert {"Java Developer", "Projekt: Java"} <= titles
+    assert titles == {"Java Developer · Spring Boot", "Java Developer · Kafka"}
+
+
+async def test_tytul_wewnetrzny_rekrutacji_nigdy_w_raporcie(db, market):
+    """Wewnętrzny tytuł, zespół, program i biuro z rekrutacji nie trafiają do maila."""
+    from app.models.job import RemotePolicy
+    from app.services.competence_report_email import ReportLinks, render_report_email
+
+    client = await _client(db)
+    await _open_job(
+        db,
+        client,
+        "Zespół Kometa / program Orion — Java (wewn.)",
+        must_skills=["Java", "Kafka", "Znajomość systemu Orion w zespole Kometa"],
+        onsite_days_per_week=2,
+        location="Biurowiec Kometa, ul. Fikcyjna 1, Kraków",
+        rate_budget_hourly=Decimal("180"),
+        remote_policy=RemotePolicy.hybrid,
+    )
+    candidate = await _candidate(db)
+    report = await _report(db, candidate)
+
+    snap = await engine.build_snapshot(db, report)
+
+    [job] = snap.jobs
+    assert job.title == "Java Developer · Kafka"
+    assert job.skills == ("Java", "Kafka")
+    assert job.place == "Kraków, 2 dni w biurze"
+    assert job.meets and job.budget_max == 180
+    mail = render_report_email(
+        snap,
+        first_name="Testowa",
+        links=ReportLinks(
+            edit_conditions_url="https://example.com/r",
+            unsubscribe_url="https://example.com/u",
+            one_click_unsubscribe_url=None,
+        ),
+    )
+    dumped = json.dumps(snap.model_dump(mode="json"), ensure_ascii=False)
+    for secret in ("Kometa", "Orion", "Fikcyjna", "wewn"):
+        assert secret not in dumped
+        assert secret not in mail.html and secret not in mail.text
 
 
 async def test_cv_spoza_it_daje_raport_limited(db, market):

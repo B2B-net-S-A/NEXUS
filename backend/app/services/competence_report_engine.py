@@ -80,6 +80,52 @@ ROLE_PHRASE: dict[str, str] = {
 }
 FALLBACK_ROLE_LABEL = "Twój profil"
 
+# Tytuł projektu bez tytułu zatwierdzonego na stronę kariery: składany z roli,
+# poziomu i głównej technologii — nigdy z wolnego tekstu rekrutacji, bo tytuły
+# wewnętrzne niosą nazwy klientów, zespołów i programów.
+ROLE_TITLE: dict[str, str] = {
+    "java": "Java Developer",
+    "python": "Python Developer",
+    "dotnet": ".NET Developer",
+    "frontend": "Frontend Developer",
+    "kotlin": "Kotlin Developer",
+    "go": "Go Developer",
+    "php": "PHP Developer",
+    "tester": "Tester manualny",
+    "devops": "DevOps Engineer",
+    "business_analyst": "Analityk biznesowy",
+    "project_manager": "Kierownik projektu",
+    "data_engineer": "Inżynier danych",
+}
+ROLE_AREA: dict[str, str] = {
+    "java": "backend",
+    "python": "backend",
+    "dotnet": "backend",
+    "kotlin": "backend",
+    "go": "backend",
+    "php": "backend",
+    "frontend": "aplikacje webowe",
+    "tester": "projekt testowy",
+    "devops": "infrastruktura",
+    "business_analyst": "projekt IT",
+    "project_manager": "projekt IT",
+    "data_engineer": "dane",
+}
+SENIORITY_PREFIX: dict[str, str] = {
+    "junior": "Junior",
+    "senior": "Senior",
+    "lead": "Lead",
+}
+_TEST_AUTOMATION = re.compile(
+    r"selenium|cypress|playwright|appium|webdriver|robot framework|testng|cucumber"
+    r"|rest[ -]?assured|automat",
+    re.IGNORECASE,
+)
+#: Umiejętność do pokazania: krótka nazwa, nie zdanie z ogłoszenia.
+SKILL_MAX_CHARS = 30
+SKILL_MAX_WORDS = 3
+UNKNOWN_BUDGET_REASON = "budżet do ustalenia z rekruterem"
+
 
 # ── Fakty rekrutacji i warunki (bez bazy) ───────────────────────────────────
 
@@ -151,7 +197,9 @@ def _fails(job: JobFacts, t: Terms) -> list[str]:
         and not tokens_overlap(set(job.office_tokens), _city_tokens(t.cities))
     ):
         out.append("location")
-    if job.budget is not None and job.budget < t.rate:
+    # Nieznany budżet nie przechodzi (inaczej niż w ``dealbreaker_filters``):
+    # raport obiecuje „od N zł/h” tylko tam, gdzie budżet jest znany.
+    if job.budget is None or job.budget < t.rate:
         out.append("budget")
     return out
 
@@ -277,13 +325,20 @@ def _miss_reason(key: str, job: JobFacts, t: Terms) -> str:
         return f"o {_days((job.days or 0) - (t.office_max or 0))} w biurze za dużo"
     if key == "location":
         return "wymaga pracy w biurze" if t.remote_only else "poza Twoimi miastami"
+    if job.budget is None:
+        return UNKNOWN_BUDGET_REASON
     return "budżet poniżej Twojej stawki"
 
 
 def pick_jobs(
     jobs: Sequence[JobFacts], t: Terms
 ) -> list[tuple[JobFacts, Optional[str]]]:
-    """Najpierw spełniające wszystko, potem chybione o jeden warunek; wyższy budżet pierwszy."""
+    """Najpierw spełniające wszystko, potem chybione o jeden warunek.
+
+    Znany budżet przed nieznanym, wyższy przed niższym. Spełnia tylko projekt ze
+    znanym budżetem od stawki; bez budżetu trafia najwyżej do chybionych
+    („budżet do ustalenia”), gdy spełniających jest mniej niż ``MAX_JOBS``.
+    """
 
     def order(job: JobFacts) -> tuple:
         return (job.budget is None, -(job.budget or 0), job.job_id)
@@ -297,6 +352,7 @@ def pick_jobs(
 
 
 def place_of(job: JobFacts) -> Optional[str]:
+    """Znane miasto i dni w biurze albo „zdalnie” — bez reszty wpisu lokalizacji."""
     if job.needs_office:
         parts = [
             p
@@ -304,7 +360,35 @@ def place_of(job: JobFacts) -> Optional[str]:
             if p
         ]
         return ", ".join(parts) or "z biurem"
-    return "zdalnie" if job.remote else None
+    if job.remote:
+        return "zdalnie"
+    return job.city
+
+
+def skill_shown(name: str, names: Sequence[str] = ()) -> bool:
+    """Nazwa technologii, a nie zdanie z ogłoszenia ani nazwa klienta."""
+    text = name.strip()
+    return (
+        bool(text)
+        and len(text) <= SKILL_MAX_CHARS
+        and len(text.split()) <= SKILL_MAX_WORDS
+        and not _mentions(text, names)
+    )
+
+
+def generic_title(role: str, seniority: Optional[str], skills: Sequence[str]) -> str:
+    """„Java Developer · Spring Boot”, „Senior Tester manualny · projekt testowy”."""
+    base = ROLE_TITLE.get(role, market_rates.ROLES[role].role_label)
+    if role == "tester" and any(_TEST_AUTOMATION.search(s) for s in skills):
+        base = "Tester automatyzujący"
+    level = SENIORITY_PREFIX.get(seniority or "")
+    if level:
+        base = f"{level} {base}"
+    pattern = market_rates.tech_pattern(role)
+    extra = next(
+        (s for s in skills if not (pattern and pattern.search(s.lower()))), None
+    )
+    return f"{base} · {extra or ROLE_AREA.get(role, 'projekt IT')}"
 
 
 def missing_tech(
@@ -320,7 +404,11 @@ def missing_tech(
     shown: dict[str, str] = {}
     for job in jobs:
         for name in set(gate_eligible_must_skills(job.must)):
-            if name in have or (role_pattern and role_pattern.search(name)):
+            if (
+                name in have
+                or (role_pattern and role_pattern.search(name))
+                or not skill_shown(name)
+            ):
                 continue
             counts[name] += 1
         for canon, display in zip(job.must, job.skills):
@@ -360,12 +448,7 @@ def _display_skills(raw: Any) -> dict[str, str]:
 
 
 def _job_city(location: Optional[str]) -> Optional[str]:
-    from app.services.public_city import public_city
-
-    text = public_city(location) or ""
-    if not text or text.lstrip().startswith("{"):
-        return None
-    return market_rates.normalize_city(text.split(",")[0])
+    return market_rates.known_city(location)
 
 
 def job_facts(job: Job) -> JobFacts:
@@ -381,6 +464,7 @@ def job_facts(job: Job) -> JobFacts:
     policy = resolve_effective_remote_policy(job)
     must = tuple(_canonical_raw(job.must_skills))
     display = _display_skills(job.must_skills)
+    # Pisownia z rekrutacji tylko wtedy, gdy to ta sama nazwa (inna wielkość liter).
     return JobFacts(
         job_id=job.id,
         days=days,
@@ -390,7 +474,9 @@ def job_facts(job: Job) -> JobFacts:
         city=_job_city(job.location),
         budget=resolve_job_budget_hourly(job),
         must=must,
-        skills=tuple(display.get(m, m) for m in must),
+        skills=tuple(
+            display[m] if display.get(m, "").lower() == m else m for m in must
+        ),
     )
 
 
@@ -452,26 +538,23 @@ async def _report_job(
     job: Job,
     facts: JobFacts,
     miss_reason: Optional[str],
-    role_label: str,
+    role: str,
 ) -> ReportJob:
+    """Projekt w raporcie: nic z wolnego tekstu rekrutacji (tytuł, lokalizacja)."""
     from app.services.application_confirmation_email import public_job_title
-    from app.services.job_public_profile import default_public_title
 
     names = await _client_names(db, job)
-    title = await public_job_title(db, job.id) or default_public_title(
-        job.title, names, getattr(job, "client_reference", None)
-    )
-    if _mentions(title, names):
-        title = f"Projekt: {role_label}"
-    place = place_of(facts)
+    skills = tuple(s for s in facts.skills if skill_shown(s, names))[:JOB_SKILLS_SHOWN]
+    approved = await public_job_title(db, job.id)
+    if not approved or _mentions(approved, names):
+        seniority = getattr(job.seniority, "value", job.seniority)
+        approved = generic_title(role, seniority, skills)
     return ReportJob(
         job_id=job.id,
-        title=title[:200],
+        title=approved[:200],
         budget_max=round_budget(facts.budget),
-        skills=tuple(
-            s for s in facts.skills[:JOB_SKILLS_SHOWN] if not _mentions(s, names)
-        ),
-        place=None if _mentions(place, names) else place,
+        skills=skills,
+        place=place_of(facts),
         meets=miss_reason is None,
         miss_reason=miss_reason,
     )
@@ -600,7 +683,7 @@ async def build_snapshot(
     by_id = {job.id: job for job, _ in open_jobs}
     jobs = tuple(
         [
-            await _report_job(db, by_id[f.job_id], f, reason, role_label)
+            await _report_job(db, by_id[f.job_id], f, reason, role)
             for f, reason in pick_jobs(facts, t)
         ]
     )
