@@ -69,7 +69,8 @@ MSG_FAILED = (
     "za kilka minut."
 )
 
-_DIGITS = re.compile(r"\d+")
+#: Liczba jako osobny wyraz — „B2BNET” czy „ISO 27001” w nazwie to nie termin.
+_DIGITS = re.compile(r"(?<![^\W\d_])\d+(?![^\W\d_])")
 #: Cudzysłowy w środku cytatu (umowy piszą „Klient”) — weryfikator wyciąga
 #: cytat między cudzysłowami, więc w próbce zamieniamy je na apostrof po obu
 #: stronach porównania.
