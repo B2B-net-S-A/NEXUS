@@ -10,8 +10,9 @@ import { actLine, legalSourceGroups, reviewLine } from "./legal-sources-model";
 /**
  * Skąd asystent prawny bierze tekst i z którego dnia (część H planu,
  * `docs/asystent-prawny-plan.md`). Dane z `GET /api/legal/sources`; bramka
- * trasy to Generator umów B2B, więc 403 mówi, czyje to źródła, zamiast
- * udawać pustą kartę.
+ * trasy to Generator umów B2B. Osoba bez tego dostępu (Płace, Kadry, Finanse)
+ * nie dostaje karty wcale — 403 to nie awaria, a karta z odmową w jej
+ * Przepisach byłaby szumem. Błąd i ładowanie mają własne stany.
  */
 export function LegalSourcesCard() {
   const sources = useLegalSources();
@@ -23,6 +24,7 @@ export function LegalSourcesCard() {
     isEmpty: false,
   });
   const data = sources.data;
+  if (state === "forbidden") return null;
 
   return (
     <section className="min-w-0 rounded-lg border border-border bg-card lg:col-span-2" aria-labelledby="legal-sources-title">
@@ -34,12 +36,6 @@ export function LegalSourcesCard() {
       </div>
       {state === "loading" ? (
         <p className="px-3.5 py-4 text-sm text-muted-foreground">Wczytywanie źródeł…</p>
-      ) : state === "forbidden" ? (
-        <QueryStateNotice
-          state="forbidden"
-          description="Źródła asystenta prawnego widzi osoba z dostępem do Generatora umów B2B."
-          className="m-3 py-6"
-        />
       ) : state === "error" || state === "not_found" || !data ? (
         <QueryStateNotice
           state="error"

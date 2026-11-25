@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -147,13 +147,15 @@ describe("Źródła asystenta prawnego — karta", () => {
     expect(screen.queryByText("Nasze dokumenty")).toBeNull();
   });
 
-  it("403 mówi, kto widzi źródła", async () => {
+  it("403: osoba bez Generatora umów nie dostaje karty (nie błąd, nie odmowa)", async () => {
     get.mockImplementation(async () => {
       throw Object.assign(new Error("403"), { response: { status: 403 } });
     });
     renderCard();
-    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
-    expect(screen.getByText(/dostępem do Generatora umów B2B/)).toBeInTheDocument();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Wczytywanie źródeł…")).toBeNull());
+    expect(screen.queryByText("Źródła asystenta prawnego")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("pusty korpus: komunikat w grupie przepisów, reszta karty zostaje", async () => {
