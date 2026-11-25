@@ -31,6 +31,7 @@ from datetime import date
 from typing import Any, Optional
 
 from app.core.scheduling import business_today
+from app.services.cv_ongoing import ONGOING_WORDS
 
 YearMonth = tuple[int, Optional[int]]
 
@@ -59,10 +60,7 @@ _MONTH_DATE = (
     rf"|(?:{_MONTH_WORD})\.?,?\s+{_YEAR}"
 )
 _DATE = rf"(?:{_MONTH_DATE}|{_YEAR})"
-_ONGOING = (
-    r"obecnie|nadal|teraz|aktualnie|do\s+dzi[śs]|do\s+teraz|currently|current"
-    r"|present|now|today|ongoing|till\s+now|to\s+date"
-)
+_ONGOING = ONGOING_WORDS
 _SEPARATOR = r"\s*(?:-|–|—|−|\bdo\b|\bto\b|\buntil\b|\btill\b)\s*"
 _RANGE = re.compile(
     rf"(?<![\w./-])(?P<start>{_DATE}){_SEPARATOR}"

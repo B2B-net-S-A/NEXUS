@@ -6515,3 +6515,33 @@ def test_dl_returns_group_lists_the_checks_dl_returns_cards_for() -> None:
         .split("]", 1)[0]
     )
     assert re.findall(r'"([a-z_]+)"', block) == list(qc.DL_RETURN_KEYS)
+
+
+@pytest.mark.parametrize(
+    "word", ["currently", "Present", "ongoing", "aktualnie", "do dzisiaj", "to date"]
+)
+def test_cv_role_dates_ending_today_count_to_this_month(word: str) -> None:
+    # 25.11.2026: „03.2023 – currently” w CV po angielsku liczone jak 1 miesiąc.
+    html = (
+        '<h2 data-cv-section="experience">Doświadczenie</h2>'
+        f'<p data-cv-section="role"><b>Senior Developer</b> 03.2023 - {word}</p>'
+        '<p data-cv-section="employer">Acme Bank</p>'
+        "<ul><li>Rozwój usług w Java dla bankowości detalicznej.</li></ul>"
+    )
+    today = date(2026, 11, 15)
+    est = qc.estimate_years(_blocks(html), [], today=today)
+    assert est.cv is not None and round(est.cv * 12) == 45
+    assert qc.experience_years(
+        [{"company": "A", "start": "2023-03", "end": word}], today=today
+    ) == est.cv
+
+
+@pytest.mark.parametrize("word", ["currently", "ongoing", "aktualnie", "do dziś"])
+def test_bare_date_range_role_line_does_not_need_an_employer(word: str) -> None:
+    html = (
+        '<h2 data-cv-section="experience">Doświadczenie</h2>'
+        f'<p data-cv-section="role">2021 - {word}</p>'
+        "<ul><li>Rozwój usług w Java dla bankowości detalicznej.</li></ul>"
+    )
+    _orig, roles, _pairs = qc.role_pairs(_blocks(html), [])
+    assert not qc._employer_expected(roles[0], ["acme bank"])

@@ -31,11 +31,9 @@ import re
 from collections.abc import Sequence
 from typing import Optional
 
-# Słowa trwającego stanowiska; granice słów, bo „now” siedzi w „Snowflake”.
-_ONGOING = re.compile(
-    r"\b(?:obecnie|nadal|teraz|do\s+dzi[śs]|currently|present|now|ongoing|today)\b",
-    re.IGNORECASE,
-)
+from app.services.cv_ongoing import ONGOING
+
+_ONGOING = ONGOING  # granice słów, bo „now” siedzi w „Snowflake”
 _YEAR = r"(?:19|20)\d{2}"
 _MONTH = r"(?:0?[1-9]|1[0-2])"
 _DATE = re.compile(

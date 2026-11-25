@@ -41,6 +41,7 @@ from app.services.cv_generator_b2b.docx_renderer import (
     style_education_row,
     TRANSLATIONS,
 )
+from app.services.cv_ongoing import ONGOING_WORDS
 from app.services.cv_rodo_clause import is_rodo_node
 from app.services.cv_text_align import (  # noqa: F401 — wołający biorą stąd
     DEFAULT_TEXT_ALIGN,
@@ -91,7 +92,7 @@ _COLOR_HEADER = RGBColor(225, 79, 79)
 # merely starts in bold ("**Projekt:** nowy system płatności").
 _DATES_ONLY = re.compile(
     r"(?=.*\b(?:19|20)\d{2}\b)[\d\s./()–—\-]*"
-    r"(?:\b(?:present|obecnie|currently|now|teraz|nadal|ongoing)\b[\s.)]*)?",
+    rf"(?:\b{ONGOING_WORDS}\b[\s.)]*)?",
     re.IGNORECASE,
 )
 _LEADING_SEPARATOR = re.compile(r"^[\s—–\-,:·|]+")

@@ -53,6 +53,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
 from app.services import cv_role_order, cv_source_dates, cv_tenure_checks
+from app.services.cv_ongoing import ONGOING, ONGOING_WORDS
 from app.services.cv_rewrite_merge import (
     replace_in_why_point,
     restore_role_dates_html,
@@ -506,9 +507,7 @@ def role_pairs(
 
 # ── Lata doświadczenia ──────────────────────────────────────────────────────
 
-_ONGOING = re.compile(
-    r"obecnie|present|now|current|do\s+dzi|nadal|teraz|ongoing", re.IGNORECASE
-)
+_ONGOING = ONGOING
 _YM = re.compile(r"(?:(\d{4})[-./](\d{1,2}))|(?:(\d{1,2})[-./](\d{4}))|(\d{4})")
 
 
@@ -743,8 +742,7 @@ def years_consistent(claimed: int, at_least: bool, actual: float) -> bool:
 # Zakres dat w nagłówku roli CV: „01.2019 – 12.2021”, „2019–obecnie”.
 _CV_ROLE_RANGE = re.compile(
     r"(?P<a>(?:(?:0?[1-9]|1[0-2])[./])?(?:19|20)\d{2})\s*[–—-]\s*"
-    r"(?P<b>(?:(?:0?[1-9]|1[0-2])[./])?(?:19|20)\d{2}|obecnie|present|now|current|"
-    r"do\s+dzi\S*|nadal|teraz|ongoing)",
+    rf"(?P<b>(?:(?:0?[1-9]|1[0-2])[./])?(?:19|20)\d{{2}}|{ONGOING_WORDS})",
     re.IGNORECASE,
 )
 
@@ -2061,7 +2059,7 @@ def _employer_expected(role: CvRole, companies: list[str]) -> bool:
     if (
         len(
             re.sub(
-                r"[\d\s.\-–—/()]|obecnie|present|currently|now",
+                rf"[\d\s.\-–—/()]|{ONGOING_WORDS}",
                 "",
                 title,
                 flags=re.IGNORECASE,

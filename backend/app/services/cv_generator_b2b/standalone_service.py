@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, undefer
 
 from app.core.log_safety import safe_storage_key
+from app.services.cv_ongoing import ONGOING
 from app.schemas.champion import client_safe_screening
 from app.models.call import Call
 from app.models.candidate import Candidate
@@ -968,7 +969,7 @@ def _cap_role_technologies(
 
 # ── Overlapping employment dates check ─────────────────────────────────────
 
-_ONGOING_RE = re.compile(r"obecnie|currently|present|now", re.IGNORECASE)
+_ONGOING_RE = ONGOING
 _DATE_TOKEN_RE = re.compile(
     r"(?<!\d)(?:(?P<iso_year>\d{4})-(?P<iso_month>\d{1,2})(?!\d)"
     r"|(?P<month>\d{1,2})[./](?P<year>\d{4})"
