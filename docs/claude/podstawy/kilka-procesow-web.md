@@ -21,7 +21,8 @@ Druga replika za Traefikiem dostawałaby połowę nowych żądań (round-robin),
   (ok. 15 s importu i lifespanu, żądania w toku przepadają).
 - **Procesy startują przez `spawn`, bez współdzielenia pamięci.** RSS procesu web 24.11:
   1,53–1,92 GB, więc `mem_limit` backendu to 6g.
-- **Pula jest na proces** (40+10). Budżet `max_connections=250`: 2 kontenery (rolling update B2)
+- **Pula jest na proces** (20+30 od 25.11.2026, wcześniej 40+10; szczyt 50 bez zmian,
+  → `pamiec-postgresa.md`). Budżet `max_connections=250`: 2 kontenery (rolling update B2)
   × 2 procesy × 50 + worker 30 = 230, zapas 15. Jeden proces 30+10 by się dławił: 24.11
   szczyt ≥ 40 połączeń był w 16 z 69 minut. Pilnuje `tests/test_process_roles.py`.
 - **Więcej niż 2 procesy** = przeliczenie `max_connections`, `mem_limit` i `WEB_PROCESSES_MAX`
@@ -55,18 +56,65 @@ dawał co minutę linie z dwóch `pid`. Ostatni kontener: `pid` 279 i 280 po 37 
 | 5xx w `http_outcome` | 0 z 2886 | 0 (poza 503 `/api/health/deep` przy starcie kontenera) |
 | żądania > 30 s | 0 | 0 |
 
-- To wieczór i świeży start. 1,5–1,9 GB RSS z 24.11 to proces po dniu pracy, więc pamięć
-  (`mem_limit` 6g) i pulę per `pid` sprawdź w dzień roboczy.
+- To wieczór i świeży start. Dzień roboczy jest niżej (25.11).
 - Set env z `redeploy=true` w oknie 18–22 wdraża cały HEAD maina, także merge'e czekające na
   slot (24.11 z przełącznikiem poszło 8 PR-ów). Sama zmienna: zaraz po wdrożeniu slotu albo po 22:00.
 - `pid` w świeżym kontenerze się powtarza (279 i 280 po dwóch wdrożeniach z rzędu), więc ten sam
   `pid` nie dowodzi, że kontenera nie podmieniono. Nowy kontener widać po `deployedAt`
   w `/api/health`, padnięcie procesu po nowym `pid` w tym samym kontenerze.
-- `prod_readonly.py logs` przepuszcza tylko `runtime_metrics` i `http_outcome`, więc „Child process
-  died” tam nie widać. Dowodem jest ciągłość: co minutę linia z każdego `pid`.
+- `prod_readonly.py logs` przepuszcza tylko `runtime_metrics`, `http_outcome` i `loop_stall`,
+  więc „Child process died” tam nie widać. Dowodem jest ciągłość: co minutę linia z każdego `pid`.
 - Web i worker mają w Postgresie ten sam `application_name` `nexus-backend`. Rozróżnia je
   `client_addr`: przy adresie weba są dwa połączenia `nexus-process-bus`, przy workerze
   `nexus-background-leader`.
+
+**Dzień roboczy 25.11.2026.** Kontener z wdrożenia o 06:41, pula web 40+10, jeszcze przed
+#3995 i #3996. `runtime_metrics` 06:46–17:19 z lukami 11:16–12:15 i 13:17–13:31, razem
+164 302 żądania.
+
+| | 2 procesy (06:46–17:19) |
+|---|---:|
+| `rss_mb` na proces | 956–1985, rośnie przez dzień; suma obu do 3869 z 6144 |
+| `pool_in_use_max` na proces | do 50; ≥ 45 w 4 i 8 minutach z ok. 557, = 50 w 1 i 2; mediana 12 |
+| `cpu_pct` na proces | do 127 i 136 |
+| `loop_lag_ms_p99` / `loop_lag_ms_max` | do 12,9 s / do 34,6 s |
+| bloki pętli > 10 s (`loop_lag_ms_max`) | 26, od 10,3 do 34,6 s, mediana 22,3 s |
+| połączenia w `pg_stat_activity` (z 250) | szczyt 121 o 13:24 (web 99, worker 21); web + worker: mediana 108 z 230 |
+| 5xx w `http_outcome` | 157 (0,10%), z tego 156 w dwóch restartach Postgresa po OOM |
+| żądania > 30 s | 32 |
+| 429 | 60 |
+
+- **Drugi proces robi to, po co jest.** `loop_stall` (blok > 5 s) był 79 razy, z czego 70
+  w `GET /api/pipeline/my-next-steps` (`_text_hit`, poprawka w #3996). W każdym z 26 bloków
+  > 10 s drugi proces odpowiadał dalej: 17–357 odpowiedzi na blok, 1,3–10,7 na sekundę
+  (5 min wcześniej 4,1–11,3). W środku bloków nie było 5xx, z wyjątkiem bloku o 16:50, który
+  zbiegł się z awarią Postgresa. Razem z blokiem kończyło się 1–13 żądań, które już były
+  w zablokowanym procesie. 24.11 przy jednym procesie 9 zastojów ok. 52 s kończyło się 503
+  z Traefika.
+- **Zastoje licz z `loop_lag_ms_max`, nie z p99.** Przy mniej niż 100 próbkach na minutę p99
+  to druga największa próbka: z 26 bloków > 10 s p99 pokazał 2. `loop_stall` loguje się po
+  powrocie pętli, więc początek bloku = czas `loop_stall` minus `loop_lag_ms_max`.
+  `http_outcome.duration_ms` liczy od wejścia do aplikacji, więc żądanie czekające w gnieździe
+  zablokowanego procesu nie ma długiego czasu.
+- **5xx dał Postgres, nie procesy web.** Było 38 × 500 o 10:19:19–10:19:23 i 118 × 5xx
+  (111 × 500, 7 × 503) o 16:50:10–16:51:04. Oba razy był to OOM cgroupa Postgresa
+  (`oom_kill` 1, potem 2) i crash recovery w ok. 3–4 s; poza tym była jedna 500 o 08:25.
+  Drugi proces to druga pula: w dzień mediana trzymanych połączeń wynosiła 108, a 24.11
+  wieczorem przy jednym procesie 63. Każde połączenie to ok. 35 MB w limicie bazy.
+  Poprawka: #3995, → `pamiec-postgresa.md`.
+- **429.** 56 × `POST /api/search/candidates/scores` przyszło o 13:39:48–13:40:04, po 116
+  żądaniach w ok. minutę. Przeszło dokładnie 60, czyli pełny limit `60/minute` na użytkownika
+  (2 × 30 po `share_per_process`), więc to nagły wyrzut klienta, nie skutek podziału limitu. Do tego
+  4 × `GET /api/candidates/{id}/recommendations` o 08:33–08:35 (limit 20/min, 10 na proces).
+- **Wynik: dwa procesy zostają** (decyzja Artura z 25.11). RSS jest daleko od 2,6 GB na proces,
+  pula była pełna najwyżej 2 minuty na proces, a 5xx wzięły się z OOM bazy, który naprawia
+  #3995. Po wdrożeniu #3995 zapas pamięci bazy sprawdzaj jak w `pamiec-postgresa.md`
+  („Jak sprawdzić”).
+- **Jak mierzyć.** Logi pobieraj przez `prod_readonly.py logs` co 30 min, nie co godzinę.
+  Przy dziennym ruchu log kontenera web nie sięga godziny wstecz: kawałek pobrany po godzinie
+  zaczynał się 13 min za późno. `pg_stat_activity` próbkuj co minutę przez
+  `prod_readonly.py sql`. 25.11 próbek brakuje z 11:48–12:20 (laptop bez sieci), więc
+  szczytu z tego okna nie potwierdzono.
 
 ## Pomiar na stagingu (24.11.2026)
 
