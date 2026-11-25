@@ -242,6 +242,21 @@ def test_dark_mode_swaps_to_light_logo():
     )
 
 
+def test_mail_uses_variant5_palette_without_gradients():
+    """Kolory wariantu 5 (decyzja Artura 25.11.2026): czerwień #C42329,
+    burgund-obsydian #1F1115 zamiast grafitu, bez starej czerwieni i gradientów.
+    W ciemnym trybie kropka i zaliczone odcinki biorą #D43424 (kontrast 3:1)."""
+    for m in (_mail(), _mail(link=None, optout_link=None)):
+        html_body = m.html_body.upper()
+        for old in ("#D62E40", "#1A1816", "#B3202F", "#0E0E0D", "#181715", "#F4F3F0"):
+            assert old not in html_body
+        assert "#C42329" in html_body and "#1F1115" in html_body
+        assert "GRADIENT" not in html_body
+        assert ".RD{COLOR:#D43424!IMPORTANT}" in html_body
+        assert 'CLASS="RD"' in html_body
+    assert ".SGD{BACKGROUND:#D43424!IMPORTANT" in _mail().html_body.upper()
+
+
 def test_ad_title_from_import_note():
     from app.services.candidate_terms_queue import ad_title_from_note
 
