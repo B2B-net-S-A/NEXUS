@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora”; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, ostrzeżenie „Klient chce Worda” przy Nowym CV, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf` -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora”; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf`; Word nowego wyglądu (25.11, wariant B): strona 1 = obraz z PDF, dalej tabele, osadzony Poppins, `docx_render.py`, `?layout=classic` = „Word (klasyczne)” -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -29,7 +29,10 @@ prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, r
 - **Generator** zapisuje wybrany układ w `cv_generated_documents.cv_layout`;
   gdy wynik staje się szkicem etapu (`apply_generated_to_stage_cv`), układ
   przechodzi na CV etapu. Automaty i stare generacje biorą układ z reguły klienta.
-- **Word to zawsze układ klasyczny.** Nowe CV istnieje tylko jako PDF.
+- **Word w układzie „Nowe CV” (zmiana decyzji z 22.11, Artur 25.11.2026).**
+  Do 25.11 Word był zawsze klasyczny. Teraz CV w układzie `new` daje też
+  Worda w nowym wyglądzie (sekcja „Word Nowego CV” niżej), a klasyczny Word
+  zostaje pod `?layout=classic` („Word (klasyczne)” w „Więcej”).
   `…/preview-pdf` i `…/versions/{n}/pdf` renderują nowe CV, gdy układ to
   `new` (albo `?layout=new` — miniatura drugiego układu); klasyczny PDF dalej
   powstaje z pliku Word przez LibreOffice.
@@ -140,8 +143,8 @@ https://claude.ai/artifact/USSM8YEU8BSmS49CUZ5fFi, wersje 1–4).
 ## Format pliku klienta (25.11.2026)
 
 Decyzja Artura z 25.11.2026 (AskUserQuestion): najpierw pole „Format pliku”
-w regule CV klienta, potem Word w nowym wyglądzie (etap 2, osobny PR). Do
-etapu 2 plik Word jest dalej zawsze klasyczny.
+w regule CV klienta (etap 1), potem Word w nowym wyglądzie (etap 2, sekcja
+„Word Nowego CV” niżej).
 
 - **Pole reguły** `client_cv_rules.cv_file_format` (migracja 0780, SQL
   w `cv_layout_schema.FILE_FORMAT_DDL`, lustro w `entrypoint.sh`): `docx` |
@@ -163,12 +166,13 @@ etapu 2 plik Word jest dalej zawsze klasyczny.
 
   | Format klienta | Klasyczne | Nowe CV |
   |---|---|---|
-  | Bez wymagań | „Pobierz Word”, PDF w „⋯” | „Pobierz PDF” + „Word (klasyczne)” |
-  | Word | „Pobierz Word”, PDF w „⋯” | „Word (klasyczne)”, PDF w „⋯” + ostrzeżenie |
-  | PDF | „Pobierz PDF” (z Worda), Word w „⋯” | „Pobierz PDF” (nowy układ), Word w „⋯” |
-  | Word i PDF | oba na wierzchu | oba na wierzchu + ostrzeżenie |
+  | Bez wymagań | „Pobierz Word”, PDF w „⋯” | „Pobierz PDF” + „Pobierz Word” (nowy), „Word (klasyczne)” w „⋯” |
+  | Word | „Pobierz Word”, PDF w „⋯” | „Pobierz Word” (nowy), PDF i „Word (klasyczne)” w „⋯” |
+  | PDF | „Pobierz PDF” (z Worda), Word w „⋯” | „Pobierz PDF” (nowy), Word (nowy) i „Word (klasyczne)” w „⋯” |
+  | Word i PDF | oba na wierzchu | oba (nowe) na wierzchu, „Word (klasyczne)” w „⋯” |
 
-  Edytor przy „Bez wymagań” zostaje jak dotąd (Word w pasku, PDF w „Więcej”).
+  Edytor przy „Bez wymagań” zostaje jak dotąd (Word w pasku, PDF w „Więcej”),
+  przy „Nowym CV” w „Więcej” dochodzi „Word (klasyczne)”.
   Dok panelu osoby (sekcja „CV”) pokazuje oba przyciski; plik klienta stoi
   pierwszy, bez wymagań — Word, potem PDF.
   Wynik generatora: „Bez wymagań” i Word = sam „Pobierz DOCX”; PDF = „Pobierz
@@ -178,10 +182,49 @@ etapu 2 plik Word jest dalej zawsze klasyczny.
   w „Nowym CV” (`GeneratedCvItem.cv_layout`) trasa daje 409, a wynik nie ma
   przycisku PDF, tylko wskazanie karty „CV do klienta” — PDF z Worda byłby
   innym plikiem niż wybrany.
-- **Ostrzeżenie** „Klient chce Worda, a wybrane jest Nowe CV…” w karcie
-  (do wysyłki), w edytorze i w kroku „Jak CV zobaczy klient” generatora, dopóki
-  etap 2 nie da Worda w nowym wyglądzie. Po etapie 2 usuń je razem
-  z `warnWordClassic`.
+- **Ostrzeżenie** „Klient chce Worda, a wybrane jest Nowe CV” było w etapie 1
+  (PR #3983); etap 2 je usunął, bo Word ma już nowy wygląd.
+
+## Word Nowego CV (25.11.2026, etap 2)
+
+Decyzje Artura z 25.11.2026 po makietach na 4 CV z kopii stagingu (prywatny
+artefakt: https://claude.ai/artifact/EJexVv4YsXWd5mWihEs4TN i zrzuty w sesji).
+
+- **Wariant B:** strona 1 to obraz pola treści strony 1 PDF (te same bajty co
+  plik PDF, 300 dpi, bez nagłówka i stopki — te ma Word), od strony 2
+  stanowiska, pełne listy, zrzut zgody i klauzula RODO jako tekst i tabele
+  Worda (`services/cv_new_layout/docx_render.py`). Strony 1 nie da się
+  poprawić w Wordzie — poprawia się ją w NEXUSIE. Odrzucone: strona 1
+  z tabel Worda (Artur: „okropnie”) i hybryda (obrazy etykiet, osi i pastylek,
+  tekst edytowalny).
+- **Jedno wyliczenie:** Word bierze dokument z `cv_new_pdf._document` i render
+  PDF z `FitReport`; to, co trafia na koniec CV (pełna lista umiejętności,
+  wszystkie certyfikaty), daje `page1()` z tymi samymi ustawieniami. Nie
+  licz skróceń strony 1 w Wordzie drugi raz.
+- **Kroje:** Poppins 400 i 700 osadzone w pliku (`docx_fonts.py`, ECMA-376
+  §17.8.1: `/word/fonts/fontN.odttf` zaciemnione kluczem `w:fontKey`,
+  `w:embedTrueTypeFonts` w ustawieniach). Od strony 2 jest tylko Poppins, jak
+  w PDF. Licencja OFL pozwala osadzać. Plik ok. 0,6–0,8 MB.
+- **Kolejność elementów XML:** `w:pPr` i `w:tblPr` tylko w kolejności schematu
+  (`_insert_before`, test `test_paragraph_and_table_properties_follow_the_schema_order`).
+  LibreOffice przyjmuje złą kolejność, Word zgłasza uszkodzony plik.
+- **Obrazy bez `dist*`:** `wp:inline` z `distL/R/T/B = 0`, bo LibreOffice
+  dokłada domyślnie 3,2 mm i przesuwa obraz.
+- **Trasy:** `POST …/cv/branded/preview-docx` i `GET …/versions/{n}/docx` przy
+  układzie `new` (i włączonej fladze) oddają Worda nowego wyglądu
+  z `X-CV-Layout: new`; `?layout=classic` — dotychczasowy plik. Render jak PDF:
+  w wątku, sloty wspólne z PDF, koniec transakcji przed renderem, awaria = 503
+  (`MSG_DOCX_FAILED`). Wersja zatwierdzona renderuje się z zamrożonej treści przy
+  każdym pobraniu (bez ETag). API v1 `format=docx`, wynik generatora, Cpro
+  i panel klienta zostają przy dotychczasowych plikach.
+- **Ramka panelu** (QR, link) przy pobraniu idzie na koniec pliku
+  (`stamp_for_download(…, at_end=True)`), jak ostatnia strona panelu w PDF.
+- **Przyciski:** przy „Nowym CV” „Pobierz Word” = nowy wygląd, „Word
+  (klasyczne)” w „Więcej” karty i edytora (`cvDownloadPlan`, `docx_classic`).
+  Dok panelu osoby ma Word (nowy) i PDF.
+- Testy: `tests/test_cv_new_layout_docx.py` (render, kroje, kolejność XML,
+  ramka; potrzebuje WeasyPrint), `tests/test_cv_new_word_routes_db.py` (trasy),
+  front `lib/__tests__/cv-file-format.test.ts`, karta.
 
 ## Zdania 1–3 strony 1 (25.11.2026)
 
@@ -300,8 +343,9 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
 
 ## Czego nie cofać
 
-- Nie dokładaj osobnego „Pobierz Word” w nowym układzie — Word jest klasyczny
-  z tej samej treści (decyzja „Word w nowym CV”).
+- Nie wracaj do strony 1 Worda złożonej z tabel ani do hybrydy z obrazami
+  etykiet — Artur wybrał 25.11.2026 stronę 1 jako obraz z PDF (wariant B).
+  Klasyczny Word zostaje dostępny jako „Word (klasyczne)”, nie usuwaj go.
 - Nie pokazuj przełącznika tylko w generatorze: decyzja „Wszędzie, jeden stan”
   zapadła po makietach obu wariantów.
 - Nie blokuj ścieżki CV na wyniku modelu: zdanie „najmocniejszy wynik” jest

@@ -1304,7 +1304,10 @@ export function PipelineCandidateDock({
   const dockDownloadOrder: ("docx" | "pdf")[] = companyFileFormat
     ? (() => {
         const plan = cvDownloadPlan(companyFileFormat, companyBranded?.cv_layout === "new" ? "new" : "classic");
-        return [...plan.primary, ...plan.inMenu];
+        // „Word (klasyczne)” zostaje w karcie; dok ma Word (przy Nowym CV — nowy wygląd) i PDF.
+        return [...plan.primary, ...plan.inMenu].filter(
+          (kind): kind is "docx" | "pdf" => kind !== "docx_classic",
+        );
       })()
     : ["docx", "pdf"];
   const downloadCompanyCv = async (format: "docx" | "pdf") => {

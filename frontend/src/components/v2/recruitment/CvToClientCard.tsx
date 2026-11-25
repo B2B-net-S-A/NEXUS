@@ -155,7 +155,14 @@ import type { CvEditorSourcesProps } from "@/components/v2/cv-editor/CvEditorSou
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
-import { cvDownloadPlan, cvFileFormat, CV_FILE_FORMAT_LABEL, wordClassicWarning } from "@/lib/cv-file-format";
+import {
+  cvDownloadPlan,
+  cvFileFormat,
+  CV_FILE_FORMAT_LABEL,
+  withClassicLayout,
+  wordLabel,
+  type CvFileKind,
+} from "@/lib/cv-file-format";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
@@ -705,7 +712,6 @@ export function CvToClientCard({
   // Format pliku z reguły klienta (25.11.2026): który przycisk pobrania jest pierwszy.
   const fileFormat = cvFileFormat(branded?.client_file_format);
   const downloadPlan = cvDownloadPlan(fileFormat, layoutEnabled && layout === "new" ? "new" : "classic");
-  const wordLabel = layoutEnabled && layout === "new" ? "Word (klasyczne)" : "Pobierz Word";
   const consentTitle = state.consentMissing
     ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
     : undefined;
@@ -764,21 +770,28 @@ export function CvToClientCard({
   const attachNewVersion = (generatedId: number) =>
     attachVersionMut.mutate({ stageId: cvStageId, generatedId, revision: branded?.edit_revision ?? 0 });
 
-  const download = async () => {
+  /** Plik Word; przy „Nowym CV” nowy wygląd, `classic` = „Word (klasyczne)” (25.11.2026). */
+  const download = async (classic = false) => {
     if (!branded) return;
     setDownloading(true);
     try {
       if (branded.status === "finalized") {
         await downloadAuthenticatedFile(
           withDownloadIntent(
-            `/api/candidates/stages/${cvStageId}/cv/branded/versions/${branded.version}/docx`,
+            withClassicLayout(
+              `/api/candidates/stages/${cvStageId}/cv/branded/versions/${branded.version}/docx`,
+              classic,
+            ),
             "card",
           ),
           branded.docx_filename || "CV.docx",
         );
       } else {
         const result = await postAuthenticatedDownload(
-          withDownloadIntent(`/api/candidates/stages/${cvStageId}/cv/branded/preview-docx`, "card"),
+          withDownloadIntent(
+            withClassicLayout(`/api/candidates/stages/${cvStageId}/cv/branded/preview-docx`, classic),
+            "card",
+          ),
           { content_html: branded.content_html ?? "", expected_revision: branded.edit_revision },
         );
         downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");
@@ -1049,15 +1062,6 @@ export function CvToClientCard({
               />
             ) : null}
             {layoutEnabled && layout === "new" ? <NewCvRoleGapsNote gaps={branded?.new_layout_role_gaps} /> : null}
-            {downloadPlan.warnWordClassic && !lockedAfterSend ? (
-              <p
-                role="note"
-                data-testid="cv-card-word-classic-warning"
-                className="rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2 text-xs text-warning-muted-foreground [overflow-wrap:anywhere]"
-              >
-                {wordClassicWarning(fileFormat)}
-              </p>
-            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {!readOnly ? (
                 <Button size="sm" variant="outline" onClick={() => openEditor()}>
@@ -1080,16 +1084,16 @@ export function CvToClientCard({
                   </Button>
                 ) : (
                   <Button
-                    key="docx"
+                    key={kind}
                     size="sm"
                     variant="outline"
-                    data-testid="cv-card-download-docx"
-                    onClick={() => void download()}
+                    data-testid={`cv-card-download-${kind}`}
+                    onClick={() => void download(kind === "docx_classic")}
                     disabled={downloading || state.consentMissing}
                     loading={downloading}
                     title={consentTitle}
                   >
-                    <Download className="h-3.5 w-3.5" aria-hidden /> {wordLabel}
+                    <Download className="h-3.5 w-3.5" aria-hidden /> {wordLabel(kind)}
                   </Button>
                 ),
               )}
@@ -1115,15 +1119,18 @@ export function CvToClientCard({
                       <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
                     </DropdownMenuItem>
                   ) : null}
-                  {downloadPlan.inMenu.includes("docx") ? (
-                    <DropdownMenuItem
-                      disabled={downloading || state.consentMissing}
-                      title={consentTitle}
-                      onSelect={() => void download()}
-                    >
-                      <Download className="h-3.5 w-3.5" aria-hidden /> {wordLabel}
-                    </DropdownMenuItem>
-                  ) : null}
+                  {downloadPlan.inMenu
+                    .filter((kind): kind is Exclude<CvFileKind, "pdf"> => kind !== "pdf")
+                    .map((kind) => (
+                      <DropdownMenuItem
+                        key={kind}
+                        disabled={downloading || state.consentMissing}
+                        title={consentTitle}
+                        onSelect={() => void download(kind === "docx_classic")}
+                      >
+                        <Download className="h-3.5 w-3.5" aria-hidden /> {wordLabel(kind)}
+                      </DropdownMenuItem>
+                    ))}
                   {canReplace ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(() => setOtherOpen(true))}>
                       <Repeat2 className="h-3.5 w-3.5" aria-hidden /> Użyj innego CV

@@ -162,7 +162,7 @@ import {
 } from "@/lib/cv-editor-handoff";
 import { hasPermission } from "@/lib/permissions";
 import { useElementWidth } from "@/lib/use-element-width";
-import { cvDownloadPlan, cvFileFormat, wordClassicWarning, type CvDownloadPlan } from "@/lib/cv-file-format";
+import { cvDownloadPlan, cvFileFormat, withClassicLayout, type CvDownloadPlan } from "@/lib/cv-file-format";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -176,8 +176,13 @@ type CvDraftPayload = { content_html: string; expected_revision: number };
 /** Pliki edytora. Harness podaje wersję z pamięci — podgląd `/preview/*` nie ma sieci. */
 export interface CvEditorFiles {
   /** Word z bieżącej treści szkicu: do pobrania albo do „Podglądu Word”. */
-  draftDocx: (payload: CvDraftPayload, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
-  downloadApproved: (version: number, filename: string) => Promise<void>;
+  /** `classic` — klasyczny Word przy „Nowym CV” („Word (klasyczne)”, 25.11.2026). */
+  draftDocx: (
+    payload: CvDraftPayload,
+    purpose: "download" | "preview",
+    classic?: boolean,
+  ) => Promise<AuthenticatedDownload>;
+  downloadApproved: (version: number, filename: string, classic?: boolean) => Promise<void>;
   previewApproved: (version: number) => Promise<Blob>;
   /** „Jak u klienta” i „Pobierz PDF”: PDF szkicu z bieżącej treści (Edytor CV 3, J2). */
   draftPdf?: (payload: CvDraftPayload, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
@@ -199,16 +204,16 @@ export type CvEditorApi = Pick<
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
-    draftDocx: (payload, purpose) =>
-      postAuthenticatedDownload(
-        purpose === "download"
-          ? withDownloadIntent(`${basePath}/preview-docx`, "editor")
-          : `${basePath}/preview-docx`,
+    draftDocx: (payload, purpose, classic = false) => {
+      const path = withClassicLayout(`${basePath}/preview-docx`, classic);
+      return postAuthenticatedDownload(
+        purpose === "download" ? withDownloadIntent(path, "editor") : path,
         payload,
-      ),
-    downloadApproved: (version, filename) =>
+      );
+    },
+    downloadApproved: (version, filename, classic = false) =>
       downloadAuthenticatedFile(
-        withDownloadIntent(`${basePath}/versions/${version}/docx`, "editor"),
+        withDownloadIntent(withClassicLayout(`${basePath}/versions/${version}/docx`, classic), "editor"),
         filename,
       ),
     previewApproved: (version) => fetchAuthenticatedBlob(`${basePath}/versions/${version}/docx`),
@@ -398,7 +403,10 @@ function CVBrandedEditContent({
   const fileFormat = isGenerated ? null : cvFileFormat(data?.client_file_format);
   const downloadPlan: CvDownloadPlan = fileFormat
     ? cvDownloadPlan(fileFormat, layoutEnabled && layout === "new" ? "new" : "classic")
-    : { primary: ["docx"], inMenu: ["pdf"], warnWordClassic: false };
+    : {
+        primary: ["docx"],
+        inMenu: layoutEnabled && layout === "new" ? ["pdf", "docx_classic"] : ["pdf"],
+      };
   const [layoutSaving, setLayoutSaving] = useState(false);
   const changeLayout = async (next: CvLayout) => {
     if (next === layout || layoutSaving || !setLayoutApi) return;
@@ -704,7 +712,7 @@ function CVBrandedEditContent({
 
   const isFinalized = saveState === "finalized";
   const [downloadingDocx, setDownloadingDocx] = useState(false);
-  const previewDocx = async () => {
+  const previewDocx = async (classic = false) => {
     const session = sessionRef.current;
     if (!session) return;
     setDownloadingDocx(true);
@@ -713,16 +721,17 @@ function CVBrandedEditContent({
       const result = await files.draftDocx(
         {content_html: session.html, expected_revision: session.revision},
         "download",
+        classic,
       );
       downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");
     } catch (error) { showError(getErrorMessage(error)); }
     finally { setDownloadingDocx(false); }
   };
-  const downloadApproved = async () => {
+  const downloadApproved = async (classic = false) => {
     if (!data?.docx_available) return;
     setDownloadingDocx(true);
     try {
-      await files.downloadApproved(data.version, data.docx_filename || "CV.docx");
+      await files.downloadApproved(data.version, data.docx_filename || "CV.docx", classic);
     } catch (error) { showError(getErrorMessage(error)); }
     finally { setDownloadingDocx(false); }
   };
@@ -973,16 +982,15 @@ function CVBrandedEditContent({
             },
           ]
         : []),
-      ...(downloadPlan.inMenu.includes("docx") && canWord
-        ? [
-            {
-              label: "Pobierz Word",
-              icon: <Download aria-hidden className="h-4 w-4" />,
-              disabled: downloadingDocx || submitting,
-              onSelect: () => void (isFinalized ? downloadApproved() : previewDocx()),
-            },
-          ]
-        : []),
+      ...(["docx", "docx_classic"] as const)
+        .filter((kind) => downloadPlan.inMenu.includes(kind) && canWord)
+        .map((kind) => ({
+          label: kind === "docx_classic" ? "Word (klasyczne)" : "Pobierz Word",
+          icon: <Download aria-hidden className="h-4 w-4" />,
+          disabled: downloadingDocx || submitting,
+          onSelect: () =>
+            void (isFinalized ? downloadApproved(kind === "docx_classic") : previewDocx(kind === "docx_classic")),
+        })),
       {
         label: "Drukuj",
         icon: <Printer aria-hidden className="h-4 w-4" />,
@@ -1227,15 +1235,6 @@ function CVBrandedEditContent({
                 ) : null,
               )}
             </div>
-            {downloadPlan.warnWordClassic && hasCv ? (
-              <p
-                role="note"
-                data-testid="cv-editor-word-classic-warning"
-                className="basis-full rounded-md border border-warning/30 bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground [overflow-wrap:anywhere]"
-              >
-                {wordClassicWarning(fileFormat)}
-              </p>
-            ) : null}
             {hasCv && !sideBySide ? (
               // Wąski ekran: kartka, oryginał i kolumna na zmianę, w osobnym wierszu.
               <div className="flex basis-full flex-wrap items-center gap-1" role="group" aria-label="Kolumna">

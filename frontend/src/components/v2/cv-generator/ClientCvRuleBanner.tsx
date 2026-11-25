@@ -145,7 +145,7 @@ export function ClientCvRuleBanner({
           // Układ z reguły klienta (22.11.2026) — tylko przy włączonej fladze,
           // inaczej serwer nie przysyła pola.
           <span className="block text-muted-foreground" data-testid="cv-rule-banner-layout">
-            Układ CV: Nowe CV (PDF) — domyślny dla tego klienta. Plik Word zostaje klasyczny.
+            Układ CV: Nowe CV — domyślny dla tego klienta (PDF i Word w nowym wyglądzie).
           </span>
         ) : null}
         {rule?.requires_en_copy ? (

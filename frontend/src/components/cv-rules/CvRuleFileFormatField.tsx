@@ -61,7 +61,7 @@ export function CvRuleFileFormatField({
         </label>
       ))}
       <p className="text-xs text-muted-foreground">
-        Plik Word jest na razie zawsze w układzie klasycznym — przy Nowym CV rekruter zobaczy ostrzeżenie.
+        Przy Nowym CV plik Word ma nowy wygląd (strona 1 jak w PDF, dalej stanowiska do edycji); klasyczny Word zostaje w „Więcej”.
       </p>
     </fieldset>
   );

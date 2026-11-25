@@ -1,4 +1,4 @@
-"""PDF układu „Nowe CV” z treści edytora (22.11.2026).
+"""PDF i Word układu „Nowe CV” z treści edytora (22.11.2026; Word: 25.11.2026).
 
 Ta sama treść co plik Word: HTML edytora (po sanitizerze i ze stałą klauzulą
 RODO), zrzut zgody zamrożony na CV i dodatki strony 1. Zapis generatora
@@ -24,6 +24,10 @@ from app.services.cv_page1_result_checks import rechecked_extras
 MSG_RENDER_FAILED = (
     "Nie udało się przygotować PDF w układzie „Nowe CV”. "
     "Pobierz klasyczny plik Word albo spróbuj ponownie."
+)
+MSG_DOCX_FAILED = (
+    "Nie udało się przygotować pliku Word w układzie „Nowe CV”. "
+    "Pobierz PDF albo klasyczny plik Word."
 )
 MSG_CONSENT_UNREADABLE = (
     "Nie udało się odczytać zrzutu zgody RODO dołączonego do CV, więc PDF "
@@ -148,7 +152,23 @@ def _consent_image(data: Optional[bytes]) -> tuple[Optional[bytes], Optional[str
     return out.getvalue(), "image/png"
 
 
-def _render(
+@dataclass(frozen=True)
+class NewCvDocx:
+    """Plik Word „Nowego CV”: strona 1 z PDF tego samego renderu, dalej tabele."""
+
+    docx: bytes
+    fits: bool
+    font_pt: float
+
+    def headers(self) -> dict[str, str]:
+        return {
+            "X-CV-Layout": "new",
+            "X-CV-Page1-Fits": "1" if self.fits else "0",
+            "X-CV-Page1-Font": f"{self.font_pt:g}",
+        }
+
+
+def _document(
     content_html: str,
     *,
     language: str,
@@ -157,11 +177,9 @@ def _render(
     extras: Optional[dict],
     consent: Optional[bytes],
     facts: Optional[CvFacts] = None,
-) -> NewCvPdf:
-    from app.services.cv_new_layout import (
-        NewCvDocument,
-        render_new_cv_pdf_with_report,
-    )
+):
+    """Niezmienny dokument „Nowego CV” — jeden dla PDF i Worda."""
+    from app.services.cv_new_layout import NewCvDocument
 
     content = cv_json_from_editor_html(
         content_html, language=language, blind=blind, fallback=fallback
@@ -184,14 +202,35 @@ def _render(
         consent_image=consent,
         consent_image_mime=mime,
     )
+    return document, content.unmapped_sections
+
+
+def _render(content_html: str, **kwargs: Any) -> NewCvPdf:
+    from app.services.cv_new_layout import render_new_cv_pdf_with_report
+
+    document, unmapped = _document(content_html, **kwargs)
     pdf, report = render_new_cv_pdf_with_report(document)
     return NewCvPdf(
         pdf=pdf,
         fits=bool(report.fits),
         font_pt=float(report.font_pt),
         steps=tuple(report.steps),
-        unmapped_sections=content.unmapped_sections,
+        unmapped_sections=unmapped,
     )
+
+
+def _render_docx(content_html: str, **kwargs: Any) -> NewCvDocx:
+    """Word: ten sam dokument i ten sam render PDF (strona 1 jako obraz), skrócenia
+    z jego `FitReport` — koniec CV ma dokładnie to, co strona 1 PDF przeniosła."""
+    from app.services.cv_new_layout import render_new_cv_pdf_with_report
+    from app.services.cv_new_layout.docx_render import render_new_cv_docx
+
+    document, _unmapped = _document(content_html, **kwargs)
+    pdf, report = render_new_cv_pdf_with_report(document)
+    docx = render_new_cv_docx(
+        document, pdf, skill_cap=report.skill_cap, skill_groups=report.skill_groups
+    )
+    return NewCvDocx(docx=docx, fits=bool(report.fits), font_pt=float(report.font_pt))
 
 
 async def render_new_cv_pdf(
@@ -205,25 +244,71 @@ async def render_new_cv_pdf(
     facts: Optional[CvFacts] = None,
 ) -> NewCvPdf:
     """PDF nowego CV; awaria renderu = ``NewCvPdfError`` (ślad w logu serwera)."""
+    return await _in_slot(
+        _render,
+        MSG_RENDER_FAILED,
+        content_html,
+        language=language,
+        template=template,
+        fallback=fallback,
+        extras=extras,
+        consent=consent,
+        facts=facts,
+    )
+
+
+async def render_new_cv_docx(
+    content_html: str,
+    *,
+    language: Optional[str],
+    template: Optional[str],
+    fallback: Optional[dict[str, Any]],
+    extras: Optional[dict],
+    consent: Optional[bytes],
+    facts: Optional[CvFacts] = None,
+) -> NewCvDocx:
+    """Word nowego CV; awaria renderu = ``NewCvPdfError`` (ślad w logu serwera)."""
+    return await _in_slot(
+        _render_docx,
+        MSG_DOCX_FAILED,
+        content_html,
+        language=language,
+        template=template,
+        fallback=fallback,
+        extras=extras,
+        consent=consent,
+        facts=facts,
+    )
+
+
+async def _in_slot(
+    fn: Any,
+    failed: str,
+    content_html: str,
+    *,
+    language: Optional[str],
+    template: Optional[str],
+    **kwargs: Any,
+) -> Any:
+    """Render w wątku, najwyżej dwa naraz (PDF i Word dzielą sloty)."""
     import logging
 
     async with _SLOTS:
         try:
             return await run_in_threadpool(
-                _render,
+                fn,
                 content_html,
                 language="en" if language == "en" else "pl",
                 blind=template == "blind",
-                fallback=fallback,
-                extras=extras,
-                consent=consent,
-                facts=facts,
+                **kwargs,
             )
         except NewCvPdfError:
             raise
         except Exception as error:  # noqa: BLE001 — każdy błąd renderu to 503
-            logging.getLogger(__name__).exception("new CV PDF render failed")
-            raise NewCvPdfError(MSG_RENDER_FAILED) from error
+            logging.getLogger(__name__).exception(
+                "new CV render failed (%s)", fn.__name__
+            )
+            raise NewCvPdfError(failed) from error
 
 
 # ── CV, które idzie dalej: Cpro, panel klienta, API v1 (22.11.2026) ─────────
@@ -286,5 +371,49 @@ async def stage_draft_pdf(db, csv: Any) -> NewCvPdf:
         fallback=fallback,
         extras=csv.page1_extras,
         consent=csv.branded_consent_content,
+        facts=facts,
+    )
+
+
+async def stage_editor_docx(db, csv: Any, content_html: str) -> NewCvDocx:
+    """Word „Nowego CV” szkicu CV etapu z podanej treści edytora (25.11.2026).
+
+    Jak PDF: przed renderem koniec transakcji żądania (render trwa sekundy, bez
+    blokad wiersza). Awaria = ``NewCvPdfError``, wołający oddaje 503."""
+    fallback = await _fallback(db, getattr(csv, "generated_document_id", None))
+    facts = await cv_facts(
+        db, getattr(csv, "candidate_id", None), getattr(csv, "job_id", None)
+    )
+    await db.commit()
+    return await render_new_cv_docx(
+        content_html,
+        language=csv.branded_language,
+        template=csv.branded_template,
+        fallback=fallback,
+        extras=csv.page1_extras,
+        consent=csv.branded_consent_content,
+        facts=facts,
+    )
+
+
+async def approved_version_docx(db, version: Any) -> NewCvDocx:
+    """Zatwierdzona wersja jako Word „Nowego CV”: z jej zamrożonej treści, języka,
+    szablonu, dodatków strony 1 i zrzutu zgody — to samo, co PDF tej wersji."""
+    fallback = await _fallback(db, getattr(version, "generated_document_id", None))
+    facts = CvFacts()
+    if getattr(version, "candidate_stage_cv_id", None):
+        from app.models.candidate_stage_cv import CandidateStageCV
+
+        csv = await db.get(CandidateStageCV, version.candidate_stage_cv_id)
+        if csv is not None:
+            facts = await cv_facts(db, csv.candidate_id, csv.job_id)
+    await db.commit()
+    return await render_new_cv_docx(
+        version.content_html or "",
+        language=version.language,
+        template=version.template,
+        fallback=fallback,
+        extras=version.page1_extras,
+        consent=version.consent_content,
         facts=facts,
     )
