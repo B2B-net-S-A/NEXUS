@@ -12,7 +12,6 @@ zagadnienia z tego dnia rozdzielone średnikiem, suma godzin dnia.
 
 from __future__ import annotations
 
-import io
 import logging
 from calendar import monthrange
 from collections import Counter
@@ -22,6 +21,7 @@ from decimal import Decimal
 from html import escape
 from typing import Any, Iterable, Optional
 
+from app.services.client_settlements import xlsx
 from app.services.client_settlements.kcp import (
     MONTHS_PL,
     XLSM,
@@ -133,12 +133,8 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimelog]:
 
 
 def _sheets(content: bytes) -> Optional[list[list[list[Any]]]]:
-    import openpyxl
-
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), data_only=True, read_only=True
-        )
+        workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("redmine: arkusz nieczytelny (%s)", type(exc).__name__)
         return None

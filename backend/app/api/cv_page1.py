@@ -2,6 +2,12 @@
 
   PATCH  /api/candidates/stages/{stage_id}/cv/page1
 
+Zdania 1–3 „Dlaczego nasz kandydat” (25.11.2026): `why` = trzy sloty, każdy
+to sprawdzone zdanie modelu (`services/cv_page1_why.py`) albo zdanie
+poprawione przez rekrutera. W żądaniu `null` w slocie = bez zmiany, pusty
+napis = „Przywróć z generatora” (sprawdzone zdanie modelu, a bez niego punkt
+generatora — `cv_layout.compose_page1_why`).
+
 Wyróżnik kandydata (25.11.2026): `highlight` = „auto” (praca u klienta
 rekrutacji, z dat stanowisk), „custom” (etykieta, znak w wieńcu, zdanie
 rekrutera) albo „off”.
@@ -19,7 +25,7 @@ szkic — edytor zakłada go wcześniej (`ensureDraft`), tak jak przy każdej
 innej poprawce. Wpis w Historii zdarzeń bez treści zdania.
 """
 
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -36,6 +42,7 @@ from app.services.cv_new_layout.highlight import LABEL_MAX, TEXT_MAX, TOKEN_MAX
 router = APIRouter()
 
 RESULT_TEXT_MAX = 400
+WHY_TEXT_MAX = 400
 
 MSG_FINALIZED = (
     "CV jest zatwierdzone — zmień najpierw treść w edytorze, żeby powstał nowy szkic."
@@ -56,6 +63,11 @@ class HighlightUpdate(BaseModel):
     text: Optional[str] = Field(default=None, max_length=TEXT_MAX)
 
 
+# Długość po złączeniu spacji sprawdza `_why` (422 z polskim zdaniem); tu tylko
+# twardy sufit na ciało żądania.
+WhySlot = Annotated[str, Field(max_length=WHY_TEXT_MAX * 2)]
+
+
 class Page1Update(BaseModel):
     """`result_index` wybiera sprawdzony wynik (i czyści wpisane zdanie, gdy
     `result_text: null`); `result_text` = zdanie rekrutera, pusty = brak."""
@@ -63,6 +75,27 @@ class Page1Update(BaseModel):
     result_index: Optional[int] = Field(default=None, ge=0)
     result_text: Optional[str] = Field(default=None, max_length=RESULT_TEXT_MAX * 2)
     highlight: Optional[HighlightUpdate] = None
+    # Zdania 1–3 strony 1: `null` = slot bez zmiany, "" = z generatora.
+    why: Optional[list[Optional[WhySlot]]] = Field(default=None, max_length=3)
+
+
+def _why(extras: dict, sent: list[Optional[str]]) -> list[str]:
+    """Sloty po zmianie rekrutera; pusty slot bierze sprawdzone zdanie modelu."""
+    from app.services.cv_page1_why_checks import auto_texts, why_slots
+
+    slots = why_slots(extras)
+    auto = auto_texts(extras.get("why_generated"))
+    for index, value in enumerate(sent):
+        if value is None:
+            continue
+        text = " ".join(value.split())
+        if len(text) > WHY_TEXT_MAX:
+            raise HTTPException(
+                422,
+                f"Zdanie na stronie 1 może mieć najwyżej {WHY_TEXT_MAX} znaków.",
+            )
+        slots[index] = text or auto[index]
+    return slots
 
 
 def _verified_results(extras: dict) -> list:
@@ -111,6 +144,8 @@ def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
             if not (fields["label"] and fields["text"]):
                 raise HTTPException(422, MSG_HIGHLIGHT_EMPTY)
             merged["highlight"] = {"mode": "custom", **fields}
+    if "why" in sent and payload.why is not None:
+        merged["why"] = _why(merged, payload.why)
     return merged
 
 
@@ -124,7 +159,7 @@ async def update_stage_cv_page1(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Strona 1 „Nowego CV”: najmocniejszy wynik (wpisany albo z listy) i wyróżnik."""
+    """Strona 1 „Nowego CV”: zdania 1–3, najmocniejszy wynik (wpisany albo z listy) i wyróżnik."""
     from app.services.new_cv_company_cv import locked_after_send
 
     if not layout_service.enabled():
@@ -133,6 +168,7 @@ async def update_stage_cv_page1(
         "result_index",
         "result_text",
         "highlight",
+        "why",
     }:
         raise HTTPException(422, MSG_EMPTY)
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
@@ -158,6 +194,8 @@ async def update_stage_cv_page1(
                     "result_index": merged.get("result_index"),
                     "result_text": bool(merged.get("result_text")),
                     "highlight": (merged.get("highlight") or {}).get("mode", "auto"),
+                    # Które sloty `why` mają zdanie — bez treści zdań.
+                    "why": [bool(t) for t in merged.get("why") or []],
                     "version": csv.branded_version,
                 },
             )

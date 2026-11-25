@@ -3,7 +3,9 @@
 ``POST /api/candidates/stages/{stage_id}/cv/page1/results`` liczy od nowa listę
 zdań „najmocniejszy wynik” z bieżącej treści edytora CV etapu i oddaje
 zaktualizowane dodatki strony 1 (`page1_extras`: `results`, `result_index`,
-`results_source_sha` i reszta kluczy bez zmian). Logika:
+`results_source_sha` i reszta kluczy bez zmian). Od 25.11.2026 ten sam bieg
+układa też zdania 1–3 strony 1 (`why_generated`, `why`; „Ułóż zdania od
+nowa” w edytorze, `services/cv_page1_why.py`). Logika:
 `services/cv_page1_results.py`.
 
 Bramki jak przy innych trasach CV etapu (`_load_csv_for_stage`: zespół
@@ -36,7 +38,7 @@ async def refresh_stage_cv_page1_results(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Znajdź od nowa najmocniejsze wyniki z CV na stronę 1 „Nowego CV”."""
+    """Znajdź od nowa najmocniejsze wyniki i zdania 1–3 strony 1 „Nowego CV”."""
     if not layout_service.enabled():
         raise HTTPException(409, layout_service.MSG_DISABLED)
     # Odczyt PRZED modelem: awaria kończy się rollbackiem, który wygasza

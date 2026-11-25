@@ -808,7 +808,10 @@ function CVBrandedEditContent({
         );
       }
     : undefined;
-  /** „Policz wyniki od nowa”: serwer liczy z zapisanego szkicu, więc najpierw zapis bieżącej treści. */
+  /**
+   * „Ułóż zdania od nowa” (zdania 1–3 i najmocniejsze wyniki): serwer liczy
+   * z zapisanego szkicu, więc najpierw zapis bieżącej treści.
+   */
   const refreshPage1Api = isGenerated ? undefined : editorApi.refreshPage1Results;
   const recalcPage1 = refreshPage1Api
     ? async () => {

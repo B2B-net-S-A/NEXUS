@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements import timesheet_pko
+from app.services.client_settlements import timesheet_pko, xlsx
 from app.services.client_settlements.rcp_bnp import _dec
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -231,12 +231,8 @@ def _pdf_rows(content: bytes) -> Optional[list[list[Any]]]:
 
 
 def _sheet_rows(content: bytes) -> Optional[list[list[Any]]]:
-    import openpyxl
-
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), data_only=True, read_only=True
-        )
+        workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("kcp: arkusz nieczytelny (%s)", type(exc).__name__)
         return None

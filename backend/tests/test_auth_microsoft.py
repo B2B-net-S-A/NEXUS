@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from jose import jwt as jose_jwt
+import jwt
 from sqlalchemy import delete, select
 
 from app.api import auth_microsoft as auth_ms_module
@@ -157,7 +157,7 @@ async def test_authorize_returns_url_with_login_redirect(
     nonce = resp.json()["browser_nonce"]
     assert len(nonce) >= 32
     assert login_state.browser_binding == auth_ms_module._browser_binding(nonce)
-    state_claims = jose_jwt.get_unverified_claims(state)
+    state_claims = jwt.decode(state, options={"verify_signature": False})
     assert pkce not in str(state_claims)
     assert "pkce" not in state_claims
     from app.services.m365 import oauth as m365_oauth
@@ -609,7 +609,7 @@ def test_exchange_token_pair_rejects_missing_authorization_version():
     access, refresh = _exchange_token_pair(41, 7)
     access_payload = decode_token(access)
     access_payload.pop("av")
-    access_without_av = jose_jwt.encode(
+    access_without_av = jwt.encode(
         access_payload,
         settings.SECRET_KEY,
         algorithm=ALGORITHM,
@@ -661,7 +661,7 @@ async def _make_exchange_row(
         if omit_access_token_av:
             access_payload = decode_token(access_token)
             access_payload.pop("av", None)
-            access_token = jose_jwt.encode(
+            access_token = jwt.encode(
                 access_payload,
                 settings.SECRET_KEY,
                 algorithm=ALGORITHM,
@@ -669,7 +669,7 @@ async def _make_exchange_row(
         if omit_refresh_token_av:
             refresh_payload = decode_token(refresh_token)
             refresh_payload.pop("av", None)
-            refresh_token = jose_jwt.encode(
+            refresh_token = jwt.encode(
                 refresh_payload,
                 settings.SECRET_KEY,
                 algorithm=ALGORITHM,

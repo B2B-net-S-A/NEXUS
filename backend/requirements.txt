@@ -14,7 +14,12 @@ alembic==1.20.1
 pydantic[email]==2.14.4
 pydantic-settings==2.15.0
 email-validator==2.4.0
-python-jose[cryptography]==3.5.0
+# JWT: sesje, stany OAuth (M365, SSO, portale), tokeny klientów OAuth, linki
+# zgody CV i potwierdzeń rozmów, webhook Autenti (RS256 — stąd `[crypto]`).
+# Zamiast python-jose od 25.11.2026: jose nie ma wydania z poprawką
+# GHSA-3qf3-8w2g-rqmx i nie jest rozwijany. Tokeny wybite przez jose
+# przechodzą bez zmian (`tests/test_jwt_legacy_jose_tokens.py`).
+PyJWT[crypto]==2.15.1
 bcrypt==5.0.0
 httpx==0.28.1
 # Wersja klienta = wersja serwera Qdranta z docker-compose.yml (v1.17.1, pin
@@ -98,7 +103,7 @@ tinycss2==1.5.1
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.14.6
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
-# before upload. python-jose already pinned above (used by JWT auth + webhook
+# before upload. PyJWT already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==70.0
 # E-faktury Peppol: reguły EN16931 i Peppol (Schematron → XSLT 2.0) — `app/services/peppol/validation.py`.

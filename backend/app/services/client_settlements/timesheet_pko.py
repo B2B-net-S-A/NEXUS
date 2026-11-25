@@ -28,7 +28,6 @@ Plik spoza szablonu daje ``None``: dalej próbujemy innych odczytów.
 
 from __future__ import annotations
 
-import io
 import logging
 import re
 import warnings
@@ -37,6 +36,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Optional
 
+from app.services.client_settlements import xlsx
 from app.services.client_settlements.mail_text import (
     MONTHS_NOMINATIVE,
     month_label,
@@ -315,15 +315,11 @@ def parse_rows(
 
 
 def _sheet(content: bytes) -> Optional[tuple[list[list[Any]], list[str]]]:
-    import openpyxl
-
     try:
         with warnings.catch_warnings():
             # „Data Validation extension is not supported” — lista podpowiedzi szablonu.
             warnings.simplefilter("ignore")
-            workbook = openpyxl.load_workbook(
-                io.BytesIO(content), data_only=True, keep_vba=False
-            )
+            workbook = xlsx.load_workbook(content, data_only=True, keep_vba=False)
     except Exception as exc:  # noqa: BLE001
         logger.info("timesheet_pko: plik nieczytelny (%s)", type(exc).__name__)
         return None

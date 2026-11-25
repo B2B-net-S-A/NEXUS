@@ -24,9 +24,10 @@ import type { CvLang, CvSectionKey } from "@/lib/cv-editor-blocks";
 import { allRoleFields, companyName, whyPoints } from "@/lib/cv-new-layout-form";
 import { roleGaps } from "@/lib/cv-new-layout-gaps";
 import { pageChip } from "@/lib/cv-new-preview";
+import { page1Sentences, plainText } from "@/lib/cv-page1-why";
 import { cn } from "@/lib/utils";
 
-import { CvNewLayoutPage1, chosenResult } from "./CvNewLayoutPage1";
+import { CvNewLayoutPage1 } from "./CvNewLayoutPage1";
 import { CvNewLayoutPositions } from "./CvNewLayoutPositions";
 import { CvPdfPageView, type CvPdfPlacement } from "./CvPdfPageView";
 import { NewCvRoleGapsNote } from "./NewCvRoleGapsNote";
@@ -47,7 +48,7 @@ export interface CvNewLayoutWorkspaceProps {
   /** PDF nowego CV z bieżącej treści (te same nagłówki co „Jak u klienta”). */
   loadPreview: () => Promise<AuthenticatedDownload>;
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
-  /** „Policz wyniki od nowa” przy najmocniejszym wyniku (tylko CV etapu). */
+  /** „Ułóż zdania od nowa” w „Stronie 1”: zdania 1–3 i najmocniejsze wyniki (tylko CV etapu). */
   onRecalcResults?: () => Promise<void>;
   onTab: (tab: CvNewLayoutTab) => void;
   onOpenText: (section: CvSectionKey) => void;
@@ -78,11 +79,13 @@ export function CvNewLayoutWorkspace({
   const roles = allRoleFields(doc);
   const gaps = roleGaps(roles);
   const role = roles[Math.min(selected, roles.length - 1)] ?? null;
-  const points = whyPoints(doc).map((point) => point.text);
-  const third = extras?.result_text?.trim() || chosenResult(extras)?.result.text || points[2] || "";
+  const sentences = page1Sentences(
+    whyPoints(doc).map((point) => point.text),
+    extras,
+  ).map(plainText);
   const needles =
     tab === "page1"
-      ? [points[0] ?? "", points[1] ?? "", third]
+      ? sentences
       : role
         ? [companyName(role.company), role.title, role.period, ...role.duties, role.technologies ?? ""]
         : [];

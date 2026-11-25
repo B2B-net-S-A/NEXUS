@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, ostrzeżenie „Klient chce Worda” przy Nowym CV, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf` -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora”; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, ostrzeżenie „Klient chce Worda” przy Nowym CV, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf` -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -70,9 +70,8 @@ https://claude.ai/artifact/KQVGVPioPeiDDUQnQDmKcq, prywatne).
   renderze (`cv_new_pdf.cv_facts`), „, PL” obcięte, inny kraj zostaje kodem;
   puste albo Blind CV = bez pastylki. `lang_parts` dzieli też po „–”, „—” i „:”.
 - **„Dlaczego nasz kandydat”:** trzy zdania bez punktorów, oddzielone cienkimi
-  liniami poziomymi (wariant W1). Treść zdań na razie bez zmian (punkty
-  generatora + najmocniejszy wynik); nowe zasady zdań 1–3 i pole Delivery Leada
-  „Najważniejsze zadanie” to osobny PR.
+  liniami poziomymi (wariant W1). Treść zdań od 25.11.2026: sekcja „Zdania 1–3
+  strony 1” niżej.
 - **Oś kariery (zastąpiona 25.11.2026, niżej):** gdy przed 12-letnim oknem są więcej niż 2 stanowiska, starsze
   lata to jasny odcinek tego samego paska z przerwą „//”, nad nim lata
   („1997–2014”), pod nim zwykłym pismem „13 stanowisk, m.in. …” z dwiema
@@ -130,7 +129,7 @@ https://claude.ai/artifact/USSM8YEU8BSmS49CUZ5fFi, wersje 1–4).
   „skrócenie” w komunikacie), stały odstęp 5,5 mm nad każdą sekcją, wolne
   miejsce: połowa w środek sekcji (`inner_mm`: odstępy zdań, wierszy, osi),
   reszta równo między sekcje. Zdania „Dlaczego” rosną z pismem strony.
-- **Zdania „Dlaczego” (do PR z treścią zdań 1–3):** zdanie 2 bez „Z wymagań
+- **Zdania „Dlaczego”** (zbudowane, sekcja „Zdania 1–3 strony 1”): zdanie 2 bez „Z wymagań
   klienta:”, zdanie 3 bez „Najważniejsze zadanie w tej roli to…” — od razu
   zadanie z dowodem w formie rzeczownikowej; w zdaniu 1 metodyka bez rodzaju
   („przez ten czas w zespołach pracujących w Agile i Scrum”), nie „praca
@@ -184,6 +183,60 @@ etapu 2 plik Word jest dalej zawsze klasyczny.
   etap 2 nie da Worda w nowym wyglądzie. Po etapie 2 usuń je razem
   z `warnWordClassic`.
 
+## Zdania 1–3 strony 1 (25.11.2026)
+
+Treść trzech zdań „Dlaczego nasz kandydat” według decyzji z warsztatów (23.11)
+i rundy 37 (25.11). Kod: `services/cv_page1_why.py` (prompt, wejście, odcisk)
+i `services/cv_page1_why_checks.py` (sprawdzenie, bez sieci i bazy); bieg razem
+z wynikami w `cv_page1_results.refresh_stage_cv`.
+
+- **Co:** osobne wywołanie modelu generatora (klucz `cv_generator`, model
+  z rejestru, w tym samym `ai_feature` co wyniki — jedna jednostka limitu, oba
+  wywołania naraz). Prompt `legacy_v7` bez zmian. Wejście: role z HTML-a
+  edytora (z branżą z zapisu generatora), MUST z `champion_profile.stack.must`,
+  `project.key_task` i odpowiedź kandydata na pytanie screeningu oznaczone
+  `key_task` (`CandidateStage.screening_answers`: dopasowanie po zapisanym
+  tekście pytania, przy starych arkuszach po numerze; bez pominiętych, bez
+  stawek i dostępności, bez zdań przeczących). Bez imienia i kontaktu.
+- **Zdanie 1 (doświadczenie):** lata w IT → lata na roli → branże → metodyka.
+  Model pisze znaczniki `{LATA_IT}` / `{LATA_ROLA}` i numery ról, a lata
+  wstawia kod z dat (suma bez nakładek, pełne lata w dół, poniżej roku
+  miesiące). Inna liczba musi stać w punkcie 1 generatora albo być rokiem
+  z dat wskazanych ról (miesiąc „12.2025” nie przepuszcza „12 lat”). Metodyka
+  (Agile, Scrum, Kanban, SAFe…) tylko, gdy stoi w CV.
+- **Zdanie 2 (wymagania klienta):** tylko MUST z profilu, każdy z cytatem
+  z punktu jednej roli, w którym (albo w technologiach roli) stoi; MUST nazwany
+  w zdaniu bez dowodu = odrzucone. Profil bez MUST = bez zdania 2.
+- **Zdanie 3 (najważniejsze zadanie):** forma rzeczownikowa z dowodem — cytat
+  z punktu roli (`source: cv`) albo z odpowiedzi ze screeningu
+  (`source: screening`). Rekrutacja bez `key_task` = bez zdania 3.
+- **Każde zdanie:** jedno, do 220 znaków, bez etykiety na początku („Z wymagań
+  klienta:”, „Najważniejsze zadanie…”), bez form z rodzajem („pracował”, „she”),
+  w Blind CV bez nazw firm. Liczby jak przy wynikach (cytat, rola, odpowiedź).
+- **Zapis:** `page1_extras.why_generated` (trzy wpisy: `slot`, `text`,
+  `verified`, przy odrzuconym `issue`, dowody `evidence` / `quote`, `source`),
+  `why_source_sha` = odcisk HTML-a, MUST, zadania i odpowiedzi (zmiana profilu
+  Championa też liczy zdania od nowa w tle). `page1_extras.why` = trzy sloty na
+  stronę 1: sprawdzone zdanie albo poprawka rekrutera; `""` = slot bierze to, co
+  dotąd (punkt 1 / 2 generatora, w slocie 3 najmocniejszy wynik, a bez niego
+  punkt 3 — `cv_layout.compose_page1_why`). Nowy bieg nadpisuje tylko sloty
+  puste albo równe poprzedniemu zdaniu generatora; poprawka rekrutera zostaje.
+- **Awaria:** jedno wywołanie padło — druga część się zapisuje, padła zostaje
+  bez zmian (ślad w logu, bieg w tle spróbuje przy następnym wyzwalaczu); oba —
+  dodatki bez zmian, przycisk dostaje 503.
+- **Edytor „Strona 1”:** pola „1 · Doświadczenie”, „2 · Wymagania klienta”,
+  „3 · Najważniejsze zadanie” edytują `why` (`PATCH …/cv/page1` z `why`:
+  `null` = slot bez zmiany, `""` = „Przywróć z generatora”), nie treść CV —
+  punkty w Wordzie zostają. Pod polem: skąd jest zdanie (generator z dowodem,
+  punkt z CV, wpisane ręcznie, odrzucone i dlaczego, brak MUST / zadania).
+  „Wynik z CV (N)” wstawia sprawdzony najmocniejszy wynik do slotu 3. „Ułóż
+  zdania od nowa” = `POST …/cv/page1/results` (zdania i wyniki naraz). Historia
+  zdarzeń zapisuje tylko, które sloty mają zdanie.
+- **Poligon:** osoby 990108 i 990109 rekrutacji ćwiczebnej mają od startu
+  „Nowe CV”, więc „Edytuj CV” otwiera „Stronę 1” ze zdaniami z
+  `lib/poligon/cv-fiction.ts`; zmiany strony 1 i „Ułóż od nowa” idą w pamięci
+  (`lib/poligon/tools.ts`). Lekcja `lekcja-nowe-cv-strona-1` (wyróżnik + zdania).
+
 ## Zdanie „najmocniejszy wynik”
 
 Trzecie zdanie „Dlaczego nasz kandydat” na stronie 1 (wariant E2): najmocniejszy
@@ -223,11 +276,14 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
   Zdanie wpisane przez rekrutera (`result_text`) nie przechodzi tej kontroli —
   to jego słowa. Wczytanie innego CV (nowa generacja bez „zachowaj poprawki”
   w `apply_generated_to_stage_cv`, wgrany plik Word w `_write_imported_draft`)
-  czyści `results`, `result_index`, `result_text`, `results_source_sha`
-  i własny wyróżnik (`highlight.mode == "custom"`) — `cv_layout.forget_page1_result`.
-  Wyłączony wyróżnik (i stary wpis `wreath`) zostają. Edytor ma przy polu
-  „Najmocniejszy wynik” przycisk „Policz wyniki od nowa” (najpierw zapis szkicu,
-  potem `POST …/cv/page1/results`; 503 i 429 jako zdanie przez `apiErrorMessage`).
+  czyści `results`, `result_index`, `result_text`, `results_source_sha`,
+  zdania 1–3 (`why`, `why_generated`, `why_source_sha`) i własny wyróżnik
+  (`highlight.mode == "custom"`) — `cv_layout.forget_page1_result`.
+  Wyłączony wyróżnik (i stary wpis `wreath`) zostają. Od 25.11.2026 (#3972) przycisk
+  to „Ułóż zdania od nowa” w nagłówku „Dlaczego nasz kandydat” (dawne „Policz
+  wyniki od nowa” przy polu wyniku): najpierw zapis szkicu, potem
+  `POST …/cv/page1/results` liczy wyniki i zdania naraz; w czasie liczenia pola
+  zdań czekają; 503 i 429 jako zdanie przez `apiErrorMessage`.
 - **Pomiar 22.11.2026** (kopia produkcji, 30 CV: 20 EN, 10 PL, sam Sol bez
   zapasu, tylko odczyt): sprawdzony wynik w 26 CV, 72 propozycje, 0 odrzuconych
   przez kod, 4 CV bez wyniku (model zwrócił pustą listę przy samych obowiązkach),
@@ -269,7 +325,8 @@ formularz po lewej i strona PDF z ramką po prawej.
   pogrubionej liczby jest. Autozapis, historia cofania (Ctrl+Z w polu = cofnij
   w edytorze), QC i plik Word działają jak przy pisaniu na kartce. Nie dodawaj
   formularzowi własnej kopii treści ani osobnej trasy zapisu.
-- **Strona 1:** punkty 1–2 to punkty sekcji `why_points` w dokumencie
+- **Strona 1:** od 25.11.2026 pola 1–3 to zdania `page1_extras.why` (sekcja
+  „Zdania 1–3 strony 1”); niżej stan z 22.11. Punkty 1–2 to punkty sekcji `why_points` w dokumencie
   (wspólne z Wordem). Pod punktem 1 „Z dat stanowisk: X lat Y mies.” —
   suma dat stanowisk tą samą arytmetyką co `client-form-years`
   (`unionMonths`, `monthsText`). Punkt 3 „Najmocniejszy wynik” to dodatek

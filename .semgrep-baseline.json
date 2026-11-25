@@ -1217,6 +1217,14 @@
       "reason": "Stała _CLEAR_STALE + literał warunku; id klientów przez bind (:client_ids)."
     },
     {
+      "rule": "python.jwt.security.unverified-jwt-decode.unverified-jwt-decode",
+      "path": "backend/app/services/job_portals/jjit_connection.py",
+      "line": 94,
+      "fingerprint": "8fbd85016844e027",
+      "status": "zweryfikowane",
+      "reason": "Klucz API JustJoin.IT/RocketJobs (JJIT_STATIC_ACCESS_TOKEN) podpisuje dostawca swoim sekretem, którego NEXUS nie zna. Z klucza czytamy tylko exp do ostrzeżenia o wygasaniu w Ustawieniach i w checks.job_portals (static_token_expires_at). Wynik nie decyduje o dostępie; ważność klucza sprawdza portal. Do 25.11.2026 to samo robiło jose.jwt.get_unverified_claims, którego reguła nie rozpoznawała."
+    },
+    {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
       "path": "backend/app/services/job_portals/jjit_connection.py",
       "line": 278,

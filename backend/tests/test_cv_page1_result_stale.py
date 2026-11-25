@@ -135,3 +135,16 @@ def test_other_generation_keeps_highlight_turned_off():
 def test_nothing_left_is_none():
     assert forget_page1_result(_extras("x")) is None
     assert forget_page1_result(None) is None
+
+
+def test_new_cv_forgets_sentences_1_to_3_too():
+    """Zdania 1–3 strony 1 (#3972) opisują poprzednie CV jak wynik."""
+    extras = {
+        "why": ["Zdanie 1.", "", ""],
+        "why_generated": [
+            {"slot": "experience", "text": "Zdanie 1.", "verified": True}
+        ],
+        "why_source_sha": "abc",
+        "wreath": "cert",
+    }
+    assert forget_page1_result(extras) == {"wreath": "cert"}

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Mapping, Optional, Union
 
 import bcrypt
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 
@@ -45,7 +45,8 @@ _MICROSECOND = timedelta(microseconds=1)
 def _issued_at(moment: datetime) -> float:
     """``iat`` z mikrosekundami (RFC 7519 NumericDate dopuszcza ułamek).
 
-    Runda 13 (AUTH): jose koduje ``datetime`` jako pełne sekundy, a wtedy
+    Runda 13 (AUTH): biblioteka JWT (jose, od 25.11.2026 PyJWT) koduje
+    ``datetime`` jako pełne sekundy, a wtedy
     token wybity w tej samej sekundzie co podłoga unieważnienia — przed nią
     albo po niej — był nie do odróżnienia. Ułamek pozwala porównać dokładnie.
     """
@@ -200,7 +201,7 @@ def token_authorization_version_matches(
 
 
 def decode_token(token: str) -> dict:
-    """Decode and validate a JWT token. Raises JWTError on failure."""
+    """Decode and validate a JWT token. Raises ``jwt.PyJWTError`` on failure."""
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
 
 

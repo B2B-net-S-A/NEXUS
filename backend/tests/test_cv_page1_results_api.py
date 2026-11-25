@@ -5,7 +5,8 @@
 - przełączenie na „Nowe CV” zleca bieg w tle po commicie,
 - bieg w tle pomija CV z aktualnym `results_source_sha`.
 
-Model zawsze podmieniony (`_call_model`) — dane fikcyjne.
+Model zawsze podmieniony (`_call_model`, zdania 1–3 `_call_why_model`) — dane
+fikcyjne. Trasa liczy też zdania 1–3 (`cv_page1_why`).
 """
 
 from __future__ import annotations
@@ -63,6 +64,13 @@ HTML = render_interactive_html(
 )
 
 
+WHY_ANSWER = {
+    "experience": {"text": "{LATA_IT} w IT", "it_roles": [0], "role_roles": []},
+    "requirements": {"text": "", "evidence": []},
+    "key_task": {"text": "", "quote": "", "source": "cv", "company": ""},
+}
+
+
 @pytest.fixture
 def flag_on(monkeypatch):
     monkeypatch.setattr(settings, "CV_NEW_LAYOUT_ENABLED", True)
@@ -77,7 +85,13 @@ def model(monkeypatch):
         calls.append(content)
         return json.dumps({"results": [RESULT]}, ensure_ascii=False)
 
+    def fake_why(system, content, request_id):
+        why_calls.append(content)
+        return json.dumps(WHY_ANSWER, ensure_ascii=False)
+
+    why_calls: list[str] = []
     monkeypatch.setattr(service, "_call_model", fake)
+    monkeypatch.setattr(service, "_call_why_model", fake_why)
     return calls
 
 
@@ -141,6 +155,7 @@ async def test_model_failure_is_503_and_leaves_extras(
         raise TimeoutError("brak odpowiedzi")
 
     monkeypatch.setattr(service, "_call_model", broken)
+    monkeypatch.setattr(service, "_call_why_model", broken)
     sid, _, _ = await _seed_full_stage()
     await _seed_draft(sid, HTML)
     await _set_extras(sid, {"why": ["a"]})
