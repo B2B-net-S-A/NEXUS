@@ -207,8 +207,45 @@ async def test_pierwszy_krok_w_dniu_startu_kontraktu_nie_daje_uwagi() -> None:
     year, mon = (int(x) for x in month.split("-"))
     try:
         await _hourly(contract_id, date(year, mon, 20))
-        await _rate(contract_id, date(year, mon, 20), "50")
+        # 125 zł/h = 1000 zł/MD, jak linia z ``_world``.
+        await _rate(contract_id, date(year, mon, 20), "125")
         s = await _set(contract_id, month)
         assert _titles(s) == []
+    finally:
+        await _cleanup(client_id)
+
+
+# ── linia zamówienia zbiorczego a stawka kontraktu na cały miesiąc ──────────
+
+
+async def test_linia_zbiorcza_po_aneksie_liczy_koszt_z_kontraktu() -> None:
+    """Aneks od 1. dnia miesiąca: linia zbiorcza została przy 1000 zł/MD,
+    kontrakt płaci 130 zł/h = 1040 zł/MD. Przychód z linii bez zmian."""
+
+    client_id, contract_id, _line = await _world()
+    month = _previous_month()
+    year, mon = (int(x) for x in month.split("-"))
+    try:
+        await _hourly(contract_id, date(year - 1, 1, 1))
+        await _rate(contract_id, date(year - 1, 1, 1), "125")
+        await _rate(contract_id, date(year, mon, 1), "130")
+        s = await _set(contract_id, month)
+        assert _titles(s) == ["Koszt ze stawki kontraktu: 1040 zł/MD"]
+        assert s.amount_cost == Decimal("21840.00")
+        assert s.amount_revenue == Decimal("23100.00")
+    finally:
+        await _cleanup(client_id)
+
+
+async def test_linia_zbiorcza_zgodna_z_kontraktem_bez_wpisu() -> None:
+    client_id, contract_id, _line = await _world()
+    month = _previous_month()
+    year, _mon = (int(x) for x in month.split("-"))
+    try:
+        await _hourly(contract_id, date(year - 1, 1, 1))
+        await _rate(contract_id, date(year - 1, 1, 1), "125")
+        s = await _set(contract_id, month)
+        assert _titles(s) == []
+        assert s.amount_cost == Decimal("21000.00")
     finally:
         await _cleanup(client_id)

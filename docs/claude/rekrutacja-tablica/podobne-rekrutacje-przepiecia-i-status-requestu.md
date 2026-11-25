@@ -276,3 +276,13 @@ https://claude.ai/artifact/VsMAfe4GgPC3g9LHEx2M1z. Kod: tabela `job_champions`
   `champion`). Reguła z 28.09 („champion widać tylko przy Szukamy”) zostaje.
   „Zakończony” i zamknięta rekrutacja = 409.
 
+
+## Zamknięte bez tła (25.11.2026)
+
+Zgłoszenie rekruterki: „Szukamy” ginęło w serii bladych plakietek
+„Zamknięta” (w motywie różowym oba wyglądały jak blady róż). Decyzja Artura
+z makiet na stagingu (wariant 3 z czterech): ton `done` (Zamknięta,
+Obsadzona, Zakończony) nie ma tła — kropka i szary tekst
+(`REQUEST_TONE_CLASS.done` w `JobListCells.tsx`, ta sama mapa w nagłówku
+rekrutacji). „Szukamy” zostaje w kolorze motywu. Nie przywracaj tła
+zamkniętym „dla spójności” z resztą plakietek.

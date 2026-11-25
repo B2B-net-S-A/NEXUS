@@ -6496,6 +6496,98 @@ def test_role_without_employer_is_a_warning() -> None:
     assert ok["status"] == "pass"
 
 
+# Pusta linia stanowiska z edytora: rekruter skasował nazwę i daty, firma
+# i obowiązki zostały (staging 25.11.2026: 8 takich ról w 6 z 1040 CV).
+EMPTY_ROLE_LINE_HTML = ROLES_HTML + (
+    '<p data-cv-section="role"></p>'
+    '<p data-cv-section="employer">Initech</p>'
+    "<ul><li>Utrzymywał system rezerwacji sal w całej firmie.</li></ul>"
+)
+
+
+def test_empty_role_line_still_starts_a_role() -> None:
+    """Pusty akapit `role` jest stanowiskiem, jak w edytorze (`cvOutline`).
+    Do 25.11.2026 parser go gubił: firma i obowiązki wchodziły do poprzedniej
+    roli, uwaga „Każda rola ma daty” jej nie widziała, a `role_index`
+    następnych ról wskazywał w edytorze sąsiednie stanowisko."""
+    blocks = _blocks(EMPTY_ROLE_LINE_HTML)
+    roles = qc.cv_roles(blocks, [])
+    assert [r.role.company for r in roles] == ["Acme Soft", "Globex sp.k.", "Initech"]
+    assert "Initech" not in roles[1].role.text
+    checks = _by_key(
+        qc.compute_checks(
+            _qc_input(EMPTY_ROLE_LINE_HTML, must=[], experience=ROLES_READ)
+        )
+    )
+    (no_dates,) = checks["dates"]["items"]
+    assert no_dates["role_index"] == 2
+    (no_title,) = checks["role_title"]["items"]
+    assert no_title["role_index"] == 2
+    assert no_title["detail"] == "Stanowisko w Initech nie ma nazwy ani dat."
+
+
+def test_empty_role_block_keeps_block_indices_of_the_editable_parser() -> None:
+    """Poprawki QC (`qc/transform`) trafiają w blok po indeksie z `html_blocks`."""
+    editable = qc.EditableCv.parse(EMPTY_ROLE_LINE_HTML)
+    blocks = _blocks(EMPTY_ROLE_LINE_HTML)
+    assert [(b.section, b.text) for b in editable.blocks] == [
+        (b.section, b.text) for b in blocks
+    ]
+    assert len(editable.spans) == len(editable.blocks)
+    # Puste akapity bez znacznika stanowiska dalej nie są blokami.
+    assert (
+        _blocks('<p></p><p data-cv-section="employer"></p><p>Tekst</p>')[0].text
+        == "Tekst"
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        '<p data-cv-section="role"><b></b> 2018–2021</p>',
+        # Szablon generatora sprzed edytora: puste pola nazwy i dat.
+        '<p class="job-head" data-cv-section="role"><b></b> '
+        '<span class="job-dates">2018–2021</span></p>',
+    ],
+)
+def test_role_without_position_name_is_a_warning(line: str) -> None:
+    """Generator zostawia puste `position`, gdy oryginał wymienia samą firmę
+    z datami (np. „Wcześniej: PKO Bank Polski, 2018”) — w CV nagłówek roli to
+    same daty (15 ról w 6 z 1040 CV, 25.11.2026)."""
+    html = ROLES_HTML.replace(
+        '<p data-cv-section="role"><b>Specjalista IT Support &amp; Graphic Designer</b> '
+        "2018–2021</p>",
+        line,
+    )
+    check = _by_key(qc.compute_checks(_qc_input(html, must=[], experience=ROLES_READ)))[
+        "role_title"
+    ]
+    assert check["severity"] == "warning" and check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["role_index"] == 1
+    assert item["detail"] == "Stanowisko w Globex sp.k. (2018–2021) nie ma nazwy."
+    assert "role_title" not in qc.BLOCKING_KEYS
+
+
+def test_role_title_passes_named_roles_and_skips_cv_without_markers() -> None:
+    ok = _by_key(
+        qc.compute_checks(_qc_input(ROLES_HTML, must=[], experience=ROLES_READ))
+    )["role_title"]
+    assert ok["status"] == "pass" and ok["label"] == "Każde stanowisko ma nazwę"
+    # Nazwa bez pogrubienia (rekruter zdjął je w edytorze) to dalej nazwa.
+    unbolded = ROLES_HTML.replace("<b>Backend Developer</b>", "Backend Developer")
+    assert (
+        _by_key(qc.compute_checks(_qc_input(unbolded, must=[], experience=ROLES_READ)))[
+            "role_title"
+        ]["status"]
+        == "pass"
+    )
+    pasted = _by_key(
+        qc.compute_checks(_qc_input("<p>Acme Soft 2022–obecnie</p>", must=[]))
+    )["role_title"]
+    assert pasted["status"] == "skip"
+
+
 def test_dl_returns_group_lists_the_checks_dl_returns_cards_for() -> None:
     """R4: okno QC zbiera je w „Delivery Lead zwykle o to cofa”; lustro
     `QC_DL_RETURN_KEYS` we froncie."""

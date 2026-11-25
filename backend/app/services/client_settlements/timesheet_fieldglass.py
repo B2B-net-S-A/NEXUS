@@ -73,7 +73,11 @@ class ParsedFieldglass:
 def _cells(row: tuple[Any, ...]) -> list[str]:
     values = [c for c in row if c is not None and str(c).strip() != ""]
     if len(values) == 1 and isinstance(values[0], str) and "," in values[0]:
-        return [v.strip() for v in next(csv.reader([values[0]]))]
+        try:
+            return [v.strip() for v in next(csv.reader([values[0]]))]
+        except csv.Error:
+            # Komórka z tekstem wielowierszowym to nie wiersz CSV z Fieldglass.
+            return [values[0].strip()]
     return ["" if c is None else str(c).strip() for c in row]
 
 

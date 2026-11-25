@@ -14,7 +14,9 @@ wiersz ``client_settlement_extras`` na (kontrakt, miesiąc):
   odrzuceniem potwierdza rozliczający (reguła ``travel.extra_costs_confirm``),
   dlatego odrzucenie wymaga powodu,
 * dodatek z ``bill_to_client`` idzie do „Do faktury dla klienta” według
-  ``cl.extra_costs_on_invoice``.
+  ``cl.extra_costs_on_invoice``,
+* koszty delegacji z RCP zakłada przeliczenie rozliczenia (``sync_from_rcp``):
+  z akceptacją klienta od razu zatwierdzone, bez niej zgłoszone.
 
 Rodzaj ``integration`` (koszty integracji BNP, ``cl.integration_costs``) ma
 własną ścieżkę ze zgodą DL-a — tu go nie zgłaszamy, nie zatwierdzamy i nie
@@ -54,6 +56,9 @@ SOURCE_BACK_OFFICE, SOURCE_FINANCE, SOURCE_PORTAL = "back_office", "finance", "p
 #: Koszty dodatkowe z KEŚU (Alior, E6.3): podpowiedź z pliku, czeka na Finanse.
 SOURCE_KESU = "kesu"
 KESU_DESCRIPTION = "Koszty dodatkowe z KEŚU"
+#: Koszty delegacji z wiersza „Koszty wyjazdu” w RCP (BNP, próba IX–X 2026).
+SOURCE_RCP = "rcp"
+RCP_DESCRIPTION = "Koszty delegacji z RCP"
 INTEGRATION = "integration"
 TRAVEL = "travel"
 
@@ -73,6 +78,7 @@ SOURCE_LABELS = {
     SOURCE_FINANCE: "Finanse",
     SOURCE_PORTAL: "konsultant w panelu",
     SOURCE_KESU: "KEŚU",
+    SOURCE_RCP: "RCP",
 }
 
 AMOUNT_MAX = Decimal("100000")
@@ -407,6 +413,85 @@ async def sync_from_kesu(
     db.add(extra)
     await db.flush()
     return extra
+
+
+def decided_by_finance(extra: ClientSettlementExtra) -> bool:
+    """Zatwierdzony przez osobę albo odrzucony. Zatwierdzenie z akceptacji
+    klienta (``sync_from_rcp``) nie ma osoby, więc nie jest decyzją Finansów."""
+
+    return extra.decided_by is not None or extra.status == REJECTED
+
+
+async def sync_from_rcp(
+    db: AsyncSession,
+    *,
+    contract_id: int,
+    client_id: int,
+    month: str,
+    total: Optional[Decimal],
+    accepted: bool,
+    now: datetime,
+) -> Optional[ClientSettlementExtra]:
+    """Koszty delegacji z RCP jako delegacja na fakturę dla klienta
+    (decyzja Artura z 25.11.2026). Finanse fakturowały kwotę z RCP jako netto
+    osobnej pozycji, więc dodatek ma tę kwotę bez przeliczenia VAT.
+
+    Akceptacja klienta (RCP podpisany przez klienta albo mail z kwotą,
+    ``travel_acceptance``) zatwierdza dodatek od razu. Bez niej dodatek jest
+    zgłoszony i czeka na Finanse.
+
+    Jeden wiersz na (kontrakt, miesiąc). Dopóki Finanse nie zdecydowały,
+    przeliczenie poprawia kwotę i stan; po decyzji nie zmienia nic. Delegacja
+    z innego źródła w tym miesiącu (Finanse, back office, panel, KEŚU) wygrywa,
+    bo dwie pozycje za ten sam wyjazd zdublowałyby fakturę. Brak kosztów w RCP
+    usuwa niezdecydowany wiersz."""
+
+    rows = (
+        await db.scalars(
+            select(ClientSettlementExtra)
+            .where(
+                ClientSettlementExtra.contract_id == contract_id,
+                ClientSettlementExtra.period_month == month,
+                ClientSettlementExtra.kind == TRAVEL,
+            )
+            .with_for_update()
+        )
+    ).all()
+    mine = next((e for e in rows if e.source == SOURCE_RCP), None)
+    if mine is not None and decided_by_finance(mine):
+        return mine
+    other = any(e.source != SOURCE_RCP and e.status != REJECTED for e in rows)
+    amount = (
+        Decimal(total).quantize(MONEY)
+        if total is not None and not other and Decimal("0") < total <= AMOUNT_MAX
+        else None
+    )
+    if amount is None:
+        if mine is not None:
+            await db.delete(mine)
+            await db.flush()
+        return None
+    status = APPROVED if accepted else PENDING
+    if mine is None:
+        mine = ClientSettlementExtra(
+            client_id=client_id,
+            contract_id=contract_id,
+            period_month=month,
+            kind=TRAVEL,
+            description=RCP_DESCRIPTION,
+            source=SOURCE_RCP,
+            bill_to_client=True,
+            created_at=now,
+        )
+        db.add(mine)
+    elif mine.amount == amount and mine.status == status:
+        return mine
+    mine.amount = amount
+    if mine.status != status:
+        mine.status = status
+        mine.decided_at = now if status == APPROVED else None
+    await db.flush()
+    return mine
 
 
 # ── Dokumenty ────────────────────────────────────────────────────────────────

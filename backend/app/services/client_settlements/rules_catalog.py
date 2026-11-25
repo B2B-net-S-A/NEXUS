@@ -376,8 +376,9 @@ SECTIONS: tuple[Section, ...] = (
                 "off",
                 "E6.3",
                 {"item": ""},
-                (ParamField("item", "osobna pozycja"),),
-                "Puste = doliczone do pozycji głównej, nazwa = osobna pozycja.",
+                (ParamField("item", "osobna pozycja", "np. _delegacja"),),
+                "Puste = doliczone do pozycji głównej, nazwa = osobna pozycja, "
+                "„_…” = osobna pozycja z nazwą usługi i tym przyrostkiem.",
             ),
             Rule(
                 "cl.client_document",

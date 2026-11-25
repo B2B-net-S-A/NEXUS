@@ -97,7 +97,8 @@
 - **Numer trafia w kilka zamówień: faktura na jedną osobę wiąże się z tą osobą** (08.11.2026), jak przy jednym trafionym zamówieniu.
   Kolejność przy kilku trafionych: suma wszystkich równa netto (wiąże wszystkie), potem jeden cały wiersz równy netto, a dopiero gdy
   takiego wiersza nie ma, pozycja osoby w zamówieniu MD z kwotą równą co do grosza. Jedna taka pozycja wiąże z metodą `order_number`,
-  dwie lub więcej (dwie osoby z tą samą stawką) zostają `several_orders`, bo kwota nie mówi, o kogo chodzi. Wspólna pula bez podziału
+  dwie lub więcej (dwie osoby z tą samą stawką) zostają `several_orders`, bo kwota nie mówi, o kogo chodzi (od 25.11.2026 rozstrzygają wtedy
+  osoby z pozycji faktury, niżej). Wspólna pula bez podziału
   na osoby nie ma pozycji z `order_id`, więc nie wiąże. `several_orders` jest w `RETRY_REASONS`: faktura wraca po poprawce reguły albo
   po imporcie zużycia MD, który wypełni pozycje. Miesiąc puli z importu bez ręcznego `breakdown` dostaje podział z wierszy importu
   (`shared_md_month_people`, ta sama reguła co panel zamówienia), o ile składają się w sumę zejścia (09.11.2026). Bez tego rozliczenie
@@ -108,7 +109,7 @@
   - Działanie: u klienta z włączoną regułą numer z faktury wiąże wszystkie jego zamówienia z tym numerem w miesiącu faktury
     (`_whole_order`), także te z tytułem „Zamówienie nr …”, bez względu na kwotę. Różnicę kwoty widzą Finanse.
   - Wiąże też zamówienie z tym numerem, którego osoba w miesiącu nie pracowała. O zestawie decydują daty zamówień.
-  - Bez reguły nic się nie zmienia, faktura czeka jako `several_orders`.
+  - Bez reguły faktura czeka jako `several_orders`, chyba że jej pozycje nazywają osoby z tych zamówień (osoby z pozycji, niżej).
   - Odrzucone: wiązanie po samej kwocie. Przegląd 24.11 pokazał, że kwota nie odróżni faktury bez jednej osoby (przy 8 osobach to
     12,5%) od miesiąca z urlopami. Faktura jednej osoby bez nazwiska wiązała też małe zamówienie drugiej. A zaostrzony warunek nie wiązał
     już samego VeloBanku za IX.
@@ -136,6 +137,27 @@
       To faktury na cztery osoby, a tylko tytuł jednego zamówienia nie miał przedrostka.
   - Po zmianie w `decide()` zostaje 134 `unknown_order_number` (PKO 38, przed zmianą 72). To numery, których NEXUS nie ma
     w miesiącu faktury.
+- **Numer na kilku zamówieniach wiążą osoby z pozycji** (25.11.2026, decyzja Artura). PKO, Alior i Erste dają każdej osobie
+  własne zamówienie z tym samym numerem i fakturują rzeczywiste MD: jedną fakturę na numer z pozycją na osobę albo osobną
+  fakturę na osobę. NEXUS liczy szacunek (168 h w miesiącu), więc ani suma, ani wiersz, ani pozycja nie jest równa netto
+  i faktura czekała jako `several_orders`.
+  - Działanie (`matching._named_people`): gdy kwota nie rozstrzyga, każda bieżąca pozycja faktury (bez „przed korektą”) musi
+    nazywać pełnym imieniem i nazwiskiem (`person_named_in`) dokładnie jedną osobę z zamówień trafionych numerem. Faktura
+    wiąże zamówienia nazwanych osób (w zamówieniu MD linię osoby) metodą `order_number`, a różnicę kwoty widzą Finanse.
+  - Nie wiąże: pozycja bez osoby (koszty, rabat), pozycja na dwie osoby, osoba spoza zamówień z tym numerem, osoba z dwoma
+    zamówieniami z tym numerem w miesiącu, samo nazwisko. Ceny nie porównujemy: numer już zawęża zamówienia, a faktura
+    podaje cenę za MD, zamówienie za godzinę.
+  - Kolejność bez zmian: suma wszystkich, jeden cały wiersz, pozycja osoby z równą kwotą. Osoby z pozycji idą dopiero przed
+    `several_orders`, a `cl.collective_invoice` ma pierwszeństwo.
+  - Odrzucone: `cl.collective_invoice` dla PKO. Na jednym z numerów PKO wystawia osobne faktury na osobę, a reguła zbiorcza
+    przypięłaby każdą do zamówień obu osób (pomiar: 11 zmian, 4 złe).
+  - Pomiar `decide()` na kopii produkcji z 23.11 (2858 faktur z decyzją): zmienia wynik 21 faktur (PKO 11, Alior 9, Erste 1)
+    i żadna nie wiąże zamówienia osoby spoza pozycji. `several_orders` spada z 31 do 10. Zostają pozycje bez nazwisk
+    (VeloBank, jeden inny klient) i osoba z dwoma zamówieniami z tym numerem.
+  - Automat zwiąże tylko czekające (`several_orders` jest w `RETRY_REASONS`), na produkcji 25.11 to 17 faktur. Faktur już
+    związanych nie przelicza: trzy faktury PKO za VII–IX są związane numerem z jednym z czterech zamówień. Faktury
+    z powodem `amount_ambiguous` też nie przelicza (jedna PKO za IX). Te cztery przypisują Finanse ręcznie (decyzja Artura z 25.11).
+  - Testy: `tests/test_client_invoicing_rules.py` (sekcja „Osoby z pozycji”).
 
 ## Nieznani nabywcy i NIP w formularzu (audyt C5, 08.11.2026)
 

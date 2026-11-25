@@ -363,7 +363,7 @@ function TourStepCard({
         {box
           ? step.hint
           : blocked === "covered"
-            ? "To miejsce zasłania otwarty panel. Zamknij go, a krok wróci."
+            ? "To miejsce coś zasłania (otwarty panel albo pasek u dołu). Kliknij „Pokaż to miejsce” albo zamknij panel."
             : blocked === "offscreen"
               ? "To miejsce jest poza widokiem."
               : step.ack
@@ -373,10 +373,20 @@ function TourStepCard({
                 : `Nie widzę tego miejsca na tym ekranie. Przejdź do: ${novelty.where} — przeklikanie poczeka.`}
       </p>
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        {blocked === "offscreen" ? (
-          <Button size="sm" onClick={onReveal}>
-            Pokaż to miejsce
-          </Button>
+        {blocked === "offscreen" || blocked === "covered" ? (
+          // Zasłonięte bywa przez przyklejony pasek u dołu formularza (25.11.2026:
+          // „Stanowisko w zespole” pod paskiem „Brakuje 12 rzeczy” przy 1280 × 720)
+          // — przewinięcie na środek ekranu je odsłania.
+          <span className="flex items-center gap-2">
+            <Button size="sm" onClick={onReveal}>
+              Pokaż to miejsce
+            </Button>
+            {blocked === "covered" && missingLong ? (
+              <Button size="sm" variant="outline" onClick={onAck}>
+                Nie mam tego — dalej
+              </Button>
+            ) : null}
+          </span>
         ) : step.ack ? (
           <Button size="sm" onClick={onAck}>
             Rozumiem

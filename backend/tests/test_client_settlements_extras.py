@@ -143,6 +143,29 @@ def test_dodatek_dla_klienta_osobna_pozycja_z_reguly() -> None:
     ]
 
 
+def test_dodatek_dla_klienta_przyrostek_do_nazwy_uslugi() -> None:
+    """„_delegacja” = osobna pozycja z nazwą usługi i przyrostkiem, jak
+    faktury Finansów do BNP (próba IX–X 2026)."""
+    rule = {"level": "warn", "params": {"item": "_delegacja"}}
+    items, note = client_invoice.with_extras(
+        _base(),
+        [_extra("travel", "approved", "350", bill=True)],
+        rule=rule,
+        currency="PLN",
+        name="Usługi; Osoba; nr zamówienia: ZAM_1",
+    )
+    assert note is None
+    assert [(p.name, p.quantity, p.net, p.kind) for p in items] == [
+        ("Usługi; Osoba", Decimal("20"), Decimal("22000.00"), "base"),
+        (
+            "Usługi; Osoba; nr zamówienia: ZAM_1_delegacja",
+            Decimal("1"),
+            Decimal("350.00"),
+            "extra",
+        ),
+    ]
+
+
 def test_dodatek_dla_klienta_doliczony_do_pozycji_zasadniczej() -> None:
     rule = {"level": "warn", "params": {"item": ""}}
     items, note = client_invoice.with_extras(

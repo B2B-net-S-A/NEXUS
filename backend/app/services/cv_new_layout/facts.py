@@ -55,6 +55,19 @@ LANGUAGE_CODES = {
     "japoński": "JA",
     "koreański": "KO",
     "hindi": "HI",
+    "perski": "FA",
+    "azerski": "AZ",
+    "wietnamski": "VI",
+    "łacina": "LA",
+    "esperanto": "EO",
+    "kantoński": "YUE",
+    "persian": "FA",
+    "farsi": "FA",
+    "azari": "AZ",
+    "azerbaijani": "AZ",
+    "vietnamese": "VI",
+    "latin": "LA",
+    "cantonese": "YUE",
     "polish": "PL",
     "english": "EN",
     "german": "DE",
@@ -91,14 +104,30 @@ LANGUAGE_CODES = {
 }
 
 
-_LANG_SPLIT = re.compile(r"\s+[-–—]\s+|\s*:\s+")
+# „Polski - ojczysty”, „English -B2” (spacja tylko przed myślnikiem), „Niemiecki: B1”
+_LANG_SPLIT = re.compile(r"\s+[-–—]\s*|\s*:\s+")
+# „Angielski B2” — poziom CEFR na końcu bez myślnika
+_LANG_TRAILING_CEFR = re.compile(
+    r"^(.*?\S)\s+([ABC][12](?:\s*/\s*[ABC][12])?)\.?$", re.I
+)
 
 
 def lang_parts(entry: str) -> tuple[str, str]:
     """„Polski - ojczysty” → („Polski”, „ojczysty”); także półpauza, pauza i dwukropek
     („polski – ojczysty” z edytora), bez tego kod języka brał dwie pierwsze litery („PO”)."""
     parts = _LANG_SPLIT.split((entry or "").strip(), maxsplit=1)
-    return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
+    if len(parts) == 1:
+        # „Polish-fluent.” bez spacji (#40503) — dzieli tylko po znanej nazwie języka,
+        # żeby „Serbo-Croatian” zostało w całości
+        left, dash, right = parts[0].partition("-")
+        trailing = _LANG_TRAILING_CEFR.match(parts[0])
+        if dash and left.strip().lower() in LANGUAGE_CODES:
+            parts = [left, right]
+        elif trailing:
+            parts = [trailing.group(1), trailing.group(2)]
+    return parts[0].strip(), (
+        parts[1].strip().rstrip(".").strip() if len(parts) > 1 else ""
+    )
 
 
 def lang_level(level: str, language: str = "pl") -> tuple[Optional[int], str]:
@@ -115,7 +144,9 @@ def lang_level(level: str, language: str = "pl") -> tuple[Optional[int], str]:
 
 
 def lang_code(name: str) -> str:
-    return LANGUAGE_CODES.get((name or "").strip().lower(), (name or "")[:2].upper())
+    """Kod języka; dopisek w nawiasie („English (reading/listening)”) nie zmienia kodu."""
+    base = re.sub(r"\s*\(.*?\)\s*", " ", name or "").strip()
+    return LANGUAGE_CODES.get(base.lower(), base[:2].upper())
 
 
 # ---------- certyfikaty ----------
