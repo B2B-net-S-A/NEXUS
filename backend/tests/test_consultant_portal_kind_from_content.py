@@ -200,3 +200,12 @@ def pdf_with_text(lines: list[str]) -> bytes:
         f"startxref\n{xref}\n%%EOF\n"
     ).encode()
     return out
+
+
+def test_karta_kcp_pod_tematem_faktura_to_raport() -> None:
+    """Próba VI–VIII 2026: „timelogLip.pdf” (karta KCP) w mailu „Faktura” szedł do faktur."""
+
+    from tests.test_client_settlements_kcp import _card_rows, _workbook
+
+    content = _workbook({"KARTA": _card_rows()})
+    assert kind_of_file("Faktura", "timelogLip.xlsx", content) == "report"
