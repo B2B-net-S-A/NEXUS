@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
@@ -54,11 +55,15 @@ def _label(cell: Any) -> str:
     return " ".join(str(cell).split()).lower() if isinstance(cell, str) else ""
 
 
+#: Liczba z jednostką wpisaną w komórkę: „17,5MD”, „140 h” (próba VI–VIII 2026).
+_UNIT = re.compile(r"\s*(?:md|mds|h|godz\.?)\s*$", re.IGNORECASE)
+
+
 def _number(cell: Any) -> Optional[Decimal]:
     if isinstance(cell, bool) or cell in (None, ""):
         return None
     try:
-        return Decimal(str(cell).strip().replace(",", "."))
+        return Decimal(_UNIT.sub("", str(cell).strip()).replace(",", "."))
     except InvalidOperation:
         return None
 
