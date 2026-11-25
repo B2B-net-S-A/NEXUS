@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 
-from jose import JWTError, jwt
+import jwt
 
 from app.core.config import settings
 
@@ -76,7 +76,9 @@ def verify(token: str, user_id: int, context: dict) -> dict:
             _key(),
             algorithms=["HS256"],
             audience=AUDIENCE,
-            options={"require_exp": True, "require_iat": True, "require_aud": True},
+            # PyJWT pomija nieznane klucze opcji, więc jose-owe
+            # ``require_exp`` itd. nic by tu nie wymagały.
+            options={"require": ["exp", "iat", "aud"]},
         )
         key = receipt["storage_key"]
         if receipt["owner"] != user_id or receipt["context"] != context:
@@ -92,7 +94,7 @@ def verify(token: str, user_id: int, context: dict) -> dict:
         if isinstance(receipt.get("check"), dict):
             binding["check"] = receipt["check"]
         return {"storage_key": key, "binding": binding}
-    except (JWTError, KeyError, TypeError, ValueError):
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
         raise ValueError(
             "Consent attachment does not match the current source and context"
         ) from None

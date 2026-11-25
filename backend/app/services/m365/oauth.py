@@ -29,7 +29,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,18 +125,18 @@ def sign_state(user_id: int, nonce: Optional[str] = None) -> str:
 
 
 def verify_state(token: str) -> M365OAuthState:
-    """Stan łączenia skrzynki albo ``JWTError`` — także przy obcym ``purpose``
-    i przy ``state`` sprzed rundy 11 (bez ``n``)."""
+    """Stan łączenia skrzynki albo ``jwt.InvalidTokenError`` — także przy
+    obcym ``purpose`` i przy ``state`` sprzed rundy 11 (bez ``n``)."""
     try:
         payload = jwt.decode(token, _state_signing_key(), algorithms=[_STATE_ALGORITHM])
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         logger.info("m365 state verify failed: %s", type(exc).__name__)
         raise
     if payload.get("purpose") != _STATE_PURPOSE:
-        raise JWTError("wrong purpose")
+        raise jwt.InvalidTokenError("wrong purpose")
     nonce = payload.get("n")
     if not isinstance(nonce, str) or not nonce:
-        raise JWTError("state without nonce")
+        raise jwt.InvalidTokenError("state without nonce")
     return M365OAuthState(
         user_id=int(payload["sub"]),
         verifier=pkce_verifier_for(nonce),

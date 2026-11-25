@@ -27,7 +27,7 @@ import pytest_asyncio
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import AsyncClient
-from jose import jwt
+import jwt
 from sqlalchemy import select
 
 from app.core.config import settings

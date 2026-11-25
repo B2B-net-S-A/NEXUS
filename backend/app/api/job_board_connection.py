@@ -25,7 +25,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from jose import JWTError
+from jwt import PyJWTError
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -219,7 +219,7 @@ async def callback(
         return RedirectResponse(_settings_url("error", "Brak kodu logowania."), 302)
     try:
         parsed = jjit_connection.verify_state(state)
-    except (JWTError, KeyError, ValueError):
+    except (PyJWTError, KeyError, ValueError):
         return RedirectResponse(
             _settings_url("error", "Logowanie wygasło — spróbuj ponownie."), 302
         )

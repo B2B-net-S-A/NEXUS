@@ -20,7 +20,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock
 
-from jose import jwt
+import jwt
 
 from app.api import ws as ws_module
 from app.api.ws import (

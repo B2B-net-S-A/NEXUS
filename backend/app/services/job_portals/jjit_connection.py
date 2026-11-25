@@ -35,7 +35,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import httpx
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,9 +91,9 @@ def static_token_expires_at() -> Optional[datetime]:
     if not token:
         return None
     try:
-        claims = jwt.get_unverified_claims(token)
+        claims = jwt.decode(token, options={"verify_signature": False})
         return datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
-    except (JWTError, KeyError, TypeError, ValueError, OverflowError):
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError, OverflowError):
         return None
 
 
@@ -178,14 +178,14 @@ def sign_state(user_id: int, nonce: Optional[str] = None) -> str:
 
 
 def verify_state(token: str) -> OAuthState:
-    """Stan logowania albo ``JWTError`` — także przy obcym ``purpose`` i przy
-    ``state`` sprzed rundy 10 (bez ``n``)."""
+    """Stan logowania albo ``jwt.InvalidTokenError`` — także przy obcym
+    ``purpose`` i przy ``state`` sprzed rundy 10 (bez ``n``)."""
     payload = jwt.decode(token, _signing_key(), algorithms=[_STATE_ALGORITHM])
     if payload.get("purpose") != STATE_PURPOSE:
-        raise JWTError("wrong purpose")
+        raise jwt.InvalidTokenError("wrong purpose")
     nonce = payload.get("n")
     if not isinstance(nonce, str) or not nonce:
-        raise JWTError("state without nonce")
+        raise jwt.InvalidTokenError("state without nonce")
     return OAuthState(
         user_id=int(payload["sub"]),
         verifier=pkce_verifier_for(nonce),
