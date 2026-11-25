@@ -732,7 +732,9 @@ def test_third_name_word_does_not_leak_into_the_category():
 
 
 def test_business_category_is_not_cut_as_a_third_name_word():
-    text = ORDER.replace("Jan Testowy IT Operations - Senior", "Jan Testowy Business Analyst - Expert")
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior", "Jan Testowy Business Analyst - Expert"
+    )
     (row,) = nordea.extract_rows(text)
     assert row.client_category == "Business Analyst - Expert"
 
@@ -759,3 +761,219 @@ def test_third_name_word_before_business_category_is_still_uncertain():
     assert row.uncertain
     assert "Nowak" in row.uncertain_reason
     assert row.client_category == "Business Architect"
+
+
+# ── 25.11.2026: stawka z kropką i nazwisko złamane na łączniku ────────────────
+# 11 z 19 wstrzymanych zamówień Nordei (szablon COA 3.17 z DocuSign) miało
+# stawkę „175.00 PLN   300 000.00 PLN” — z kropką dziesiętną — a wyrażenie
+# wiersza znało tylko przecinek. Tabela dawała zero osób, a model widział
+# w surowym fragmencie same „PLN” (liczby przed stawką są maskowane).
+# Drugi wzorzec: nazwisko dwuczłonowe zawinięte w komórce — „Anna Testowa-”
+# w wierszu, „Nowakowska” w linii pod nim, obok „Warsaw” z kolumny Location.
+
+
+def _pdf_with_text(items: list[tuple[int, int, str]]) -> bytes:
+    """Jednostronicowy PDF z tekstem w podanych miejscach (Helvetica 8 pt, ASCII)."""
+    ops = []
+    for x, y, text in items:
+        text = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        ops.append(f"BT /F1 8 Tf {x} {y} Td ({text}) Tj ET")
+    stream = "\n".join(ops).encode("latin-1")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+        b"/Encoding /WinAnsiEncoding >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    return bytes(out)
+
+
+# Układ tabeli Consultant(s) z COA 3.17: komórka zawijana schodzi linię niżej.
+DOCUSIGN_COA_ITEMS = [
+    (40, 800, "Call Off Agreement"),
+    (40, 785, "Frame Agreement number CW1234567"),
+    (40, 770, "Call Off Agreement number 123456"),
+    (40, 740, "Initial Term"),
+    (40, 728, "Start date End date"),
+    (40, 716, "2031-04-01 2031-11-30"),
+    (40, 690, "Consultant(s) (if applicable)"),
+    (40, 675, "Person(s) at the Supplier who"),
+    (150, 675, "Competence Category"),
+    (260, 675, "Location"),
+    (330, 675, "Quantity (max"),
+    (390, 675, "Unit"),
+    (430, 675, "Rate"),
+    (500, 675, "Subtotal"),
+    (40, 665, "it is intended to perform the"),
+    (150, 665, "(according to Nordea"),
+    (330, 665, "160h/month)"),
+    (40, 655, "service"),
+    (150, 655, "definitions)"),
+    (40, 640, "Anna Testowa-"),
+    (150, 640, "IT Operations - Senior"),
+    (260, 640, "Poland -"),
+    (330, 640, "800"),
+    (390, 640, "Hours"),
+    (430, 640, "150.00 PLN"),
+    (500, 640, "120 000.00 PLN"),
+    (40, 630, "Nowakowska"),
+    (260, 630, "Warsaw"),
+    (40, 612, "Total, excl. VAT"),
+    (500, 612, "120 000.00 PLN"),
+    (40, 590, "Contact persons"),
+    (40, 575, "Contact persons under this Call Off Agreement: For Nordea"),
+]
+
+
+def test_docusign_pdf_with_dot_decimal_rate_and_wrapped_name_is_read(tmp_path):
+    from app.services.order_document_text import extract_order_text
+
+    path = tmp_path / "123456 - Fikcyjne zamowienie 310401-311130.pdf"
+    path.write_bytes(_pdf_with_text(DOCUSIGN_COA_ITEMS))
+    text = extract_order_text(str(path), path.name).text
+
+    rows = nordea.extract_rows(text)
+
+    assert [(r.consultant_name, r.rate_client) for r in rows] == [
+        ("Anna Testowa-Nowakowska", Decimal("150.00"))
+    ]
+    assert not rows[0].uncertain
+    assert rows[0].client_category == "IT Operations - Senior"
+    assert nordea.table_rate_count(text) == 1
+
+
+DOT_ORDER = ORDER.replace("175,00 PLN 300 000,00 PLN", "175.00 PLN 300 000.00 PLN")
+
+
+def test_dot_decimal_rate_reaches_the_table_and_the_model_projection():
+    rows = nordea.extract_rows(DOT_ORDER)
+    assert [(r.consultant_name, r.rate_client) for r in rows] == [
+        ("Jan Testowy", Decimal("175.00"))
+    ]
+    projected = nordea.parser_text(DOT_ORDER)
+    # Model widzi stawkę w wyciągu i w surowym fragmencie, ale nie sumę.
+    assert "Rate: 175,00 PLN/hour netto" in projected
+    assert "175.00 PLN" in projected
+    assert "300 000.00" not in projected
+
+
+def test_dot_decimal_order_confirmed_by_the_model_has_no_concerns():
+    ex = model_extraction("")
+    ex, _ = apply_policies(ex, PolicyContext(document_text=DOT_ORDER), POLICIES)
+    assert ex.uncertain_reasons == []
+    assert ex.rate_client == Decimal("175.00")
+    assert ex.consultant_rate_matched
+
+
+WRAPPED_NAME = ORDER.replace(
+    "Jan Testowy IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN",
+    "Jan Testowy- IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN\n"
+    "Nowakowski Warsaw",
+)
+
+
+def test_double_barrelled_name_broken_at_the_hyphen_is_joined():
+    rows = nordea.extract_rows(WRAPPED_NAME)
+    assert [r.consultant_name for r in rows] == ["Jan Testowy-Nowakowski"]
+    assert not rows[0].uncertain
+    assert rows[0].client_category == "IT Operations - Senior"
+    assert "Jan Testowy-Nowakowski" in nordea.parser_text(WRAPPED_NAME)
+
+
+def test_joined_name_confirmed_by_the_model_has_no_person_concerns():
+    ex = model_extraction("")
+    ex.consultant_rows[0].consultant_name = "Jan Testowy-Nowakowski"
+    ex, _ = apply_policies(ex, PolicyContext(document_text=WRAPPED_NAME), POLICIES)
+    assert ex.uncertain_reasons == []
+    assert [r.consultant_name for r in ex.consultant_rows] == ["Jan Testowy-Nowakowski"]
+
+
+def test_model_reading_only_the_first_part_of_the_name_is_still_reviewed():
+    # Zapis sprzed poprawki: model przepisał wyciąg z urwanym nazwiskiem.
+    ex = model_extraction("")
+    ex, _ = apply_policies(ex, PolicyContext(document_text=WRAPPED_NAME), POLICIES)
+    assert ex.uncertain
+    assert any("Jan Testowy-Nowakowski" in r for r in ex.uncertain_reasons)
+
+
+@pytest.mark.parametrize(
+    "next_line",
+    ["Total, excl. VAT 300 000,00 PLN", "1 728", "warsaw", ""],
+)
+def test_name_ending_with_hyphen_without_a_continuation_is_uncertain(next_line):
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN\n"
+        "Total, excl. VAT 300 000,00 PLN",
+        "Jan Testowy- IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN\n"
+        + next_line,
+    )
+    rows = nordea.extract_rows(text)
+    assert [r.consultant_name for r in rows] == ["Jan Testowy"]
+    assert rows[0].uncertain
+    assert "łącznik" in rows[0].uncertain_reason
+
+
+def test_next_table_row_is_never_glued_to_a_hyphenated_name():
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN",
+        "Jan Testowy- IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN\n"
+        "Anna Druga IT Operations - Senior Poland - 1 728 Hours 175,00 PLN 300 000,00 PLN",
+    )
+    rows = nordea.extract_rows(text)
+    assert [r.consultant_name for r in rows] == ["Jan Testowy", "Anna Druga"]
+    assert rows[0].uncertain
+
+
+def test_model_reading_from_the_old_projection_gets_one_fresh_ai_read(monkeypatch):
+    # Wpisy sprzed poprawki: model czytał rzut, w którym stawka z kropką była
+    # zamaskowana, więc jego odczyt (osoba bez stawki) nie potwierdza tabeli.
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
+    monkeypatch.setattr(ingest, "_replannable", lambda row: True)
+    row = SimpleNamespace(
+        outcome="needs_review",
+        client_id=77,
+        extraction={"source": "claude"},
+        document_meta={"rule_versions": {"nordea": "2026-11-16"}},
+    )
+    assert ingest._needs_ai_retry(row) is True
+
+    row.document_meta = {
+        **row.document_meta,
+        **ingest.model_projection_meta(active_policies(77)),
+    }
+    assert ingest._needs_ai_retry(row) is False
+
+    row.client_id = 78  # inny klient: odczyt modelu bez wersji rzutu
+    assert ingest._needs_ai_retry(row) is False
+
+
+def test_model_projection_stamp_survives_refresh_metadata():
+    assert "model_projection" in ingest._AI_RETRY_META_KEYS
+
+
+def test_joined_name_resolves_to_the_contractor_with_a_double_barrelled_surname():
+    roster = [
+        RosterPerson(
+            7, "Jan", "Testowy-Nowakowski", (RosterContract(70, "active", None, None),)
+        ),
+        RosterPerson(8, "Jan", "Testowy", (RosterContract(80, "active", None, None),)),
+    ]
+    resolved = resolve_rows(nordea.extract_rows(WRAPPED_NAME), roster)
+    assert [(r.candidate_id, r.contract_id) for r in resolved] == [(7, 70)]
+    assert resolved[0].match_kind == "exact"

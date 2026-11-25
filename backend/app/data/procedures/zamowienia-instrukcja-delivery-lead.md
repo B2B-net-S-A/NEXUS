@@ -2241,6 +2241,13 @@ linie), wpis czeka na Ciebie. Osoba, przed której kategorią stoi jeszcze jedno
 słowo pisane jak nazwisko („Jan Kowalski Nowak IT…"), też idzie do sprawdzenia —
 system nie zgaduje, czy nazwisko ma trzy człony. Kategoria z grupy Business
 („Jan Kowalski Business Analyst – Expert…") nie jest takim słowem i wiersza nie wstrzymuje.
+Stawka może mieć **przecinek albo kropkę** („175,00 PLN” i „175.00 PLN” znaczą
+to samo). Nazwisko dwuczłonowe złamane w tabeli na łączniku („Kowalska-” w wierszu,
+„Nowak” linię niżej) system skleja w jedno („Kowalska-Nowak”); gdy pod wierszem
+nie ma dalszej części nazwiska, osoba czeka na Twoje sprawdzenie. Wpisy, które
+czekały w weryfikacji przed 25.11.2026 z powodu „brak osób i stawek”, dostają
+**jeden nowy odczyt AI** z poprawionego tekstu i — jeśli wszystko się zgadza —
+zapisują się same przy najbliższym sprawdzeniu skrzynki.
 
 **2. Import zamówień z CSV — nie dla Ciebie.** W zakładce „Zamówienia" jest
 zwijany panel **„Import zamówień Nordea z CSV"**, ale **widzi go wyłącznie

@@ -146,6 +146,13 @@ class OrderClientPolicy:
     #: 09.2026). ZMIEŃ wersję przy każdej zmianie reguły, która może zmienić
     #: werdykt dokumentu; ``None`` = bez automatycznego przeliczania.
     rule_version: Optional[str] = None
+    #: Wersja tekstu, który dostaje MODEL (``prepare_parser_text``). Zapisany
+    #: odczyt modelu jest niezależnym dowodem tylko dla rzutu, z którego go
+    #: zrobiono: gdy rzut ukrywał dane (Nordea do 25.11.2026: stawka z kropką
+    #: zamaskowana „…"), wpis w kolejce dostaje ponowny odczyt AI
+    #: (``retry_ai_fallback_documents``, limit prób jak przy odczycie
+    #: awaryjnym). ZMIEŃ ją tylko przy zmianie tego, co widzi model.
+    model_projection_version: Optional[str] = None
     #: Tabela osób czytana z POŁOŻENIA słów PDF-a (PKO BP): funkcja dopisuje
     #: do tekstu dokumentu wiersze z kolumn, które czyta reguła i bramka; model
     #: dostaje tekst bez dopisku (``prepare_parser_text``). Słowa niesie
@@ -301,7 +308,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # bez zmian.
         # 16.11.2026: kategoria z grupy Business po nazwisku nie jest już
         # brana za trzeci człon nazwy — wiersz nie idzie przez nią do sprawdzenia.
-        rule_version="2026-11-16",
+        # 25.11.2026: stawka z kropką dziesiętną i nazwisko złamane na
+        # łączniku do linii pod wierszem (COA 3.17 z DocuSign).
+        rule_version="2026-11-25",
+        model_projection_version="2026-11-25",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -647,6 +657,15 @@ def reapplies_on_refresh(policies: list[OrderClientPolicy]) -> bool:
 def rule_versions(policies: list[OrderClientPolicy]) -> dict[str, str]:
     """Wersje reguł odczytu aktywnych u klienta — znacznik zapisywany na dokumencie."""
     return {p.key: p.rule_version for p in policies if p.rule_version}
+
+
+def model_projection_versions(policies: list[OrderClientPolicy]) -> dict[str, str]:
+    """Wersje rzutu tekstu dla modelu — znacznik odczytu modelu na dokumencie."""
+    return {
+        p.key: p.model_projection_version
+        for p in policies
+        if p.model_projection_version
+    }
 
 
 def closes_on_md_exhaustion(client_id: Optional[int]) -> bool:
