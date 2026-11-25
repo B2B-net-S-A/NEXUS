@@ -329,7 +329,9 @@ export const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
   search: "bg-primary/10 text-primary",
   client: "bg-success-muted text-success-muted-foreground",
   need: "bg-warning-muted text-warning-muted-foreground",
-  done: "bg-muted text-muted-foreground",
+  // Zamknięte i obsadzone bez tła (25.11.2026, zgłoszenie rekrutera): „Szukamy”
+  // ginęło w serii bladych plakietek „Zamknięta”.
+  done: "bg-transparent font-medium text-muted-foreground",
 };
 
 /**
