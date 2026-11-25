@@ -4502,6 +4502,7 @@
   },
   {
     "id": "porcja-wybor-rekrutacji-na-dzis",
+    "pr": 3860,
     "title": "Porcja dnia: wybierz rekrutację, nad którą pracujesz dziś",
     "why": "Umówiliście się, kto robi który request? „Wybierz rekrutację na dziś” bierze osoby najpierw z niej, a liczba się nie zmienia. Kto wybierze pierwszy, ma najlepszych. Jutro zwykła kolejność.",
     "tier": "dot",
@@ -4862,6 +4863,7 @@
     "audience": { "roles": ["finance", "admin"] },
     "where": "Finanse → Przelewy → Do zapłaty → Zajęcie / Spór",
     "href": "/finance",
+    "practice_href": "/finance?view=payments",
     "section": "finance",
     "dot_anchor": "finance.payments.garnishment"
   },
@@ -5095,6 +5097,7 @@
   },
   {
     "id": "finanse-przebieg-miesiaca-odpowiedzi",
+    "pr": 3868,
     "title": "Przebieg miesiąca: automat, błędy, braki i biuro",
     "why": "Cztery odpowiedzi: ile osób przeszło samo, co blokuje przyjęcie, czego brakuje i gdzie są faktury do klientów. Niżej klienci i biuro w pięciu krokach z „Kto teraz”.",
     "tier": "tour",
