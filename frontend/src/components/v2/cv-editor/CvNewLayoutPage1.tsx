@@ -93,8 +93,11 @@ export interface CvNewLayoutPage1Props {
   disabled: boolean;
   /** Zapis dodatków strony 1 (zdania, wyróżnik, wieniec); brak = bez tych pól (np. CV bez etapu). */
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
-  /** „Ułóż zdania od nowa” — generator strony 1 z bieżącej treści; brak = bez przycisku. */
-  onRefreshWhy?: () => Promise<void>;
+  /**
+   * „Ułóż zdania od nowa” — zdania 1–3 i najmocniejsze wyniki z zapisanego CV
+   * (ta sama trasa co dawne „Policz wyniki od nowa”); brak = bez przycisku.
+   */
+  onRecalcResults?: () => Promise<void>;
   onOpenPositions: () => void;
   onOpenText: (section: CvSectionKey) => void;
 }
@@ -104,7 +107,7 @@ export function CvNewLayoutPage1({
   extras,
   disabled,
   onSaveResult,
-  onRefreshWhy,
+  onRecalcResults,
   onOpenPositions,
   onOpenText,
 }: CvNewLayoutPage1Props) {
@@ -113,6 +116,8 @@ export function CvNewLayoutPage1({
   const summaries = page1Summaries(doc);
   const tenure = tenureHint(doc);
 
+  // Liczenie od nowa trwa kilka sekund: pola zdań czekają, żeby poprawka nie minęła się z wynikiem.
+  const [recalculating, setRecalculating] = useState(false);
   const fallback = fallbackTexts(
     points.map((point) => point.text),
     extras,
@@ -131,7 +136,14 @@ export function CvNewLayoutPage1({
             <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" />
             Dlaczego nasz kandydat
           </h3>
-          {onRefreshWhy ? <RefreshWhy disabled={disabled} onRefresh={onRefreshWhy} /> : null}
+          {onRecalcResults ? (
+            <RefreshWhy
+              disabled={disabled}
+              busy={recalculating}
+              onBusy={setRecalculating}
+              onRefresh={onRecalcResults}
+            />
+          ) : null}
         </div>
         {onSaveResult ? (
           WHY_FIELDS.map((field, index) => (
@@ -142,7 +154,7 @@ export function CvNewLayoutPage1({
               label={field.label}
               extras={extras}
               fallback={fallback[index]}
-              disabled={disabled}
+              disabled={disabled || recalculating}
               onSave={onSaveResult}
               hint={index === 0 ? (tenure ?? undefined) : undefined}
             />
@@ -410,18 +422,27 @@ function WhySentence({
   );
 }
 
-function RefreshWhy({ disabled, onRefresh }: { disabled: boolean; onRefresh: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false);
+function RefreshWhy({
+  disabled,
+  busy,
+  onBusy,
+  onRefresh,
+}: {
+  disabled: boolean;
+  busy: boolean;
+  onBusy: (busy: boolean) => void;
+  onRefresh: () => Promise<void>;
+}) {
   const [error, setError] = useState<string | null>(null);
   const run = async () => {
-    setBusy(true);
+    onBusy(true);
     setError(null);
     try {
       await onRefresh();
     } catch (reason) {
       setError(apiErrorMessage(reason, "Nie udało się ułożyć zdań od nowa. Spróbuj za chwilę."));
     } finally {
-      setBusy(false);
+      onBusy(false);
     }
   };
   return (
@@ -431,6 +452,7 @@ function RefreshWhy({ disabled, onRefresh }: { disabled: boolean; onRefresh: () 
         size="sm"
         variant="outline"
         disabled={disabled || busy}
+        aria-busy={busy}
         onClick={() => void run()}
         className="h-7 rounded-full px-2.5 text-xs"
         data-tour="cv-editor.page1.refresh"

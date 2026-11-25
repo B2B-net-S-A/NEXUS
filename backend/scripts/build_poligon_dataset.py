@@ -990,7 +990,9 @@ def esign_defaults() -> dict:
         "contractor_name": " ".join(SLOT_PERSON),
         "contractor_email": None,
         "company_signers": [{"id": TRAINERS["dl"][0], "name": TRAINERS["dl"][1]}],
-        "mailbox_connected": False,
+        # Na ćwiczeniach skrzynka jest „połączona”: 25.11.2026 osoby z połączoną
+        # skrzynką czytały na Poligonie „Twoja skrzynka nie jest połączona”.
+        "mailbox_connected": True,
         "cc_candidates": [],
         "documents": [{"id": PRACTICE_NDA_ID, "name": f"NDA {CLIENT_NAME}"}],
     }

@@ -219,12 +219,23 @@ def _skill(segments: list) -> dict[str, str]:
     return {"label": label, "content": _text(rest)}
 
 
+# Wiersz edukacji poprawiony ręcznie, bez pogrubionej uczelni: „2019 - 2022 — Ekonomia”.
+_LEADING_DATES = re.compile(
+    r"^\s*((?:\d{1,2}[./])?(?:19|20)\d{2}(?:\s*[-–]\s*(?:(?:\d{1,2}[./])?(?:19|20)\d{2}"
+    r"|obecnie|present|currently))?)\s+[—–-]\s+(\S.*)$",
+    re.I,
+)
+
+
 def _education(segments: list) -> dict[str, str]:
     dates, bold, rest = _education_row(segments)
     rest_text = _text(rest)
+    lead = "" if dates or bold else _LEADING_DATES.match(rest_text)
+    if lead:  # bez dat i uczelni na początku — daty nie idą do kierunku (#40571)
+        rest_text = lead.group(2)
     degree, _, location = rest_text.partition(" · ")
     return {
-        "dates": _text(dates),
+        "dates": lead.group(1) if lead else _text(dates),
         "institution": _text(bold),
         "degree": degree.strip(),
         "location": location.strip(),
@@ -284,6 +295,8 @@ def cv_json_from_editor_html(
     in_duties = False
 
     for node in blocks:
+        if not isinstance(node.tag, str):
+            continue  # komentarz albo instrukcja w szkicu zapisanym jako cały dokument (#68)
         tag = _tag(node)
         if is_rodo_node(node):
             if not rodo:
@@ -406,3 +419,30 @@ def cv_json_from_editor_html(
     return EditorCvContent(
         cv_json=cv_json, rodo_clause=rodo, unmapped_sections=tuple(unmapped)
     )
+
+
+def role_gaps(
+    html: Optional[str], *, language: Optional[str], blind: bool
+) -> Optional[dict[str, int]]:
+    """Ile stanowisk Nowe CV czyta bez dat, a ile bez firmy (``None`` = wszystko jest).
+
+    CV wgrane z pliku w obcym formacie (np. daty i „Nazwa firmy:” nad stanowiskiem)
+    traci te pola — karta i edytor ostrzegają (decyzja Artura 25.11.2026)."""
+    if not html or not html.strip():
+        return None
+    roles = (
+        cv_json_from_editor_html(
+            html,
+            language="en" if language == "en" else "pl",
+            blind=blind,
+            fallback=None,
+        ).cv_json.get("experience")
+        or []
+    )
+    gaps = {
+        "without_dates": sum(1 for r in roles if not str(r.get("dates") or "").strip()),
+        "without_company": 0
+        if blind
+        else sum(1 for r in roles if not str(r.get("company") or "").strip()),
+    }
+    return gaps if any(gaps.values()) else None

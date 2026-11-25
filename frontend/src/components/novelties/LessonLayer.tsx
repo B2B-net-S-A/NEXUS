@@ -32,6 +32,7 @@ import {
   readRun,
   restartShow,
   shuffledOptions,
+  skipBrokenLesson,
   writeRun,
   type LessonRun,
 } from "@/lib/novelties/lessons";
@@ -317,6 +318,7 @@ export function LessonLayer() {
             Nie wychodzi — oddaj powtórkę
           </button>
         ) : null}
+        <BrokenButton run={run} />
       </section>
     );
   }
@@ -371,7 +373,29 @@ export function LessonLayer() {
           Przerwij
         </button>
       </div>
+      <BrokenButton run={run} />
     </section>
+  );
+}
+
+/**
+ * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): zawsze widoczne wyjście
+ * z lekcji, w której coś jest zepsute. Serwer zalicza ją od razu i zapisuje ślad.
+ */
+export function BrokenButton({ run }: { run: LessonRun }) {
+  const [sending, setSending] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={sending}
+      onClick={() => {
+        setSending(true);
+        void skipBrokenLesson(run);
+      }}
+      className="mt-2 block text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
+    >
+      Coś nie działa — zalicz i dalej
+    </button>
   );
 }
 

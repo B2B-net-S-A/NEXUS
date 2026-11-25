@@ -21,6 +21,9 @@ Okres: „Initial Term ⏎ Start date End date ⏎ 2026-02-02 2026-11-30".
 Osoby: „Łukasz Urbanowicz IT Operations - Senior Poland - 1 728 Hours 175,00 PLN
 302 400,00 PLN". Quantity jest limitem, nie ilością do planu. Stawka jest
 zawsze netto za godzinę; nie uzgadniamy jej z Quantity ani Subtotal.
+Kwota bywa też z kropką dziesiętną („175.00 PLN   300 000.00 PLN", COA 3.17
+z DocuSign, 11.2026), a komórka osoby zawija się do linii pod wierszem
+(„Anna Testowa-" ⏎ „Nowakowska Warsaw").
 """
 
 from __future__ import annotations
@@ -48,7 +51,10 @@ _FRAME_TOKEN_RE = re.compile(r"\b[A-Z]{1,3}\d{5,}\b")
 _STANDALONE_NUMBER_RE = re.compile(r"^\s*(\d{5,7})\s*$")
 _TERM_HEADER_RE = re.compile(r"Start\s+date\s+End\s+date", re.IGNORECASE)
 _TWO_ISO_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})")
-_AMT = r"\d[\d\s  ]*,\d{2}"
+# Separator dziesiętny: przecinek albo kropka (25.11.2026: 11 z 19 wstrzymanych
+# zamówień Nordei miało „175.00 PLN" — tabela dawała zero osób). Tysiące tylko
+# spacją, więc „1 040" z kolumny Quantity nie skleja się z kwotą.
+_AMT = r"\d[\d\s  ]*[,.]\d{2}"
 _ROW_RE = re.compile(
     rf"^(?P<name>\S+[ \t]+\S+(?:-\S+)?)[ \t]+(?P<rest>.*?)[ \t]+(?:(?:\d[\d  ]*|[-–—])[ \t]+)?(?:Hours?|Days?|Months?|MD|h|d)"
     rf"[ \t]+(?P<rate>{_AMT})[ \t]*PLN[^\n]*$",
@@ -365,6 +371,15 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
         rate = normalize_amount(m.group("rate"))
         name = clean_person_name(m.group("name"))
         concerns = ["Nie znaleziono stawki"] if rate is None else []
+        if m.group("name").endswith("-"):
+            tail = _wrapped_name_tail(table[m.end() :])
+            if tail:
+                name = f"{name}-{tail}"
+            else:
+                concerns.append(
+                    f"„{name}”: nazwisko urywa się na łączniku, a w linii pod "
+                    "wierszem nie ma jego dalszej części — sprawdź imię i nazwisko"
+                )
         # Nazwa to dwa pierwsze słowa wiersza. Kolejne słowo pisane jak
         # nazwisko przed kolumną kategorii („Jan Kowalski Nowak IT…") znaczy,
         # że osoba może mieć trzy człony — zgadywanie dałoby zamówienie
@@ -393,6 +408,34 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
             )
         )
     return rows
+
+
+# Dalszy człon nazwiska zawinięty do linii pod wierszem: pierwsze słowo tej
+# linii, pisane jak nazwisko („Nowakowska Warsaw" — drugie słowo to zawinięta
+# kolumna Location).
+_NAME_TAIL_RE = re.compile(
+    r"[ \t]*([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:-[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)(?=\s|$)"
+)
+
+
+def _wrapped_name_tail(after_row: str) -> Optional[str]:
+    """Człon nazwiska z linii pod wierszem, którego nazwa kończy się łącznikiem.
+
+    Linia, która sama jest wierszem tabeli albo podsumowaniem, nigdy nie jest
+    dalszym ciągiem nazwiska — lepiej wiersz do sprawdzenia niż osoba sklejona
+    z następną (25.11.2026, „Testowy-" ⏎ „Nowakowski Warsaw").
+    """
+    # Dokładnie następna linia — pusta linia przerywa komórkę.
+    rest = after_row[1:] if after_row.startswith("\n") else after_row
+    next_line = rest.split("\n", 1)[0]
+    if (
+        not next_line.strip()
+        or _TOTAL_LINE_RE.match(next_line)
+        or _ROW_RE.match(next_line)
+    ):
+        return None
+    match = _NAME_TAIL_RE.match(next_line)
+    return match.group(1) if match else None
 
 
 def _category(rest: str, extra: Optional[re.Match]) -> Optional[str]:

@@ -196,7 +196,9 @@ export type LessonEvent =
   | "restart"
   | "completed"
   | "review_passed"
-  | "review_failed";
+  | "review_failed"
+  /** „Coś nie działa — zalicz mimo to” (Artur, 25.11.2026): zalicza lekcję z każdego etapu. */
+  | "broken";
 
 /** Etap lekcji. Błąd zapisu nie zatrzymuje osoby — wraca jako `false`. */
 export async function sendLessonEvent(lessonId: string, event: LessonEvent): Promise<boolean> {

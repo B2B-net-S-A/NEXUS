@@ -13,6 +13,7 @@ from app.services.cv_new_layout.context import Ctx
 from app.services.cv_new_layout.education import education_page1, education_plain
 from app.services.cv_new_layout.facts import lang_code, lang_level, lang_parts
 from app.services.cv_new_layout.highlight import Highlight, resolve
+from app.services.cv_new_layout.labels import more_on_page2
 from app.services.cv_new_layout.text import (
     esc,
     key_first,
@@ -98,11 +99,35 @@ def skill_items(ctx: Ctx, content: str) -> list[str]:
     return key_first(merge_fragments(split_items(content)), ctx.keys)
 
 
-def skills_index(ctx: Ctx, cap: Optional[int]) -> tuple[str, bool]:
+def _groups_for_page1(ctx: Ctx, limit: Optional[int]) -> list:
+    """Kategorie na str. 1: przy limicie najpierw te z pozycjami z rekrutacji
+    (pogrubionymi), w kolejności z CV; reszta tylko w pełnej liście na str. 2."""
+    groups = [g for g in ctx.doc.skills if skill_items(ctx, g.content)]
+    if not limit or len(groups) <= limit:
+        return groups
+    rank = sorted(
+        range(len(groups)),
+        key=lambda i: (
+            -sum(ctx.keys.is_key(x) for x in skill_items(ctx, groups[i].content)),
+            i,
+        ),
+    )
+    keep = set(rank[:limit])
+    return [g for i, g in enumerate(groups) if i in keep]
+
+
+def skills_index(
+    ctx: Ctx, cap: Optional[int], groups_limit: Optional[int] = None
+) -> tuple[str, bool]:
     """Kategorie z pozycjami; pozycje z rekrutacji pogrubione i pierwsze, nadmiar jako „+N”.
     Zwraca (HTML, czy coś skrócono)."""
     rows, truncated = [], False
-    for group in ctx.doc.skills:
+    chosen = _groups_for_page1(ctx, groups_limit)
+    hidden_groups = sum(1 for g in ctx.doc.skills if skill_items(ctx, g.content)) - len(
+        chosen
+    )
+    truncated = hidden_groups > 0
+    for group in chosen:
         items = skill_items(ctx, group.content)
         if not items:
             continue
@@ -126,7 +151,9 @@ def skills_index(ctx: Ctx, cap: Optional[int]) -> tuple[str, bool]:
     if not rows:
         return "", False
     html = f"<div class='s1'>{''.join(rows)}</div>"
-    if truncated:
+    if hidden_groups > 0:
+        html += f"<div class='cap'>{esc(more_on_page2(ctx.lang, 'category', hidden_groups))}</div>"
+    elif truncated:
         html += f"<div class='cap'>{esc(ctx.t['skills_more_note'])}</div>"
     return html, truncated
 
@@ -135,10 +162,12 @@ def heading(title: str) -> str:
     return f"<h2><span>{esc(title)}</span></h2>"
 
 
-def page1(ctx: Ctx, cap: Optional[int]) -> tuple[str, bool, int]:
+def page1(
+    ctx: Ctx, cap: Optional[int], groups_limit: Optional[int] = None
+) -> tuple[str, bool, int]:
     """(HTML strony 1, czy umiejętności skrócono, ile certyfikatów na koniec CV)."""
     t = ctx.t
-    skills, truncated = skills_index(ctx, cap)
+    skills, truncated = skills_index(ctx, cap, groups_limit)
     hl = resolve(ctx)
     education, certs_hidden = education_plain(ctx) if hl else education_page1(ctx)
     blocks = [

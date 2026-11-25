@@ -7114,6 +7114,8 @@ export interface CVBrandedState {
   default_layout?: CvLayout;
   /** Dodatki strony 1 nowego CV: najmocniejszy wynik (wpisany albo wybrany z listy). */
   page1_extras?: CvPage1Extras | null;
+  /** Stanowiska, w których Nowe CV nie odczytało dat albo firmy (25.11.2026); tylko przy „Nowym CV”. */
+  new_layout_role_gaps?: { without_dates: number; without_company: number } | null;
 }
 
 export type CvLayout = "classic" | "new";
@@ -7407,10 +7409,10 @@ export const candidateStageCvApi = {
     setPage1: (stageId: number, payload: CvPage1Update) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
     /**
-     * Zdania 1–3 i najmocniejsze wyniki strony 1 od nowa z bieżącej treści
-     * (model + kontrola kodem; limit 20/min, awaria = 503). Oddaje dodatki strony 1.
+     * Najmocniejsze wyniki i zdania 1–3 strony 1 z zapisanego szkicu (model, kilka sekund;
+     * „Ułóż zdania od nowa”). Oddaje nowe dodatki strony 1; awaria modelu 503, limit żądań 429.
      */
-    refreshPage1: (stageId: number) =>
+    refreshPage1Results: (stageId: number) =>
       api.post<CvPage1Extras>(`/api/candidates/stages/${stageId}/cv/page1/results`, undefined, {
         timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       }),

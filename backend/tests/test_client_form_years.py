@@ -467,3 +467,24 @@ def test_role_from_screening_note_counts_with_a_note_quote() -> None:
         fields="F", tables="T", years_fields="Y", cv="C", notes="N", rules="R"
     )
     assert "w notatce screeningu" in prompt
+
+
+def test_ongoing_role_in_english_cv_counts_to_this_month() -> None:
+    # 25.11.2026: CV po angielsku ma „03.2025 – currently”; gdy model przepisze
+    # to słowo do "end" zamiast „obecnie”, stanowisko nie może wypaść z lat.
+    for word in ("currently", "Present", "ongoing", "to date", "aktualnie"):
+        cv = CV.replace("03.2025 – obecnie", f"03.2025 – {word}")
+        roles = [
+            {**ROLES[0], "end": word, "quote": f"03.2025 – {word} Tester / Firma Alfa"},
+            *ROLES[1:],
+        ]
+        result = fill.check_parse(
+            json.dumps({"roles": roles, "years": []}),
+            structure=_structure(),
+            sources=fill.Sources(cv=cv, notes=NOTES, rules=""),
+            candidate_name="Anna Fikcyjna",
+            today=TODAY,
+        )
+        total = result["fields"]["p3"]
+        assert total["value"] == "5 lat 11 mies.", word
+        assert total["years"]["basis"][0]["period"] == "03.2025 – obecnie", word

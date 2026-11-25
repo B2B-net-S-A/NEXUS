@@ -40,22 +40,24 @@ vi.mock("@/components/v2/cv-editor/CvNewLayoutWorkspace", () => ({
     active,
     extras,
     onSaveResult,
-    onRefreshWhy,
+    onRecalcResults,
   }: {
     tab: string;
     active: boolean;
     extras: unknown;
     onSaveResult?: (patch: { result_text: string }) => Promise<void>;
-    onRefreshWhy?: () => Promise<void>;
+    onRecalcResults?: () => Promise<void>;
   }) => (
     <div data-testid="workspace" data-tab={tab} data-active={active ? "tak" : "nie"}>
       {JSON.stringify(extras)}
       <button type="button" onClick={() => void onSaveResult?.({ result_text: "Nowy wynik." })}>
         zapisz wynik
       </button>
-      <button type="button" onClick={() => void onRefreshWhy?.()}>
-        ułóż zdania
-      </button>
+      {onRecalcResults ? (
+        <button type="button" onClick={() => void onRecalcResults()}>
+          policz od nowa
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -91,14 +93,19 @@ function api(initial: CVBrandedState) {
     current = { ...current, page1_extras: { ...current.page1_extras, result_text: patch.result_text ?? null } };
     return respond(current);
   });
-  const refreshPage1 = vi.fn(() => {
-    const extras = { ...current.page1_extras, why: ["Zdanie z generatora.", "", ""] };
-    current = { ...current, page1_extras: extras };
-    return respond(extras);
+  const calls: string[] = [];
+  const update = vi.fn(() => {
+    calls.push("update");
+    return respond(current);
+  });
+  const refreshPage1Results = vi.fn(() => {
+    calls.push("refresh");
+    current = { ...current, page1_extras: { result_index: 0, results: [{ text: "Policzony wynik.", verified: true }] } };
+    return respond(current.page1_extras ?? {});
   });
   const editorApi: CvEditorApi = {
     get: () => respond(current),
-    update: () => respond(current),
+    update,
     newDraft: () => respond(current),
     finalize: () => respond({} as never),
     setLayout: (_id, cv_layout) => {
@@ -106,9 +113,9 @@ function api(initial: CVBrandedState) {
       return respond(current);
     },
     setPage1,
-    refreshPage1,
+    refreshPage1Results,
   };
-  return { editorApi, setPage1, refreshPage1 };
+  return { editorApi, setPage1, refreshPage1Results, calls };
 }
 
 function renderModal(initial: CVBrandedState) {
@@ -170,10 +177,11 @@ it("„Najmocniejszy wynik” idzie do dodatków strony 1, a odpowiedź trafia d
   await waitFor(() => expect(screen.getByTestId("workspace")).toHaveTextContent("Nowy wynik."));
 });
 
-it("„Ułóż zdania od nowa” liczy zdania strony 1 i wkłada je do formularza", async () => {
-  const { refreshPage1 } = renderModal(state());
+it("„Policz wyniki od nowa” zapisuje najpierw szkic, a nowe wyniki trafiają do formularza", async () => {
+  const { refreshPage1Results, calls } = renderModal(state({ edit_revision: 1 }));
   await screen.findByTestId("workspace");
-  fireEvent.click(screen.getByRole("button", { name: "ułóż zdania" }));
-  await waitFor(() => expect(refreshPage1).toHaveBeenCalledWith(11));
-  await waitFor(() => expect(screen.getByTestId("workspace")).toHaveTextContent("Zdanie z generatora."));
+  fireEvent.click(screen.getByRole("button", { name: "policz od nowa" }));
+  await waitFor(() => expect(refreshPage1Results).toHaveBeenCalledWith(11));
+  expect(calls.at(-1)).toBe("refresh");
+  await waitFor(() => expect(screen.getByTestId("workspace")).toHaveTextContent("Policzony wynik."));
 });

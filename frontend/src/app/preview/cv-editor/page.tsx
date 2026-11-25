@@ -237,15 +237,24 @@ function memoryApi(initial: CVBrandedState): {
       current = { ...current, page1_extras: extras };
       return respond(current);
     },
-    // Harness bez modelu: „Ułóż zdania od nowa” wraca do zdań z fikstury.
-    refreshPage1: () => {
-      const extras: CvPage1Extras = {
-        ...(current.page1_extras ?? {}),
-        why: autoTexts(current.page1_extras),
-      };
-      current = { ...current, page1_extras: extras };
-      return respond(extras);
-    },
+    // „Ułóż zdania od nowa” bez modelu: po chwili sprawdzone wyniki w odwrotnej
+    // kolejności i zdania 1–3 z fikstury tam, gdzie nikt ich nie poprawiał.
+    refreshPage1Results: () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          const results = current.page1_extras?.results ?? [];
+          const verified = results.filter((r) => r.verified === true).reverse();
+          const auto = autoTexts(current.page1_extras);
+          const extras: CvPage1Extras = {
+            ...(current.page1_extras ?? {}),
+            results: [...verified, ...results.filter((r) => r.verified !== true)],
+            result_index: 0,
+            why: whySlots(current.page1_extras).map((slot, index) => slot || auto[index]),
+          };
+          current = { ...current, page1_extras: extras };
+          resolve({ data: extras } as AxiosResponse<CvPage1Extras>);
+        }, 800);
+      }),
     update: (_id, payload) => {
       if ("content_html" in payload) {
         current = { ...current, content_html: payload.content_html, edit_revision: current.edit_revision + 1 };

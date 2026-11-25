@@ -369,6 +369,18 @@ def test_solo_needs_the_show_and_completion_needs_the_solo() -> None:
     assert (row.shown_count, row.solo_failed_count) == (1, 1)
 
 
+def test_broken_completes_the_lesson_at_any_stage() -> None:
+    """„Coś nie działa — zalicz mimo to” (Artur, 25.11.2026): zepsute ćwiczenie
+    w lekcji nie może nikogo zatrzymać. Zalicza od razu, z każdego etapu."""
+    now = _at(TUESDAY, 9)
+    row = _row()
+    assert apply_lesson_event(row, "broken", now) is True
+    assert row.completed_at == now and row.shown_at == now and row.solo_passed_at == now
+    # Drugi raz niczego nie psuje; powtórka zaliczonej lekcji też przechodzi.
+    assert apply_lesson_event(row, "broken", now) is False
+    assert row.reviewed_at == now
+
+
 def test_failed_review_sends_the_lesson_back_to_the_show() -> None:
     now = _at(FRIDAY, 9)
     row = _row(shown_at=now, solo_passed_at=now, completed_at=now)

@@ -205,3 +205,22 @@ async def test_preview_uses_unsaved_editor_text_without_saving_or_approving(
     assert csv.branded_draft_html == previous_html
     assert csv.branded_status == "draft" and csv.edit_revision == 5
     db.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "dates",
+    [
+        "03.2023 - currently",
+        "03.2023 – Present",
+        "2019 - ongoing",
+        "03.2023 - aktualnie",
+        "2019 – do dziś",
+        "03.2023 - to date",
+        "(01.2020 - teraz)",
+    ],
+)
+def test_role_line_dates_ending_today_are_dates_only(dates):
+    from app.services.cv_approved_docx import _DATES_ONLY
+
+    assert _DATES_ONLY.fullmatch(dates)
+    assert not _DATES_ONLY.fullmatch(f"{dates} nowy system płatności")

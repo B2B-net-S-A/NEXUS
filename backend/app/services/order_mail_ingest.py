@@ -111,6 +111,7 @@ from app.services.order_policies import (
     client_ids_from_env,
     document_period_authoritative,
     is_client_in_policy,
+    model_projection_versions,
     open_ended_period,
     policy_by_key,
     prepare_document_text,
@@ -542,6 +543,31 @@ def _stamp_rule_versions(row: OrderMailDocument, policies: list) -> None:
     }
 
 
+def model_projection_meta(policies: list) -> dict[str, Any]:
+    """Znacznik rzutu tekstu, z którego model zrobił zapisany odczyt.
+
+    Stawiany TYLKO przy odczycie modelu (nowy mail, udane ponowienie) —
+    „Przelicz plan" go nie odświeża, bo nie woła modelu. Pusty, gdy żadna
+    reguła klienta nie wersjonuje rzutu.
+    """
+    versions = model_projection_versions(policies)
+    return {"model_projection": versions} if versions else {}
+
+
+def _model_projection_stale(row: OrderMailDocument) -> bool:
+    """Czy odczyt modelu powstał z rzutu sprzed zmiany tego, co widzi model.
+
+    Nordea do 25.11.2026: stawka z kropką dziesiętną była w rzucie zamaskowana
+    („…"), więc model zapisał osobę bez stawki, a tabela po poprawce ma
+    stawkę — bramka mówiłaby wiecznie „odczyt modelu nie potwierdził stawki".
+    """
+    wanted = model_projection_versions(active_policies(row.client_id))
+    if not wanted:
+        return False
+    stamped = (row.document_meta or {}).get("model_projection") or {}
+    return any(stamped.get(key) != version for key, version in wanted.items())
+
+
 #: Klucze ``document_meta`` prowadzone przez ponowny odczyt AI — przeżywają
 #: „Przelicz plan", który przepisuje resztę metadanych dokumentu od zera.
 _AI_RETRY_META_KEYS = (
@@ -549,6 +575,9 @@ _AI_RETRY_META_KEYS = (
     "ai_retry_last_at",
     "ai_retry_last_failure",
     "ai_recovered_at",
+    # Znacznik rzutu odczytu modelu (``model_projection_meta``) — przeliczenie
+    # bez modelu nie może go zgubić, bo wpis dostałby ponowny odczyt AI.
+    "model_projection",
     # 0316: ślad godzinowej ponownej weryfikacji `{attempts, category, last_at}`.
     # „Przelicz plan" nie może go kasować — inaczej licznik „trzech prób
     # z rzędu" zerowałby się przy każdym przeliczeniu i karta dla Delivery
@@ -833,6 +862,8 @@ async def process_pdf_bytes(
     row.client_policy = " + ".join(applied) or None
     row.extraction = extraction_to_json(extraction)
     row.document_meta = document_meta_to_json(doc, extraction)
+    if extraction.source == "claude":
+        row.document_meta = {**row.document_meta, **model_projection_meta(policies)}
     _stamp_rule_versions(row, policies)
     row.outcome = (
         OUTCOME_NEEDS_REVIEW if client_id is not None else OUTCOME_UNRECOGNIZED
@@ -1231,7 +1262,11 @@ def _needs_ai_retry(row: Optional[OrderMailDocument]) -> bool:
         return False
     # Runda 10 (R10-N3-4): także ``none`` — pusty odczyt tekstu (chwilowy
     # limit czasu procesu PDF) zostawiał dokument z pustym planem na stałe.
-    if (row.extraction or {}).get("source") not in ("regex", "none"):
+    # 25.11.2026: także odczyt modelu ze starego rzutu tekstu (Nordea).
+    source = (row.extraction or {}).get("source")
+    if source not in ("regex", "none") and not (
+        source == "claude" and _model_projection_stale(row)
+    ):
         return False
     attempts = int((row.document_meta or {}).get("ai_retry_attempts") or 0)
     return attempts < MAX_AI_RETRY_ATTEMPTS and _replannable(row)
@@ -1415,6 +1450,7 @@ async def _apply_recovered_ai_read(
         "ai_retry_last_at": now,
         "ai_retry_last_failure": None,
         "ai_recovered_at": now,
+        **model_projection_meta(policies),
     }
     _stamp_rule_versions(row, policies)
     await replan_and_apply(db, row, actor_user_id=None)

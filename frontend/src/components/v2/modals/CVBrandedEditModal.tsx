@@ -194,7 +194,7 @@ export type CvEditorApi = Pick<
    * Układ CV i „Najmocniejszy wynik” strony 1 nowego CV (22.11.2026) — tylko
    * CV etapu; wynik generatora nie ma układu.
    */
-  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout" | "setPage1" | "refreshPage1">>;
+  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout" | "setPage1" | "refreshPage1Results">>;
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
@@ -801,15 +801,15 @@ function CVBrandedEditContent({
         );
       }
     : undefined;
-  const refreshPage1Api = isGenerated ? undefined : editorApi.refreshPage1;
   /**
-   * „Ułóż zdania od nowa”: generator strony 1 z bieżącej treści (zdania 1–3
-   * i najmocniejsze wyniki). Najpierw autozapis, bo serwer liczy z zapisanego HTML-a.
+   * „Ułóż zdania od nowa” (zdania 1–3 i najmocniejsze wyniki): serwer liczy
+   * z zapisanego szkicu, więc najpierw zapis bieżącej treści.
    */
-  const refreshPage1 = refreshPage1Api
+  const refreshPage1Api = isGenerated ? undefined : editorApi.refreshPage1Results;
+  const recalcPage1 = refreshPage1Api
     ? async () => {
         if (!(await ensureDraft())) {
-          throw new Error("Nie udało się założyć nowego szkicu CV — zdania nie zostały ułożone.");
+          throw new Error("Nie udało się założyć nowego szkicu CV — wyniki nie zostały policzone.");
         }
         await flush();
         const response = await refreshPage1Api(stageId);
@@ -1291,7 +1291,7 @@ function CVBrandedEditContent({
                   active={open && showCv && formTab !== null}
                   loadPreview={() => loadPdf("preview")}
                   onSaveResult={savePage1}
-                  onRefreshWhy={refreshPage1}
+                  onRecalcResults={recalcPage1}
                   onTab={setMode}
                   onOpenText={openInText}
                 />

@@ -264,7 +264,8 @@ def test_year_fraction():
 
 def test_duration_text_rounds_down_without_months():
     assert duration_text(parse_dates("08.2024 – 12.2025", NOW)) == "1 rok 5 mies."
-    assert duration_text(parse_dates("2016 - 2019", NOW)) == "ok. 3 lata"
+    # sam rok w końcu zakresu = grudzień, jak edytor i staż do Worda (pętla jakości 25.11.2026)
+    assert duration_text(parse_dates("2016 - 2019", NOW)) == "ok. 4 lata"
     assert duration_text(parse_dates("01.2020 - 12.2024", NOW)) == "5 lat"
     assert duration_text(parse_dates("08.2024 – 12.2025", NOW), "en") == "1 year 5 mo."
     assert duration_text(Span(None, NOW, False)) == ""

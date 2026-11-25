@@ -1254,6 +1254,14 @@ def test_poligon_exercise_completes_once_and_cannot_be_postponed() -> None:
     assert refused.value.status_code == 409
 
 
+def test_broken_poligon_exercise_still_counts() -> None:
+    """„Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): zepsute ćwiczenie
+    zalicza się mimo to, żeby blokada Poligonu nikogo nie trzymała."""
+    row = NoveltyProgress(user_id=1, novelty_id="poligon-jeden", seen_count=0)
+    apply_poligon_event(row, "broken", NOW)
+    assert row.completed_at == NOW and row.completed_via == "used"
+
+
 @_DB
 @pytest.mark.asyncio
 async def test_new_recruiter_records_poligon_progress_and_is_sent_to_poligon(

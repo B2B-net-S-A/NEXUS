@@ -27,6 +27,7 @@ import re
 from datetime import date
 from typing import Any, Optional
 
+from app.services.cv_ongoing import ONGOING_WORDS
 from app.services.cv_tenure_checks import months_text, union_months
 
 LEVEL_ROLE = "role"
@@ -48,7 +49,7 @@ NOT_YEARS_ROW = re.compile(r"^\s*(?:test\b|wiersz\s+\d)", re.IGNORECASE)
 # „Staż pracy liczony w latach ponad minimalne wymagania opisane w OPZ”.
 OVER_MINIMUM = re.compile(r"\bponad\s+minim", re.IGNORECASE)
 _MONTH = re.compile(r"^\s*((?:19|20)\d{2})(?:\s*-\s*(0[1-9]|1[0-2]))?\s*$")
-_ONGOING_END = re.compile(r"^\s*(obecnie|nadal|present|current|now)\s*$", re.IGNORECASE)
+_ONGOING_END = re.compile(rf"^\s*{ONGOING_WORDS}\s*$", re.IGNORECASE)
 _KEY = re.compile(r"^[\w-]{1,20}$")
 
 YearMonth = tuple[int, Optional[int]]

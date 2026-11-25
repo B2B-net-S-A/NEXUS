@@ -22,6 +22,7 @@ import type { CvPage1Extras, CvPage1Update } from "@/lib/api";
 import type { AuthenticatedDownload } from "@/lib/authenticated-files";
 import type { CvLang, CvSectionKey } from "@/lib/cv-editor-blocks";
 import { allRoleFields, companyName, whyPoints } from "@/lib/cv-new-layout-form";
+import { roleGaps } from "@/lib/cv-new-layout-gaps";
 import { pageChip } from "@/lib/cv-new-preview";
 import { page1Sentences, plainText } from "@/lib/cv-page1-why";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { CvNewLayoutPage1 } from "./CvNewLayoutPage1";
 import { CvNewLayoutPositions } from "./CvNewLayoutPositions";
 import { CvPdfPageView, type CvPdfPlacement } from "./CvPdfPageView";
+import { NewCvRoleGapsNote } from "./NewCvRoleGapsNote";
 import { useEditorDoc } from "./cv-new-layout-fields";
 import { useNewCvPreview } from "./useNewCvPreview";
 
@@ -46,8 +48,8 @@ export interface CvNewLayoutWorkspaceProps {
   /** PDF nowego CV z bieżącej treści (te same nagłówki co „Jak u klienta”). */
   loadPreview: () => Promise<AuthenticatedDownload>;
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
-  /** „Ułóż zdania od nowa” w „Strona 1” (generator strony 1). */
-  onRefreshWhy?: () => Promise<void>;
+  /** „Ułóż zdania od nowa” w „Stronie 1”: zdania 1–3 i najmocniejsze wyniki (tylko CV etapu). */
+  onRecalcResults?: () => Promise<void>;
   onTab: (tab: CvNewLayoutTab) => void;
   onOpenText: (section: CvSectionKey) => void;
 }
@@ -61,7 +63,7 @@ export function CvNewLayoutWorkspace({
   active,
   loadPreview,
   onSaveResult,
-  onRefreshWhy,
+  onRecalcResults,
   onTab,
   onOpenText,
 }: CvNewLayoutWorkspaceProps) {
@@ -75,6 +77,7 @@ export function CvNewLayoutWorkspace({
   });
 
   const roles = allRoleFields(doc);
+  const gaps = roleGaps(roles);
   const role = roles[Math.min(selected, roles.length - 1)] ?? null;
   const sentences = page1Sentences(
     whyPoints(doc).map((point) => point.text),
@@ -105,13 +108,14 @@ export function CvNewLayoutWorkspace({
               : "flex @3xl:w-[70%] @3xl:max-w-[52rem] @3xl:overflow-hidden",
           )}
         >
+          {tab === "page1" ? <NewCvRoleGapsNote gaps={gaps} onFix={() => onTab("positions")} className="mx-4 mt-3" /> : null}
           {tab === "page1" ? (
             <CvNewLayoutPage1
               editor={editor}
               extras={extras}
               disabled={disabled}
               onSaveResult={onSaveResult}
-              onRefreshWhy={onRefreshWhy}
+              onRecalcResults={onRecalcResults}
               onOpenPositions={() => onTab("positions")}
               onOpenText={onOpenText}
             />

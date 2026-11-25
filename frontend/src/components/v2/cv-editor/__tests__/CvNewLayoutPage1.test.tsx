@@ -213,13 +213,13 @@ describe("Strona 1", () => {
   });
 
   it("„Ułóż zdania od nowa” woła generator strony 1, błąd po polsku", async () => {
-    const onRefreshWhy = vi
+    const onRecalcResults = vi
       .fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce({ response: { status: 503, data: { detail: "Nie udało się teraz znaleźć wyniku." } } });
-    renderPage1({ onRefreshWhy });
+    renderPage1({ onRecalcResults });
     fireEvent.click(screen.getByRole("button", { name: "Ułóż zdania od nowa" }));
-    await waitFor(() => expect(onRefreshWhy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onRecalcResults).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByRole("button", { name: "Ułóż zdania od nowa" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się teraz znaleźć wyniku.");
   });
@@ -246,100 +246,55 @@ describe("Strona 1", () => {
   });
 });
 
-describe("Wyróżnik (25.11.2026)", () => {
-  it("domyślnie „Automatycznie” z opisem wcześniejszej pracy u klienta", () => {
+describe("Ułóż zdania od nowa (zdania 1–3 i wyniki, dawne „Policz wyniki od nowa”)", () => {
+  const apiError = (status: number, data: unknown) =>
+    Object.assign(new Error(`Request failed with status code ${status}`), {
+      isAxiosError: true,
+      response: { status, data },
+    });
+
+  it("bez wołania serwera nie ma przycisku", () => {
     renderPage1();
-    expect(screen.getByRole("radio", { name: "Automatycznie" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText(/Doświadczenie w PKO BP · 2018–2023/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Etykieta")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ułóż zdania od nowa/ })).toBeNull();
   });
 
-  it("„Bez wyróżnika” zapisuje się od razu", async () => {
-    const user = userEvent.setup();
-    const { props } = renderPage1();
-    await user.click(screen.getByRole("radio", { name: "Bez wyróżnika" }));
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ highlight: { mode: "off" } }));
-    expect(screen.getByRole("radio", { name: "Bez wyróżnika" })).toHaveAttribute("aria-checked", "true");
-  });
-
-  it("„Własny” nie zapisuje się bez etykiety i zdania, a po uzupełnieniu wysyła komplet", async () => {
-    vi.useFakeTimers();
-    const { props } = renderPage1();
-    fireEvent.click(screen.getByRole("radio", { name: "Własny" }));
-    fireEvent.change(screen.getByLabelText("Etykieta"), { target: { value: "Wyróżnienie" } });
-    fireEvent.change(screen.getByLabelText("Znak w wieńcu"), { target: { value: "2015" } });
-    await act(async () => {
-      vi.advanceTimersByTime(RESULT_SAVE_DELAY_MS);
-    });
-    expect(props.onSaveResult).not.toHaveBeenCalled();
-    expect(screen.getByText("Uzupełnij etykietę i zdanie — wtedy wyróżnik się zapisze.")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Zdanie"), {
-      target: { value: "Best IT Project Manager klastra bałtyckiego Nordea za inicjatywę KYC. " },
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(RESULT_SAVE_DELAY_MS - 1);
-    });
-    expect(props.onSaveResult).not.toHaveBeenCalled();
-    await act(async () => {
-      vi.advanceTimersByTime(1);
-    });
-    expect(props.onSaveResult).toHaveBeenCalledTimes(1);
-    expect(props.onSaveResult).toHaveBeenCalledWith({
-      highlight: {
-        mode: "custom",
-        label: "Wyróżnienie",
-        token: "2015",
-        text: "Best IT Project Manager klastra bałtyckiego Nordea za inicjatywę KYC.",
-      },
-    });
-  });
-
-  it("zapisany „Własny” wypełnia pola, pokazuje liczniki i pilnuje limitów", () => {
-    renderPage1({
-      extras: { ...EXTRAS, highlight: { mode: "custom", label: "Wyróżnienie", token: "PMP", text: "Zdanie." } },
-    });
-    expect(screen.getByRole("radio", { name: "Własny" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByLabelText("Etykieta")).toHaveValue("Wyróżnienie");
-    expect(screen.getByLabelText("Etykieta")).toHaveAttribute("maxLength", "60");
-    expect(screen.getByLabelText("Znak w wieńcu")).toHaveAttribute("maxLength", "8");
-    expect(screen.getByLabelText("Zdanie")).toHaveAttribute("maxLength", "160");
-    expect(screen.getByText("11/60")).toBeInTheDocument();
-    expect(screen.getByText("3/8")).toBeInTheDocument();
-  });
-
-  it("pusty znak w wieńcu idzie jako null", async () => {
-    const { props } = renderPage1();
-    fireEvent.click(screen.getByRole("radio", { name: "Własny" }));
-    fireEvent.change(screen.getByLabelText("Etykieta"), { target: { value: " Wyróżnienie " } });
-    fireEvent.change(screen.getByLabelText("Zdanie"), { target: { value: "Zdanie." } });
-    fireEvent.blur(screen.getByLabelText("Zdanie"));
-    await waitFor(() =>
-      expect(props.onSaveResult).toHaveBeenCalledWith({
-        highlight: { mode: "custom", label: "Wyróżnienie", token: null, text: "Zdanie." },
-      }),
+  it("przycisk woła liczenie i blokuje się, a z nim pola zdań, do końca", async () => {
+    let finish: () => void = () => undefined;
+    const onRecalcResults = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
     );
+    renderPage1({ onRecalcResults });
+    const button = screen.getByRole("button", { name: /Ułóż zdania od nowa/ });
+    await userEvent.click(button);
+    expect(onRecalcResults).toHaveBeenCalledTimes(1);
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("Układam zdania");
+    expect(screen.getByRole("button", { name: /Wynik z CV/ })).toBeDisabled();
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toBeDisabled();
+    await act(async () => finish());
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent("Ułóż zdania od nowa");
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toBeEnabled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("błąd zapisu pokazuje komunikat z API i wraca do zapisanego trybu", async () => {
-    const user = userEvent.setup();
-    const onSaveResult = vi.fn(async () => {
-      throw { response: { status: 422, data: { detail: "Wyróżnik „Własny” wymaga etykiety i zdania." } } };
-    });
-    renderPage1({ onSaveResult });
-    await user.click(screen.getByRole("radio", { name: "Bez wyróżnika" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Wyróżnik „Własny” wymaga etykiety i zdania.");
-    expect(screen.getByRole("radio", { name: "Automatycznie" })).toHaveAttribute("aria-checked", "true");
+  it("awaria modelu (503) to zdanie serwera, nie surowy błąd", async () => {
+    const detail = "Nie udało się teraz znaleźć wyniku w CV. Spróbuj ponownie za chwilę.";
+    renderPage1({ onRecalcResults: vi.fn(async () => Promise.reject(apiError(503, { detail }))) });
+    await userEvent.click(screen.getByRole("button", { name: /Ułóż zdania od nowa/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
   });
 
-  it("zablokowany formularz blokuje wybór i pola wyróżnika", () => {
-    renderPage1({
-      disabled: true,
-      extras: { ...EXTRAS, highlight: { mode: "custom", label: "Wyróżnienie", text: "Zdanie." } },
-    });
-    expect(screen.getByRole("radio", { name: "Bez wyróżnika" })).toBeDisabled();
-    expect(screen.getByLabelText("Etykieta")).toBeDisabled();
-    expect(screen.getByLabelText("Zdanie")).toBeDisabled();
+  it("limit żądań (429) to prośba o odczekanie", async () => {
+    const error = apiError(429, { error: "Rate limit exceeded: 20 per 1 minute" });
+    renderPage1({ onRecalcResults: vi.fn(async () => Promise.reject(error)) });
+    await userEvent.click(screen.getByRole("button", { name: /Ułóż zdania od nowa/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("odczekaj minutę");
+    expect(alert).not.toHaveTextContent("429");
   });
 });
 

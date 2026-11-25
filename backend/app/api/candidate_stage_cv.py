@@ -1408,7 +1408,26 @@ def _build_branded_response(
         cv_layout=layout_service.effective(csv.cv_layout),
         new_layout_enabled=layout_service.enabled(),
         page1_extras=csv.page1_extras if isinstance(csv.page1_extras, dict) else None,
+        new_layout_role_gaps=_role_gaps(csv),
     )
+
+
+def _role_gaps(csv: CandidateStageCV) -> Optional[dict[str, int]]:
+    """Ostrzeżenie „Nowe CV nie odczytało dat albo firmy” — tylko przy Nowym CV;
+    awaria odczytu nie psuje odpowiedzi (ślad w logu)."""
+    if layout_service.effective(csv.cv_layout) != "new":
+        return None
+    from app.services.cv_new_content import role_gaps
+
+    try:
+        return role_gaps(
+            csv.branded_draft_html,
+            language=csv.branded_language,
+            blind=csv.branded_template == "blind",
+        )
+    except Exception:  # noqa: BLE001 — dodatek, nie warunek odpowiedzi
+        logger.warning("role gaps for stage CV %s failed", csv.id, exc_info=True)
+        return None
 
 
 def with_pair_source(
@@ -1763,6 +1782,9 @@ async def apply_generated_to_stage_cv(
         previous = await _generated_document_html(db, csv.generated_document_id)
         merge = merge_rewrite(previous, csv.branded_draft_html, html)
         html = sanitize_cv_html(merge.html)
+    if not keep_edits and generated.id != csv.generated_document_id:
+        # Wynik, zdanie rekrutera i własny wyróżnik opisują poprzednie CV.
+        csv.page1_extras = layout_service.forget_page1_result(csv.page1_extras)
     if layout_service.enabled():
         # Układ wybrany przy „Generuj”; automaty i stare generacje — reguła klienta.
         csv.cv_layout = generated.cv_layout or await layout_service.default_for_client(
@@ -2391,6 +2413,8 @@ async def _write_imported_draft(
         .execution_options(populate_existing=True)
     )
     check_revision(csv, expected_revision)
+    # Inny plik: wynik, zdanie rekrutera i własny wyróżnik strony 1 są o poprzednim CV.
+    csv.page1_extras = layout_service.forget_page1_result(csv.page1_extras)
     template = await run_in_threadpool(default_template)
     await _write_stage_draft(
         db,

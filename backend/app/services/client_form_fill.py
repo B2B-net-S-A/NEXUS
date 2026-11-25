@@ -33,6 +33,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.services import client_form_structure
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
+from app.services.cv_ongoing import ONGOING_WORDS
 from app.services.cv_qc import _json_object
 from app.services.interview_slot_mail import _norm, _quote_in_text
 from app.services.llm_prompts import CLIENT_FORM_FILL
@@ -81,7 +82,8 @@ _DATE = r"(?:(0[1-9]|1[0-2])\.)?((?:19|20)\d{2})"
 _DATE_VALUE = re.compile(rf"^{_DATE}$")
 _PERIOD_VALUE = re.compile(rf"^{_DATE}\s*[-–—]\s*(?:{_DATE}|(obecnie))$", re.IGNORECASE)
 _ONGOING = re.compile(
-    r"obecn|nadal|teraz|dzi[sś]|present|current|\bnow\b|today|ongoing|since|\bod\b",
+    # Wspólna lista plus luźne rdzenie („obecnym”, „dzisiejszego”, „since 2021”).
+    rf"\b{ONGOING_WORDS}\b|obecn|dzi[sś]|present|current|since|\bod\b",
     re.IGNORECASE,
 )
 _MONTH_NAMES = (
