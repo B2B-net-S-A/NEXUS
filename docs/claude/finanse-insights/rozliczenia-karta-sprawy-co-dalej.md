@@ -29,6 +29,8 @@ Kod: `backend/app/services/client_settlements/cases.py`, trasy
   (`amount.protocol`) idzie do opiekuna (`reminders.pick_owner`).
 - **Finanse:** reszta uwag `warn`/`fail` i nieodczytany plik („Czeka na liczbę MD”).
   Bez maila i telefonu; decyzja na karcie (przyjmij z uwagami albo do poprawy).
+- **Informacja bez poprawki** (`Defect.notice`, kosmetyka raportu przy dobrym MD)
+  nie jest sprawą: idzie do konsultanta „na przyszłość” i niczego nie blokuje.
 - **Klient z raportem T4T (Nordea):** nieodczytany plik konsultanta nie jest sprawą,
   bo MD przyjdą z raportu klienta. Na klonie próby za październik to było 14 z 23
   spraw Finansów.

@@ -264,6 +264,10 @@ def classify(
         consultant_reports=consultant_reports,
     ):
         defect = feedback.BY_CODE[found.code]
+        # Informacja bez poprawki (kosmetyka przy dobrym MD, ``Defect.notice``)
+        # idzie do konsultanta „na przyszłość” i niczego nie blokuje: to nie sprawa.
+        if getattr(defect, "notice", False):
+            continue
         add(
             AUDIENCE_ACTOR[defect.audience],
             Reason(found.code, defect.title, found.detail, found),

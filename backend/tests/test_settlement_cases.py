@@ -123,6 +123,20 @@ def test_linia_bez_stawki_i_brak_linii_to_sprawy_dl() -> None:
     assert out[cases.DL][1].title == "Brak linii zamówienia na październik 2026"
 
 
+def test_informacja_bez_poprawki_to_nie_sprawa(monkeypatch) -> None:
+    # Kosmetyka przy dobrym MD (``Defect.notice``) idzie „na przyszłość”, bez gonienia.
+    notice = SimpleNamespace(
+        code="note.rows_sum", audience=feedback.CONSULTANT, title="Info", notice=True
+    )
+    monkeypatch.setitem(feedback.BY_CODE, "note.rows_sum", notice)
+    monkeypatch.setattr(
+        feedback, "defects_in", lambda **_: [feedback.Found("note.rows_sum")]
+    )
+    assert (
+        _classify({"state": "ok", "title": "Wiersze", "notice": "note.rows_sum"}) == {}
+    )
+
+
 def test_uwaga_spoza_katalogu_to_decyzja_finansow() -> None:
     out = _classify(LIMIT)
     assert list(out) == [cases.FINANCE]
