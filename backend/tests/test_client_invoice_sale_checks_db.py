@@ -199,7 +199,7 @@ async def _contract_of(client_id: int, first: str) -> int:
         )
 
 
-@pytest.mark.parametrize("state", ["rejected", "confirmed"])
+@pytest.mark.parametrize("state", ["rejected", "suggested", "confirmed"])
 async def test_rejected_person_code_does_not_count(sales_client, seed, rules, state):
     from app.models.client_time_report import ClientExternalId
 
@@ -236,6 +236,58 @@ async def test_rejected_person_code_does_not_count(sales_client, seed, rules, st
             assert any("NEXUS nie zna kodu A123456" in p for p in found[ids[1]])
         else:
             assert ids[1] not in found
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientSalesInvoice).where(ClientSalesInvoice.id == ids[1])
+            )
+            await db.execute(
+                delete(ClientExternalId).where(ClientExternalId.id == ids[0])
+            )
+            await db.commit()
+
+
+@pytest.mark.parametrize("state", ["rejected", "suggested", "confirmed"])
+async def test_rejected_person_code_does_not_silence_person_without_contract(
+    sales_client, seed, rules, state
+):
+    """Kod osoby z kartoteki wycisza „osobę bez kontraktu”, odrzucony — nie."""
+
+    from app.models.client_time_report import ClientExternalId
+
+    contract_id = await _contract_of(seed.client_id, "Jan")
+    async with AsyncSessionLocal() as db:
+        code = ClientExternalId(
+            client_id=seed.client_id,
+            contract_id=contract_id,
+            kind="client_person_no",
+            value="A654321",
+            source="manual",
+            state=state,
+        )
+        invoice = _ksef_invoice(
+            seed.client_id,
+            9202,
+            [{"name": "Contractor Marek Nieznany ID: A654321", "quantity": "1"}],
+        )
+        db.add_all([code, invoice])
+        await db.commit()
+        ids = (code.id, invoice.id)
+    try:
+        response = await sales_client.get(
+            f"{SALES}/form-checks",
+            params={"year": 2026, "month": 10},
+            headers=_h(seed),
+        )
+        assert response.status_code == 200, response.text
+        found = {
+            row["invoice_id"]: row["problems"] for row in response.json()["invoices"]
+        }
+        without_contract = [p for p in found.get(ids[1], []) if "nie ma kontraktu" in p]
+        if state == "rejected":
+            assert without_contract
+        else:
+            assert without_contract == []
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(
