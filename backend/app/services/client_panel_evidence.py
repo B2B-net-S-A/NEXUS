@@ -38,6 +38,7 @@ from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
 )
+from app.services.cv_ongoing import ONGOING_WORDS
 from app.services.cv_rodo_clause import is_rodo_text
 
 Status = Literal["project", "list", "none"]
@@ -52,7 +53,7 @@ _LIST_SECTIONS = {
 }
 _SECTION_MARKERS = {*_LIST_SECTIONS, "experience", "why_points", "education"}
 _DATES_RE = re.compile(
-    r"(?:\d{2}[./])?\d{4}\s*[-–—]\s*(?:(?:\d{2}[./])?\d{4}|obecnie|present|now|nadal)\s*$",
+    rf"(?:\d{{2}}[./])?\d{{4}}\s*[-–—]\s*(?:(?:\d{{2}}[./])?\d{{4}}|{ONGOING_WORDS})\s*$",
     re.IGNORECASE,
 )
 _BLOCK_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "p", "li"}

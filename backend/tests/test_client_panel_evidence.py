@@ -169,3 +169,16 @@ def test_no_document_means_no_evidence() -> None:
     assert evidence_map(None, requirements_from_job(["Python"], None))[
         "python"
     ].status == ("none")
+
+
+def test_dates_of_an_ongoing_role_in_english() -> None:
+    # Staging 25.11.2026: 203 nagłówki stanowisk w CV etapu kończą się
+    # „- currently”; panel gubił wtedy daty, a nazwa stanowiska niosła zakres.
+    for word in ("currently", "Present", "ongoing", "aktualnie", "do dziś"):
+        document = CV.replace("02.2020 - obecnie", f"02.2020 - {word}")
+        blocks = blocks_from_html(document)
+        head = next(b for b in blocks if b.heading)
+        assert head.text == "Python Backend Engineer", word
+        assert head.dates == f"02.2020 - {word}", word
+        item = evidence_for(blocks, "DDD").items[0]
+        assert item.dates == f"02.2020 - {word}", word
