@@ -659,6 +659,7 @@
     },
     "where": "Finanse → Rozjazdy stawek",
     "href": "/finance",
+    "practice_href": "/finance?view=rate-divergences",
     "section": "finance",
     "dot_anchor": "finance.rate-divergences"
   },
@@ -4316,6 +4317,7 @@
     },
     "where": "Finanse → Faktury kosztowe → ikona przy numerze faktury",
     "href": "/finance",
+    "practice_href": "/finance?view=costs",
     "section": "finance",
     "dot_anchor": "finance.cost-pdf",
     "steps": [
