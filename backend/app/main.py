@@ -256,6 +256,7 @@ from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import settlement_reminders as settlement_reminders_api
+from app.api import settlement_cases as settlement_cases_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import supervisory_board as supervisory_board_api
@@ -2560,6 +2561,13 @@ app.include_router(
 app.include_router(
     settlement_reminders_api.router,
     prefix="/api/finance/settlements/reminders",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# Karta sprawy „Co dalej” i lista spraw rozliczeń (25.11.2026).
+app.include_router(
+    settlement_cases_api.router,
+    prefix="/api/finance/settlements/cases",
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
