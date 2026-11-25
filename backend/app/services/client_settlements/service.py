@@ -2619,14 +2619,18 @@ def _contract_cost(
     jej nie zmienia (``contract_order_sync``), a kontraktor fakturuje według
     kontraktu. Próba IX–X 2026: linia została przy stawce sprzed aneksu albo
     dostała stawkę aneksu przed jego datą, a rozliczenie miało zły koszt ze
-    stanem „ok”. Gdy przez cały miesiąc obowiązuje jedna stawka kontraktu
-    (``Contract.effective_candidate_rate``) w zł, koszt liczy się z niej
+    stanem „ok”. Gdy przez cały miesiąc obowiązuje jedna stawka z harmonogramu
+    kontraktu (``contract_candidate_rates``, krok jak w
+    ``Contract.effective_candidate_rate``) w zł, koszt liczy się z niej
     (decyzja Artura z 25.11.2026). Przychód i linia zostają bez zmian, a stan
     też: rozjazd linii pokazuje raport „Rozjazdy stawek”.
 
     Poza tym: zmiana stawki w trakcie miesiąca (``_rate_change_checks``),
     zwykłe zamówienie (części kosztu z ``order_cost_steps``), stawka miesięczna,
-    waluta obca (linia trzyma koszt w zł po kursie) i linia bez stawki kosztu."""
+    waluta obca (linia trzyma koszt w zł po kursie), linia bez stawki kosztu
+    i kontrakt bez harmonogramu. Kolumna ``rate_candidate`` bez kroków bywa
+    stawką z innej jednostki (jednostkę przestawiono, kwoty nie), więc jej tu
+    nie bierzemy: linia jest wtedy pewniejsza."""
 
     if (
         state is None
@@ -2639,9 +2643,9 @@ def _contract_cost(
     ):
         return state, None
     first, last = month_bounds(month)
-    if steps and rate_split.changes(steps, first, last):
+    if not steps or rate_split.changes(steps, first, last):
         return state, None
-    rate = rate_split.rate_on(steps, first) if steps else contract.rate_candidate
+    rate = rate_split.rate_on(steps, first)
     unit = RateUnit(contract.rate_unit)
     md_rate = convert_order_rate(rate, unit, RateUnit.daily)
     if md_rate is None or md_rate <= 0:

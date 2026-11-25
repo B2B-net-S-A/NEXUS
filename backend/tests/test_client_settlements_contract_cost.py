@@ -200,13 +200,14 @@ def test_linia_bez_stawki_kosztu_bez_zmian():
     assert note is None
 
 
-def test_kontrakt_bez_harmonogramu_bierze_stawke_z_kontraktu():
-    """Jak ``Contract.effective_candidate_rate``: bez kroków stawka z kolumny."""
+def test_kontrakt_bez_harmonogramu_bez_zmian():
+    """Kolumna ``rate_candidate`` bez kroków bywa stawką z innej jednostki: kontrakt
+    przestawiony na godzinowy z kwotą miesięczną dałby kilkadziesiąt tysięcy zł/MD."""
 
-    state, _note = _cost(
-        contract=_contract(legacy="110"), state=_state("920"), steps=[]
-    )
-    assert state.rate_cost == D("880.00")
+    line = _state("720")
+    state, note = _cost(contract=_contract(legacy="12000"), state=line, steps=[])
+    assert state is line
+    assert note is None
 
 
 def test_kontrakt_dzienny():

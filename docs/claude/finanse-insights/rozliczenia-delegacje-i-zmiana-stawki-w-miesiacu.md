@@ -87,9 +87,9 @@ Wszystkie trzy rozliczenia miały stan „ok” bez uwagi.
 - **Koszt idzie z kontraktu** (decyzja Artura z 25.11.2026, `service._contract_cost`).
   Warunki:
   - linia ma `order_group_id` i stawkę kosztu;
-  - przez cały miesiąc obowiązuje jedna stawka kontraktu, liczona jak
-    `Contract.effective_candidate_rate` (harmonogram, a bez kroków kolumna
-    `rate_candidate`). Zmiana od 1. dnia miesiąca też jest jedną stawką;
+  - przez cały miesiąc obowiązuje jedna stawka z harmonogramu kontraktu
+    (`contract_candidate_rates`, krok jak w `Contract.effective_candidate_rate`).
+    Zmiana od 1. dnia miesiąca też jest jedną stawką;
   - kontrakt jest w zł, ze stawką godzinową albo dzienną (1 MD = 8 h,
     `convert_order_rate`);
   - stawki różnią się o co najmniej grosz.
@@ -108,7 +108,10 @@ Wszystkie trzy rozliczenia miały stan „ok” bez uwagi.
     innym niż 21 dni;
   - waluta obca, bo linia trzyma koszt w zł po kursie, a bez kursu stawek się
     nie porówna;
-  - linia bez stawki kosztu.
+  - linia bez stawki kosztu;
+  - kontrakt bez harmonogramu. Sama kolumna `rate_candidate` bywa stawką z innej
+    jednostki: test KEŚU miał kontrakt przestawiony na godzinowy z kwotą miesięczną
+    i dostawał 96 000 zł/MD. Linia jest wtedy pewniejsza.
 - Pomiar na klonie kopii produkcji (369 rozliczeń IX–X, `main` kontra gałąź,
   w transakcji z ROLLBACK): zmieniły się dokładnie 3 rozliczenia, wyłącznie koszt
   i linia „Dni zwykłe”. Stan i przychód zostały. Jedno ma teraz koszt równy fakturze
