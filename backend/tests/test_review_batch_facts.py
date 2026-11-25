@@ -15,6 +15,8 @@ Raport: https://claude.ai/artifact/PqmctW9taWS8mXwmGfrFSM. Kontrakty:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.services import review_batch_facts as facts
@@ -125,3 +127,94 @@ def test_evidence_detail_reads_like_a_person():
 )
 def test_job_needs_polish_unless_it_says_otherwise(language, needs):
     assert facts.job_needs_polish(language) is needs
+
+
+# ── Wzmianka w CV bez regexa po całym tekście (loop_stall 25.11.2026) ──────
+
+
+def _regex_text_hit(text, variants):
+    """``_text_hit`` sprzed 25.11.2026 — wzorzec porównawczy."""
+    for variant in variants:
+        if not variant:
+            continue
+        if re.search(rf"(?<![\w+#.]){re.escape(variant)}(?![\w+#])", text):
+            return True
+    return False
+
+
+_CV_TEXTS = (
+    "",
+    "java",
+    "javascript developer, typescript",
+    "javascript i java 17",
+    "c++11, c++ i c#; objective-c",
+    "asp.net mvc oraz .net core 8",
+    "node.js, nodejs; express",
+    "mssql, ms sql i sql server (t-sql)",
+    "go, golang, google cloud, django",
+    "r&d, r, rust, (r) studio",
+    "łódź: aws.lambda, aws, terraform.",
+    "spring-boot spring_boot springboot spring.",
+    "f# i f#.net, #c, c#8",
+)
+_VARIANTS = (
+    "java",
+    "javascript",
+    "c",
+    "c++",
+    "c#",
+    "f#",
+    ".net",
+    "net",
+    "node.js",
+    "sql",
+    "sql server",
+    "ms sql",
+    "go",
+    "r",
+    "aws",
+    "spring",
+    "boot",
+    "łódź",
+    "t-sql",
+    "(r)",
+    "",
+)
+
+
+@pytest.mark.parametrize("text", _CV_TEXTS)
+def test_text_hit_matches_whole_text_regex(text):
+    for variant in _VARIANTS:
+        assert facts._text_hit(text, [variant]) is _regex_text_hit(text, [variant]), (
+            text,
+            variant,
+        )
+    assert facts._text_hit(text, _VARIANTS) is _regex_text_hit(text, _VARIANTS)
+
+
+class _CountingRe:
+    """``re`` modułu faktów, który liczy uruchomienia wyrażeń regularnych."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __getattr__(self, name):
+        attr = getattr(re, name)
+        if name not in {"compile", "search", "match", "fullmatch", "finditer"}:
+            return attr
+
+        def counted(*args, **kwargs):
+            self.calls += 1
+            return attr(*args, **kwargs)
+
+        return counted
+
+
+def test_text_hit_runs_no_regex_when_no_word_is_in_the_cv(monkeypatch):
+    """Na Tablicach większości słów nie ma w CV osoby: ``str.find`` (w C)
+    wystarcza, regex tylko rozstrzyga granicę słowa przy trafieniu."""
+    counting = _CountingRe()
+    monkeypatch.setattr(facts, "re", counting)
+    cv = "doświadczenie: python, django, postgresql, docker, kubernetes " * 200
+    assert facts._text_hit(cv, ["kafka", "spark", "scala", "hadoop"]) is False
+    assert counting.calls == 0

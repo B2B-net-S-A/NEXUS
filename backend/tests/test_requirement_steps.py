@@ -170,3 +170,112 @@ async def test_pool_window_puts_more_must_have_first(monkeypatch):
     ordered = await nca._with_known_points(FakeDb(), 5, picks)
     # 7/10 przed 3/10 mimo niższego wyniku; brak krytycznej na końcu mimo 90%.
     assert [p.candidate_id for p in ordered] == [2, 1, 4, 3]
+
+
+# ── Koszt w „Moich następnych krokach” (loop_stall 25.11.2026) ─────────────
+
+
+class _BoardsDb:
+    """Atrapa sesji ``steps_for_jobs``: osoby z ``select(Candidate)``, oś
+    technologii z wierszy ``(candidate_id, skill_canonical, months)``."""
+
+    def __init__(self, people, usage=()):
+        self.people = list(people)
+        self.usage = list(usage)
+
+    async def scalars(self, _query):
+        return SimpleNamespace(all=lambda: list(self.people))
+
+    async def execute(self, _query):
+        return SimpleNamespace(all=lambda: list(self.usage))
+
+
+def _person(cid, cv="", skills=()):
+    return SimpleNamespace(
+        id=cid,
+        raw_cv_text=cv,
+        skills=list(skills),
+        verified_tech=[],
+        tags=[],
+        cv_extracted_data=None,
+        skills_manually_curated=False,
+    )
+
+
+def _board_job(jid, must, nice=(), critical=()):
+    stack = {
+        "critical": list(critical),
+        "must": [{"name": m} for m in must],
+        "nice": [{"name": n} for n in nice],
+    }
+    return SimpleNamespace(id=jid, champion_profile={"stack": stack})
+
+
+@pytest.mark.asyncio
+async def test_boards_check_each_person_only_against_own_requirements(monkeypatch):
+    """25.11.2026 strażnik pętli zdarzeń złapał 34 zastoje „Moich następnych
+    kroków” w ``evidence_for`` → ``_text_hit``: każda osoba ze wszystkich
+    Tablic szła przez słowa wszystkich rekrutacji. Kopia z 25.11, rekruter
+    z 25 Tablicami: 850 osób × 204 słowa = 173 400 par i 33 s CPU w pętli,
+    a Tablice potrzebują 12 123 par (osoba × słowa jej rekrutacji)."""
+    from app.services import scoring_service
+
+    monkeypatch.setattr(rb.settings, "REVIEW_BATCH_ENABLED", True, raising=False)
+    boards, people = {}, []
+    for jid in range(1, 6):
+        cids = [100 * jid + i for i in range(10)]
+        people += [_person(cid) for cid in cids]
+        words = [f"narzędzie{jid}{k}" for k in range(4)]
+        boards[jid] = (_board_job(jid, words[:3], nice=words[3:]), cids)
+    checked = []
+    real = scoring_service.skill_present
+
+    def counting(required, skills, **kwargs):
+        checked.append(required)
+        return real(required, skills, **kwargs)
+
+    monkeypatch.setattr(scoring_service, "skill_present", counting)
+    got = await steps_mod.steps_for_jobs(_BoardsDb(people), boards)
+    assert {jid: len(per) for jid, per in got.items()} == {j: 10 for j in boards}
+    # 5 Tablic × 10 osób × 4 słowa, a nie 50 osób × 20 słów wszystkich Tablic.
+    assert len(checked) == 5 * 10 * 4
+
+
+@pytest.mark.asyncio
+async def test_boards_give_the_same_steps_as_each_board_alone(monkeypatch):
+    """Wynik ``my-next-steps`` bez zmian: każda Tablica ma te same schodki co
+    ``steps_for`` liczone dla niej samej. Osoba 7 stoi na dwóch Tablicach,
+    słowa się powtarzają, wiersz „Postman lub Swagger” spełnia jedno słowo."""
+    monkeypatch.setattr(rb.settings, "REVIEW_BATCH_ENABLED", True, raising=False)
+    people = [
+        _person(7, cv="testy api w postman, java 17, kafka", skills=["Docker"]),
+        _person(8, cv="javascript, react, node.js"),
+        _person(9, cv="c++ i c#, .net core; sql server"),
+        _person(10, cv=""),
+    ]
+    usage = [(7, "kafka", 30), (10, "java", 14)]
+    boards = {
+        1: (
+            _board_job(1, ["Java", "Postman lub Swagger"], nice=["Kafka"]),
+            [7, 8, 10, 7],
+        ),
+        2: (
+            _board_job(
+                2, ["Docker", "C#"], nice=[".NET", "React"], critical=["Docker"]
+            ),
+            [7, 9],
+        ),
+        3: (_board_job(3, ["SQL Server"], nice=["Java"]), [9, 10, 8]),
+    }
+    db = _BoardsDb(people, usage)
+    by_id = {p.id: p for p in people}
+    got = await steps_mod.steps_for_jobs(db, boards)
+    for jid, (job, cids) in boards.items():
+        alone = await steps_mod.steps_for(
+            db, job, [by_id[c] for c in dict.fromkeys(cids)]
+        )
+        assert got[jid] == alone, jid
+    assert got[1][7].must == (("Java", "mention"), ("Postman lub Swagger", "mention"))
+    assert got[1][7].nice == (("Kafka", "experience"),)
+    assert got[1][8].must == (("Java", "none"), ("Postman lub Swagger", "none"))
+    assert got[2][9].nice == ((".NET", "mention"), ("React", "none"))
