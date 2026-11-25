@@ -9,7 +9,9 @@ pliku Word (`services/cv_pdf_preview.py`):
 - `GET …/stages/{id}/cv/branded/versions/{n}/pdf` — zatwierdzona wersja
   (jak `…/docx`),
 - `POST …/cv-generator/generated/{id}/editor/preview-pdf` — edytor wyniku
-  generatora.
+  generatora,
+- `GET …/cv-generator/generated/{id}/pdf` — PDF pliku, który daje „Pobierz
+  DOCX” wyniku generatora (25.11.2026: klient z formatem PDF w regule CV).
 
 Pobranie (`intent=download`) zapisuje wpis `cv_file_downloaded` z formatem
 `pdf`; podgląd nie zapisuje nic. Awaria zamiany = 503 z polskim komunikatem,
@@ -33,7 +35,13 @@ from app.api.candidate_stage_cv import (
     _generated_for_stage_cv,
     _load_csv_for_stage,
 )
-from app.api.cv_generator_b2b import _load_generated_editor, _log_generated_download
+from app.api.cv_generator_b2b import (
+    _load_generated_document,
+    _load_generated_editor,
+    _log_generated_download,
+    _with_client_panel_frame,
+    generated_docx_bytes,
+)
 from app.core.database import get_db
 from app.core.http_headers import content_disposition_attachment
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -358,3 +366,42 @@ async def preview_generated_cv_pdf(
     )
     await db.commit()
     return _response(pdf, "SZKIC_CV.pdf")
+
+
+@router.get("/cv-generator/generated/{generated_id}/pdf")
+@limiter.limit(LIMIT, key_func=user_or_ip_key)
+async def generated_cv_pdf(
+    request: Request,
+    generated_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+    version_id: Optional[int] = None,
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
+) -> Response:
+    """PDF wyniku generatora z tego samego pliku Word co „Pobierz DOCX”.
+
+    Bramki jak plik Word (`_load_generated_document`, zgoda RODO); z
+    ``version_id`` — zatwierdzona wersja pakietu (jak `…/approved/{id}/docx`).
+    Plik do klienta niesie ramkę panelu rekrutacji, podgląd nie.
+    """
+    from app.services.cv_generated_approval import approved_version_for_generation
+
+    row = await _load_generated_document(db, generated_id, current_user)
+    if version_id is not None:
+        version = await approved_version_for_generation(db, row, version_id)
+        consent_gate.ensure_downloadable(row, version)
+        if not version.docx_content:
+            raise HTTPException(409, "Ta wersja nie ma zatwierdzonego pliku Word.")
+        docx, filename = version.docx_content, version.docx_filename
+        state, number = "approved", version.version
+    else:
+        consent_gate.ensure_downloadable(row)
+        docx, filename = await generated_docx_bytes(row), row.filename
+        state, number = "generated", None
+    pdf = await _pdf(db, await _with_client_panel_frame(db, row, docx, intent))
+    await _log_generated_download(
+        db, generated_id, current_user, intent, surface, "pdf", state, version=number
+    )
+    await db.commit()
+    return _response(pdf, _pdf_name(filename, "CV"))

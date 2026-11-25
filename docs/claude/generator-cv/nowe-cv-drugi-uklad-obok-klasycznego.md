@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1, wieniec certyfikat/dyplom (`page1_extras.wreath`); runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja bez wieńca z ikonami, pismo do 11 pt, stały odstęp sekcji -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1, wieniec certyfikat/dyplom (`page1_extras.wreath`); runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja bez wieńca z ikonami, pismo do 11 pt, stały odstęp sekcji; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, ostrzeżenie „Klient chce Worda” przy Nowym CV, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf` -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -137,6 +137,47 @@ https://claude.ai/artifact/USSM8YEU8BSmS49CUZ5fFi, wersje 1–4).
   w Agile” ani „pracował”.
 - **Harness:** `public/preview/cv-editor/nowe-cv-przyklad.pdf` z fikstury
   z klientem „Bank Przykładowy” (pokazuje wyróżnik), nagłówek pisma 11 pt.
+
+## Format pliku klienta (25.11.2026)
+
+Decyzja Artura z 25.11.2026 (AskUserQuestion): najpierw pole „Format pliku”
+w regule CV klienta, potem Word w nowym wyglądzie (etap 2, osobny PR). Do
+etapu 2 plik Word jest dalej zawsze klasyczny.
+
+- **Pole reguły** `client_cv_rules.cv_file_format` (migracja 0776, SQL
+  w `cv_layout_schema.FILE_FORMAT_DDL`, lustro w `entrypoint.sh`): `docx` |
+  `pdf` | `both`; NULL = „Bez wymagań”, czyli jak przed 25.11 (plik idzie za
+  układem). Pole recepty w `RULE_FIELDS` — wersja, diff w historii, publikacja,
+  kopia z innego klienta; propozycja (bez zatwierdzenia) nie zmienia pobrania.
+  Nie zależy od flagi „Nowego CV”: klasyczne CV też ma PDF (LibreOffice).
+- **Zasady centralne:** reguła jest wtedy tylko do odczytu, więc format ma
+  własny zapis `PUT /clients/{id}/cv-rule/file-format` (jak układ:
+  `_publish_central_field`, `central_lock=False`, od razu nowa wersja,
+  publikacja i wpis historii); bez zasad centralnych ta trasa daje 409.
+- **Skąd ekran zna format:** każda odpowiedź CV etapu niesie
+  `client_file_format` (`candidate_stage_cv._branded_response`, jedno zapytanie
+  etap → rekrutacja → zatwierdzona reguła klienta). Karta i edytor podmieniają
+  pamięć odpowiedzią zapisu — pole w samym GET znikałoby po pierwszej zmianie
+  układu. Generator: `rule-for-generation.cv_file_format`.
+- **Co pobiera rekruter** (`lib/cv-file-format.ts`, `cvDownloadPlan`; karta
+  „CV do klienta”, edytor CV etapu, wynik generatora):
+
+  | Format klienta | Klasyczne | Nowe CV |
+  |---|---|---|
+  | Bez wymagań | „Pobierz Word”, PDF w „⋯” | „Pobierz PDF” + „Word (klasyczne)” |
+  | Word | „Pobierz Word”, PDF w „⋯” | „Word (klasyczne)”, PDF w „⋯” + ostrzeżenie |
+  | PDF | „Pobierz PDF” (z Worda), Word w „⋯” | „Pobierz PDF” (nowy układ), Word w „⋯” |
+  | Word i PDF | oba na wierzchu | oba na wierzchu + ostrzeżenie |
+
+  Edytor przy „Bez wymagań” zostaje jak dotąd (Word w pasku, PDF w „Więcej”).
+  Wynik generatora: „Bez wymagań” i Word = sam „Pobierz DOCX”; PDF = „Pobierz
+  PDF” pierwszy (`GET /cv-generator/generated/{id}/pdf[?version_id=]`, PDF
+  tego samego pliku Word, bramki i zgoda RODO jak DOCX, limit 20/min); oba =
+  DOCX i PDF. Plik wyniku generatora jest zawsze klasyczny.
+- **Ostrzeżenie** „Klient chce Worda, a wybrane jest Nowe CV…” w karcie
+  (do wysyłki), w edytorze i w kroku „Jak CV zobaczy klient” generatora, dopóki
+  etap 2 nie da Worda w nowym wyglądzie. Po etapie 2 usuń je razem
+  z `warnWordClassic`.
 
 ## Zdanie „najmocniejszy wynik”
 

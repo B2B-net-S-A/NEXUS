@@ -247,6 +247,10 @@ class CVBrandedResponse(BaseModel):
     cv_layout: Literal["classic", "new"] = "classic"
     new_layout_enabled: bool = False
     default_layout: Literal["classic", "new"] = "classic"
+    # Plik, którego chce klient rekrutacji (reguła CV klienta, 25.11.2026):
+    # „docx” | „pdf” | „both”; ``None`` = bez wymagań (plik idzie za układem).
+    # Główny przycisk pobrania w karcie i edytorze idzie za tym polem.
+    client_file_format: Optional[Literal["docx", "pdf", "both"]] = None
     # Dodatki strony 1 nowego CV (`result_text`, `result_index`, `results`) —
     # edytor pokazuje „Najmocniejszy wynik” i „Inny wynik (N)”.
     page1_extras: Optional[dict] = None

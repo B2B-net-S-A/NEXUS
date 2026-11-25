@@ -223,6 +223,9 @@ class ClientCvRule(Base, TimestampMixin):
     )
     # Domyślny układ CV klienta (0753): „new” = Nowe CV w PDF; NULL = klasyczny.
     cv_layout: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # Plik, którego klient chce (0776): „docx” | „pdf” | „both”; NULL = bez
+    # wymagań (plik idzie za układem). `services/cv_file_format.py`.
+    cv_file_format: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
 
     # Draft edits never replace the published recipe or live client flags.
     draft_payload: Mapped[Optional[dict]] = mapped_column(

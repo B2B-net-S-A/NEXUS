@@ -193,6 +193,7 @@ function GeneratorSteps({ g }: { g: CvGeneratorState }) {
             onChange={g.setLayoutChoice}
             clientName={g.clientName}
             clientDefault={g.layoutDefault}
+            clientFileFormat={g.clientFileFormat}
             disabled={g.generating}
           />
         </StepCard>

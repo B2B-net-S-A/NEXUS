@@ -51,6 +51,8 @@ SLIM_KEYS = {
     "generator_instructions",
     # Układ CV klienta (22.11.2026) — baner generatora pokazuje go rekruterowi.
     "cv_layout",
+    # Format pliku klienta (25.11.2026) — wynik generatora stawia go na wierzchu.
+    "cv_file_format",
 }
 
 

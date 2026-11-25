@@ -14,6 +14,7 @@ import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import type { CvContentMode } from "@/lib/cv-generator";
 import type { CvLayout } from "@/lib/api";
+import type { CvFileFormat } from "@/lib/cv-file-format";
 
 export type CvHighlightPolicy = "none" | "technologies" | "must" | "must_nice" | "explicit";
 /** Wyrównanie treści CV w pliku Word (decyzja J1, 14.10.2026: domyślnie wyjustowane). */
@@ -67,6 +68,8 @@ export interface ClientCvRule {
   cv_layout?: CvLayout;
   /** Flaga „Nowego CV” — wyłączona: bez wiersza „Układ CV”. */
   new_layout_enabled?: boolean;
+  /** Plik, którego chce klient (25.11.2026); `null` = bez wymagań. */
+  cv_file_format?: CvFileFormat | null;
   edit_revision?: number;
   draft_payload?: Partial<ClientCvRulePayload> | null;
   client_id: number;
@@ -139,6 +142,8 @@ export type ClientCvRuleForGeneration = Pick<
   version: number | null;
   /** Domyślny układ CV klienta; `null`/brak = flaga „Nowego CV” wyłączona. */
   cv_layout?: CvLayout | null;
+  /** Plik, którego chce klient (25.11.2026); `null` = bez wymagań. */
+  cv_file_format?: CvFileFormat | null;
 };
 
 export interface ClientCvRuleListItem extends ClientCvRule {
@@ -167,6 +172,7 @@ export interface ClientCvRulePayload {
   cv_text_align?: CvTextAlign;
   cv_title_with_reference?: boolean;
   cv_layout: CvLayout;
+  cv_file_format: CvFileFormat | null;
   expected_revision?: number;
   filename_pattern: string | null;
   spaces_to_underscores: boolean;
@@ -257,6 +263,14 @@ export const cvRulesApi = {
         expected_revision: expectedRevision,
       })
     ).data,
+  /** Sam format pliku CV — zapis przy zasadach centralnych (jak `setLayout`). */
+  setFileFormat: async (clientId: number, format: CvFileFormat | null, expectedRevision: number) =>
+    (
+      await api.put<ClientCvRule>(`/api/clients/${clientId}/cv-rule/file-format`, {
+        cv_file_format: format,
+        expected_revision: expectedRevision,
+      })
+    ).data,
   confirm: async (clientId: number, expectedRevision: number) =>
     (await api.post<ClientCvRule>(`/api/clients/${clientId}/cv-rule/confirm`, null, {
       params: { expected_revision: expectedRevision },
@@ -321,6 +335,8 @@ export interface CvRuleForm {
   cv_text_align: CvTextAlign;
   cv_title_with_reference: boolean;
   cv_layout: CvLayout;
+  /** `""` = bez wymagań. */
+  cv_file_format: "" | CvFileFormat;
   filename_pattern: string;
   spaces_to_underscores: boolean;
   cv_language: "" | CvRuleLanguage;
@@ -357,6 +373,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
     cv_text_align: rule.cv_text_align === "left" ? "left" : "justify",
     cv_title_with_reference: Boolean(rule.cv_title_with_reference),
     cv_layout: rule.cv_layout === "new" ? "new" : "classic",
+    cv_file_format: rule.cv_file_format ?? "",
     filename_pattern: rule.filename_pattern ?? "",
     spaces_to_underscores: rule.spaces_to_underscores,
     cv_language: rule.cv_language ?? "",
@@ -407,6 +424,7 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
     // Wysyłany zawsze, także gdy wiersz jest ukryty (flaga wyłączona) — pełny
     // zapis: pominięte pole serwer wyzerowałby po cichu.
     cv_layout: form.cv_layout,
+    cv_file_format: form.cv_file_format || null,
     filename_pattern: form.filename_pattern.trim() || null,
     spaces_to_underscores: form.spaces_to_underscores,
     cv_language: form.cv_language || null,
@@ -493,6 +511,7 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   cv_text_align: "Wyrównanie tekstu",
   cv_title_with_reference: "Numer zapytania w nagłówku",
   cv_layout: "Układ CV",
+  cv_file_format: "Format pliku",
   filename_pattern: "Wzór nazwy pliku",
   spaces_to_underscores: "Podkreślenia zamiast spacji",
   cv_language: "Wymagany język",

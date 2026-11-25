@@ -1696,6 +1696,9 @@ class ClientCvRuleForGeneration(BaseModel):
     generator_instructions: Optional[str] = None
     # Domyślny układ CV klienta (22.11.2026); `null` = flaga „Nowego CV” wyłączona.
     cv_layout: Optional[Literal["classic", "new"]] = None
+    # Plik, którego chce klient (25.11.2026); `null` = bez wymagań. Wynik
+    # generatora stawia na pierwszym miejscu przycisk tego formatu.
+    cv_file_format: Optional[Literal["docx", "pdf", "both"]] = None
 
 
 @router.get(
@@ -1733,6 +1736,9 @@ async def client_rule_for_generation(
         if layout_service.enabled()
         else None
     )
+    from app.services import cv_file_format as file_format_service
+
+    cv_file_format = await file_format_service.for_client(db, client.id)
     rule = await resolve_client_rule(db, client.id)
     if rule is None:
         has_row = await db.scalar(
@@ -1743,6 +1749,7 @@ async def client_rule_for_generation(
             client_name=client_name,
             client_policy="" if has_row is not None else None,
             cv_layout=cv_layout,
+            cv_file_format=cv_file_format,
         )
     snap = snapshot_rule(rule)
     access = await resolve_client_access(db, current_user, client.id, purpose="org")
@@ -1771,6 +1778,7 @@ async def client_rule_for_generation(
             rule.generator_instructions if sees_client_knowledge else None
         ),
         cv_layout=cv_layout,
+        cv_file_format=cv_file_format,
     )
 
 
@@ -3560,45 +3568,7 @@ async def download_generated_cv(
     """
     row = await _load_generated_document(db, generated_id, current_user)
     consent_gate.ensure_downloadable(row)
-    stored = getattr(row, "docx_content", None)
-    digest = getattr(row, "docx_sha256", None)
-    if stored is not None or digest is not None:
-        if (
-            row.status != "ready"
-            or not stored
-            or hashlib.sha256(stored).hexdigest() != digest
-        ):
-            raise HTTPException(
-                409, "Nie można potwierdzić integralności zapisanego DOCX."
-            )
-        await _log_generated_download(
-            db, generated_id, current_user, intent, surface, "docx", "generated"
-        )
-        return _build_docx_response(
-            docx_bytes=await _with_client_panel_frame(db, row, stored, intent),
-            filename=row.filename,
-            candidate_name=row.candidate_name,
-            warnings=[],
-            processing_time_ms=0,
-            generated_id=row.id,
-        )
-    if not row.render_payload:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "To CV wygenerowano zanim dodaliśmy zapis danych — nie można go "
-                "odtworzyć. Wygeneruj je ponownie."
-            ),
-        )
-    try:
-        docx_bytes = await run_in_threadpool(
-            rerender_docx_from_payload, row.render_payload
-        )
-    except Exception as err:  # noqa: BLE001 — python-docx raises various types
-        logger.exception("[cv_b2b] Re-render of saved CV %s failed: %s", row.id, err)
-        raise HTTPException(
-            status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
-        ) from err
+    docx_bytes = await generated_docx_bytes(row)
     await _log_generated_download(
         db, generated_id, current_user, intent, surface, "docx", "generated"
     )
@@ -3610,6 +3580,39 @@ async def download_generated_cv(
         processing_time_ms=0,
         generated_id=row.id,
     )
+
+
+async def generated_docx_bytes(row: CvGeneratedDocument) -> bytes:
+    """Plik Word wygenerowanego CV: zapisany (ze sprawdzeniem sumy) albo
+    odtworzony z zapisanych danych. Czyta go „Pobierz DOCX” i PDF wyniku
+    generatora (`cv_pdf_preview.generated_cv_pdf`) — ten sam plik."""
+    stored = getattr(row, "docx_content", None)
+    digest = getattr(row, "docx_sha256", None)
+    if stored is not None or digest is not None:
+        if (
+            row.status != "ready"
+            or not stored
+            or hashlib.sha256(stored).hexdigest() != digest
+        ):
+            raise HTTPException(
+                409, "Nie można potwierdzić integralności zapisanego DOCX."
+            )
+        return stored
+    if not row.render_payload:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "To CV wygenerowano zanim dodaliśmy zapis danych — nie można go "
+                "odtworzyć. Wygeneruj je ponownie."
+            ),
+        )
+    try:
+        return await run_in_threadpool(rerender_docx_from_payload, row.render_payload)
+    except Exception as err:  # noqa: BLE001 — python-docx raises various types
+        logger.exception("[cv_b2b] Re-render of saved CV %s failed: %s", row.id, err)
+        raise HTTPException(
+            status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
+        ) from err
 
 
 @router.get("/generated/{generated_id}/html")

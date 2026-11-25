@@ -51,6 +51,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { CoverSheetTemplateSection } from "@/components/cv-rules/CoverSheetTemplateSection";
 import { CvRuleLayoutField } from "@/components/cv-rules/CvRuleLayoutField";
+import { CvRuleFileFormatField } from "@/components/cv-rules/CvRuleFileFormatField";
 
 const TOKENS = ["{STANOWISKO}", "{IMIE_NAZWISKO}", "{PROJEKT}", "{DATA}"];
 
@@ -295,6 +296,7 @@ export function CvRuleSettingsTab({
         {newLayoutEnabled ? (
           <CvRuleLayoutField value={form.cv_layout} onChange={(next) => set("cv_layout", next)} />
         ) : null}
+        <CvRuleFileFormatField value={form.cv_file_format} onChange={(next) => set("cv_file_format", next)} />
         <div>
           <label className="mb-1 block text-xs font-medium" htmlFor="cvrule-pattern">
             Wzór nazwy pliku CV

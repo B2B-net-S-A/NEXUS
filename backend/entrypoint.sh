@@ -1242,7 +1242,10 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
 try:
     from app.services import cv_layout_schema as _cv_layout_schema
 
-    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL)
+    # + format pliku klienta (migracja 0776, `FILE_FORMAT_DDL`).
+    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL) + list(
+        _cv_layout_schema.FILE_FORMAT_DDL
+    )
 except Exception as _cv_layout_err:  # noqa: BLE001
     print(f"cv layout DDL unavailable: {_cv_layout_err!r}")
     _CV_LAYOUT_DDL = []

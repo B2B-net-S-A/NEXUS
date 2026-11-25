@@ -7112,6 +7112,12 @@ export interface CVBrandedState {
   cv_layout?: CvLayout;
   new_layout_enabled?: boolean;
   default_layout?: CvLayout;
+  /**
+   * Plik, którego chce klient rekrutacji (reguła CV klienta, 25.11.2026):
+   * `docx` | `pdf` | `both`; `null` = bez wymagań (plik idzie za układem).
+   * Główny przycisk pobrania w karcie i edytorze idzie za tym polem.
+   */
+  client_file_format?: "docx" | "pdf" | "both" | null;
   /** Dodatki strony 1 nowego CV: najmocniejszy wynik (wpisany albo wybrany z listy). */
   page1_extras?: CvPage1Extras | null;
   /** Stanowiska, w których Nowe CV nie odczytało dat albo firmy (25.11.2026); tylko przy „Nowym CV”. */
