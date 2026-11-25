@@ -1146,6 +1146,10 @@ class Settings(BaseSettings):
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.
     INTERVIEW_AUTO_COMPLETE_GRACE_MINUTES: int = 10
+    # „Pytania z rozmów”: ile pytań bez odpowiedzi nocny bieg F55 wysyła do
+    # modelu w jednej nocy (decyzja Artura 25.11.2026). 1000 = zaległe ~3 400
+    # pytań w cztery noce, potem tylko nowe. 0 = nocny bieg nic nie wysyła.
+    INTERVIEW_ANSWER_PROPOSALS_PER_NIGHT: int = 1000
 
     # ── Email (SMTP) ─────────────────────────────────────────────────────────
     # Default: OFF. Włącza się envem SMTP_ENABLED=true. Bez credsów mailer jest
@@ -1249,6 +1253,12 @@ class Settings(BaseSettings):
     # Empty → TokenCipher raises at first use, not at startup (so dev/tests can run
     # without the secret as long as nothing actually calls M365 paths).
     M365_TOKEN_ENCRYPTION_KEY: str = ""
+    # Klucze tylko do odczytu, po przecinku: przy rotacji trafia tu poprzedni
+    # klucz, `python -m app.cli.token_cipher_rotate --apply` przeszyfrowuje
+    # dane, a potem zmienna wraca do pustej. Tekst, nie lista — pydantic
+    # czytałby listę ze zmiennej jako JSON.
+    # → docs/claude/podstawy/rotacja-klucza-szyfrowania-tokenow.md
+    M365_TOKEN_ENCRYPTION_KEY_PREVIOUS: str = ""
     # Separate signing key for the short-lived OAuth state JWT so it does not share
     # the main SECRET_KEY. Defaults to SECRET_KEY when empty — acceptable for dev,
     # override in prod.
@@ -1487,6 +1497,20 @@ class Settings(BaseSettings):
     # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
     CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
     CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
+    # Historia stawek z faktur KSeF (0782): pętla porównuje stawkę z faktur
+    # sprzedaży i faktur konsultantów z harmonogramem kontraktu (karta na
+    # kontrakcie). Wpis automatyczny tylko historii, która nie zmienia
+    # dzisiejszej stawki — włączony od razu (decyzja Artura 25.11.2026).
+    CONTRACT_RATE_HISTORY_ENABLED: bool = True
+    CONTRACT_RATE_HISTORY_AUTO_APPLY: bool = True
+    # Kontrola miesiąca (0784, decyzja Artura 25.11.2026): co noc rozbieżności
+    # faktur do klientów i faktur konsultantów z KSeF za trzy zamknięte miesiące,
+    # w poniedziałek mail do Finansów (``services/month_check``).
+    MONTH_CHECK_ENABLED: bool = True
+    # Mail tygodniowy kontroli przed „wysyłaj” Artura idzie tylko na te adresy
+    # (próba, decyzja 25.11.2026; lista po przecinku). Adres służbowy prezesa,
+    # publiczny jak w dokumentach repo. Finanse włącza `app_settings['month_check_mail']`.
+    MONTH_CHECK_TEST_RECIPIENTS: str = "artur.twardowski@b2bnetwork.pl"
     # Dane firm z umów (E5a, 0755): pętla czyta podpisaną umowę aktywnych
     # kontraktów B2B bez danych firmy w Generatorze (paczka 25 co 10 min),
     # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu

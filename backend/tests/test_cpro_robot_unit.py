@@ -316,3 +316,40 @@ def test_error_hint_drops_quoted_values():
     assert hint.startswith("TimeoutError: Locator.fill: Timeout 30000ms exceeded.")
     assert "tajne" not in hint
     assert "tajne" not in server.error_hint(ValueError("bad value 'tajne-haslo' x"))
+
+
+def test_save_draft_button_never_picks_submit():
+    pick = rules.save_draft_button
+    assert (
+        pick(
+            [
+                {"name": "BUT_SaveAndSubmit", "label": "Save and submit"},
+                {"name": "BUT_SaveAsDraft", "label": ""},
+            ]
+        )
+        == 1
+    )
+    # input bez nazwy, sam napis
+    assert (
+        pick(
+            [{"name": "", "label": "Cancel"}, {"name": "", "label": " Save as draft "}]
+        )
+        == 1
+    )
+    assert (
+        pick([{"name": "", "label": "Save and submit"}, {"name": "", "label": "Save"}])
+        is None
+    )
+    assert pick([{"name": "BUT_Submit", "label": "Save as draft"}]) is None
+    assert pick([]) is None
+
+
+def test_cv_link_in_draft_view_matches_file_name_variants():
+    name = "Jan_Kowalski_CV.pdf"
+    match = rules.cv_link_matches
+    assert match("Jan_Kowalski_CV.pdf", name)
+    assert match("Jan Kowalski CV", name)
+    assert match("CV: Jan_Kowalski_CV.pdf (EN)", name)
+    assert not match("Anna_Nowak_CV.pdf", name)
+    assert not match("", name)
+    assert not match("Download", "")

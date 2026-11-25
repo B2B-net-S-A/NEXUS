@@ -1416,6 +1416,7 @@ async def _proof(
                 acceptor=senders.who,
                 travel=accepted_travel,
                 client_signature=_rcp_signer(signatures, senders, person_name, rules),
+                named_month=_named_month(report),
             )
             if bnp.md_regular is not None:
                 return bnp
@@ -1653,6 +1654,7 @@ async def _read_file(
     # Szablon klienta w godzinach z makrami (E6.1, PKO).
     pko = await asyncio.to_thread(timesheet_pko.parse, content, mime)
     if pko is not None:
+        named = _named_month(doc)
         result = timesheet_pko.evaluate(
             pko,
             month=month,
@@ -1661,11 +1663,14 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
             file_name=doc.file_name,
+            named_month=named,
         )
         return await accepted(
             result,
             pko.total_hours if pko.entries else None,
-            timesheet_pko.sheet_month(pko, month, doc.file_name),
+            timesheet_pko.sheet_month(
+                pko, month, doc.file_name, named, timesheet.per_md(rules)
+            ),
             pko.acceptors,
         )
     # Tygodnie z SAP Fieldglass (EY): eksport „timeSheet.worker.list”.
@@ -1755,6 +1760,16 @@ def _doc_month(doc: CpDocument) -> Optional[str]:
     if doc.period_guessed or doc.period_year is None or doc.period_month is None:
         return None
     return f"{doc.period_year}-{doc.period_month:02d}"
+
+
+def _named_month(doc: Optional[CpDocument]) -> Optional[str]:
+    """Miesiąc z nazwy pliku albo tematu maila (szablon z innym miesiącem w nagłówku,
+    decyzja Artura z 25.11.2026): okres pliku z poczty, nie zgadnięty z daty maila.
+    Plik z panelu ma okres wybrany ręcznie, więc niczego tu nie dowodzi."""
+
+    if doc is None or doc.channel != "mailbox":
+        return None
+    return _doc_month(doc)
 
 
 def _on(rules: dict[str, dict[str, Any]], key: str) -> bool:
@@ -2013,6 +2028,75 @@ def _order_rank(
     return (not overlaps, order.status != ClientOrderStatus.active, -start, -order.id)
 
 
+def _closed_for(order: ClientOrder, first: date) -> bool:
+    """Zamówienie zakończone przed rozliczanym miesiącem.
+
+    Linia zakończona po tym miesiącu (status ``completed`` ustawiony później) obejmowała
+    go i Finanse fakturują na niej ten miesiąc: to nie jest „zakończone w NEXUS-ie”
+    (próba VI–X 2026: rozliczenie za wrzesień przeliczone po zamknięciu zamówienia
+    30.10 dostawało uwagę, choć klient i Finanse rozliczyli na nim wrzesień). Bez daty
+    końca rozstrzyga status."""
+
+    if order.end_date is not None:
+        return order.end_date < first
+    return order.status == ClientOrderStatus.completed
+
+
+async def _pool_split(
+    db: AsyncSession, s: ClientSettlement, state: Optional[OrderState]
+) -> tuple[SplitPart, ...]:
+    """Dni zwykłe na kolejnych zamówieniach kontraktu, gdy pula zamówienia
+    rozliczenia ich nie mieści.
+
+    Próba VI–X 2026: osoba ma w miesiącu dwie linie (stara pula na wyczerpaniu,
+    nowe zamówienie od połowy miesiąca albo równoległe), ``_order_for`` brał jedną,
+    więc rozliczenie stało na „Ponad zamówienie”, a Finanse dzieliły fakturę: najpierw
+    starsza linia do końca puli, reszta na kolejną. Tak samo tutaj, od najwcześniej
+    rozpoczętej linii trwającej w miesiącu; linia bez puli MD bierze resztę. Pusty
+    wynik (zostaje jedno zamówienie): pula wystarcza, jedna linia w miesiącu albo
+    pule wszystkich linii nie mieszczą MD (wtedy „Ponad zamówienie” jak dotąd)."""
+
+    if state is None or state.md_available is None or s.md_regular is None:
+        return ()
+    md = Decimal(s.md_regular)
+    if md <= state.md_available:
+        return ()
+    first, last = month_bounds(s.period_month)
+    lines = list(
+        await db.scalars(
+            select(ClientOrder).where(
+                ClientOrder.contract_id == s.contract_id,
+                ClientOrder.status.in_(ORDER_STATUSES),
+                or_(ClientOrder.start_date.is_(None), ClientOrder.start_date <= last),
+                or_(ClientOrder.end_date.is_(None), ClientOrder.end_date >= first),
+            )
+        )
+    )
+    if len(lines) < 2:
+        return ()
+    lines.sort(key=lambda o: (o.start_date or date.min, o.id))
+    parts: list[SplitPart] = []
+    left = md
+    for line in lines:
+        if left <= 0:
+            break
+        line_state = await _order_state(
+            db, await priced_one(db, line, first), s.period_month
+        )
+        if line_state is None:
+            continue
+        if line_state.number is None:
+            line_state = replace(line_state, number=number_from_title(line.title))
+        available = line_state.md_available
+        take = left if available is None else min(left, max(available, Decimal("0")))
+        if take > 0:
+            parts.append(SplitPart(line_state, take))
+            left -= take
+    if left > 0 or not parts:
+        return ()
+    return tuple(parts)
+
+
 async def _split_parts(
     db: AsyncSession,
     s: ClientSettlement,
@@ -2066,11 +2150,12 @@ async def _split_parts(
         if state is not None and state.number is None:
             # Linia bez grupy (PKO, Velo): numer z tytułu, jak na liście miesiąca.
             state = replace(state, number=numbers[line.id])
-        closed = line.status == ClientOrderStatus.completed or (
-            line.end_date is not None and line.end_date < first
-        )
         if state is not None:
-            parts.append(SplitPart(state, _part_md(part, unit, per_md), closed=closed))
+            parts.append(
+                SplitPart(
+                    state, _part_md(part, unit, per_md), closed=_closed_for(line, first)
+                )
+            )
     if missing:
         return (), (
             f"Mail klienta wskazuje zamówienie {', '.join(missing)}, którego ta osoba "
@@ -2432,6 +2517,12 @@ async def _recompute(
             group = rcp_checks._Group(proof, rules, "Podział na zamówienia")
             group.warn("Podział z maila klienta nie wszedł", problem)
             group.close()
+    # Bez podziału od klienta: pula zamówienia się kończy, a kontrakt ma w miesiącu
+    # kolejne zamówienia — dni idą na nie po kolei (``_pool_split``).
+    split_auto = False
+    if not split and hit is None:
+        split = await _pool_split(db, s, state)
+        split_auto = bool(split)
     proof, cost_parts = await _rate_change_checks(
         db, s, proof, rules, person.contract, state, split=bool(split)
     )
@@ -2466,6 +2557,7 @@ async def _recompute(
             ),
             proof=proof,
             split=split,
+            split_auto=split_auto,
             cost_parts=cost_parts,
         )
     )

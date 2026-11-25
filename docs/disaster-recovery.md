@@ -314,8 +314,12 @@ Then call `POST /api/embed-init` (admin) to verify collection shape.
 - `GET /api/jobs/1/recommendations?top_k=3` returns matches
 
 If vectors are stale vs DB candidates (e.g. embeddings restore older than DB
-restore): run `POST /api/admin/import-talent-radar?copy_embeddings=true`
-with DATABASE_URL pointing to the restored state.
+restore): fill the gap from the restored database with
+`python -m scripts.reembed_collections --target candidates --only-missing --commit`
+and drop vectors of rows that no longer exist with
+`python -m scripts.reembed_collections --target all --prune-orphans --commit`
+(both with `--dry-run` first). The TalentRadar re-import that used to be listed
+here was removed on 25.11.2026; NEXUS no longer holds credentials to its source.
 
 ## Automated drill
 

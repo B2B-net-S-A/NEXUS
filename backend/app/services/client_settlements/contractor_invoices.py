@@ -6,11 +6,21 @@ policzy ją jako „pominiętą” albo kosztową:
 
 * NIP kontraktu (``candidates.nip`` albo ``partner_nip`` z generatora umów
   B2B) → faktura zapisana jako ``known`` i przypięta do kontraktu i miesiąca,
+* ``partner_nip`` bywa NIP-em innej firmy (inkubator wystawiający za wielu
+  konsultantów, firma innej osoby; audyt 25.11.2026), więc sam NIP z umowy
+  wiąże tylko fakturę, w której nazwie sprzedawcy jest imię i nazwisko osoby,
+  albo kwotę równą rozliczeniu co do grosza; inaczej faktura czeka na Finanse
+  jako ``suggested`` (decyzja Artura z 25.11.2026). NIP zatwierdzony przez
+  Finanse (``candidates.nip``) wiąże jak dotąd. Faktura z pełnym imieniem
+  i nazwiskiem INNEJ osoby z kontraktem nie wiąże się po NIP-ie nigdy,
 * NIP nieznany, a sprzedawca nazywa się jak dokładnie jedna osoba z kontraktu
   bez NIP-u (imię i nazwisko w nazwie sprzedawcy; kwota rozstrzyga imienników)
   → ``suggested``: podpowiedź „NIP kontraktora” dla Finansów (E4.0, decyzja
   Artura z 09.11.2026). Zatwierdzenie zapisuje NIP osobie i od tej chwili
   faktury wiążą się same; odrzucenie zostawia fakturę bez osoby,
+* podpowiedź, której NIP-u dowodzi historia faktur w KSeF (``contractor_nip``,
+  decyzja Artura z 25.11.2026), NEXUS zatwierdza sam: NIP trafia do osoby,
+  a faktura jest od razu ``confirmed`` bez ``decided_by``,
 * reszta wraca do pobierania bez zmian.
 
 Zapis z samych metadanych (sprzedawca, numer, daty, kwoty — jak faktury
@@ -37,9 +47,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Optional
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -58,9 +68,14 @@ from app.services.hr import white_list
 from app.services.hr.approvals.cost_invoices import fields_from_metadata
 from app.services.hr.payroll_periods import add_months
 
+if TYPE_CHECKING:
+    from app.services.client_settlements.contractor_nip import Registry
+
 logger = logging.getLogger(__name__)
 
 KNOWN, SUGGESTED, CONFIRMED, REJECTED = "known", "suggested", "confirmed", "rejected"
+#: Tryb ``by_seller_nip``: NIP tylko z umowy B2B, wiąże równa kwota (nie stan faktury).
+AMOUNT = "amount"
 BOUND = (KNOWN, CONFIRMED)
 #: Faktura za ostatni miesiąc przychodzi po zakończeniu kontraktu.
 ENDED_GRACE = timedelta(days=92)
@@ -95,14 +110,39 @@ class Contractor:
     candidate_id: Optional[int]
     tokens: frozenset[str]
     nip: Optional[str]
+    #: NIP tylko z ``partner_nip`` umowy B2B, osoba nie ma zatwierdzonego własnego.
+    from_contract: bool = False
+
+    def named_in(self, seller: set[str]) -> bool:
+        return len(self.tokens) >= 2 and self.tokens <= seller
 
 
 @dataclass
 class ContractorIndex:
     by_nip: dict[str, list[Contractor]] = field(default_factory=dict)
     without_nip: list[Contractor] = field(default_factory=list)
+    #: Wszystkie osoby z imieniem i nazwiskiem (z NIP-em i bez).
+    named: list[Contractor] = field(default_factory=list)
     #: (NIP, kontrakt) odrzucone przez Finanse — bez ponownej podpowiedzi.
     rejected: set[tuple[str, int]] = field(default_factory=set)
+    #: Osoby i zajęte NIP-y dla ``contractor_nip``, wczytane przy pierwszej
+    #: podpowiedzi przebiegu.
+    registry: Optional[Registry] = None
+
+
+def in_scope(today: date) -> Any:
+    """Kontrakty, których faktury wiążemy: trwające i zakończone w ``ENDED_GRACE``."""
+
+    return or_(
+        Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
+        and_(
+            Contract.status == ContractStatus.ended,
+            or_(
+                Contract.end_date.is_(None),
+                Contract.end_date >= today - ENDED_GRACE,
+            ),
+        ),
+    )
 
 
 async def load_index(db: AsyncSession, today: date) -> ContractorIndex:
@@ -126,25 +166,23 @@ async def load_index(db: AsyncSession, today: date) -> ContractorIndex:
             partner,
         )
         .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-        .where(
-            or_(
-                Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
-                and_(
-                    Contract.status == ContractStatus.ended,
-                    or_(
-                        Contract.end_date.is_(None),
-                        Contract.end_date >= today - ENDED_GRACE,
-                    ),
-                ),
-            )
-        )
+        .where(in_scope(today))
         .order_by(Contract.id)
     )
     index = ContractorIndex()
     for contract_id, candidate_id, first, last, own_nip, partner_nip in rows.all():
-        nip = clean_nip(own_nip) or clean_nip(partner_nip)
+        own = clean_nip(own_nip)
+        nip = own or clean_nip(partner_nip)
         tokens = frozenset(name_tokens(f"{first or ''} {last or ''}"))
-        person = Contractor(int(contract_id), candidate_id, tokens, nip)
+        person = Contractor(
+            int(contract_id),
+            candidate_id,
+            tokens,
+            nip,
+            from_contract=not own and bool(nip),
+        )
+        if len(tokens) >= 2:
+            index.named.append(person)
         if nip:
             index.by_nip.setdefault(nip, []).append(person)
         elif len(tokens) >= 2:
@@ -205,6 +243,36 @@ def _default_period(issue: Optional[date]) -> Optional[str]:
     return months[0] if issue.day >= LATE_ISSUE_DAY else months[1]
 
 
+async def _by_amount(
+    db: AsyncSession,
+    people: list[Contractor],
+    issue: Optional[date],
+    net: Optional[Decimal],
+) -> Optional[tuple[Contractor, str]]:
+    """Osoba i miesiąc z kwotą rozliczenia równą netto faktury, ``None`` bez jednej."""
+
+    from app.services.client_settlements import time_reports  # noqa: PLC0415 (cykl)
+
+    months = _months(issue)
+    if net is None or not months:
+        return None
+    ids = [p.contract_id for p in people]
+    amounts = await settlement_amounts(db, ids, months)
+    for key, value in (await time_reports.expected_amounts(db, ids, months)).items():
+        amounts.setdefault(key, value)
+    hits = [
+        (person, month)
+        for person in people
+        for month in months
+        if amounts.get((person.contract_id, month)) == net
+    ]
+    if len({person.contract_id for person, _ in hits}) == 1:
+        return hits[0]
+    if not hits:
+        return _shared_hit(people, months, amounts, net)
+    return None
+
+
 async def _place(
     db: AsyncSession,
     people: list[Contractor],
@@ -221,28 +289,9 @@ async def _place(
     faktura zostaje bez osoby do ręcznego przypisania.
     """
 
-    from app.services.client_settlements import time_reports  # noqa: PLC0415 (cykl)
-
-    months = _months(issue)
-    if net is not None and months:
-        ids = [p.contract_id for p in people]
-        amounts = await settlement_amounts(db, ids, months)
-        for key, value in (
-            await time_reports.expected_amounts(db, ids, months)
-        ).items():
-            amounts.setdefault(key, value)
-        hits = [
-            (person, month)
-            for person in people
-            for month in months
-            if amounts.get((person.contract_id, month)) == net
-        ]
-        if len({person.contract_id for person, _ in hits}) == 1:
-            return hits[0]
-        if not hits:
-            shared = _shared_hit(people, months, amounts, net)
-            if shared is not None:
-                return shared
+    hit = await _by_amount(db, people, issue, net)
+    if hit is not None:
+        return hit
     if len({p.contract_id for p in people}) == 1:
         return people[0], _default_period(issue)
     return None, _default_period(issue)
@@ -289,6 +338,48 @@ def _suggestion_people(
     ]
 
 
+def names_someone_else(
+    index: ContractorIndex, people: list[Contractor], seller: set[str]
+) -> bool:
+    """Nazwa sprzedawcy ma pełne imię i nazwisko osoby z kontraktem spoza ``people``."""
+
+    own = {p.candidate_id for p in people if p.candidate_id is not None}
+    ids = {p.contract_id for p in people}
+    return any(
+        other.named_in(seller)
+        and other.contract_id not in ids
+        and (other.candidate_id is None or other.candidate_id not in own)
+        for other in index.named
+    )
+
+
+def by_seller_nip(
+    index: ContractorIndex, nip: str, seller_name: Optional[str]
+) -> tuple[list[Contractor], str]:
+    """Kogo NIP sprzedawcy może związać i jak pewnie.
+
+    ``known`` — NIP zatwierdzony u osoby albo nazwa sprzedawcy ją nazywa;
+    ``amount`` — tylko ``partner_nip`` z umowy B2B bez osoby w nazwie
+    (inkubator, firma innej osoby): wiąże równa kwota, inaczej podpowiedź;
+    pusta lista — NIP nie rozstrzyga (nazwa sprzedawcy nazywa kogoś innego
+    albo NIP-u nie ma w kontraktach).
+    """
+
+    people = index.by_nip.get(nip) or []
+    if not people:
+        return [], KNOWN
+    seller = name_tokens(seller_name)
+    named = [p for p in people if p.named_in(seller)]
+    if named:
+        return named, KNOWN
+    if names_someone_else(index, people, seller):
+        return [], KNOWN
+    trusted = [p for p in people if not p.from_contract]
+    if trusted:
+        return trusted, KNOWN
+    return [p for p in people if (nip, p.contract_id) not in index.rejected], AMOUNT
+
+
 def _buyer_nip(item: dict[str, Any]) -> Optional[str]:
     identifier = (item.get("buyer") or {}).get("identifier") or {}
     value = identifier.get("value") if isinstance(identifier, dict) else None
@@ -303,7 +394,12 @@ def _acquired(item: dict[str, Any]) -> Optional[datetime]:
 
 
 async def consider(
-    db: AsyncSession, index: ContractorIndex, item: dict[str, Any], ksef_number: str
+    db: AsyncSession,
+    index: ContractorIndex,
+    item: dict[str, Any],
+    ksef_number: str,
+    *,
+    now: Optional[datetime] = None,
 ) -> Optional[str]:
     """Zapis faktury kontraktora z rekordu metadanych; ``None`` = nie kontraktor.
 
@@ -313,19 +409,33 @@ async def consider(
     if fields is None:
         return None
     nip = fields["seller_nip"]
-    state = KNOWN
-    people = index.by_nip.get(nip) or []
-    if not people:
-        people = _suggestion_people(index, nip, fields["seller_name"])
-        state = SUGGESTED
-    if not people:
-        return None
-    person, period = await _place(
-        db, people, fields["issue_date"], fields["net_amount"]
-    )
-    if person is None and state == SUGGESTED:
-        # Dwóch imienników, kwota nie rozstrzyga — bez podpowiedzi.
-        return None
+    people, state = by_seller_nip(index, nip, fields["seller_name"])
+    if state == AMOUNT:
+        hit = await _by_amount(db, people, fields["issue_date"], fields["net_amount"])
+        if hit is not None:
+            (person, period), state = hit, KNOWN
+        elif len({p.contract_id for p in people}) == 1:
+            person, period = people[0], _default_period(fields["issue_date"])
+            state = SUGGESTED
+        else:
+            return None
+    else:
+        if not people:
+            people = _suggestion_people(index, nip, fields["seller_name"])
+            state = SUGGESTED
+        if not people:
+            return None
+        person, period = await _place(
+            db, people, fields["issue_date"], fields["net_amount"]
+        )
+        if person is None and state == SUGGESTED:
+            # Dwóch imienników, kwota nie rozstrzyga — bez podpowiedzi.
+            return None
+    decided_at: Optional[datetime] = None
+    if state == SUGGESTED:
+        moment = now or datetime.now(timezone.utc)
+        if await _confirm_alone(db, index, person, fields, ksef_number, moment):
+            state, decided_at = CONFIRMED, moment
     statement = insert(ClientContractorInvoice).values(
         ksef_number=ksef_number,
         seller_nip=nip,
@@ -342,6 +452,7 @@ async def consider(
         contract_id=person.contract_id if person else None,
         period_month=period,
         nip_state=state,
+        decided_at=decided_at,
     )
     await db.execute(
         statement.on_conflict_do_nothing(
@@ -349,6 +460,32 @@ async def consider(
         )
     )
     return state
+
+
+async def _confirm_alone(
+    db: AsyncSession,
+    index: ContractorIndex,
+    person: Contractor,
+    fields: dict[str, Any],
+    ksef_number: str,
+    now: datetime,
+) -> bool:
+    """Reguła „NIP zapisuje się sam” (``contractor_nip``). Dodatek do podpowiedzi:
+    awaria zostawia fakturę ``suggested`` dla Finansów, jak przed regułą."""
+
+    from app.services.client_settlements import contractor_nip  # noqa: PLC0415 (cykl)
+
+    try:
+        async with db.begin_nested():
+            return await contractor_nip.confirm_on_arrival(
+                db, index, person, fields, ksef_number, now
+            )
+    except Exception:  # noqa: BLE001 — podpowiedź zostaje
+        logger.exception(
+            "client_settlements: NIP z KSeF bez zapisu (kontrakt %s)",
+            person.contract_id,
+        )
+        return False
 
 
 # ── Decyzje Finansów (E4.0) ──────────────────────────────────────────────────

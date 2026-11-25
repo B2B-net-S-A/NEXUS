@@ -164,6 +164,38 @@ def test_descriptive_title_gives_no_bare_number(title):
     assert OrderRef(1, None, 5, title).variants() == (title,)
 
 
+@pytest.mark.parametrize(
+    ("ref", "invoice_text"),
+    [
+        # Numer grupy z dopiskiem po myślniku (audyt 25.11.2026, Wedel).
+        (OrderRef(1, 10, None, "4500000777- Wsparcie on-site"), "zamówienie: 4500000777"),
+        # Znak kancelaryjny przed numerem — w grupie i w tytule (KIR).
+        (OrderRef(1, None, 5, "LDZ.dz.ABC/DAZ/BK/00001/6/2026/ZAM"), "Zamówienie:ABC/DAZ/BK/00001/6/2026/ZAM"),
+        (OrderRef(1, None, 6, "L.dz. ABC/DAZ/MD/00002/6/2026/ZAM"), "nr ABC/DAZ/MD/00002/6/2026/ZAM"),
+        # Dwa numery sklejone ukośnikiem w jednym polu grupy (Alior).
+        (OrderRef(1, 11, None, "OIT/0001/2025/IT/OIT/0002/2026/IT"), "Zamówienie nr OIT/0001/2025/IT"),
+        (OrderRef(1, 11, None, "OIT/0001/2025/IT/OIT/0002/2026/IT"), "Zamówienie nr OIT/0002/2026/IT"),
+    ],
+)
+def test_decorated_order_number_is_found_by_the_number_alone(ref, invoice_text):
+    assert numbers_found([invoice_text], [ref]) == {ref.key}
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        # Opis w tytule samodzielnego zamówienia dalej nie daje numeru.
+        OrderRef(1, None, 5, "4500000777- Wsparcie on-site"),
+        # Krótki początek przed myślnikiem związałby fakturę po dacie.
+        OrderRef(1, 10, None, "2026 - opis zamówienia"),
+        # Łącznik bez spacji należy do numeru.
+        OrderRef(1, 10, None, "1234567-9"),
+    ],
+)
+def test_number_with_dash_stays_whole_outside_group_or_when_short(ref):
+    assert ref.variants() == (ref.number,)
+
+
 # ── Dopasowanie ───────────────────────────────────────────────────────────────
 
 
@@ -649,6 +681,96 @@ def test_amount_without_number_must_be_unique():
         net=Decimal("24000.00"), currency="PLN", texts=[], rows=twins, refs=[]
     )
     assert not ambiguous.matched and ambiguous.reason == "amount_ambiguous"
+
+
+def _nordea_item(contractor, contact="Anna Klientowa"):
+    return (
+        f"NIDS: 2026-000001, IT Retail Banking, Nordea Contact: {contact}, "
+        f"Contractor {contractor} ID: M000001"
+    )
+
+
+def _person_row(order_id, net, consultant):
+    return BillingRow(
+        client_id=1,
+        kind="periodic",
+        group_id=None,
+        order_id=order_id,
+        order_number=f"ZAM/{order_id}",
+        currency="PLN",
+        lines=(_line(order_id, net, consultant),),
+    )
+
+
+def _decide_named(net, rows, item):
+    return decide(
+        net=Decimal(net),
+        currency="PLN",
+        texts=[item],
+        rows=rows,
+        refs=[],
+        items=[{"name": item, "unit_price": "150.00"}],
+    )
+
+
+def test_amount_does_not_bind_an_invoice_that_names_another_person():
+    # Audyt luk 25.11.2026: u Nordei wiele osób ma tę samą stawkę i godziny, więc
+    # kwota pasowała do zamówienia innej osoby niż ta z pozycji „Contractor …”.
+    rows = [
+        _person_row(20, "25200.00", "Jan Przykładowy"),
+        _person_row(21, "26880.00", "Ewa Testowa"),
+    ]
+    decision = _decide_named("25200.00", rows, _nordea_item("Ewa Testowa"))
+    assert not decision.matched
+    assert decision.reason == "amount_other_person"
+
+
+def test_amount_binds_when_the_named_person_is_on_the_order():
+    rows = [_person_row(20, "25200.00", "Jan Nowak-Kowalski")]
+    # Skrócone podwójne nazwisko to ta sama osoba (``same_person``).
+    decision = _decide_named("25200.00", rows, _nordea_item("Jan Nowak"))
+    assert decision.method == "amount"
+    assert decision.targets == (Target(order_id=20),)
+
+
+def test_named_person_picks_one_of_orders_with_the_same_amount():
+    rows = [
+        _person_row(20, "25200.00", "Jan Przykładowy"),
+        _person_row(21, "25200.00", "Ewa Testowa"),
+    ]
+    decision = _decide_named("25200.00", rows, _nordea_item("Ewa Testowa"))
+    assert decision.method == "amount"
+    assert decision.targets == (Target(order_id=21),)
+
+
+def test_client_contact_is_not_the_person_of_the_invoice():
+    rows = [_person_row(20, "25200.00", "Jan Przykładowy")]
+    item = _nordea_item("Ewa Testowa", contact="Jan Przykładowy")
+    assert _decide_named("25200.00", rows, item).reason == "amount_other_person"
+
+
+def test_md_person_amount_does_not_bind_another_named_person():
+    rows = [_hourly_row((10, "Jan Przykładowy", "150"), (11, "Ewa Testowa", "160"))]
+    # Kwota równa pozycji Jana, a faktura jest na Ewę w rzeczywistych godzinach:
+    # wiąże osoba z ceną jednostkową, nie kwota.
+    decision = decide(
+        net=Decimal("25200.00"),
+        currency="PLN",
+        texts=[_nordea_item("Ewa Testowa")],
+        rows=rows,
+        refs=[],
+        items=[{"name": _nordea_item("Ewa Testowa"), "unit_price": "160.00"}],
+    )
+    assert decision.method == "person"
+    assert decision.targets == (Target(order_id=11),)
+
+
+def test_other_person_reason_is_retried_and_alerts_the_delivery_lead():
+    assert "amount_other_person" in RETRY_REASONS
+    # Osoba z pozycji może rozstrzygnąć kwotę równą u kilku osób przy kolejnej próbie.
+    assert "amount_ambiguous" in RETRY_REASONS
+    assert "amount_other_person" in REASON_LABELS
+    assert "amount_other_person" in GAP_REASONS
 
 
 def test_amount_that_matches_nothing_waits_for_finance():

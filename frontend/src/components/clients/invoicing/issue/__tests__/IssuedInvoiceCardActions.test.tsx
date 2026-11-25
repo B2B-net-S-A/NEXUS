@@ -72,6 +72,7 @@ const CARD = {
   ],
   lines_before: [],
   warnings: [],
+  checks: [],
   order_numbers: ["ZAM/2026/118"],
   requirements: [],
   mail: null,

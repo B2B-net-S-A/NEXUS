@@ -6,7 +6,8 @@ obsadę może Delivery Lead, więc to on dostaje alert.
 
 Faktura wskazuje osobę pełnym imieniem i nazwiskiem w pozycji. Bierzemy tylko
 osoby z kontraktem u tego klienta: nazwisko spoza kontraktów nie mówi, kogo DL
-miałby dopisać, i taka faktura zostaje Finansom. Starsze niż
+miałby dopisać (osobę ze znacznikiem „Contractor” bez kontraktu zgłasza
+``unknown_refs`` tym samym alertem). Starsze niż
 ``GAP_MONTHS_BACK`` miesiące nie alarmują: obsady sprzed pół roku nikt już nie
 uzupełni, a powtórka co tydzień byłaby tylko szumem.
 """
@@ -32,6 +33,7 @@ GAP_REASONS = (
     "no_orders",
     "unknown_order_number",
     "amount_differs",
+    "amount_other_person",
     "expected_unknown",
 )
 

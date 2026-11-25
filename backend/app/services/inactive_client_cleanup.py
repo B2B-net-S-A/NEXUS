@@ -150,6 +150,8 @@ _RELATED_LABELS: dict[str, str] = {
     "client_stage_notification_overrides": "Ustawienia powiadomień etapów",
     "workflow_definitions": "Definicje workflow klienta",
     "clients": "Scalone duplikaty wskazujące na tego klienta",
+    "client_buyer_numbers": "Dodatkowe numery nabywcy (faktury z KSeF)",
+    "month_check_cases": "Rozbieżności faktur (kontrola miesiąca)",
 }
 
 _ON_DELETE_EFFECT: dict[str, str] = {

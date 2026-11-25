@@ -22,6 +22,7 @@ from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.client_buyer_number import ClientBuyerNumber
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import (
@@ -293,6 +294,9 @@ async def wipe() -> None:
         )
         await db.execute(
             update(Client).where(Client.nip.in_(FIXTURE_NIPS)).values(nip=None)
+        )
+        await db.execute(
+            delete(ClientBuyerNumber).where(ClientBuyerNumber.number.in_(FIXTURE_NIPS))
         )
         await db.execute(delete(HrJobRun).where(HrJobRun.kind.like("sales_ksef_%")))
         await db.execute(delete(HrJobRun).where(HrJobRun.kind.like("sales_ebi24_%")))

@@ -28,6 +28,7 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { CaseNextSteps } from "./CaseNextSteps";
 import { ExtrasSection } from "./ExtrasSection";
 import { CONTRACTOR_INVOICE, STATUS, dayTime, mdText, monthLabel, pln } from "./format";
 import { kcpFileName } from "./ClientAcceptancePanel";
@@ -158,6 +159,9 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
           Odesłane do poprawy: {d.fix_reason}
         </p>
       ) : null}
+      {kind === "actual" && d.status !== "ok" && d.status !== "accepted" && d.status !== "missing" ? (
+        <CaseNextSteps contractId={contractId} month={month} canWrite={canWrite} version={caseVersion(d)} />
+      ) : null}
       <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-2">
         <div className="min-w-0 space-y-3">
           <Documents detail={d} />
@@ -188,6 +192,12 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
       </div>
     </div>
   );
+}
+
+/** Stan karty, od którego zależy „Co dalej”: po przyjęciu albo przeliczeniu sprawa liczy się od nowa. */
+function caseVersion(d: SettlementDetail): string {
+  const checks = d.checks.map((g) => g.checks.map((c) => `${c.state}:${c.title}`).join(",")).join(";");
+  return [d.status, d.md_regular, d.md_extra, d.fix_reason, checks].join("|");
 }
 
 /** KCP osoby w PDF (E6.5): plik od konsultanta albo karta złożona z eksportu Redmine. */

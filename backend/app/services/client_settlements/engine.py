@@ -22,6 +22,12 @@ kwoty, pozycje wyliczenia, wynik kontroli i stan.
   zamówienie” i bez blokady (decyzja Artura z 24.11.2026: klient sam wskazał
   zamówienie, a pule w NEXUS-ie bywają nieaktualne). Podział wchodzi tylko na
   same dni zwykłe i tylko, gdy suma z maila równa się MD rozliczenia.
+* Podział na kolejne zamówienia kontraktu (``Inputs.split_auto``): pula
+  zamówienia rozliczenia nie mieści MD, a kontrakt ma w miesiącu inne
+  zamówienia — najpierw starsze do wyczerpania puli, reszta na kolejne, jak
+  dzielą faktury Finanse (próba VI–X 2026). Wchodzi tylko wtedy, gdy pule
+  mieszczą wszystkie dni zwykłe; inaczej, i przy pracy dodatkowej albo MD
+  wdrożeniowych, rozliczenie idzie na jedno zamówienie bez dodatkowej uwagi.
 * Zmiana stawki kontraktora w trakcie miesiąca (``Inputs.cost_parts``,
   ``rate_split``): dni zwykłe mają linię na każdą stawkę, a koszt to suma
   części. MD ponad pulę to ostatnie dni miesiąca, więc idą stawką ostatniej
@@ -59,12 +65,12 @@ class OrderState:
 
 @dataclass(frozen=True)
 class SplitPart:
-    """Część miesiąca osoby na jednym zamówieniu według maila klienta."""
+    """Część miesiąca osoby na jednym zamówieniu (mail klienta albo pule)."""
 
     order: OrderState
     #: Dni zwykłe na tym zamówieniu.
     md: Decimal
-    #: Zamówienie zakończone w NEXUS-ie (status albo koniec przed miesiącem).
+    #: Zamówienie zakończone przed rozliczanym miesiącem (``service._closed_for``).
     closed: bool = False
 
 
@@ -83,6 +89,8 @@ class Inputs:
     proof: Optional["ProofResult"] = None
     #: Podział miesiąca na zamówienia z maila klienta; pusty = jedno ``order``.
     split: tuple[SplitPart, ...] = ()
+    #: ``split`` z pul kolejnych zamówień kontraktu, a nie z maila klienta.
+    split_auto: bool = False
     #: Dni zwykłe po stawkach kosztu przy zmianie stawki w miesiącu; pusty =
     #: jedna stawka kosztu linii zamówienia.
     cost_parts: tuple["CostPart", ...] = ()
@@ -237,8 +245,15 @@ def _with_split(
             "checks": [
                 _check(
                     "ok",
-                    "Podział według maila klienta",
-                    "; ".join(
+                    "Podział na kolejne zamówienia kontraktu"
+                    if inp.split_auto
+                    else "Podział według maila klienta",
+                    (
+                        "Pula pierwszego zamówienia się kończy, reszta na kolejne: "
+                        if inp.split_auto
+                        else ""
+                    )
+                    + "; ".join(
                         f"{part.order.number or 'zamówienie bez numeru'}: {_fmt(md)} MD"
                         for part, md in parts
                     ),
@@ -471,6 +486,7 @@ def compute(inp: Inputs) -> Result:
             return _with_split(
                 inp, regular, groups, warn=warn, proof_blocking=proof_blocking
             )
+    if inp.split and not inp.split_auto:
         groups.append(
             {
                 "title": "Podział na zamówienia",

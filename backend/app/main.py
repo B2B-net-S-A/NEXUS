@@ -126,6 +126,7 @@ from app.api import insights_team
 from app.api import insights_team_signals
 from app.api import insights_work_rhythm
 from app.api import insights_wnioski
+from app.api import insights_lost_review
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -255,6 +256,7 @@ from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import settlement_reminders as settlement_reminders_api
+from app.api import settlement_cases as settlement_cases_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import supervisory_board as supervisory_board_api
@@ -928,6 +930,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.screening_stale import screening_stale_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
+    from app.tasks.interview_answer_proposals import interview_answer_proposals_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -938,6 +941,8 @@ async def lifespan(app: FastAPI):
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.contract_rate_documents import contract_rate_documents_loop
+    from app.tasks.contract_rate_history import contract_rate_history_loop
+    from app.tasks.month_check import month_check_loop
     from app.tasks.contract_partner_reads import contract_partner_reads_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
@@ -1137,6 +1142,10 @@ async def lifespan(app: FastAPI):
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
             "skill_proposals": asyncio.create_task(skill_proposals_loop()),
+            # 25.11.2026: nocne propozycje odpowiedzi w „Pytaniach z rozmów” (F55).
+            "interview_answer_proposals": asyncio.create_task(
+                interview_answer_proposals_loop()
+            ),
             # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
             "cpro_mail": asyncio.create_task(cpro_mail_loop()),
             # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -1206,6 +1215,10 @@ async def lifespan(app: FastAPI):
             "contract_rate_documents": asyncio.create_task(
                 contract_rate_documents_loop()
             ),
+            # 0782: historia stawek kontraktu z faktur KSeF — podpowiedzi na
+            # karcie, wpis automatyczny historii za flagą.
+            "contract_rate_history": asyncio.create_task(contract_rate_history_loop()),
+            "month_check": asyncio.create_task(month_check_loop()),
             # 0755: dane firmy Partnera z podpisanej umowy do potwierdzenia
             # (E5a). Kończy się przed pętlą przy CONTRACT_PARTNER_READ_ENABLED=false.
             "contract_partner_reads": asyncio.create_task(
@@ -2038,6 +2051,16 @@ app.include_router(
     tags=["insights"],
 )
 app.include_router(
+    insights_lost_review.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_lost_review.write_router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
     insights_stage_breakdown.router,
     prefix="/api/insights/recruitment",
     tags=["insights"],
@@ -2538,6 +2561,13 @@ app.include_router(
 app.include_router(
     settlement_reminders_api.router,
     prefix="/api/finance/settlements/reminders",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# Karta sprawy „Co dalej” i lista spraw rozliczeń (25.11.2026).
+app.include_router(
+    settlement_cases_api.router,
+    prefix="/api/finance/settlements/cases",
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
@@ -3996,6 +4026,7 @@ async def api_health_deep_check(request: Request):
     from app.models.access_usage import AccessUsageDaily
     from app.models.cv_preview_read import CvPreviewRead
     from app.models.insight_decision import InsightDecision
+    from app.models.lost_review import JobLossReview, LostReviewLesson
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
     from app.models.novelty import (
         NoveltyDailyState,
@@ -4286,6 +4317,8 @@ async def api_health_deep_check(request: Request):
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
+    from app.models.contract_rate_history_finding import ContractRateHistoryFinding
+    from app.models.month_check_case import MonthCheckCase
     from app.models.contract_partner_read import ContractPartnerRead
     from app.models.client_order_cost_step import (
         ClientOrderCostReview,
@@ -4303,6 +4336,7 @@ async def api_health_deep_check(request: Request):
         BoardVoteBallot,
         BoardKrsSnapshot,
     )
+    from app.models.client_buyer_number import ClientBuyerNumber
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4812,6 +4846,9 @@ async def api_health_deep_check(request: Request):
         # dodania kandydata, ale cicho przywraca drugi odczyt modelem w `/from-cv`.
         ("cv_preview_reads", CvPreviewRead),
         ("insight_decisions", InsightDecision),
+        # 0783: moduł „Przegrane” — okno zamknięcia i spotkanie z DL.
+        ("job_loss_reviews", JobLossReview),
+        ("lost_review_lessons", LostReviewLesson),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
         # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
@@ -5005,6 +5042,8 @@ async def api_health_deep_check(request: Request):
         # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
         ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
+        # 0781: dodatkowe numery nabywcy klienta (spółki grupy).
+        ("client_buyer_numbers", ClientBuyerNumber),
         # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
         ("client_invoice_templates", ClientInvoiceTemplate),
         # 0720: archiwum dokumentów z eBI24 (E5).
@@ -5014,6 +5053,9 @@ async def api_health_deep_check(request: Request):
         ("board_documents", BoardDocument),
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
+        ("contract_rate_history_findings", ContractRateHistoryFinding),
+        # 0784: kontrola miesiąca — rozbieżności faktur klient ↔ konsultant.
+        ("month_check_cases", MonthCheckCase),
         # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
         ("contract_partner_reads", ContractPartnerRead),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.

@@ -145,6 +145,7 @@ from app.models.plain_knowledge import (  # noqa: F401
     PlainTerm,
     RoleProfile,
 )
+from app.models.client_buyer_number import ClientBuyerNumber  # noqa: F401
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
@@ -908,6 +909,8 @@ from app.models import client_order_revenue_step as _client_order_revenue_step_m
 from app.models import board_document as _board_document_models  # noqa: F401,E402
 from app.models import contract_document_rate_read as _rate_read_models  # noqa: F401,E402
 from app.models import contract_partner_read as _partner_read_models  # noqa: F401,E402
+from app.models import contract_rate_history_finding as _rate_history_models  # noqa: F401,E402
+from app.models import month_check_case as _month_check_models  # noqa: F401,E402
 from app.models import client_order_cost_step as _order_cost_step_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
@@ -942,6 +945,7 @@ from app.models import announcement as _announcement_models  # noqa: F401,E402
 from app.models import novelty as _novelty_models  # noqa: F401,E402
 from app.models import access_usage as _access_usage_models  # noqa: F401,E402
 from app.models import insight_decision as _insight_decision_models  # noqa: F401,E402
+from app.models import lost_review as _lost_review_models  # noqa: F401,E402
 
 # 0639: panel klienta pod linkiem z CV.
 from app.models import client_panel as _client_panel_models  # noqa: F401,E402

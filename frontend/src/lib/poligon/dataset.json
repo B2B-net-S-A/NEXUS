@@ -189,6 +189,8 @@
    "GET /api/finance/rate-divergences",
    "GET /api/hr/lifecycle/contracts/990521/entry",
    "GET /api/hr/payroll/contracts/990521/admin-details",
+   "GET /api/insights/lost-review/client-rules/990501",
+   "GET /api/insights/lost-review?period=month&offset=0",
    "GET /api/my-clients/990501/settlements",
    "GET /api/my-relationships",
    "GET /api/order-mail/queue/990561",
@@ -22962,6 +22964,62 @@
    "totals": {
     "PLN": "21697.20"
    }
+  },
+  "GET /api/insights/lost-review/client-rules/990501": {
+   "rules": []
+  },
+  "GET /api/insights/lost-review?period=month&offset=0": {
+   "period": {
+    "kind": "month",
+    "start": "@relm:0",
+    "end": "@relm:1",
+    "timezone": "Europe/Warsaw"
+   },
+   "period_label": "bieżący miesiąc",
+   "since": "2026-10-11T22:00:00+00:00",
+   "counts": {
+    "won": 0,
+    "lost": 0,
+    "competitor": 0,
+    "idle": 0
+   },
+   "hit_ratio": null,
+   "known": 0,
+   "why_filled": 0,
+   "stages": {
+    "no_cv": 0,
+    "cv_only": 0,
+    "interview": 0,
+    "acceptance": 0
+   },
+   "compare": {
+    "won": {
+     "count": 0,
+     "first_cv_days": null,
+     "cvs": null,
+     "interview_share": null
+    },
+    "lost": {
+     "count": 0,
+     "first_cv_days": null,
+     "cvs": null,
+     "interview_share": null
+    }
+   },
+   "trend": [],
+   "why_counts": [],
+   "source_counts": {
+    "client": 0,
+    "ours": 0,
+    "unknown": 0
+   },
+   "client_verdicts": [],
+   "clients": [],
+   "jobs": [],
+   "lessons": [],
+   "findings": [
+    "W tym okresie nie ma przegranych rekrutacji."
+   ]
   }
  }
 }

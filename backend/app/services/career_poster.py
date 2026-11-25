@@ -38,12 +38,15 @@ def qr_data_uri(url: str) -> str:
     return segno.make(url, error="m").svg_data_uri(scale=8, border=2)
 
 
-# Kolory nowej strony kariery. Biały na #E73748 ma 4,2:1, więc drobny tekst
-# (adres, wezwanie) stoi na jasnym pasie Snow, a na czerwieni tylko duże litery.
-_RED = "#E73748"
-_RED_TEXT = "#C42536"
-_SNOW = "#F5F4EC"
-_INK = "#141414"
+# Kolory strony kariery, wariant 5 „Czerwień w gradientach tech” (decyzja
+# Artura 25.11.2026): czerwień #C42329 w gradiencie bordo › czerwień › ciepły
+# blask, jak nagłówek strony. Biały na #C42329 ma 5,8:1, ale drobny tekst
+# (adres, wezwanie) dalej stoi na jasnym pasie Snow, a na czerwieni duże litery.
+_RED = "#C42329"
+_RED_TECH = "linear-gradient(90deg, #961621 0%, #C42329 52%, #D43424 100%)"
+_RED_TEXT = "#B0222A"
+_SNOW = "#FAF6F4"
+_INK = "#1F1115"
 
 
 def poster_html(payload: dict[str, Any], url: str) -> str:
@@ -59,6 +62,7 @@ def poster_html(payload: dict[str, Any], url: str) -> str:
 <style>
 @page {{ size: A4; margin: 0; }}
 html, body {{ margin: 0; background: {_RED}; color: #FFFFFF; }}
+.page {{ background: {_RED_TECH}; }}
 body {{ font-family: "DejaVu Sans", Arial, sans-serif; }}
 .page {{ position: relative; width: 210mm; height: 297mm; box-sizing: border-box;
   padding: 20mm 20mm 0; }}

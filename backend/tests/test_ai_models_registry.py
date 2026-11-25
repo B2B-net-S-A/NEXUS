@@ -191,6 +191,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.contract_partner_read: ("F53", "claude-sonnet-5"),
     # F54 — 23.11.2026: ocena potencjału firmy w Sprzedaży (model F46).
     AIFeatureKey.sales_potential_assessment: ("F54", "claude-sonnet-5-5"),
+    # F55 — 25.11.2026: nocne propozycje odpowiedzi w „Pytaniach z rozmów” (model F44).
+    AIFeatureKey.interview_answer_proposal: ("F55", "claude-sonnet-5-5"),
+    AIFeatureKey.lost_review_summary: ("F56", "claude-sonnet-5-5"),
 }
 
 

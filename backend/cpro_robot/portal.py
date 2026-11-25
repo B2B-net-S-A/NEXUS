@@ -91,6 +91,24 @@ def _put(scope: Any, name: str, value: Any, *, option: Optional[str] = None) -> 
         raise _fail("other", f"Cpro nie przyjął wartości pola „{name}”.")
 
 
+# Przyciski strony oferty w jednej kolejności dla odczytu i kliknięcia.
+_BUTTONS_SELECTOR = "button, input[type=submit], input[type=button], a.btn"
+_PAGE_BUTTONS_JS = (
+    "() => [...document.querySelectorAll('" + _BUTTONS_SELECTOR + "')].map(b => ({"
+    "name: b.getAttribute('name') || '',"
+    "label: (b.tagName === 'INPUT' ? b.value : b.textContent || '').trim()}))"
+)
+_CLICK_BUTTON_JS = (
+    "(i) => document.querySelectorAll('" + _BUTTONS_SELECTOR + "')[i].click()"
+)
+# Ścieżka i akcja bez parametrów z identyfikatorami.
+_PAGE_PLACE_JS = (
+    "() => location.pathname.split('/').pop() + "
+    "(new URL(location.href).searchParams.get('action') ? "
+    "'?action=' + new URL(location.href).searchParams.get('action') : '')"
+)
+
+
 def _js_click(loc: Any, what: str) -> None:
     """Klik skryptem: działa także na przycisku ukrytym albo przykrytym oknem."""
 
@@ -141,6 +159,7 @@ class ItemRun:
         self.saved = False
         self.cv_before: set[str] = set()
         self.step = "start"
+        self.path = "nowa oferta"
 
     def before_write(self, what: str) -> None:
         """Próba bez zapisu (``CPRO_ROBOT_DRY_RUN``): stop przed pierwszą zmianą w Cpro."""
@@ -553,10 +572,20 @@ class ItemRun:
                 + ", ".join(sorted(set(invalid)))[:200],
             )
         self.verify_account()
-        _js_click(
-            form.locator("button[name=BUT_SaveAsDraft]"),
-            "Save as draft",
-        )
+        buttons = page.evaluate(_PAGE_BUTTONS_JS)
+        index = rules.save_draft_button(buttons)
+        if index is None:
+            # Bieg 34 (edycja szkicu): bez zgadywania innego przycisku, za to
+            # z tym, co strona pokazuje — następna poprawka bez logowania do Cpro.
+            seen = ", ".join(
+                sorted({(b.get("name") or b.get("label") or "?")[:30] for b in buttons})
+            )
+            raise _fail(
+                "other",
+                f"Brak przycisku „Save as draft” w Cpro (krok {self.path}, "
+                f"strona {page.evaluate(_PAGE_PLACE_JS)}; przyciski: {seen[:300]}).",
+            )
+        page.evaluate(_CLICK_BUTTON_JS, index)
         self.saved = True
         try:
             page.wait_for_load_state("networkidle", timeout=STEP_TIMEOUT_MS)
@@ -593,12 +622,25 @@ class ItemRun:
             raise _fail(
                 "draft_unconfirmed", "Szkic nie pokazuje zapisanej stawki albo daty."
             )
-        link = self.page.locator(
-            "a", has_text=re.compile(re.escape(self.offer["cv_file_name"][:-4]), re.I)
-        ).first
-        if link.count() == 0:
-            raise _fail("cv_not_opening", "W szkicu nie widać wgranego PDF.")
-        href = link.get_attribute("href") or ""
+        links = self.page.evaluate(
+            """() => [...document.querySelectorAll('a')].map(a => ({
+              text: (a.innerText || '').trim(), href: a.getAttribute('href') || ''}))"""
+        )
+        found = [
+            link
+            for link in links
+            if rules.cv_link_matches(link["text"], self.offer["cv_file_name"])
+        ]
+        if not found:
+            # Bieg 35: widok szkicu podpisuje CV inaczej niż lista CV w edycji.
+            # Dowód z edycji (tylko odczyt): zaznaczone jest CV z tą nazwą.
+            if not self._draft_has_cv_checked():
+                raise _fail(
+                    "cv_not_opening",
+                    "W szkicu nie widać wgranego PDF (ani w widoku, ani w edycji).",
+                )
+            return self._draft_outcome(url)
+        href = found[0]["href"]
         resp = (
             self.page.request.get(urljoin(self.page.url, href))
             if href and not href.startswith("javascript")
@@ -610,12 +652,33 @@ class ItemRun:
             or _pdf_pages(resp.body()) < 1
         ):
             raise _fail("cv_not_opening", "PDF w szkicu nie otwiera się.")
+        return self._draft_outcome(url)
+
+    def _draft_outcome(self, url: str) -> Outcome:
         return Outcome(
             "draft",
             None,
             "Szkic zapisany przez robota NEXUSA i potwierdzony po ponownym otwarciu.",
             cpro_status="DRAFT",
             offer_url=url,
+        )
+
+    def _draft_has_cv_checked(self) -> bool:
+        """Edycja szkicu bez zapisu: czy zaznaczone CV ma nazwę pliku ze zlecenia."""
+
+        drafts = [r for r in self.my_offers() if rules.is_draft(r)]
+        if len(drafts) != 1:
+            return False
+        self.open_draft_edit(drafts[0])
+        self.step = "confirm"
+        checked = self.page.evaluate(
+            """() => [...document.querySelectorAll('input[name=offer_cvids]:checked')].map(b => {
+              const l = b.id && document.querySelector('label[for="' + b.id + '"]');
+              return (l ? l.innerText : (b.parentElement || {}).innerText || '').trim();
+            })"""
+        )
+        return any(
+            rules.cv_label_matches(t, self.offer["cv_file_name"]) for t in checked
         )
 
     # --- przebieg ---------------------------------------------------------------
@@ -642,6 +705,7 @@ class ItemRun:
                 raise _fail("draft_not_found", "Nie ma szkicu tej osoby do poprawy.")
             if len(drafts) > 1:
                 raise _fail("ambiguous_draft", "Kilka szkiców tej osoby na requeście.")
+            self.path = "poprawa szkicu"
             self.open_draft_edit(drafts[0])
             self.upload_cv()
             self.select_only_new_cv()
@@ -650,6 +714,15 @@ class ItemRun:
         if len(drafts) > 1:
             raise _fail("ambiguous_draft", "Kilka szkiców tej osoby na requeście.")
         if drafts:
+            # Szkic z wcześniejszego biegu (zapis w tle zgłoszony jako błąd,
+            # biegi 14–33): gdy ma stawkę, datę i PDF, wystarczy go potwierdzić.
+            self.path = "szkic z wcześniej"
+            try:
+                return self.confirm_draft()
+            except Outcome:
+                pass
+            self.path = "edycja szkicu"
+            self.my_offers()  # z powrotem na liście ofert, skąd jest link edycji
             self.open_draft_edit(drafts[0])
             self.upload_cv_unless_present()
         else:

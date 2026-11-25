@@ -841,7 +841,9 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   opcja wyłączona domyślnie (format nie sprawdzony w banku firmy); pozycja bez pozytywnego
   `white_list.check` jest zablokowana do decyzji Finansów. Wiersz paczki pamięta skrót HMAC
   pełnego rachunku (klucz wyprowadzony z `M365_TOKEN_ENCRYPTION_KEY`) — podmiana rachunku po
-  utworzeniu paczki = 409 `batch_account_changed` przy pobraniu pliku.
+  utworzeniu paczki = 409 `batch_account_changed` przy pobraniu pliku. Po zmianie klucza
+  skrót porównuje się każdym kluczem, a skrypt rotacji go przelicza
+  (`podstawy/rotacja-klucza-szyfrowania-tokenow.md`).
   Wyciągi (19.10.2026): plik z kilkoma wyciągami — waluta operacji z jej wyciągu (MT940:
   `:60F:` przy `:61:`, CAMT: `Amt/@Ccy`, bez niego `Acct/Ccy` tego `Stmt`). Storno: kierunek
   = `CdtDbtInd` wpisu (CRDT + `RvslInd` = wpływ, np. zwrot nieudanej wypłaty — nie opłaca

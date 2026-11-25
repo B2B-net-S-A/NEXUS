@@ -321,9 +321,23 @@ export interface BuyerNumberSaved {
   state: BuyerNumberState;
   number: string | null;
   client_id: number | null;
+  /** Zapisany jako dodatkowy numer klienta (spółka grupy, klient miał już inny). */
+  extra?: boolean;
   saved: boolean;
   retried: number;
   matched: number;
+}
+
+/** Dodatkowy numer nabywcy klienta (0781): spółka grupy z własnym NIP-em albo VAT UE. */
+export interface ExtraBuyerNumber {
+  id: number;
+  client_id: number;
+  client_name: string | null;
+  number: string;
+  kind: BuyerNumberKind;
+  source: "manual" | "auto";
+  created_at: string | null;
+  invoices: number;
 }
 
 export interface CreditImportResult {
@@ -390,6 +404,8 @@ export const invoicingKeys = {
   finance: (year: number, month: number) => ["client-invoicing", "finance", year, month] as const,
   toInvoice: (year: number, month: number) =>
     ["client-invoicing", "to-invoice", year, month] as const,
+  formChecks: (year: number, month: number) =>
+    ["client-invoicing", "form-checks", year, month] as const,
   overdue: ["client-invoicing", "overdue"] as const,
   reminder: (clientId: number, language: string | null) =>
     ["client-invoicing", "reminder", clientId, language] as const,
@@ -398,6 +414,7 @@ export const invoicingKeys = {
   status: ["client-invoicing", "status"] as const,
   module: ["client-invoicing", "module"] as const,
   unknownBuyers: ["client-invoicing", "unknown-buyers"] as const,
+  extraBuyerNumbers: ["client-invoicing", "extra-buyer-numbers"] as const,
   waiting: (clientId: number, number: string) =>
     ["client-invoicing", "waiting", clientId, number] as const,
   options: (invoiceId: number, clientId: number | null, period: string | null) =>
@@ -451,6 +468,34 @@ export function useFinanceSalesInvoices(year: number, month: number) {
     queryKey: invoicingKeys.finance(year, month),
     queryFn: async () =>
       (await api.get<FinanceSalesInvoices>(FINANCE, { params: { year, month } })).data,
+  });
+}
+
+/** Faktura z KSeF spoza NEXUSA (eBI24) z uwagami kontroli formalnej. */
+export interface FormCheckInvoice {
+  invoice_id: number;
+  invoice_number: string;
+  ksef_number: string;
+  client_id: number | null;
+  client_name: string | null;
+  issue_date: string;
+  sale_date: string;
+  problems: string[];
+}
+
+export interface FormChecksReport {
+  period: string;
+  /** Ile faktur VAT z KSeF spoza NEXUSA sprawdzono za miesiąc. */
+  checked: number;
+  invoices: FormCheckInvoice[];
+}
+
+export function useSalesFormChecks(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: invoicingKeys.formChecks(year, month),
+    queryFn: async () =>
+      (await api.get<FormChecksReport>(`${FINANCE}/form-checks`, { params: { year, month } })).data,
+    enabled,
   });
 }
 
@@ -618,6 +663,8 @@ export function useAssignSalesInvoice() {
       year: number;
       month: number;
       saveBuyerNumber?: boolean;
+      /** Klient ma inny numer: dopisz ten jako dodatkowy. */
+      buyerNumberExtra?: boolean;
     }) =>
       (
         await api.post<SalesInvoice & { buyer_number?: BuyerNumberSaved }>(
@@ -627,6 +674,7 @@ export function useAssignSalesInvoice() {
             year: payload.year,
             month: payload.month,
             save_buyer_number: payload.saveBuyerNumber ?? false,
+            ...(payload.buyerNumberExtra ? { buyer_number_extra: true } : {}),
           },
         )
       ).data,
@@ -637,11 +685,11 @@ export function useAssignSalesInvoice() {
 export function useSaveBuyerNumber() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: async (payload: { invoiceId: number; clientId: number }) =>
+    mutationFn: async (payload: { invoiceId: number; clientId: number; extra?: boolean }) =>
       (
         await api.post<SalesInvoice & { buyer_number?: BuyerNumberSaved }>(
           `${FINANCE}/${payload.invoiceId}/buyer-number`,
-          { client_id: payload.clientId },
+          { client_id: payload.clientId, ...(payload.extra ? { extra: true } : {}) },
         )
       ).data,
     onSuccess: invalidate,
@@ -651,13 +699,32 @@ export function useSaveBuyerNumber() {
 export function useAssignUnknownBuyer() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: async (payload: { number: string; clientId: number }) =>
+    mutationFn: async (payload: { number: string; clientId: number; extra?: boolean }) =>
       (
         await api.post<{ buyer_number: BuyerNumberSaved }>(`${FINANCE}/unknown-buyers/assign`, {
           number: payload.number,
           client_id: payload.clientId,
+          ...(payload.extra ? { extra: true } : {}),
         })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useExtraBuyerNumbers(enabled = true) {
+  return useQuery({
+    queryKey: invoicingKeys.extraBuyerNumbers,
+    queryFn: async () =>
+      (await api.get<{ numbers: ExtraBuyerNumber[] }>(`${FINANCE}/buyer-numbers`)).data,
+    enabled,
+  });
+}
+
+export function useRemoveExtraBuyerNumber() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (numberId: number) =>
+      (await api.delete<{ removed: number }>(`${FINANCE}/buyer-numbers/${numberId}`)).data,
     onSuccess: invalidate,
   });
 }

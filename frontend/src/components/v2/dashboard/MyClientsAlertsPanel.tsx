@@ -83,6 +83,7 @@ export function cardCta(card: DlAlertCard): string {
     case "draft_consultant_unassigned":
     case "missing_revenue_rate":
     case "invoice_without_order_line":
+    case "month_check_data":
       return "Uzupełnij zamówienie"
     case "order_mail_review":
       return "Przejdź do weryfikacji"

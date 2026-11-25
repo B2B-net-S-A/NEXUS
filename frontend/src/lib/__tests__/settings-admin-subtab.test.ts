@@ -28,7 +28,8 @@ describe("useAdminSubTab", () => {
     // „Wyjątki użytkowników” zniknęły z ekranu (0410) — uprawnienia osoby
     // ustawia się w oknie „Edytuj użytkownika”. Zakładka nigdy nie miała
     // własnego `?sub=`, ale stary link albo literówka nie mogą dać pustki.
-    for (const stale of ["user-overrides", "exceptions", "wyjatki"]) {
+    // „Import CV” (`?sub=import`, import z TalentRadaru) usunięty 25.11.2026.
+    for (const stale of ["user-overrides", "exceptions", "wyjatki", "import"]) {
       expect(renderHook(() => useAdminSubTab(stale, vi.fn())).result.current[0]).toBe(
         "users",
       );

@@ -48,6 +48,7 @@ async def test_explicitly_chosen_document_is_not_filtered_by_kind():
     db = AsyncMock()
     db.get.return_value = NS(id=2, name="A", lastname="B")
     db.scalars.return_value = Mock(first=Mock(return_value=None))
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     with pytest.raises(svc.StandaloneGenerationError, match="Wybrane CV"):
         await svc.load_candidate_generation_source(
             db, candidate_id=2, stage_id=None, cv_document_id=71

@@ -46,6 +46,7 @@ from app.api.section_access import (
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.client import Client
+from app.models.client_buyer_number import ClientBuyerNumber
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.user import User, UserRole
 from app.services import critical_events
@@ -62,6 +63,7 @@ from app.services.client_invoicing import (
     overdue_export,
     payment_reminders,
     payments,
+    sale_checks,
     sync,
     views,
 )
@@ -313,10 +315,13 @@ class SalesInvoiceAssignIn(BaseModel):
     month: int = Field(..., ge=1, le=12)
     # Numer nabywcy z faktury do klienta, gdy klient nie ma żadnego.
     save_buyer_number: bool = False
+    # Klient ma inny numer: dopisz ten jako dodatkowy (spółka grupy, 0781).
+    buyer_number_extra: bool = False
 
 
 class BuyerNumberIn(BaseModel):
     client_id: int = Field(..., gt=0)
+    extra: bool = False
 
 
 class ReasonIn(BaseModel):
@@ -326,6 +331,7 @@ class ReasonIn(BaseModel):
 class BuyerAssignIn(BaseModel):
     number: str = Field(..., min_length=1, max_length=32)
     client_id: int = Field(..., gt=0)
+    extra: bool = False
 
 
 class BuyerSkipIn(BaseModel):
@@ -389,6 +395,20 @@ async def finance_invoices(
         "invoices": payload["invoices"],
         "summary": summary,
     }
+
+
+@finance_router.get("/form-checks")
+async def finance_form_checks(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+) -> dict[str, Any]:
+    """Kontrola formalna faktur z KSeF wystawionych poza NEXUSEM (eBI24) za miesiąc."""
+
+    await _module_open(db, current_user)
+    period = _period(year, month)
+    return await sale_checks.ksef_report(db, year=period[0], month=period[1])
 
 
 @finance_router.get("/to-invoice")
@@ -564,7 +584,7 @@ async def finance_unknown_buyer_assign(
     await _client_or_404(db, body.client_id)
     invoice = (await _waiting_invoices(db, body.number))[0]
     saved = await _save_buyer_number(
-        db, invoice, current_user, client_id=body.client_id
+        db, invoice, current_user, client_id=body.client_id, extra=body.extra
     )
     if not saved["saved"]:
         raise HTTPException(
@@ -590,6 +610,43 @@ async def finance_unknown_buyer_skip(
                 db, invoice, reason=body.reason, actor_id=current_user.id
             )
     return {"skipped": len(invoices)}
+
+
+@finance_router.get("/buyer-numbers")
+async def finance_buyer_numbers(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Dodatkowe numery nabywcy wszystkich klientów (spółki grupy, 0781)."""
+
+    await _module_open(db, current_user)
+    return {"numbers": await views.extra_buyer_numbers(db)}
+
+
+@finance_router.delete("/buyer-numbers/{number_id}")
+async def finance_buyer_number_remove(
+    number_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Usuwa dodatkowy numer; faktury już przypisane zostają u klienta."""
+
+    await _module_open(db, current_user)
+    row = await db.get(ClientBuyerNumber, number_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego numeru.")
+    client_id, number = row.client_id, row.number
+    await clients.remove_extra_number(db, client_id, number_id)
+    await critical_events.record_executed(
+        db,
+        actor=current_user,
+        event_type="client.registry_number_removed",
+        entity_type="client",
+        entity_id=client_id,
+        client_id=client_id,
+        reason=f"Dodatkowy numer {number}.",
+        details={"number_id": number_id},
+    )
+    return {"removed": number_id}
 
 
 @finance_router.get("/status")
@@ -729,9 +786,13 @@ async def _save_buyer_number(
     user: User,
     *,
     client_id: Optional[int] = None,
+    extra: bool = False,
 ) -> dict[str, Any]:
-    saved = await matching.save_buyer_number(db, invoice, client_id=client_id)
+    saved = await matching.save_buyer_number(
+        db, invoice, client_id=client_id, extra=extra, actor_id=user.id
+    )
     if saved["saved"]:
+        kind = "Dodatkowy numer" if saved["extra"] else "Numer"
         await critical_events.record_executed(
             db,
             actor=user,
@@ -739,9 +800,10 @@ async def _save_buyer_number(
             entity_type="client",
             entity_id=saved["client_id"],
             client_id=saved["client_id"],
-            reason=f"Numer {saved['number']} z faktury {invoice.invoice_number}.",
+            reason=f"{kind} {saved['number']} z faktury {invoice.invoice_number}.",
             details={
                 "invoice_id": invoice.id,
+                "extra": saved["extra"],
                 "retried": saved["retried"],
                 "matched": saved["matched"],
             },
@@ -771,7 +833,9 @@ async def finance_invoice_assign(
         )
     if not body.save_buyer_number:
         return await _detail(db, invoice_id)
-    saved = await _save_buyer_number(db, invoice, current_user)
+    saved = await _save_buyer_number(
+        db, invoice, current_user, extra=body.buyer_number_extra
+    )
     return {**await _detail(db, invoice_id), "buyer_number": saved}
 
 
@@ -788,7 +852,7 @@ async def finance_invoice_buyer_number(
     invoice = await _invoice_or_404(db, invoice_id)
     await _client_or_404(db, invoice.client_id or body.client_id)
     saved = await _save_buyer_number(
-        db, invoice, current_user, client_id=body.client_id
+        db, invoice, current_user, client_id=body.client_id, extra=body.extra
     )
     if not saved["saved"]:
         raise HTTPException(

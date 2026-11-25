@@ -4,6 +4,7 @@ termin i treść. Uwagi jak w rozliczeniach z powtórki 7 próby IX–X; dane fi
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -167,13 +168,22 @@ def test_clean_or_accepted_settlement_has_no_defects(status: str) -> None:
 
 def test_image_report_without_md_is_a_defect_with_private_mailbox() -> None:
     # CA 603 IX: Time Sheet jako JPG z prywatnej poczty, rozliczenie bez MD.
+    # Od 25.11.2026 osobna wada „zrzut z prywatnej skrzynki”, żeby karta sprawy
+    # pokazała, że plik ma przyjść z adresu firmowego na skrzynkę rozliczeń.
     found = feedback.defects_in(
         status="checking",
         checks=_checks({"state": "none", "title": "Czeka na liczbę MD"}),
         report_mime="image/jpeg",
         report_sender="Anna.P@Gmail.com",
     )
-    assert found == [Found(feedback.IMAGE_REPORT, private=True)]
+    assert found == [Found(feedback.PRIVATE_SCREENSHOT, private=True)]
+    company = feedback.defects_in(
+        status="checking",
+        checks=[],
+        report_mime="image/png",
+        report_sender="anna@firma-konsultanta.pl",
+    )
+    assert company == [Found(feedback.IMAGE_REPORT)]
     # Z MD (OCR albo drugi plik) zdjęcie nie jest wadą.
     assert _codes(status="warnings", checks=[], report_mime="image/png") == []
     assert not feedback.is_private("anna@firma-konsultanta.pl")
@@ -442,3 +452,213 @@ def test_missing_declaration_reminder_asks_for_sentence_not_file() -> None:
         "2026-10", "Leasing Przykładowy", ["Anna"], declaration=True
     )
     assert "deklaracji dni pracy" in message
+
+
+# ── Kosmetyka przy dobrym MD i nowe wady (decyzja Artura z 25.11.2026) ──────
+
+
+#: Kwota w treści („100 zł”), nie „zł” w środku słowa („przyszłość”).
+AMOUNT = re.compile(r"\bzł\b|\bPLN\b")
+
+
+def _note(code: str, title: str, detail: str | None = None) -> dict:
+    return {"state": "none", "title": title, "detail": detail, "notice": code}
+
+
+ROWS_NOTE = _note(
+    "note.rows_sum",
+    "Wiersze opisu prac nie sumują się do SUMA",
+    "Wiersze: 44 MD, SUMA: 22 MD. SUMA zgadza się z godzinami dni.",
+)
+
+
+@pytest.mark.parametrize("status", ["ok", "accepted", "warnings"])
+def test_cosmetic_note_is_feedback_even_when_settlement_is_clean(status: str) -> None:
+    # BNP 654 X: rozliczenie „Bez uwag” z dopiskiem, konsultant dostaje informację.
+    found = feedback.defects_in(status=status, checks=_checks(ROWS_NOTE))
+    assert found == [Found("note.rows_sum", detail="Wiersze: 44 MD, SUMA: 22 MD")]
+    assert feedback.BY_CODE["note.rows_sum"].notice
+
+
+def test_fix_defect_still_ends_with_acceptance_but_note_stays() -> None:
+    defect = {"rule": "proof.signed_pdf", "state": "fail", "title": "PDF bez podpisu"}
+    assert _codes(status="accepted", checks=_checks(defect, ROWS_NOTE)) == [
+        "note.rows_sum"
+    ]
+
+
+def test_plain_info_without_notice_key_gives_nothing() -> None:
+    info = {"state": "none", "title": "Wiersze opisu prac nie sumują się do SUMA"}
+    assert _codes(status="ok", checks=_checks(info)) == []
+    unknown = _note("note.unknown", "Coś")
+    assert _codes(status="ok", checks=_checks(unknown)) == []
+
+
+@pytest.mark.parametrize(
+    ("check", "code"),
+    [
+        # BNP 501 VI i PKO 539 VIII bez dowodu: szablon za inny miesiąc.
+        (
+            {"rule": "proof.month", "state": "fail", "title": "RCP za inny miesiąc"},
+            "proof.month",
+        ),
+        (
+            {
+                "rule": "proof.month",
+                "state": "fail",
+                "title": "Time Sheet za inny miesiąc",
+                "detail": "W nagłówku: lipiec 2026.",
+            },
+            "proof.month",
+        ),
+        # Daty wierszy: przed ``proof.month``, choć to ta sama reguła.
+        (
+            {
+                "rule": "proof.month",
+                "state": "fail",
+                "title": "Wpisy spoza rozliczanego miesiąca: 3",
+            },
+            "proof.row_dates",
+        ),
+        # BIK 576 VII bez dowodu.
+        (
+            {"state": "warn", "title": "Wiersze z datą spoza miesiąca: 22"},
+            "proof.row_dates",
+        ),
+        # PKO 447 VII: cudzy szablon.
+        (
+            {
+                "rule": "proof.name_match",
+                "state": "warn",
+                "title": "Inne imię lub nazwisko niż w kontrakcie",
+            },
+            "proof.name_match",
+        ),
+        (
+            {
+                "rule": "proof.name_match",
+                "state": "fail",
+                "title": "Time Sheet bez pola Consultant(s)",
+            },
+            "proof.name_match",
+        ),
+        # Alior 491: KEŚU bez maila z Jiry.
+        (
+            {
+                "state": "warn",
+                "title": "Brak maila z Jiry z akceptacją opiekuna",
+                "detail": "KEŚU bez maila automatu Jiry: opiekuna wpisz ręcznie.",
+            },
+            "kesu.jira_accept",
+        ),
+    ],
+)
+def test_new_defects_map_to_catalog(check: dict, code: str) -> None:
+    assert _codes(status="warnings", checks=_checks(check)) == [code]
+
+
+def test_client_exports_without_consultant_name_are_finance_matters() -> None:
+    # Eksport Fieldglass ma tylko przełożonego: konsultant niczego tam nie wpisuje.
+    check = {
+        "rule": "proof.name_match",
+        "state": "fail",
+        "title": "Eksport Fieldglass bez imienia i nazwiska",
+    }
+    assert _codes(status="warnings", checks=_checks(check)) == []
+
+
+def test_name_defect_never_carries_detail_with_other_person() -> None:
+    check = {
+        "rule": "proof.name_match",
+        "state": "warn",
+        "title": "Inne imię lub nazwisko niż w kontrakcie",
+        "detail": "W pliku: Jan Testowy.",
+    }
+    (found,) = feedback.defects_in(status="warnings", checks=_checks(check))
+    assert found.detail is None
+
+
+def test_catalog_codes_are_unique_and_notes_match_reader_keys() -> None:
+    from app.services.client_settlements import rcp_checks
+
+    codes = [d.code for d in feedback.CATALOG]
+    assert len(codes) == len(set(codes))
+    notes = {d.code for d in feedback.CATALOG if d.notice}
+    assert notes == {
+        rcp_checks.NOTE_ROWS_SUM,
+        rcp_checks.NOTE_ROW_DATES,
+        rcp_checks.NOTE_TEMPLATE_MONTH,
+    }
+    for defect in feedback.CATALOG:
+        assert defect.audience in (feedback.CONSULTANT, feedback.CLIENT, feedback.OWNER)
+        text = feedback._fill(defect.instruction, CTX, Found(defect.code), ADDRESS)
+        assert "{" not in text and not AMOUNT.search(text)
+        # Nowe wady i informacje są dla konsultanta (decyzja z 25.11.2026).
+        if defect.notice or defect.code in (
+            "proof.month",
+            "proof.row_dates",
+            "proof.name_match",
+            "kesu.jira_accept",
+            feedback.PRIVATE_SCREENSHOT,
+        ):
+            assert defect.audience == feedback.CONSULTANT
+
+
+def test_note_mail_says_report_is_settled_and_what_to_change_next_time() -> None:
+    target = feedback.Target("consultant", address="anna@example.com")
+    subject, text = feedback.compose_mail(
+        target,
+        CTX,
+        [_item("note.rows_sum", Found("note.rows_sum", "Wiersze: 44 MD, SUMA: 22 MD"))],
+        ADDRESS,
+        reminder=False,
+    )
+    assert subject.startswith("Rozliczenie za październik 2026: wiersze opisu prac")
+    assert "Na przyszłość:" in text and "Co zrobić:" not in text
+    assert "Wiersze: 44 MD, SUMA: 22 MD" in text
+    assert "Tego raportu nie trzeba poprawiać" in text
+    assert "przypomnienia ustaną" not in text and not AMOUNT.search(text)
+
+
+def test_mail_with_fix_and_note_keeps_fix_wording() -> None:
+    target = feedback.Target("consultant", address="anna@example.com")
+    subject, text = feedback.compose_mail(
+        target,
+        CTX,
+        [
+            _item("proof.signed_pdf", Found("proof.signed_pdf")),
+            _item(
+                "note.template_month",
+                Found("note.template_month", "W polu Rozliczenie: 2026-01"),
+            ),
+        ],
+        ADDRESS,
+        reminder=False,
+    )
+    assert subject == "Rozliczenie za październik 2026: 2 rzeczy do poprawy"
+    assert "Co zrobić:" in text and "Na przyszłość:" in text
+    assert "(W polu Rozliczenie: 2026-01)" in text
+    assert "przypomnienia ustaną" in text
+
+
+def test_notes_only_mail_with_two_notes() -> None:
+    target = feedback.Target("consultant", address="anna@example.com")
+    subject, _text = feedback.compose_mail(
+        target,
+        CTX,
+        [
+            _item("note.rows_sum", Found("note.rows_sum")),
+            _item("note.row_dates", Found("note.row_dates")),
+        ],
+        ADDRESS,
+        reminder=False,
+    )
+    assert subject == "Rozliczenie za październik 2026: 2 uwagi do raportu"
+
+
+def test_private_screenshot_goes_to_consultant_and_to_owner_without_external() -> None:
+    found = Found(feedback.PRIVATE_SCREENSHOT, private=True)
+    target = _target(feedback.PRIVATE_SCREENSHOT, found, WHO, ON_ALL)
+    assert (target.kind, target.address) == ("consultant", "anna@example.com")
+    target = _target(feedback.PRIVATE_SCREENSHOT, found, WHO, ON_INTERNAL)
+    assert (target.kind, target.why) == ("owner", "external_off")

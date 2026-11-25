@@ -103,8 +103,9 @@ async def _create(app_client, headers, doc_type: str, parent_id: int | None, **v
 
 def test_every_type_declares_fields_and_languages():
     # 13 od 16.11.2026: aneks z własną nazwą (annex_custom); 14 od 19.11.2026:
-    # umowa przedwstępna na współpracę B2B (preliminary_b2b).
-    assert len(TYPES) == 14
+    # umowa przedwstępna na współpracę B2B (preliminary_b2b); 16 od 25.11.2026:
+    # warianty z działalnością (preliminary_cez_jdg, preliminary_b2b_jdg).
+    assert len(TYPES) == 16
     for doc_type in TYPES.values():
         assert doc_type.languages
         assert any(f.key == "document_date" for f in doc_type.fields)
@@ -833,6 +834,7 @@ async def test_preliminary_options_follow_the_client(
         "preliminary_participation_jdg",
         "preliminary_participation_person",
         "preliminary_b2b",
+        "preliminary_b2b_jdg",
     ]
     by_key = {t["key"]: t for t in body["types"]}
     assert by_key["preliminary_b2b"]["default_validity_days"] == 14
@@ -844,7 +846,10 @@ async def test_preliminary_options_follow_the_client(
         f"{BASE}/documents/preliminary-options", headers=app_auth_headers, params=params
     )
     assert cez.status_code == 200, cez.text
-    assert [t["key"] for t in cez.json()["types"]] == ["preliminary_cez"]
+    assert [t["key"] for t in cez.json()["types"]] == [
+        "preliminary_cez",
+        "preliminary_cez_jdg",
+    ]
     assert cez.json()["b2b_term_business_days"] == 5
 
     _, other_cand, _ = await _seed_recruitment()

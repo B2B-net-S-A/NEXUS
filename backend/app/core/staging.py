@@ -55,6 +55,12 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         # na stagingu, pusta kolejka nic nie robi; bez pętli nie da się
         # przeklikać funkcji przed PR-em (wołania AI przepuszcza zapora).
         "duty_search",
+        # Historia stawek z faktur KSeF (0782): sama baza, bez wołań na zewnątrz;
+        # na stagingu pokazuje karty i wpisy automatyczne do przeklikania.
+        "contract_rate_history",
+        # Kontrola miesiąca (0784): przebieg na bazie; maile idą przez SMTP
+        # stagingu do Mailpitu, więc nic nie wychodzi na zewnątrz.
+        "month_check",
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",
@@ -158,6 +164,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "own_hiring",
         "job_p0_overdue",
         "skill_proposals",
+        # F55: model dla ~1000 pytań na noc — drugi koszt, wynik jest na produkcji.
+        "interview_answer_proposals",
         "cpro_mail",
         "kpi_email_reports",
         "daily_digest_email",

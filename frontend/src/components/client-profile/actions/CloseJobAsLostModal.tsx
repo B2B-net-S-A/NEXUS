@@ -15,6 +15,7 @@ import { useToast } from "@/components/Toast";
 import {
   CloseReasonFields,
   closeReasonReady,
+  lostWhyOf,
   type CloseReasonValue,
 } from "@/components/v2/jobs/CloseReasonFields";
 import { ActiveCardsNotice } from "@/components/v2/jobs/JobCloseWithReasonDialog";
@@ -48,15 +49,19 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
   const { showSuccess, showError } = useToast();
 
   const mutation = useMutation({
-    mutationFn: () =>
-      jobsApi.close(
+    mutationFn: () => {
+      const args = [
         jobId,
         value.reason as JobCloseReason,
         value.notes,
         activeCards != null,
         value.duplicateOfJobId,
         endPeople > 0,
-      ),
+      ] as const;
+      // „Co zdecydowało?” idzie tylko, gdy coś wybrano (25.11.2026).
+      const lostWhy = lostWhyOf(value);
+      return lostWhy ? jobsApi.close(...args, lostWhy) : jobsApi.close(...args);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs", clientId] });

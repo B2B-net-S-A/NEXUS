@@ -25,8 +25,6 @@ odrzucane. PESEL trzymają wyłącznie dane kadrowo-płacowe (K7a, decyzja Artur
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import re
 from datetime import date
 from typing import Any, Optional
@@ -35,7 +33,6 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.scheduling import local_now
 from app.models.hr_profile import EmployeeProfile
@@ -152,21 +149,29 @@ def decrypt_account(details: Optional[EmployeeBillingDetails]) -> Optional[str]:
     return get_token_cipher().decrypt(details.account_encrypted)
 
 
-def account_fingerprint(account: str) -> str:
-    """Skrót HMAC-SHA256 pełnego rachunku (64 znaki hex) — do porównań, nie do odczytu.
+#: Przeznaczenie klucza skrótu rachunku (``TokenCipher.fingerprints``).
+ACCOUNT_FINGERPRINT_PURPOSE = b"nexus-hr-payee-account:"
 
-    Paczka przelewów pamięta go zamiast numeru: 4 ostatnie cyfry nie wykryją
-    podmiany na rachunek z tą samą końcówką. Klucz pochodzi z tego samego
-    sekretu co szyfrowanie rachunku (bez nowej zmiennej), z osobnym
-    przeznaczeniem — skrót nie jest kluczem szyfru. Brak sekretu =
-    ``TokenCipherNotConfigured``, jak przy odszyfrowaniu.
+
+def account_fingerprints(account: str) -> tuple[str, ...]:
+    """Skróty HMAC-SHA256 pełnego rachunku (64 znaki hex), bieżący klucz pierwszy.
+
+    Paczka przelewów pamięta skrót zamiast numeru: 4 ostatnie cyfry nie wykryją
+    podmiany na rachunek z tą samą końcówką. Klucz skrótu pochodzi z sekretu
+    szyfrowania rachunku (bez nowej zmiennej), z osobnym przeznaczeniem — skrót
+    nie jest kluczem szyfru. Porównanie bierze wszystkie: skrót zapisany przed
+    rotacją klucza pasuje do poprzedniego, dopóki ``app.cli.token_cipher_rotate``
+    go nie przeliczy. Brak klucza = ``TokenCipherNotConfigured``, jak przy
+    odszyfrowaniu.
     """
 
-    secret = settings.M365_TOKEN_ENCRYPTION_KEY
-    if not secret:
-        raise TokenCipherNotConfigured("brak klucza szyfrowania rachunków")
-    key = hashlib.sha256(b"nexus-hr-payee-account:" + secret.encode()).digest()
-    return hmac.new(key, account.encode(), hashlib.sha256).hexdigest()
+    return get_token_cipher().fingerprints(ACCOUNT_FINGERPRINT_PURPOSE, account)
+
+
+def account_fingerprint(account: str) -> str:
+    """Skrót do zapisu — bieżącym kluczem (porównanie: ``account_fingerprints``)."""
+
+    return account_fingerprints(account)[0]
 
 
 def _set_account(
@@ -533,8 +538,10 @@ async def assign_nip(
 
 
 __all__ = [
+    "ACCOUNT_FINGERPRINT_PURPOSE",
     "BillingError",
     "account_fingerprint",
+    "account_fingerprints",
     "assign_nip",
     "can_edit",
     "can_view",

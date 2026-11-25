@@ -19,6 +19,7 @@ import pytest
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today, local_now
+from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client_settlement import (
     ClientContractorInvoice,
@@ -82,6 +83,24 @@ async def _person(
         await db.commit()
         candidate_id = cand.id
     return await _contract(client_id, candidate_id), candidate_id
+
+
+async def _generated(contract_id: int, nip: str, partner: str) -> None:
+    """Umowa z generatora B2B z ``partner_nip`` (jedyne źródło NIP-u osoby)."""
+
+    seq = random.randint(10_000_000, 99_999_999)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            B2BGeneratedContract(
+                year=2031,
+                seq=seq,
+                contract_number=f"{seq}/2031",
+                partner_name=partner,
+                partner_nip=nip,
+                contract_id=contract_id,
+            )
+        )
+        await db.commit()
 
 
 async def _settlement(client_id: int, contract_id: int, month: str, cost: str) -> None:
@@ -148,6 +167,11 @@ async def _cleanup(client_id: int, candidate_ids: list[int]) -> None:
         )
         await db.execute(
             delete(ClientSettlement).where(ClientSettlement.client_id == client_id)
+        )
+        await db.execute(
+            delete(B2BGeneratedContract).where(
+                B2BGeneratedContract.contract_id.in_(contracts)
+            )
         )
         await db.execute(
             delete(ClientSettlementRuleSet).where(
@@ -358,6 +382,7 @@ async def test_pobieranie_zapisuje_kontraktora_zamiast_kosztu() -> None:
                 db=db,
                 contractors=await ci.load_index(db, business_today()),
                 counts=Counter(),
+                now=local_now(),
             )
             assert await sync._store_contractor(run, item, item["ksefNumber"]) is True
             assert run.counts["contractors"] == 1
@@ -507,3 +532,167 @@ async def test_korekty_z_ksef_ostrzezenia_na_karcie_osoby(monkeypatch) -> None:
     finally:
         white_list.reset_memory()
         await _cleanup(client_id, [candidate_id])
+
+
+# ── NIP z umowy B2B bez osoby w nazwie sprzedawcy (audyt 25.11.2026) ─────────
+
+
+async def test_nip_z_umowy_wiaze_gdy_sprzedawca_nazywa_osobe() -> None:
+    client_id = await _client()
+    month, _, issue = _months()
+    first, last = f"Ola{_tag()}", f"Umowna{_tag()}"
+    contract_id, candidate_id = await _person(client_id, first=first, last=last)
+    nip = _nip()
+    try:
+        await _generated(contract_id, nip, f"{first} {last}")
+        item = _item(nip, f"{last.upper()} {first.upper()} CONSULTING", "700.00", issue)
+        assert await _consider(item) == ci.KNOWN
+        assert (await _invoice(item["ksefNumber"])).contract_id == contract_id
+    finally:
+        await _cleanup(client_id, [candidate_id])
+
+
+async def test_nip_z_umowy_inkubatora_czeka_na_finanse_a_odrzucony_nie_wraca() -> None:
+    client_id = await _client()
+    month, _, issue = _months()
+    first, last = f"Kuba{_tag()}", f"Inkubowany{_tag()}"
+    contract_id, candidate_id = await _person(client_id, first=first, last=last)
+    nip = _nip()
+    try:
+        await _generated(contract_id, nip, "Fundacja Przykładowy Inkubator")
+        await _settlement(client_id, contract_id, month, "9000.00")
+        seller = "FUNDACJA PRZYKŁADOWY INKUBATOR"
+        # Kwota równa rozliczeniu co do grosza wiąże mimo nazwy fundacji.
+        equal = _item(nip, seller, "9000.00", issue)
+        assert await _consider(equal) == ci.KNOWN
+        assert (await _invoice(equal["ksefNumber"])).contract_id == contract_id
+        # Inna kwota (faktura innego członka inkubatora) — podpowiedź, nie wiązanie.
+        other = _item(nip, seller, "4321.00", issue)
+        assert await _consider(other) == ci.SUGGESTED
+        saved = await _invoice(other["ksefNumber"])
+        assert saved.contract_id == contract_id
+        async with AsyncSessionLocal() as db:
+            await ci.reject_nip(db, saved.id, ACTOR, local_now())
+            await db.commit()
+        # Po odrzuceniu kolejne faktury inkubatora z inną kwotą nie wracają.
+        later = _item(nip, seller, "1234.00", issue)
+        assert await _consider(later) is None
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Candidate, candidate_id)).nip is None
+    finally:
+        await _cleanup(client_id, [candidate_id])
+
+
+async def test_nip_z_umowy_zatwierdzony_wiaze_kolejne_bez_osoby_w_nazwie() -> None:
+    client_id = await _client()
+    month, _, issue = _months()
+    first, last = f"Ewa{_tag()}", f"Spolkowa{_tag()}"
+    contract_id, candidate_id = await _person(client_id, first=first, last=last)
+    nip = _nip()
+    try:
+        await _generated(contract_id, nip, f"{first} {last}")
+        item = _item(nip, "Przykładowa Spółka z o.o.", "5000.00", issue)
+        assert await _consider(item) == ci.SUGGESTED
+        saved = await _invoice(item["ksefNumber"])
+        async with AsyncSessionLocal() as db:
+            await ci.approve_nip(db, saved.id, ACTOR, local_now())
+            await db.commit()
+        later = _item(
+            nip, "Przykładowa Spółka z o.o.", "5100.00", issue + timedelta(days=30)
+        )
+        assert await _consider(later) == ci.KNOWN
+    finally:
+        await _cleanup(client_id, [candidate_id])
+
+
+async def test_faktura_z_nazwiskiem_innej_osoby_nie_wiaze_sie_po_nipie() -> None:
+    client_id = await _client()
+    month, _, issue = _months()
+    owner_first, owner_last = f"Adam{_tag()}", f"Zumowy{_tag()}"
+    other_first, other_last = f"Igor{_tag()}", f"Wystawca{_tag()}"
+    contract_id, owner_id = await _person(client_id, first=owner_first, last=owner_last)
+    other_contract, other_id = await _person(
+        client_id, first=other_first, last=other_last
+    )
+    nip = _nip()
+    try:
+        await _generated(contract_id, nip, f"{owner_first} {owner_last}")
+        await _settlement(client_id, contract_id, month, "6000.00")
+        item = _item(nip, f"{other_first} {other_last}", "6000.00", issue)
+        # Nawet równa kwota nie wiąże z właścicielem NIP-u z umowy: wystawia
+        # inna osoba z kontraktem, więc idzie podpowiedź dla niej.
+        assert await _consider(item) == ci.SUGGESTED
+        assert (await _invoice(item["ksefNumber"])).contract_id == other_contract
+    finally:
+        await _cleanup(client_id, [owner_id, other_id])
+
+
+async def test_nip_osoby_zatwierdzony_wygrywa_z_nazwa_innej_firmy() -> None:
+    person = ci.Contractor(1, 10, frozenset({"ewa", "nowak"}), "9980000001")
+    index = ci.ContractorIndex(by_nip={"9980000001": [person]}, named=[person])
+    assert ci.by_seller_nip(index, "9980000001", "Spółka Przykład") == (
+        [person],
+        ci.KNOWN,
+    )
+
+
+async def test_nip_z_umowy_bez_osoby_w_nazwie_wymaga_kwoty() -> None:
+    person = ci.Contractor(
+        1, 10, frozenset({"ewa", "nowak"}), "9980000001", from_contract=True
+    )
+    index = ci.ContractorIndex(by_nip={"9980000001": [person]}, named=[person])
+    assert ci.by_seller_nip(index, "9980000001", "Fundacja Przykład") == (
+        [person],
+        ci.AMOUNT,
+    )
+    assert ci.by_seller_nip(index, "9980000001", "NOWAK EWA IT") == ([person], ci.KNOWN)
+    index.rejected = {("9980000001", 1)}
+    assert ci.by_seller_nip(index, "9980000001", "Fundacja Przykład") == ([], ci.AMOUNT)
+
+
+async def test_nazwa_innej_osoby_odbiera_nip_rozstrzygniecie() -> None:
+    owner = ci.Contractor(1, 10, frozenset({"ewa", "nowak"}), "9980000001")
+    other = ci.Contractor(2, 20, frozenset({"jan", "kowal"}), None)
+    index = ci.ContractorIndex(
+        by_nip={"9980000001": [owner]}, without_nip=[other], named=[owner, other]
+    )
+    assert ci.by_seller_nip(index, "9980000001", "Jan Kowal Usługi") == ([], ci.KNOWN)
+    # Ta sama osoba na drugim kontrakcie to nie „ktoś inny”.
+    twin = ci.Contractor(3, 10, frozenset({"ewa", "nowak"}), None)
+    index.named.append(twin)
+    assert ci.by_seller_nip(index, "9980000001", "Ewa Nowak") == ([owner], ci.KNOWN)
+
+
+async def test_lista_umow_b2b_z_nipem_innej_firmy() -> None:
+    from app.services.client_settlements import contract_nip_review
+
+    client_id = await _client()
+    _, _, issue = _months()
+    ok_first, ok_last = f"Ula{_tag()}", f"Poprawna{_tag()}"
+    in_first, in_last = f"Tom{_tag()}", f"Inkubowany{_tag()}"
+    pa_first, pa_last = f"Rafal{_tag()}", f"Zamieniony{_tag()}"
+    ok_id, ok_cand = await _person(client_id, first=ok_first, last=ok_last)
+    in_id, in_cand = await _person(client_id, first=in_first, last=in_last)
+    pa_id, pa_cand = await _person(client_id, first=pa_first, last=pa_last)
+    ok_nip, in_nip, pa_nip = _nip(), _nip(), _nip()
+    try:
+        await _generated(ok_id, ok_nip, f"{ok_first} {ok_last}")
+        await _generated(in_id, in_nip, f"{in_first} {in_last}")
+        await _generated(pa_id, pa_nip, f"Inna{_tag()} Osoba{_tag()}")
+        assert await _consider(
+            _item(ok_nip, f"{ok_first} {ok_last} IT", "10.00", issue)
+        )
+        assert await _consider(_item(in_nip, "FUNDACJA PRZYKŁAD", "11.00", issue))
+        async with AsyncSessionLocal() as db:
+            result = await contract_nip_review.review(db, business_today())
+        listed = {item["contract_id"]: item for item in result["items"]}
+        assert ok_id not in listed
+        assert [r["key"] for r in listed[in_id]["reasons"]] == ["seller_without_person"]
+        assert listed[in_id]["sellers"] == [
+            {"name": "FUNDACJA PRZYKŁAD", "invoices": 1}
+        ]
+        # Partner z generatora to inna osoba — na liście jeszcze przed fakturą.
+        assert [r["key"] for r in listed[pa_id]["reasons"]] == ["partner_other_person"]
+        assert listed[pa_id]["invoices"] == 0
+    finally:
+        await _cleanup(client_id, [ok_cand, in_cand, pa_cand])

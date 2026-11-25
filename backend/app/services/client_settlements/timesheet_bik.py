@@ -27,6 +27,11 @@ liczymy, bo liczy je wzór sumy w Excelu (wrzesień 2026: rozliczenia widziały
 Pusty szablon (np. wzór odesłany w wątku maila) daje odczyt bez godzin. Plik
 spoza tych układów daje ``None``: wtedy MD wpisują Finanse. Raport za inny
 miesiąc to kontrola ``proof.month`` bez MD.
+
+Wiersze z datami z szablonu innego miesiąca albo roku przy polu „Miesiąc” równym
+rozliczanemu to od 25.11.2026 informacja, nie uwaga, gdy dni z godzinami są dniami
+roboczymi rozliczanego miesiąca, a nie miesiąca z dat (``template_dates_month``,
+decyzja Artura). Bez takiego dowodu zostaje uwaga „Wiersze z datą spoza miesiąca”.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements import xlsx
+from app.services.client_settlements import template_month, xlsx
 from app.services.client_settlements.declared import (
     DOCX,
     MAX_LINE,
@@ -50,6 +55,7 @@ from app.services.client_settlements.declared import (
 )
 from app.services.client_settlements.mail_text import month_label
 from app.services.client_settlements.rcp_checks import (
+    NOTE_ROW_DATES,
     ProofResult,
     _fmt,
     _Group,
@@ -502,6 +508,27 @@ def is_blank(content: bytes, mime: str) -> bool:
     )
 
 
+def template_dates_month(parsed: ParsedBik, month: str) -> Optional[str]:
+    """Miesiąc z dat wierszy, gdy daty zostały z szablonu (BIK, próba VII 2026:
+    daty z lipca 2025 w raporcie za lipiec 2026, MD równe fakturze): pole „Miesiąc”
+    to rozliczany miesiąc, wszystkie wiersze mają daty z jednego innego miesiąca,
+    a dni z godzinami to dni robocze rozliczanego miesiąca, nie tamtego. ``None``
+    = brak dowodu (wiersz bez daty, daty z dwóch miesięcy, inne pole „Miesiąc”,
+    dni pasujące do obu kalendarzy)."""
+
+    if parsed.month != month or not parsed.entries:
+        return None
+    days = [entry.day for entry in parsed.entries]
+    if any(day is None for day in days):
+        return None
+    months = {f"{day.year}-{day.month:02d}" for day in days if day is not None}
+    if len(months) != 1 or months == {month}:
+        return None
+    (template,) = months
+    worked = (day.day for day in days if day is not None)
+    return template if template_month.days_fit(worked, month, template) else None
+
+
 def evaluate(
     parsed: ParsedBik,
     *,
@@ -553,7 +580,16 @@ def evaluate(
         for e in parsed.entries
         if e.day is not None and f"{e.day.year}-{e.day.month:02d}" != month
     ]
-    if outside:
+    template = template_dates_month(parsed, month) if outside else None
+    if template is not None:
+        sheet.note(
+            f"Wiersze z datą spoza miesiąca: {len(outside)}",
+            f"Daty z szablonu: {month_label(template)}. Pole „Miesiąc” i dni "
+            f"z godzinami wskazują {month_label(month)}: liczymy jako rozliczany "
+            f"miesiąc ({_fmt(hours)} h).",
+            code=NOTE_ROW_DATES,
+        )
+    elif outside:
         sheet.warn(
             f"Wiersze z datą spoza miesiąca: {len(outside)}",
             f"Razem {_fmt(sum((e.hours for e in outside), Decimal('0')))} h, "

@@ -1,7 +1,9 @@
 /**
- * Rama strony kariery w układzie nowej strony B2B Network: czerwony nagłówek
- * z nawigacją głównej strony (b2bnetwork.pl) i grafitowa stopka z danymi
- * rejestrowymi. Kariera żyje w NEXUSIE pod kariera.b2bnetwork.pl, a reszta
+ * Rama strony kariery w układzie nowej strony B2B Network: nagłówek
+ * w gradiencie wariantu 5 z nawigacją głównej strony (b2bnetwork.pl) i stopka
+ * w burgund-obsydianie z danymi spółki, jak na stronie głównej (25.11.2026,
+ * źródło: `SiteHeader.tsx`, `SiteFooter.tsx` i `content/site/shared.ts` repo
+ * b2bnetwork-www). Kariera żyje w NEXUSIE pod kariera.b2bnetwork.pl, a reszta
  * nawigacji prowadzi na stronę firmy.
  */
 import type { ReactNode } from "react";
@@ -17,10 +19,7 @@ export const COMPANY_SITE = "https://b2bnetwork.pl";
 
 const site = (path: string) => `${COMPANY_SITE}${path}`;
 
-const TOP_LINKS = [
-  { label: "O firmie", href: site("/grupa") },
-  { label: "Kontakt", href: site("/kontakt") },
-];
+const TOP_LINKS = [{ label: "O firmie", href: site("/grupa") }];
 
 const NAV_LINKS = [
   { label: "Kogo dostarczamy", href: site("/#kompetencje") },
@@ -28,9 +27,42 @@ const NAV_LINKS = [
   { label: "Proces", href: site("/#proces") },
   { label: "Realizacje", href: site("/#realizacje") },
   { label: "Dla specjalistów", href: site("/dla-specjalistow") },
+  { label: "R&D", href: site("/rd/dynaminds-labs") },
+  { label: "Kontakt", href: site("/kontakt") },
 ];
 
-const CLIENT_CTA = { label: "Opisz, kogo potrzebujesz", href: site("/#kontakt") };
+/** Ten sam przycisk co w nagłówku strony głównej; na wąskich telefonach krótka etykieta. */
+const CLIENT_CTA = { label: "Porozmawiajmy o projekcie", short: "Porozmawiajmy", href: site("/#kontakt") };
+
+/** Stopka strony głównej: dwie kolumny czytane wierszami, Kariera prowadzi tutaj. */
+const FOOTER_LINKS = [
+  { label: "B2B Network", href: COMPANY_SITE },
+  { label: "Kariera", href: null },
+  { label: "DYNAMINDS Labs", href: site("/rd/dynaminds-labs") },
+  { label: "Kontakt", href: site("/kontakt") },
+  { label: "O firmie", href: site("/grupa") },
+  { label: "Szkolenia", href: site("/szkolenia") },
+  { label: "Blog", href: site("/blog") },
+];
+
+const LEGAL_LINKS = [
+  { label: "Polityka prywatności", href: site("/polityka-prywatnosci") },
+  { label: "Cookies", href: site("/cookies") },
+  { label: "Ochrona sygnalistów", href: site("/ochrona-sygnalistow") },
+  { label: "Spółka akcyjna", href: site("/spolka-akcyjna") },
+];
+
+const PHONE = { label: "+48 577 317 312", href: "tel:+48577317312" };
+const LINKEDIN = "https://www.linkedin.com/company/b2bnetwork/";
+
+/** Znak wyjścia na inną stronę (jak w stopce strony głównej). */
+function OutMark() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" className={s.out}>
+      <path d="M1 12 11.5 1.5M4 1.5h7.5V9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
 
 /** Znacznik rozdziału na lewym marginesie (od 1280 px, jak na planszach). */
 export function ChapterMark({ index, count, name }: { index: number; count: number; name: string }) {
@@ -112,7 +144,7 @@ export function SiteFrame({
     <div className={s.site} lang="pl">
       <header className={s.header}>
         <nav className={`${s.wrap} ${s.top}`} aria-label="Strona firmy">
-          {TOP_LINKS.slice(0, 1).map((l) => (
+          {TOP_LINKS.map((l) => (
             <a key={l.href} href={l.href}>
               {l.label}
             </a>
@@ -124,11 +156,6 @@ export function SiteFrame({
           ) : (
             <span className={s.navCur}>Kariera</span>
           )}
-          {TOP_LINKS.slice(1).map((l) => (
-            <a key={l.href} href={l.href}>
-              {l.label}
-            </a>
-          ))}
         </nav>
         <div className={`${s.wrap} ${s.headerInner}`}>
           <a href={COMPANY_SITE} className={s.logo} aria-label="B2Bnetwork — strona główna firmy">
@@ -142,7 +169,8 @@ export function SiteFrame({
             ))}
           </nav>
           <a href={CLIENT_CTA.href} className={s.headerCta}>
-            {CLIENT_CTA.label}
+            <span className={s.ctaShort}>{CLIENT_CTA.short}</span>
+            <span className={s.ctaLong}>{CLIENT_CTA.label}</span>
           </a>
           <details className={s.menu}>
             <summary aria-label="Menu">
@@ -165,28 +193,57 @@ export function SiteFrame({
       <div className={s.main}>{children}</div>
 
       <footer className={s.footer}>
-        <div className={`${s.wrap} ${s.footerGrid}`}>
-          <div>
-            <div className={s.footerBrand}>
-              <B2BLogo variant="onDark" height={34} />
-              <b>B2B.NET S.A.</b>
+        <div className={s.wrap}>
+          <div className={s.footerGrid}>
+            <div className={s.footerInfo}>
+              <div className={s.footerBrand}>
+                <B2BLogo variant="white" height={34} />
+                <b>B2B.net S.A.</b>
+              </div>
+              <p>Kopernik Office Buildings, wejście A, Al. Jerozolimskie 180, 02-486 Warszawa</p>
+              <p>
+                KRS 0000387063 · NIP 5711707392 · REGON 280613330
+                <br />
+                kapitał zakładowy 1 360 000 zł, wpłacony w całości
+              </p>
+              <p className={s.footerContact}>
+                <a href={PHONE.href}>
+                  <span className={s.srOnly}>Telefon </span>
+                  {PHONE.label}
+                </a>
+                <a href={LINKEDIN}>
+                  LinkedIn
+                  <OutMark />
+                </a>
+              </p>
             </div>
-            <p>Al. Jerozolimskie 180, 02-486 Warszawa</p>
-            <p>
-              KRS 0000387063 · NIP 5711707392 · Sąd Rejonowy dla m.st. Warszawy, XII Wydział
-              Gospodarczy KRS · kapitał zakładowy 1 360 000 zł, wpłacony w całości
-            </p>
-          </div>
-          <div className={s.footerRight}>
             <nav className={s.footerNav} aria-label="Stopka">
-              <a href={COMPANY_SITE}>B2Bnetwork</a>
-              {homeHref ? <a href={homeHref}>Kariera</a> : null}
-              <a href={site("/kontakt")}>Kontakt</a>
-              <a href={site("/grupa")}>O firmie</a>
-              {rodoHref ? <a href={rodoHref}>Klauzula RODO dla kandydatów</a> : null}
+              {FOOTER_LINKS.map((l) =>
+                l.href ? (
+                  <a key={l.label} href={l.href}>
+                    {l.label}
+                  </a>
+                ) : homeHref ? (
+                  <a key={l.label} href={homeHref}>
+                    {l.label}
+                  </a>
+                ) : null,
+              )}
             </nav>
-            {pageLabel ? <p className={s.mono}>{pageLabel}</p> : null}
-            <p>© {new Date().getFullYear()} B2B.NET S.A.</p>
+          </div>
+          <div className={s.footerBottom}>
+            <p>
+              © {new Date().getFullYear()} B2B.net S.A.
+              {pageLabel ? <span className={s.mono}> · {pageLabel}</span> : null}
+            </p>
+            <nav className={s.footerLegal} aria-label="Informacje prawne">
+              {rodoHref ? <a href={rodoHref}>Klauzula RODO dla kandydatów</a> : null}
+              {LEGAL_LINKS.map((l) => (
+                <a key={l.href} href={l.href}>
+                  {l.label}
+                </a>
+              ))}
+            </nav>
           </div>
         </div>
       </footer>

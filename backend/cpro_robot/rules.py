@@ -275,6 +275,18 @@ def cv_label_matches(label: str, file_name: str) -> bool:
     return norm(re.sub(r"\.pdf$", "", label.strip(), flags=re.IGNORECASE)) == norm(base)
 
 
+def cv_link_matches(text: str, file_name: str) -> bool:
+    """Link do CV w widoku szkicu: nazwa pliku, także w dłuższym podpisie
+    i z podkreśleniami zamiast spacji."""
+
+    def flat(value: str) -> str:
+        value = re.sub(r"\.pdf\b", "", value or "", flags=re.IGNORECASE)
+        return norm(re.sub(r"[_\-]+", " ", value))
+
+    base = flat(file_name)
+    return bool(base) and (cv_label_matches(text, file_name) or base in flat(text))
+
+
 def former_from_cv_text(text: str) -> Optional[tuple[bool, bool]]:
     """``(consultant, employee)`` z treści CV, gdy karta nie rozstrzyga.
 
@@ -307,3 +319,24 @@ def saved_values_visible(view_text: str, rate: object, available_from: str) -> b
     """Widok zapisanej oferty pokazuje stawkę i datę ze zlecenia."""
 
     return rate_label(rate) in (view_text or "") and available_from in (view_text or "")
+
+
+def save_draft_button(buttons: list[dict[str, str]]) -> Optional[int]:
+    """Indeks przycisku „Save as draft” wśród przycisków strony oferty.
+
+    Najpierw nazwa ``BUT_SaveAsDraft`` (button albo input), potem sam napis.
+    Nic, co ma w nazwie albo napisie „submit”, bo to wysyłka do klienta.
+    """
+
+    def safe(b: dict[str, str]) -> bool:
+        return "submit" not in norm(b.get("name")) and "submit" not in norm(
+            b.get("label")
+        )
+
+    for i, b in enumerate(buttons):
+        if b.get("name") == "BUT_SaveAsDraft":
+            return i
+    for i, b in enumerate(buttons):
+        if norm(b.get("label")) == "save as draft" and safe(b):
+            return i
+    return None

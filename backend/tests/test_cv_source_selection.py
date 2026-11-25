@@ -3,7 +3,18 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from app.services import cv_source
 from app.services.cv_generator_b2b import standalone_service as svc
+
+
+@pytest.fixture(autouse=True)
+def _no_quarantined_copies(monkeypatch):
+    """Bramka bieżącego CV szuka kopii plików z kwarantanny osobnym zapytaniem."""
+
+    async def none(_db, _candidate_id):
+        return frozenset()
+
+    monkeypatch.setattr(cv_source, "quarantined_copy_document_ids", none)
 
 
 async def test_unavailable_explicit_file_never_falls_back_to_another_cv():

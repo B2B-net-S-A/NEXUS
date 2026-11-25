@@ -50,6 +50,20 @@ async function loadOptions(candidateId: number, jobId: number): Promise<string[]
   }
 }
 
+/**
+ * Podpowiedź nad formularzem. Zdanie o PESEL-u, dowodzie i adresie tylko przy
+ * wzorze z takimi polami (kandydat z działalnością podaje dane z CEIDG). Forma
+ * podpisu jak w § formy zawarcia wzorów od 24.11.2026: dokumentowa albo
+ * kwalifikowany podpis, bez profilu zaufanego i podpisu osobistego.
+ */
+export function issueNotice(type: { fields: { sensitive: boolean }[] }): string {
+  const signing =
+    "Kandydat podpisuje w formie dokumentowej (np. skan podpisanej umowy) albo " +
+    "kwalifikowanym podpisem elektronicznym — profil zaufany i podpis osobisty wzór wyłącza.";
+  if (!type.fields.some((f) => f.sensitive)) return signing;
+  return `Dane wrażliwe (PESEL, dowód, adres) trafiają tylko do pliku — NEXUS ich nie zapisuje. ${signing}`;
+}
+
 export function PreContractIssueDialog({
   open,
   onOpenChange,
@@ -201,11 +215,7 @@ export function PreContractIssueDialog({
           ) : (
             <p className="text-sm font-medium">{type.label}</p>
           )}
-          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-            Dane wrażliwe (PESEL, dowód, adres) trafiają tylko do pliku — NEXUS ich nie zapisuje.
-            Kandydat może podpisać, jak mu wygodnie: profilem zaufanym, podpisem osobistym,
-            kwalifikowanym albo odręcznie (skan).
-          </p>
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">{issueNotice(type)}</p>
           <DocumentFieldsForm type={type} values={values} onChange={onChange} errorKeys={errors} idPrefix="pre-contract" />
         </div>
       )}

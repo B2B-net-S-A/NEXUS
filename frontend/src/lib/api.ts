@@ -1252,34 +1252,6 @@ export interface CandidateNotesFacts {
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
-export interface ImportTaskStatus {
-  task_id: string;
-  kind: string;
-  status: "queued" | "running" | "done" | "error";
-  started_at: string;
-  finished_at: string | null;
-  progress: {
-    candidates?: {
-      processed: number;
-      inserted: number;
-      updated: number;
-      skipped: number;
-      errors: number;
-      total: number;
-      error_samples: string[];
-    };
-    embeddings?: {
-      processed: number;
-      copied: number;
-      missing_source: number;
-      errors: number;
-      total: number;
-      error_samples: string[];
-    };
-  };
-  error: string | null;
-}
-
 export const adminApi = {
   listUsers: () => api.get("/api/admin/users"),
   /** Admin „podgląd jako użytkownik": rozpoczyna sesję podglądu wskazanego
@@ -1296,15 +1268,6 @@ export const adminApi = {
   sendResetLink: (id: number) =>
     api.post(`/api/admin/users/${id}/send-reset-link`),
   systemStats: () => api.get("/api/admin/system"),
-  // Phase 7a: talent-radar import
-  startTalentRadarImport: (data: {
-    dry_run?: boolean;
-    batch_size?: number;
-    copy_embeddings?: boolean;
-  }) => api.post<ImportTaskStatus>("/api/admin/import-talent-radar", data),
-  getTalentRadarImportStatus: (taskId: string) =>
-    api.get<ImportTaskStatus>(`/api/admin/import-talent-radar/${taskId}`),
-  listImportTasks: () => api.get<ImportTaskStatus[]>("/api/admin/import-tasks"),
   /** Uprawnienia ról: dziewięć przełączników + liczba osób z każdą rolą. */
   getSectionPermissions: () =>
     api.get<AdminPermissionsSnapshot>("/api/admin/section-permissions"),
@@ -1830,6 +1793,22 @@ export interface JobReadinessBlockerItem {
   message: string;
 }
 
+/** „Co zdecydowało?” z okna zamknięcia — lustro `lost_review.WHY` (25.11.2026). */
+export interface LostWhyPayload {
+  why: string[];
+  source: string | null;
+}
+
+/** Pola idą tylko przy przegranej i tylko gdy coś wybrano — puste okno niczego nie nadpisuje. */
+function lostWhyBody(
+  reason: string,
+  lostWhy: LostWhyPayload | null,
+): { lost_why?: string[]; lost_why_source?: string | null } {
+  if (reason !== "competitor" || !lostWhy) return {};
+  if (lostWhy.why.length === 0 && !lostWhy.source) return {};
+  return { lost_why: lostWhy.why, lost_why_source: lostWhy.source };
+}
+
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
   /**
@@ -1874,6 +1853,8 @@ export const jobsApi = {
     duplicateOfJobId: number | null = null,
     /** Zakończ pary u klienta „przez klienta” (competitor, budget; 08.11.2026). */
     endClientCards = false,
+    /** „Co zdecydowało?” przy przegranej (Insights → Przegrane, 25.11.2026). */
+    lostWhy: LostWhyPayload | null = null,
   ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
@@ -1881,6 +1862,7 @@ export const jobsApi = {
       ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
       ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
       ...(endClientCards ? { end_client_cards: true } : {}),
+      ...lostWhyBody(reason, lostWhy),
     }),
   /**
    * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama
@@ -1888,12 +1870,18 @@ export const jobsApi = {
    */
   changeCloseReason: (
     id: number,
-    body: { reason: string; notes?: string | null; duplicateOfJobId?: number | null },
+    body: {
+      reason: string;
+      notes?: string | null;
+      duplicateOfJobId?: number | null;
+      lostWhy?: LostWhyPayload | null;
+    },
   ) =>
     api.patch(`/api/jobs/${id}/close-reason`, {
       reason: body.reason,
       notes: body.notes?.trim() || null,
       duplicate_of_job_id: body.duplicateOfJobId ?? null,
+      ...lostWhyBody(body.reason, body.lostWhy ?? null),
     }),
   /**
    * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary

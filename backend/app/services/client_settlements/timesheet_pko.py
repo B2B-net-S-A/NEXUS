@@ -23,6 +23,11 @@ bank za październik; próba IX–X 2026). Gdy nagłówek nie pasuje, a nazwa pl
 „TimeSheet RRMM” wskazuje rozliczany miesiąc, liczymy go za ten miesiąc.
 Nie dotyczy nowszego szablonu: tam miesiąc wynika z dat dni.
 
+Od 25.11.2026 (decyzja Artura) nagłówek z innego miesiąca nie blokuje też wtedy,
+gdy miesiąc z nazwy pliku albo tematu maila to rozliczany miesiąc, a godziny
+pasują do niego, nie do miesiąca z nagłówka (``template_month_fixed``). Oba
+przypadki to informacja na karcie i komunikat dla konsultanta, bez uwagi.
+
 Plik spoza szablonu daje ``None``: dalej próbujemy innych odczytów.
 """
 
@@ -36,12 +41,13 @@ from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements import xlsx
+from app.services.client_settlements import template_month, xlsx
 from app.services.client_settlements.mail_text import (
     MONTHS_NOMINATIVE,
     month_label,
 )
 from app.services.client_settlements.rcp_checks import (
+    NOTE_TEMPLATE_MONTH,
     ProofResult,
     _fmt,
     _Group,
@@ -371,15 +377,42 @@ def file_month(file_name: Optional[str]) -> Optional[str]:
     return f"20{match.group(1)}-{match.group(2)}" if match else None
 
 
+def template_month_fixed(
+    parsed: ParsedPko, month: str, named_month: Optional[str], per_md: Decimal
+) -> bool:
+    """Nagłówek z szablonu innego miesiąca (PKO, próba VIII 2026: „lipiec 2026”
+    w Time Sheet za sierpień, MD równe fakturze), gdy nazwa pliku albo temat maila
+    (``named_month``) wskazują rozliczany miesiąc, a godziny pasują do niego, nie
+    do miesiąca z nagłówka. Nowszy szablon: dni z godzinami
+    (``template_month.days_fit``). Starszy, bez kolumn dni: godziny to pełny
+    rozliczany miesiąc, a nie pełny miesiąc z nagłówka (``full_month``)."""
+
+    if parsed.month is None or parsed.month == month or named_month != month:
+        return False
+    if not parsed.entries:
+        return False
+    if parsed.month_from_dates:
+        days = parsed.day_totals()
+        return template_month.days_fit((d.day for d in days), month, parsed.month)
+    return template_month.full_month(parsed.total_hours, per_md, month, parsed.month)
+
+
 def sheet_month(
-    parsed: ParsedPko, month: str, file_name: Optional[str] = None
+    parsed: ParsedPko,
+    month: str,
+    file_name: Optional[str] = None,
+    named_month: Optional[str] = None,
+    per_md: Decimal = Decimal("8"),
 ) -> Optional[str]:
     """Miesiąc Time Sheet: z nagłówka, a przy nagłówku z innego miesiąca
-    rozliczany miesiąc, gdy wskazuje go nazwa pliku (starszy szablon)."""
+    rozliczany miesiąc, gdy wskazuje go nazwa pliku (starszy szablon) albo nazwa
+    pliku lub temat maila razem z układem godzin (``template_month_fixed``)."""
 
     if parsed.month == month:
         return month
     if not parsed.month_from_dates and file_month(file_name) == month:
+        return month
+    if template_month_fixed(parsed, month, named_month, per_md):
         return month
     return parsed.month
 
@@ -393,10 +426,13 @@ def evaluate(
     working_days: int,
     other_md: Decimal = Decimal("0"),
     file_name: Optional[str] = None,
+    named_month: Optional[str] = None,
 ) -> ProofResult:
     """Kontrole Time Sheet z katalogu reguł; MD = godziny / ``fields.md_hours``.
 
-    ``file_name``: nazwa pliku, „TimeSheet RRMM” rozstrzyga nieaktualny nagłówek."""
+    ``file_name``: nazwa pliku, „TimeSheet RRMM” rozstrzyga nieaktualny nagłówek.
+    ``named_month``: miesiąc pliku z nazwy pliku albo tematu maila (okres
+    dokumentu, nie zgadnięty z daty)."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     sheet = _Group(result, rules, GROUP_TITLE)
@@ -416,13 +452,29 @@ def evaluate(
     result.md_regular = md_from_hours(hours, per_md)
     result.md_extra = Decimal("0")
 
+    header = month_label(parsed.month) if parsed.month else "brak miesiąca"
     if parsed.month == month:
         sheet.ok(f"Miesiąc z nagłówka: {month_label(month)}")
-    elif sheet_month(parsed, month, file_name) == month:
-        sheet.ok(
+    elif not parsed.month_from_dates and file_month(file_name) == month:
+        sheet.note(
             f"Miesiąc z nazwy pliku: {month_label(month)}",
-            f"W nagłówku: {month_label(parsed.month) if parsed.month else 'brak miesiąca'} "
-            "(tekst z szablonu poprzedniego miesiąca).",
+            f"W nagłówku: {header}. Tekst z szablonu poprzedniego miesiąca, a nazwa "
+            "pliku „TimeSheet RRMM” wskazuje rozliczany miesiąc.",
+            code=NOTE_TEMPLATE_MONTH,
+        )
+    elif sheet.on("proof.month") and template_month_fixed(
+        parsed, month, named_month, per_md
+    ):
+        hours_fit = (
+            "dni z godzinami"
+            if parsed.month_from_dates
+            else "godziny z pełnego miesiąca"
+        )
+        sheet.note(
+            "Szablon z innym miesiącem w nagłówku",
+            f"W nagłówku: {header}. Nazwa pliku albo temat maila i {hours_fit} "
+            f"wskazują {month_label(month)}: liczymy jako rozliczany miesiąc.",
+            code=NOTE_TEMPLATE_MONTH,
         )
     else:
         sheet.fail(

@@ -54,6 +54,7 @@ from app.services.client_invoicing import (
     period_checks,
     rebate,
     requirements,
+    sale_checks,
 )
 from app.services.client_invoicing import sync as sales_sync
 from app.services.client_invoicing.export import month_label
@@ -1491,12 +1492,17 @@ def collective_refs(
     )
 
 
+#: Najkrótszy powód wysyłki mimo uwag kontroli formalnej.
+CHECKS_REASON_MIN = 5
+
+
 async def prepare_send(
     db: AsyncSession,
     invoice: ClientIssuedInvoice,
     *,
     config: ksef_send.IssueConfig,
     actor_id: int,
+    checks_reason: Optional[str] = None,
 ) -> bytes:
     """Numer z serii (blokada wiersza serii) + XML FA(3); stan ``sending`` (bez commita).
 
@@ -1518,6 +1524,20 @@ async def prepare_send(
     blocking = await problems(db, invoice, settings, config)
     if blocking:
         raise IssueError(" ".join(blocking), 422)
+    # Kontrola formalna (data sprzedaży, kod osoby, MD, osoba bez kontraktu):
+    # ostrzega, więc faktura idzie dalej tylko z powodem, który zostaje w historii.
+    checks = await sale_checks.issued_checks(
+        db, invoice, await invoice_requirements(db, invoice)
+    )
+    reason = " ".join((checks_reason or "").split())[:REASON_MAX]
+    if checks and len(reason) < CHECKS_REASON_MIN:
+        raise IssueError(
+            "Kontrola przed wysyłką ma uwagi: "
+            + " ".join(checks)
+            + " Popraw szkic albo wyślij mimo uwag z powodem."
+        )
+    if checks:
+        _note(invoice, "checks_overridden", actor_id, reason=reason, checks=checks)
     # Stan przed numerem: CHECK bazy nie zna szkicu z numerem.
     invoice.status = "sending"
     await numbering.assign(db, invoice, pattern=settings["series"][invoice.series_code])
@@ -1805,8 +1825,10 @@ async def payload(
     found = await invoice_requirements(db, invoice)
     numbers = order_numbers(invoice)
     _, warnings = requirements.line_problems(found, invoice.lines or [])
+    checks: list[str] = []
     if editable(invoice):
         warnings = warnings + await protocol_warnings(db, invoice, found)
+        checks = await sale_checks.issued_checks(db, invoice, found)
     corrects = (
         await db.get(ClientIssuedInvoice, invoice.corrects_id)
         if invoice.corrects_id
@@ -1846,6 +1868,8 @@ async def payload(
             "sales_invoice_id": invoice.sales_invoice_id,
             "problems": blocking,
             "warnings": warnings if editable(invoice) else [],
+            # Uwagi kontroli formalnej: wysyłka tylko z powodem (``checks_reason``).
+            "checks": checks,
             "order_numbers": numbers,
             "requirements": requirements.summary(found, numbers),
             "mail": found.mail_for(

@@ -406,6 +406,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_partner_read'",
     # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem (F54).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_potential_assessment'",
+    # 0779: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_answer_proposal'",
+    # 0783: Przegrane — wnioski AI ze spotkania z DL (F56).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'lost_review_summary'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -1586,6 +1590,17 @@ try:
 except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
+
+# 0783: moduł „Przegrane” w Insights (`app/services/lost_review_schema.py`).
+try:
+    from app.services import lost_review_schema as _lost_review_schema
+
+    _LOST_REVIEW_TABLE_DDL = list(_lost_review_schema.TABLE_DDL)
+    _LOST_REVIEW_AI_DDL = list(_lost_review_schema.AI_FEATURE_DDL)
+except Exception as _lost_review_schema_err:  # noqa: BLE001
+    print(f"lost review schema unavailable: {_lost_review_schema_err!r}")
+    _LOST_REVIEW_TABLE_DDL = []
+    _LOST_REVIEW_AI_DDL = []
 
 # 0710: limit z umowy ramowej — dopłaty i kategoria na kontrakcie
 # (`app/services/framework_rate_schema.py`).
@@ -5285,7 +5300,8 @@ _COLUMN_STATEMENTS = [
             'contract_ending', 'cost_budget_low', 'new_contractor_draft',
             'md_base_usage_high', 'candidate_conflict_expired',
             'invoice_without_order_line', 'framework_over_limit',
-            'settlement_over_order', 'settlement_rate_mismatch')),
+            'settlement_over_order', 'settlement_rate_mismatch',
+            'month_check_data')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -6461,6 +6477,10 @@ _COLUMN_STATEMENTS = [
     # 0772: dosłowna treść zgody ze strony WWW (dowód zgody, RODO art. 7 ust. 1).
     # Lustro 1:1 z migracją — pilnuje `test_public_website_applications.py`.
     "ALTER TABLE candidate_consents ADD COLUMN IF NOT EXISTS consent_text TEXT NULL",
+    # 0779: skąd jest odpowiedź pod pytaniem z rozmów (excel | manual | ai | none).
+    # Lustro 1:1 z migracją — pilnuje `test_interview_answer_proposals.py`.
+    "ALTER TABLE interview_questions "
+    "ADD COLUMN IF NOT EXISTS ideal_answer_source VARCHAR(16) NULL",
     # 0340: tytuł na stronie kariery ustawiany przez rekrutera (pusty = tytuł
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "
@@ -6477,6 +6497,21 @@ _COLUMN_STATEMENTS = [
     # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
     # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
     "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
+    # 0781: dodatkowe numery nabywcy klienta (spółki grupy, decyzja Artura 25.11.2026).
+    # Lustro 1:1 z `app/services/client_invoicing/buyer_numbers_schema.py` —
+    # pilnuje `test_client_buyer_numbers.py`.
+    """CREATE TABLE IF NOT EXISTS client_buyer_numbers (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        number VARCHAR(32) NOT NULL,
+        source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        added_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_buyer_numbers_number UNIQUE (number),
+        CONSTRAINT ck_client_buyer_numbers_source CHECK (source IN ('manual', 'auto'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_buyer_numbers_client_id "
+    "ON client_buyer_numbers (client_id)",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "
@@ -7282,6 +7317,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_CV_PREVIEW_READS_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
+    *_LOST_REVIEW_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
     *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
@@ -8192,6 +8228,19 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_potential_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_potential_assessment')",
+    # 0783: seed klucza AI wniosków z przegranych (F56).
+    *_LOST_REVIEW_AI_DDL,
+    # 0779: seed klucza AI nocnych propozycji odpowiedzi do pytań z rozmów.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'interview_answer_proposal', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'interview_answer_proposal')",
+    # 0779: źródło odpowiedzi sprzed nocnego biegu — Excel przy archiwum,
+    # człowiek przy reszcie. Idempotentne (tylko wiersze bez źródła).
+    "UPDATE interview_questions SET ideal_answer_source = CASE "
+    "WHEN source = 'legacy_import' THEN 'excel' ELSE 'manual' END "
+    "WHERE ideal_answer_source IS NULL "
+    "AND NULLIF(btrim(ideal_answer), '') IS NOT NULL",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "
@@ -9944,7 +9993,8 @@ _CONSTRAINT_STATEMENTS = [
                 'contract_ending', 'cost_budget_low', 'new_contractor_draft',
                 'md_base_usage_high', 'candidate_conflict_expired',
                 'invoice_without_order_line', 'framework_over_limit',
-                'settlement_over_order', 'settlement_rate_mismatch'
+                'settlement_over_order', 'settlement_rate_mismatch',
+                'month_check_data'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i
