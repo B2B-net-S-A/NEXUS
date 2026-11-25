@@ -1,0 +1,34 @@
+[
+ {
+  "id": "rozl-3800-literowka-roku-w-temacie",
+  "poprawka": "75ddeef57 #3800",
+  "opis": "Klient odpisał 30.10 z „Październik 2027” w temacie; Time Sheet PKO „TimeSheet 2610 - …” jest za 2026-10",
+  "dzis": "2026-10-30",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "jan.korpusowy@example.com", "temat": "FW: Odbiór usług za Październik 2027: Jan Korpusowy", "odebrano": "2026-10-30T08:00:00Z",
+     "pliki": [{"nazwa": "TimeSheet 2610 - Korpusowy Jan PZ000001.pdf", "pdf": "Time Sheet\nJan Korpusowy\nPaździernik 2026"}]}
+  ],
+  "oczekiwane": [
+    {"plik": "TimeSheet 2610 - Korpusowy Jan PZ000001.pdf", "osoba": "A", "okres": "2026-10"}
+  ]
+ },
+ {
+  "id": "rozl-3800-timesheet-rrmm-wrzesien",
+  "poprawka": "75ddeef57 #3800",
+  "opis": "Szablon PKO „TimeSheet 2609 - …” sam niesie okres, choć mail jest z 1.10",
+  "dzis": "2026-10-01",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "jan.korpusowy@example.com", "temat": "Rozliczenie", "odebrano": "2026-10-01T08:00:00Z",
+     "pliki": [{"nazwa": "TimeSheet 2609 - Korpusowy Jan.pdf", "pdf": "Time Sheet\nJan Korpusowy"}]}
+  ],
+  "oczekiwane": [
+    {"plik": "TimeSheet 2609 - Korpusowy Jan.pdf", "osoba": "A", "okres": "2026-09"}
+  ]
+ }
+]

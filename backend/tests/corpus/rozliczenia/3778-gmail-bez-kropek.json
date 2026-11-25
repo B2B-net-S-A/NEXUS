@@ -1,0 +1,16 @@
+{
+  "id": "rozl-3778-gmail-bez-kropek",
+  "poprawka": "cc854f311 #3778",
+  "opis": "Raport z Gmaila bez kropek (jannowak@) trafia do osoby z kontraktem jan.nowak@",
+  "dzis": "2026-10-05",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@gmail.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "jankorpusowy@gmail.com", "temat": "Raport godzin wrzesień 2026", "odebrano": "2026-10-02T08:00:00Z",
+     "pliki": [{"nazwa": "Raport godzin 09.2026.pdf", "tekst": "%PDF-1.4 raport fikcyjny"}]}
+  ],
+  "oczekiwane": [
+    {"plik": "Raport godzin 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}
+  ]
+}

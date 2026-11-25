@@ -1,0 +1,23 @@
+{
+  "id": "cv-3970-currently-w-datach",
+  "poprawka": "80d878d9e #3970",
+  "opis": "„currently” na końcu zakresu dat stanowiska to „do dziś”, nie jeden miesiąc",
+  "dzis": "2026-11-25",
+  "wejscie": {
+    "jezyk": "en",
+    "generator": {
+      "name": "Jan Korpusowy",
+      "position": "Java Developer",
+      "experience": [
+        {"dates": "03.2023 – currently", "company": "Firma Przykładowa", "position": "Senior Java Developer"},
+        {"dates": "01.2020 - 02.2023", "company": "Inna Firma", "position": "Java Developer"}
+      ]
+    }
+  },
+  "oczekiwane": {
+    "daty": [
+      {"staz": "3 years 9 mo."},
+      {"staz": "3 years 2 mo."}
+    ]
+  }
+}

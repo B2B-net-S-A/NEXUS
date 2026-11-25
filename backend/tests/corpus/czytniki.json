@@ -1,0 +1,34 @@
+{
+  "_opis": "Czytniki z korpusem prawdziwych przypadków. Ścieżki: zmiana pliku z listy w PR-ze wymaga świeżego wyniku scripts/eval_reader.py bez spadku (hook eval-czytnikow-gate.js). Pola: co liczy eval.",
+  "czytniki": {
+    "rozliczenia": {
+      "opis": "Poczta rozliczeń: rodzaj dokumentu, osoba (kontrakt) i okres pliku z maila",
+      "pola": ["rodzaj", "osoba", "okres"],
+      "baza": true,
+      "sciezki": [
+        "backend/app/services/consultant_portal/mailbox.py",
+        "backend/app/services/consultant_portal/identity.py",
+        "backend/app/services/consultant_portal/forwarded.py",
+        "backend/app/services/consultant_portal/zip_files.py",
+        "backend/app/services/consultant_portal/portal_settings.py",
+        "backend/app/services/client_settlements/**",
+        "backend/app/services/order_policies/known_clients.py",
+        "backend/app/services/support_mail_route.py"
+      ]
+    },
+    "cv": {
+      "opis": "Odczyt treści Nowego CV: daty stanowisk, Edukacja, nazwa (osoba i stanowiska), języki",
+      "pola": ["daty", "edukacja", "nazwa", "jezyki"],
+      "baza": false,
+      "sciezki": [
+        "backend/app/services/cv_new_content.py",
+        "backend/app/services/cv_approved_docx.py",
+        "backend/app/services/cv_source_dates.py",
+        "backend/app/services/cv_ongoing.py",
+        "backend/app/services/cv_new_layout/document.py",
+        "backend/app/services/cv_new_layout/facts.py",
+        "backend/app/services/cv_new_layout/text.py"
+      ]
+    }
+  }
+}
