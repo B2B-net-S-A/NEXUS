@@ -673,6 +673,9 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     "/api/me/career-link/people",
     // „@” w notatce podpowiada trenerów poligonu, nie prawdziwy zespół.
     "/api/users/mentionable",
+    // „Czeka na Ciebie” na pulpicie: osoby ćwiczebne, bo lekcja „Pracuj po
+    // kolei” potrzebuje kolejki także u osoby bez własnych kart (25.11.2026).
+    "/api/board-tasks",
     // Klient ćwiczebny (22.11.2026): listy klientów, kontraktów, zamówień
     // z maila i widoki Finansów pokazują tylko „Bank Północny”, nie
     // prawdziwych klientów osoby, która ćwiczy.

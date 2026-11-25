@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from scripts import build_poligon_dataset as build
+from scripts import poligon_board_tasks_practice as board_tasks_practice
 from scripts import poligon_client_practice as practice
 from scripts import poligon_cv_practice as cv_practice
 from scripts import poligon_person_texts as person_texts
@@ -133,8 +134,10 @@ def test_zestaw_w_repo_jest_aktualny(responses):
     meta, stored = data["meta"], data["responses"]
     # Poza klientem ćwiczebnym wymyślone są QC edytora z nowości CV, pary
     # „stop do podpisu przedwstępnej” (`poligon_pre_contract_practice.py`)
-    # i teksty osoby-szablonu (`poligon_person_texts.py`).
+    # teksty osoby-szablonu (`poligon_person_texts.py`) i „Czeka na Ciebie”
+    # (`poligon_board_tasks_practice.py`).
     _, cv_fiction = cv_practice.cv_practice(stored)
+    _, board_fiction = board_tasks_practice.board_tasks_practice(stored)
     _, pre_contract_fiction = pre_contract_practice.pre_contract_practice(stored)
     _, texts_fiction = person_texts.person_texts(stored)
     assert set(meta["fiction_responses"]) == (
@@ -142,6 +145,7 @@ def test_zestaw_w_repo_jest_aktualny(responses):
         | set(cv_fiction)
         | set(pre_contract_fiction)
         | set(texts_fiction)
+        | set(board_fiction)
     )
     assert meta["client_people"] == practice.CLIENT_PEOPLE
     for key, body in responses.items():

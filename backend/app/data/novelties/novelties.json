@@ -4679,8 +4679,7 @@
       {
         "anchor": "finance.sales-invoices.tabs",
         "text": "Przejdź na zakładkę „Po terminie”.",
-        "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści.",
-        "ack": true
+        "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści."
       },
       {
         "anchor": "finance.overdue-month-close",
@@ -5154,7 +5153,7 @@
     },
     "where": "Rekrutacja → Tablica → panel osoby → Rozmowa u klienta",
     "href": "/jobs",
-    "practice_href": "/jobs/990001",
+    "practice_href": "/jobs/990001?candidate=990115",
     "section": "pipeline",
     "dot_anchor": "dock.plan-preparation"
   },

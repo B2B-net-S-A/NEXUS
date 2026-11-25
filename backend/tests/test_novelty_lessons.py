@@ -156,6 +156,26 @@ def test_registry_lessons_use_known_novelties_and_real_texts() -> None:
         assert not re.search(r"/api/|\bPR\b|#\d{3,}", lesson.task), lesson.id
 
 
+def test_step_that_says_click_is_not_passed_with_understood() -> None:
+    """Krok, który każe coś kliknąć albo przejść, przechodzi kliknięciem, nie „Rozumiem”.
+
+    25.11.2026 pokaz „Monit płatności” miał krok 1 „Przejdź na zakładkę
+    „Po terminie”” z `ack`: „Rozumiem” przepuszczało dalej bez zmiany zakładki,
+    a krok 2 („Lista na koniec miesiąca”) stoi tylko w „Po terminie” — pokaz
+    kończył się „Nie widzę tego miejsca”, a zadanie „sam” wymaga właśnie tej
+    drogi. Ostatni krok wpisu może być `ack` (nic po nim nie czeka)."""
+    imperative = re.compile(
+        r"(Kliknij|Przejdź|Otwórz|Wybierz|Wejdź|Rozwiń|Zaznacz|Przesuń|Wpisz)\b"
+    )
+    wrong = [
+        (novelty.id, i, step.anchor)
+        for novelty in load_novelties().values()
+        for i, step in enumerate(novelty.steps[:-1])
+        if step.ack and imperative.match(step.text)
+    ]
+    assert wrong == [], f"Krok „Rozumiem” każe coś zrobić, a następny krok tego wymaga: {wrong}"
+
+
 def test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list() -> None:
     """Pokaz lekcji zaczyna tam, gdzie jest element, a nie na liście `/jobs`.
 

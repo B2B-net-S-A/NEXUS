@@ -60,6 +60,8 @@ try:
     from scripts.poligon_cv_practice import READY_CV_PERSON, cv_practice
     from scripts.poligon_person_texts import person_texts
     from scripts.poligon_pre_contract_practice import pre_contract_practice
+    from scripts.poligon_terms_practice import PERSON as TERMS_CARD, terms_practice
+    from scripts.poligon_board_tasks_practice import board_tasks_practice
 except (
     ModuleNotFoundError
 ):  # wywołanie z `backend/`: python3 scripts/build_poligon_dataset.py
@@ -67,6 +69,8 @@ except (
     from poligon_cv_practice import READY_CV_PERSON, cv_practice
     from poligon_person_texts import person_texts
     from poligon_pre_contract_practice import pre_contract_practice
+    from poligon_terms_practice import PERSON as TERMS_CARD, terms_practice
+    from poligon_board_tasks_practice import board_tasks_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -108,7 +112,9 @@ PEOPLE = [
 # z pliku CV NEXUS „odczytuje” dopiero w ćwiczeniu (`CV_PERSON`).
 SLOT_PERSON = ("Kamil", "Dębowski")
 CV_PERSON = ("Ewa", "Jesionowska")
-EXTRA_PEOPLE = [SLOT_PERSON, CV_PERSON]
+# Osoba w „CV wysłane” do lekcji „Terminy przy ruchu” (`poligon_terms_practice.py`).
+TERMS_PERSON = ("Marta", "Jarzębska")
+EXTRA_PEOPLE = [SLOT_PERSON, CV_PERSON, TERMS_PERSON]
 ALL_PEOPLE = PEOPLE + EXTRA_PEOPLE
 
 FICTIONAL_NAMES = (
@@ -1378,8 +1384,19 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     # a filtr nagrania zostawiał `null` (24.11.2026: „null · poziom nieznany”).
     texts, texts_fiction = person_texts(dataset)
     dataset.update(texts)
+    # Osoba w „CV wysłane” do lekcji „Terminy przy ruchu” (25.11.2026): kolumna
+    # była pusta, a zadanie każe przesunąć kartę właśnie stamtąd.
+    terms, people = terms_practice(dataset, meta["people"])
+    dataset.update(terms)
+    fix_counts(dataset)
+    # „Czeka na Ciebie” z osobami ćwiczebnymi (lekcja „Pracuj po kolei”, 25.11.2026).
+    board, board_fiction = board_tasks_practice(dataset)
+    dataset.update(board)
     meta = {
         **meta,
+        "people": people,
+        # Osoba w „CV wysłane” (lekcja „Terminy przy ruchu”).
+        "terms_candidate_id": TERMS_CARD["candidate_id"],
         # Osoby po stronie klienta ćwiczebnego (nie kandydaci).
         "client_people": CLIENT_PEOPLE,
         # Osoba bez CV do klienta z gotowym CV z innej rekrutacji.
@@ -1387,7 +1404,7 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
         # Odpowiedzi w całości wymyślone w skrypcie: strażnik zestawu nie
         # wymaga dla nich kluczy ze słownika (`poligon-dataset.test.ts`).
         "fiction_responses": sorted(
-            {*practice, *cv_fiction, *pre_contract_fiction, *texts_fiction}
+            {*practice, *cv_fiction, *pre_contract_fiction, *texts_fiction, *board_fiction}
         ),
     }
     return meta, dataset
