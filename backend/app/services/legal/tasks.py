@@ -166,8 +166,19 @@ async def notice_reply_tasks(db: AsyncSession, user: User) -> list[LegalTaskRow]
     return notice_rows(rows)[:PROVIDER_LIMIT]
 
 
-#: Dostawcy zadań. Część G dopisuje ``client_fit_tasks`` przy scalaniu.
-TASK_PROVIDERS: list[TaskProvider] = [notice_reply_tasks]
+async def _client_fit_tasks(db: AsyncSession, user: User) -> list[LegalTaskRow]:
+    """Część G: luki wobec umowy ramowej klienta.
+
+    Import w funkcji, bo ``legal_client_fit.task_provider`` sam importuje
+    ``LegalTaskRow`` z tego modułu.
+    """
+    from app.services.legal_client_fit.task_provider import client_fit_tasks
+
+    return await client_fit_tasks(db, user)
+
+
+#: Dostawcy zadań: wypowiedzenia (część F) i zgodność z umową klienta (część G).
+TASK_PROVIDERS: list[TaskProvider] = [notice_reply_tasks, _client_fit_tasks]
 
 
 async def closed_keys(db: AsyncSession, keys: Sequence[str]) -> set[str]:

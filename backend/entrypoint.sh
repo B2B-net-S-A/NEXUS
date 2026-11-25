@@ -412,6 +412,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_template_draft'",
     # 0785: asystent prawny — propozycje zmian w umowie DOCX („Popraw dokument”).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_redline'",
+    # 0784: asystent prawny — zgodność umów B2B z umową ramową klienta (F59).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_client_fit'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -8210,6 +8212,11 @@ _DATA_STATEMENTS = [
     "SELECT 'legal_redline', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'legal_redline')",
+    # 0784: seed klucza AI zgodności umów B2B z umową ramową klienta.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'legal_client_fit', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'legal_client_fit')",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "

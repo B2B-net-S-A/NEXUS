@@ -553,6 +553,9 @@ const PUBLIC_PATHS = [
   "/preview/b2b-generator",
   // Wzory własne Generatora (asystent prawny, 0780): studio, lista, „Nowy dokument”.
   "/preview/custom-templates",
+  // Asystent prawny: „Popraw dokument” (część D) i zgodność z umową ramową
+  // klienta (część G) — dane fikcyjne, zasiany cache, bez zapytań.
+  "/preview/legal-redline",
   "/preview/similar-reassign",
   "/preview/kariera",
   "/preview/career-share",

@@ -147,6 +147,8 @@ class TestFeatureKeyEnum:
             "legal_template_draft",
             # 0785: asystent prawny — propozycje zmian w umowie DOCX.
             "legal_redline",
+            # 0784: asystent prawny — zgodność umów B2B z umową ramową klienta.
+            "legal_client_fit",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

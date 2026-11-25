@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/v2/b2b-generator/MandateAgreementForm.tsx": "6e3694cd9fc84543afae9822b28dfdf49d8c86b310b25dd023060ad5f7a718e7",
     "frontend/src/components/v2/b2b-generator/wizard/AgreementWizard.tsx": "52e82dc1e8cdade1a5d337b01c35648a8ad8ce2507fd16fce968a7d17520dde6",
-    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "dbb08c995a3dbfc53c98f2a279f26095aaa5c35175c6e26d4ebd14a4f690bd8b"
+    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "4582327f9314bc84952811a0c5e8d38930a9934d3ce218ae5f02e6fdad5f0332"
   }
 }

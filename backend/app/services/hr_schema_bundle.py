@@ -95,6 +95,7 @@ from app.services.contract_rate_documents import schema_sql as contract_rate_doc
 from app.services.contract_partner_reads import schema_sql as contract_partner_reads
 from app.services.contract_document_text import schema as contract_document_text
 from app.services.legal import tasks_schema as legal_assistant_tasks
+from app.services.legal_client_fit import schema as legal_client_fit
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -226,6 +227,8 @@ MODULES = (
     contract_document_text,
     # 0783: zadania asystenta prawnego — stan „załatwione / odrzucone” (25.11.2026).
     legal_assistant_tasks,
+    # 0784: zgodność umów B2B z umową ramową klienta (asystent prawny G, 25.11.2026).
+    legal_client_fit,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

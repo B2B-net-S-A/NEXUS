@@ -10,6 +10,8 @@
  * Dane są fikcyjne.
  *
  * `?widok=pismo` — panel pisma na kontrakcie (część F, `LetterHarness.tsx`).
+ * Pod spodem sekcja części G: panel zgodności z umową ramową klienta
+ * w każdym stanie (`ClientFitHarness`, zasiany cache, bez zapytań).
  */
 
 import { useEffect, useState } from "react";
@@ -17,6 +19,8 @@ import { FileDiff, FileText, Scale } from "lucide-react";
 
 import { RedlineReview } from "@/components/legal-assistant/redline/RedlineReview";
 import { LetterHarness } from "./LetterHarness";
+
+import { ClientFitHarness } from "./ClientFitHarness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -213,6 +217,8 @@ function LegalRedlinePreview() {
           Harness: do pliku poszłyby zmiany {sent.map((c) => c.id).join(", ")}.
         </p>
       )}
+
+      <ClientFitHarness />
     </main>
   );
 }

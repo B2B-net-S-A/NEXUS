@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useDocumentTypes, type DocumentItem } from "@/lib/api/b2bDocuments";
 import { DOCUMENTS_INTENT_KEYS, parseDocumentsIntent } from "@/lib/b2b-documents";
+import { ClientFitDialog } from "@/components/legal-assistant/client-fit/ClientFitDialog";
+import { CLIENT_FIT_URL_PARAM, parseClientFitParam } from "@/lib/legal-client-fit";
 
 import { AnnexRegister } from "./AnnexRegister";
 import { BusinessDataAnnexQueue } from "./BusinessDataAnnexQueue";
@@ -55,23 +57,33 @@ export function AnnexGeneratorTab({ canGenerate = true }: { canGenerate?: boolea
     setSearch(urlQuery);
   }, [urlQuery]);
 
+  // `&zgodnosc=<klient>` — zadanie asystenta prawnego (część G): okno ustaleń
+  // zgodności umów B2B z umową ramową klienta nad kreatorem aneksu.
+  const fitParam = parseClientFitParam(searchParams);
+  const [fitClientId, setFitClientId] = useState<number | null>(null);
+
   useEffect(() => {
-    if (!intent.newType && !intent.parentId && !intent.contractId) return;
-    setWizard({
-      key: Date.now(),
-      type: intent.newType || null,
-      parentId: intent.parentId,
-      contractId: intent.contractId,
-      editId: null,
-    });
+    const hasIntent = Boolean(intent.newType || intent.parentId || intent.contractId);
+    if (!hasIntent && !fitParam) return;
+    if (hasIntent) {
+      setWizard({
+        key: Date.now(),
+        type: intent.newType || null,
+        parentId: intent.parentId,
+        contractId: intent.contractId,
+        editId: null,
+      });
+    }
+    if (fitParam) setFitClientId(fitParam);
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     for (const key of DOCUMENTS_INTENT_KEYS) params.delete(key);
+    params.delete(CLIENT_FIT_URL_PARAM);
     const query = params.toString();
     replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
     // Tylko wartości parametrów — zdjęcie ich z adresu nie może otworzyć
     // kreatora drugi raz.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intent.newType, intent.parentId, intent.contractId]);
+  }, [intent.newType, intent.parentId, intent.contractId, fitParam]);
 
   const writeSearch = (next: string) => {
     setSearch(next);
@@ -83,13 +95,24 @@ export function AnnexGeneratorTab({ canGenerate = true }: { canGenerate?: boolea
   };
 
   return (
-    <AnnexGeneratorContent
-      canGenerate={canGenerate}
-      wizard={wizard}
-      onStart={(next) => setWizard({ key: Date.now(), ...EMPTY_WIZARD, ...next })}
-      search={search}
-      onSearch={writeSearch}
-    />
+    <>
+      <AnnexGeneratorContent
+        canGenerate={canGenerate}
+        wizard={wizard}
+        onStart={(next) => setWizard({ key: Date.now(), ...EMPTY_WIZARD, ...next })}
+        search={search}
+        onSearch={writeSearch}
+      />
+      {fitClientId ? (
+        <ClientFitDialog
+          clientId={fitClientId}
+          open
+          onOpenChange={(open) => {
+            if (!open) setFitClientId(null);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

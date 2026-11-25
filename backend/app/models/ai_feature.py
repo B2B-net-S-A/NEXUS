@@ -239,6 +239,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0785 (25.11.2026): asystent prawny — propozycje zmian w umowie DOCX
     # („Popraw dokument”, część D planu); człowiek przyjmuje każdą zmianę.
     legal_redline = "legal_redline"
+    # 0784 (25.11.2026): asystent prawny — zgodność umów B2B z umową ramową
+    # klienta w tle (część G); każdy cytat sprawdza kod.
+    legal_client_fit = "legal_client_fit"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -301,6 +304,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.legal_assistant: "Asystent prawny — szkic pisma z cytatami sprawdzonymi z tekstem przepisu i umowy",
     AIFeatureKey.legal_template_draft: "Generator Umów — szkic wzoru własnego z asystentem prawnym",
     AIFeatureKey.legal_redline: "Asystent prawny — propozycje zmian w umowie (Popraw dokument)",
+    AIFeatureKey.legal_client_fit: "Asystent prawny — zgodność umów B2B z umową ramową klienta",
 }
 
 
@@ -580,6 +584,15 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Tekst umowy z pliku DOCX z danymi osób i firm zamienionymi na znaczniki "
         "([PARTNER], [NIP], [EMAIL]…); podmiana z powrotem po stronie NEXUSA",
         "Polecenie użytkownika i fragmenty źródeł (przepisy z korpusu, bez LEX i Gofin)",
+    ],
+    AIFeatureKey.legal_client_fit: [
+        "Fragmenty umowy ramowej klienta i jej aneksów (treść umów klientów — "
+        "decyzja z 09.10.2026) z osobami kontaktowymi klienta, e-mailami, "
+        "telefonami, NIP-ami i rachunkami zamienionymi na znaczniki",
+        "Paragrafy wzoru umowy B2B z klauzulami tego klienta (bez komparycji "
+        "i bez danych Partnerów)",
+        "(bez kontraktorów, kandydatów, stawek z kontraktów i bez treści podpisanych "
+        "umów Partnerów)",
     ],
 }
 
