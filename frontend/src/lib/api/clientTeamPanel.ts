@@ -10,7 +10,7 @@ import axios from "axios";
 
 import type { PanelAuthor, PanelView } from "./clientPanel";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 export interface TeamPanelPosition {
   /** Token panelu stanowiska; otwiera `/api/public/panel/{key}`. */

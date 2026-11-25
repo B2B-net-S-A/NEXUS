@@ -33,7 +33,7 @@ import {
 
 import "./warunki.css";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 interface TermsView {
   job_title: string | null;
