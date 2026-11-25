@@ -97,9 +97,18 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
 
 1. Czyta z procesu backendu produkcji przez SSH ustawienia bool i liczbowe oraz
    listę dozwolonych: `_SCORING_CACHE_INPUTS`, flagi puli, listy klientów, flagi
-   Sprzedaży i dzienny limit próśb o warunki (`CANDIDATE_TERMS_DAILY_LIMIT`). Do
-   `.env.staging-flags.local` obok głównego pliku env idzie tylko ta lista. Inne
+   Sprzedaży, dzienny limit próśb o warunki (`CANDIDATE_TERMS_DAILY_LIMIT`) oraz
+   wszystkie flagi `*_ENABLED` z `config.py` poza listą zakazaną `FORBIDDEN_FLAGS`
+   (decyzja Artura z 25.11.2026, bo `CV_NEW_LAYOUT_ENABLED` było na stagingu
+   wyłączone, a na produkcji włączone). Zakazane to pętle i wysyłki na zewnątrz
+   (poczta, Teams, M365, boty, rejestry, portale, Traffit, Autenti, pętle HR) oraz
+   logowanie i blokada lidera; zostają z `.env.staging` i compose, a ich pętle
+   trzyma też `STAGING_BLOCKED_TASKS` i zapora wyjścia (`app/core/staging.py`).
+   Do `.env.staging-flags.local` obok głównego pliku env idzie tylko ta lista. Inne
    różnice trafiają do raportu, bez sekretów: filtr nazw działa już na serwerze.
+   Każda flaga z listy ma pusty wpis w `docker-compose.staging.yml` (inaczej nie
+   dojdzie do backendu); nowa flaga `*_ENABLED` w `config.py` = nowy wpis tam albo
+   na liście zakazanej, pilnuje tego `tests/test_staging_nightly_sync.py`.
    Przełączniki integracji i poczty są w compose na sztywno, więc flaga z produkcji
    ich nie włączy.
 2. Zrzuca bazę do `~/.local/share/nexus-staging-nightly/<RRRRMMDD>/` i odtwarza ją
