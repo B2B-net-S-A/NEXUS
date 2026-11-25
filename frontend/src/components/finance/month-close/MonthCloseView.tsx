@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import type { StatusDotTone } from "@/components/ds/StatusDot";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useMonthCloseOverview, useTeamMonth, type MonthCloseClient } from "@/lib/api/client-settlements";
+import { useMonthCheck, useMonthCloseOverview, useTeamMonth, type MonthCloseClient } from "@/lib/api/client-settlements";
 import { useReminderOverview, type ReminderClient } from "@/lib/api/settlement-reminders";
 import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ import { issueHref } from "./ClientMonthStrip";
 import { ClosingPanel } from "./ClosingPanel";
 import { IssuesByLevel, levelOf } from "./IssuesByLevel";
 import { MonthAnswers } from "./MonthAnswers";
+import { MonthCheckPanel } from "./MonthCheckPanel";
 import { problemTotal, stagesOf } from "./month-model";
 import { StageTable } from "./StageTable";
 
@@ -31,7 +32,7 @@ export { issueHref };
 /** Parametry adresu tego widoku (czyści je zmiana widoku /finance). */
 export const MONTH_CLOSE_URL_KEYS = ["mcMonth", "mcTab"] as const;
 
-type Tab = "clients" | "reasons" | "closing";
+type Tab = "clients" | "reasons" | "closing" | "diff";
 
 function readParam(key: (typeof MONTH_CLOSE_URL_KEYS)[number]): string | null {
   return new URLSearchParams(window.location.search).get(key);
@@ -59,11 +60,12 @@ export function MonthCloseView() {
     const m = readParam("mcMonth");
     if (m && /^\d{4}-\d{2}$/.test(m)) setMonth(m);
     const t = readParam("mcTab");
-    if (t === "reasons" || t === "closing") setTab(t);
+    if (t === "reasons" || t === "closing" || t === "diff") setTab(t);
   }, []);
 
   const query = useMonthCloseOverview(month);
   const team = useTeamMonth(month);
+  const monthCheck = useMonthCheck(month);
   const reminders = useReminderOverview(month, null);
   const reminderByClient = useMemo(
     () => new Map((reminders.data?.clients ?? []).map((r) => [r.client_id, r] as const)),
@@ -153,7 +155,8 @@ export function MonthCloseView() {
             onShowIssues={() => pickTab("reasons")}
           />
           <div className="flex items-center gap-1">
-            {/* Kotwica lekcji nowości: data-tour="finance.month-close.reasons" (przycisk „Błędy i uwagi”). */}
+            {/* Kotwice lekcji nowości: data-tour="finance.month-close.reasons" (przycisk „Błędy i uwagi”),
+                data-tour="finance.month-close.diff" (przycisk „Rozbieżności”). */}
             {(
               [
                 ["clients", "Gdzie są rozliczenia", null],
@@ -161,13 +164,15 @@ export function MonthCloseView() {
                 // wtedy licznik bierze powody z listy pod zakładką.
                 ["reasons", "Błędy i uwagi", s && data.stages ? problemTotal(s) : issues.length],
                 ["closing", "Dla księgowej", closingCount],
+                // Kontrola miesiąca (0784): otwarte rozbieżności faktur klient ↔ konsultant.
+                ["diff", "Rozbieżności", monthCheck.isSuccess ? monthCheck.data.summary.open : null],
               ] as const
             ).map(([key, label, n]) => (
               <button
                 key={key}
                 type="button"
                 aria-pressed={tab === key}
-                data-tour={key === "reasons" ? "finance.month-close.reasons" : undefined}
+                data-tour={key === "reasons" ? "finance.month-close.reasons" : key === "diff" ? "finance.month-close.diff" : undefined}
                 onClick={() => pickTab(key)}
                 className={cn(
                   "shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium pointer-coarse:min-h-10",
@@ -196,8 +201,10 @@ export function MonthCloseView() {
             />
           ) : tab === "reasons" ? (
             <IssuesByLevel reasons={issues} month={month} clientHref={clientHref} />
-          ) : (
+          ) : tab === "closing" ? (
             <ClosingPanel closing={data.closing} month={month} />
+          ) : (
+            <MonthCheckPanel month={month} />
           )}
         </>
       )}

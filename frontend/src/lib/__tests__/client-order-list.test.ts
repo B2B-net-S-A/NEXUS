@@ -602,6 +602,60 @@ describe("client order list filters", () => {
     expect(result.map((item) => item.contract_id)).toEqual([12]);
   });
 
+  it("zostawia kartę z zakończonym okresowym SPRZED linii MD tej samej umowy", () => {
+    // KIR 25.11.2026: okresowe 01.06–31.10 zakończone, od 02.11 linia MD.
+    // To wcześniejsze zaangażowanie, nie duplikat — bez karty nie da się
+    // poprawić jego okresu ani dodać zamówienia wstecz.
+    const md = group(1, "MD", {
+      lines: [
+        line(899, "Osoba po okresowym", {
+          contract_id: 436,
+          start_date: "2026-11-02",
+          end_date: "2027-03-31",
+        }),
+      ],
+    });
+    const before = clientOrder(5, "periodic", {
+      status: "completed",
+      start_date: "2026-06-01",
+      end_date: "2026-10-31",
+    });
+    const overlappingDuplicate = clientOrder(6, "periodic", {
+      status: "completed",
+      start_date: "2026-11-02",
+      end_date: "2026-11-20",
+    });
+
+    const result = filterMaterializedContractorShells(
+      [
+        contractor(436, "Osoba po okresowym", { orders: [before] }),
+        contractor(437, "Duplikat linii MD", { orders: [overlappingDuplicate] }),
+      ],
+      [
+        md,
+        group(2, "MD-2", {
+          lines: [
+            line(900, "Duplikat linii MD", {
+              contract_id: 437,
+              start_date: "2026-11-02",
+              end_date: null,
+            }),
+          ],
+        }),
+      ],
+      "2026-11-25",
+    );
+
+    expect(result.map((item) => item.contract_id)).toEqual([436]);
+    // Link `?order=5` trafia w panel tej osoby, a nie w komunikat „niewidoczne”.
+    expect(resolveOrderFocus([md], result, { orderId: 5 })).toEqual({
+      kind: "contractor",
+      contractId: 436,
+      orderId: 5,
+      isDraft: false,
+    });
+  });
+
   it("usuwa tylko puste shelle kontraktów obecnych w grupach, także przyszłych", () => {
     const future = group(2, "FUTURE", {
       lines: [line(22, "Future Person", { contract_id: 22 })],

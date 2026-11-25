@@ -33,6 +33,7 @@ GAP_REASONS = (
     "no_orders",
     "unknown_order_number",
     "amount_differs",
+    "amount_other_person",
     "expected_unknown",
 )
 

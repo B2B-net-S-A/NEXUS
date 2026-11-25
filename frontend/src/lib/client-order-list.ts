@@ -615,23 +615,55 @@ export function orderGroupContractIds(
  *
  * Kontrakt bez żadnej linii grupowej zostaje niezależnie od stanu zamówień —
  * to prawidłowy workflow draftu do uzupełnienia.
+ *
+ * Zostaje też karta z ZAKOŃCZONYM zamówieniem, którego okres nie nachodzi na
+ * żadną linię grupową tej umowy (KIR 25.11.2026: okresowe 01.06–31.10, potem
+ * linia MD od 02.11). To wcześniejsze zaangażowanie, a nie duplikat linii —
+ * bez karty nie da się w UI poprawić jego okresu ani dodać zamówienia wstecz,
+ * a link `?order=` kończył się komunikatem „niewidoczne”.
  */
 export function filterMaterializedContractorShells(
   contractors: readonly ContractWithOrdersRead[],
   groups: readonly OrderGroupRead[],
   todayIso = localTodayIso(),
 ): ContractWithOrdersRead[] {
-  const groupedContractIds = orderGroupContractIds(groups);
-  return contractors.filter(
-    (contractor) =>
-      !groupedContractIds.has(contractor.contract_id) ||
-      contractor.orders.some(
-        (order) =>
-          order.status !== "completed" &&
-          order.status !== "cancelled" &&
-          (dateOnly(order.end_date) ?? "9999-12-31") >= todayIso,
-      ),
-  );
+  const linePeriods = orderGroupLinePeriodsByContract(groups);
+  return contractors.filter((contractor) => {
+    const periods = linePeriods.get(contractor.contract_id);
+    if (!periods) return true;
+    return contractor.orders.some((order) => {
+      if (order.status === "cancelled") return false;
+      if (order.status === "completed") {
+        return !periods.some((period) => periodsOverlap(order, period));
+      }
+      return (dateOnly(order.end_date) ?? "9999-12-31") >= todayIso;
+    });
+  });
+}
+
+type DatePeriod = { start_date: string | null; end_date: string | null };
+
+function orderGroupLinePeriodsByContract(
+  groups: readonly OrderGroupRead[],
+): Map<number, DatePeriod[]> {
+  const result = new Map<number, DatePeriod[]>();
+  const visit = (group: OrderGroupRead) => {
+    for (const line of group.lines) {
+      result.set(line.contract_id, [...(result.get(line.contract_id) ?? []), line]);
+    }
+    for (const future of group.future_orders) visit(future);
+  };
+  for (const group of groups) visit(group);
+  return result;
+}
+
+/** Brak daty startu albo końca = otwarty z tej strony. */
+function periodsOverlap(left: DatePeriod, right: DatePeriod): boolean {
+  const leftStart = dateOnly(left.start_date) ?? "0000-01-01";
+  const leftEnd = dateOnly(left.end_date) ?? "9999-12-31";
+  const rightStart = dateOnly(right.start_date) ?? "0000-01-01";
+  const rightEnd = dateOnly(right.end_date) ?? "9999-12-31";
+  return leftStart <= rightEnd && rightStart <= leftEnd;
 }
 
 /** Historyczne rekordy bez jawnego typu zachowują dotychczasową semantykę. */

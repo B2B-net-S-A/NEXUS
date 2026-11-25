@@ -96,6 +96,16 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   Pole zmienione przez człowieka w ostatnich 14 dniach zostaje (`details.kept`
   wpisu `candidate_terms_answered`). Stare odpowiedzi mogą mieć `future_consent`; nowe go nie mają.
 
+- **Pilot T4 i limit 100 (decyzja Artura 25.11.2026):** pilot ruszył 24.11 z limitem
+  20 dziennie, który wyczerpywał się o 8:00–8:01. Po dwóch dniach: 40 maili (39 z linkiem,
+  1 samo podziękowanie przy komplecie w profilu), 12 formularzy (31% linków), średnio
+  3 h do odpowiedzi, wszystkie zapisane w profilach, 0 wypisów, 0 błędów wysyłki,
+  492 świeżych zgłoszeń w kolejce. Od 26.11 `CANDIDATE_TERMS_DAILY_LIMIT=100`
+  (Coolify set env 25.11). Odpowiedzi mailowych na kariera@ nie sprawdzamy (decyzja
+  Artura 25.11: „Zostaw”): MX domeny wskazuje hosting, aplikacje mają do skrzynki
+  tylko `Mail.Send`, a kandydat odpowiada formularzem. Pomiar: `candidate_terms_requests`
+  (`status`, `action`, `answered_at`, `opted_out_at`) przez `prod_readonly.py sql`.
+
 ## Czego nie robić
 
 - Nie wysyłaj tych maili ze skrzynki zespołowej (`M365_MAIL_SENDER_UPN`).

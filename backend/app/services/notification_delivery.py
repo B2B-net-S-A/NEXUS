@@ -374,6 +374,16 @@ CATALOG = (
     ),
     # Mail do Rady przy każdym placemencie (decyzja Artura 22.10.2026) —
     # `services/board_placement_alerts.py`, wysyła pętla raportów.
+    # Kontrola miesiąca (0784, decyzja Artura 25.11.2026) — `services/month_check/mail.py`.
+    dict(
+        id="month_check_report",
+        label="Rozbieżności faktur klient ↔ konsultant",
+        module="Finanse",
+        trigger="Poniedziałek od 8:00 — nowe rozbieżności z tygodnia (kwota, numery faktur, link); "
+        "12. dzień miesiąca — podsumowanie poprzedniego miesiąca. Pusty tydzień nie wychodzi.",
+        recipient_rule="Do „wysyłaj” Artura wyłącznie Artur (próba); potem aktywne konta z rolą "
+        "Finanse (główną albo dodatkową). Przełącznik: `app_settings['month_check_mail']`.",
+    ),
     dict(
         id="board_placement_alert",
         label="Nowy placement — mail do Rady",
@@ -385,6 +395,7 @@ CATALOG = (
 # Raporty nie mają odpowiednika w dzwonku — wychodzą wyłącznie mailem.
 REPORT_KINDS = frozenset(
     {
+        "month_check_report",
         "kpi_weekly_report",
         "board_monthly_report",
         "board_placement_alert",
@@ -530,6 +541,9 @@ REQUIRED_KINDS = frozenset(
         HR_BONUS_KIND,
         "data_access_alert",
         "system_failure",
+        # 25.11.2026: rozbieżności faktur na setki tysięcy złotych czekały, aż ktoś
+        # zajrzy; adresatów wybiera przełącznik kontroli miesiąca, nie konto.
+        "month_check_report",
     }
 )
 # Zwykły rodzaj startuje wyłączony dla całej firmy i włącza go admin. Każdy

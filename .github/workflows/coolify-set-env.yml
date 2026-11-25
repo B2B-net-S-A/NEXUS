@@ -221,6 +221,13 @@ jobs:
           # nie do odczytu (tokeny M365, dane płacowe): sync M365 wyłącza
           # skrzynkę, której tokenu nie czyta żaden klucz. Procedura:
           # docs/claude/podstawy/rotacja-klucza-szyfrowania-tokenow.md.
+          # Zmienna jest, a API nie pokazuje wartości (np. token bez odczytu
+          # wartości): nie da się sprawdzić, czy stary klucz zostaje — odmowa.
+          if [ "${KEY}" = "M365_TOKEN_ENCRYPTION_KEY" ] && [ "${exists}" = "true" ] \
+            && [ -z "${OLD_VALUE}" ]; then
+            echo "API Coolify nie pokazuje obecnej wartości M365_TOKEN_ENCRYPTION_KEY — nie da się zachować starego klucza, nic nie zapisano." >&2
+            exit 1
+          fi
           if [ "${KEY}" = "M365_TOKEN_ENCRYPTION_KEY" ] && [ -n "${OLD_VALUE}" ] \
             && [ "${OLD_VALUE}" != "${VALUE}" ] \
             && [ "${KEEP_OLD_IN}" != "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS" ]; then
