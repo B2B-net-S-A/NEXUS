@@ -29,7 +29,7 @@ from typing import AsyncIterator
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from jose import jwt
+import jwt
 from sqlalchemy import delete, select
 
 from app.core.config import settings
@@ -213,7 +213,9 @@ async def test_new_token_after_change_still_works(
 ):
     """Świeży token (iat po zdarzeniu) NIE jest fałszywie odrzucany."""
     # Ustaw floor bezpośrednio (symuluje wcześniejsze zdarzenie zmiany hasła).
-    floor = datetime.now(timezone.utc)
+    # Podłoga minutę wstecz: „świeży” token 10 s po niej leży w przeszłości.
+    # PyJWT (od 25.11.2026) odrzuca ``iat`` z przyszłości, jose go przepuszczał.
+    floor = datetime.now(timezone.utc) - timedelta(minutes=1)
     async with AsyncSessionLocal() as db:
         u = await db.scalar(select(User).where(User.id == fresh_user["id"]))
         u.tokens_valid_after = floor
@@ -295,7 +297,9 @@ async def test_refresh_token_before_floor_rejected(
     app_client: AsyncClient, fresh_user: dict
 ):
     """Refresh token wybity przed floorem → 401 (nie wybija świeżego access)."""
-    floor = datetime.now(timezone.utc)
+    # Podłoga minutę wstecz: „świeży” token 10 s po niej leży w przeszłości.
+    # PyJWT (od 25.11.2026) odrzuca ``iat`` z przyszłości, jose go przepuszczał.
+    floor = datetime.now(timezone.utc) - timedelta(minutes=1)
     async with AsyncSessionLocal() as db:
         u = await db.scalar(select(User).where(User.id == fresh_user["id"]))
         u.tokens_valid_after = floor

@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
-from jose import jwt
+import jwt
 from sqlalchemy import delete
 
 from app.core.config import settings

@@ -21,7 +21,7 @@ import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy import delete, select
 
 from app.core.config import settings
@@ -85,7 +85,7 @@ def test_state_round_trip_and_foreign_purpose_is_rejected():
         settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY,
         algorithm="HS256",
     )
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         jjit_connection.verify_state(foreign)
 
 
@@ -110,7 +110,7 @@ def test_state_does_not_carry_the_pkce_verifier():
     klucza do jego wymiany."""
     url = urlparse(jjit_connection.authorize_url(1))
     state = parse_qs(url.query)["state"][0]
-    claims = jwt.get_unverified_claims(state)
+    claims = jwt.decode(state, options={"verify_signature": False})
     assert "pkce" not in claims
     verifier = jjit_connection.verify_state(state).verifier
     assert verifier not in state
@@ -128,7 +128,7 @@ def test_state_from_before_round_10_is_rejected():
         settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY,
         algorithm="HS256",
     )
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         jjit_connection.verify_state(legacy)
 
 

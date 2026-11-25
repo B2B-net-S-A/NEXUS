@@ -28,6 +28,8 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Optional
 
+from app.services.client_settlements import xlsx
+
 logger = logging.getLogger(__name__)
 
 DAYS = 31
@@ -358,12 +360,8 @@ def parse_pdf(content: bytes) -> Optional[ParsedRcp]:
 
 
 def _rows(content: bytes) -> Optional[list[list[Any]]]:
-    import openpyxl
-
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), data_only=True, read_only=True
-        )
+        workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("rcp_bnp: XLSX nieczytelny (%s)", type(exc).__name__)
         return None

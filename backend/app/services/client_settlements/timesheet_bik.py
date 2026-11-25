@@ -41,6 +41,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
+from app.services.client_settlements import xlsx
 from app.services.client_settlements.declared import (
     DOCX,
     MAX_LINE,
@@ -397,12 +398,10 @@ def text_rows(text: str) -> list[list[Any]]:
 
 
 def _xlsx(content: bytes) -> Optional[ParsedBik]:
-    import openpyxl
-
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+            workbook = xlsx.load_workbook(content, data_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("timesheet_bik: arkusz nieczytelny (%s)", type(exc).__name__)
         return None

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import app.models  # noqa: F401  (register every mapper)
 import pytest
-from jose import jwt
+import jwt
 
 
 def _decode(token: str) -> dict:
@@ -218,7 +218,7 @@ async def test_reset_via_link_sets_an_app_clock_floor_that_revokes_same_second(
     assert not token_is_revoked(fresh, floor)
 
 
-def test_decoded_fractional_iat_passes_jose_validation() -> None:
+def test_decoded_fractional_iat_passes_jwt_validation() -> None:
     from app.core.config import settings
     from app.core.security import ALGORITHM, decode_token
 

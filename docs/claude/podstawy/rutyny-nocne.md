@@ -71,7 +71,8 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   `sql` (tylko SELECT/WITH, bez poleceń psql; w bazie sesja i transakcja
   READ ONLY zakończona ROLLBACK), `env NAZWA…` (zmienne procesu 1 backendu
   z białej listy, filtr na serwerze, nazwy sekretów odrzucone), `backup-log [N]`,
-  `logs --since CZAS [--until CZAS]`, `health` i `secret-check`. `secret-check`
+  `logs --since CZAS [--until CZAS]`, `health`, `pg-memory` (same liczby z cgroupa
+  kontenera Postgresa i zapas pamięci, `pamiec-postgresa.md`) i `secret-check`. `secret-check`
   to jedyna podkomenda, która dotyka sekretu: odcisk `SECRET_KEY` procesu 1
   backendu liczy i porównuje z listą wycieków serwer, a na laptop wychodzi jedno
   słowo (`fresh`, `leaked`, `missing`); kod 1 = klucz z wycieku albo brak klucza.

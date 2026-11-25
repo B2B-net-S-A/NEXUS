@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from jose import JWTError
+from jwt import PyJWTError
 from uvicorn.protocols.utils import ClientDisconnected
 from sqlalchemy import select
 
@@ -708,7 +708,7 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
         if not user_id_str or payload.get("type") != "access":
             return None
         user_id = int(user_id_str)
-    except (JWTError, ValueError):
+    except (PyJWTError, ValueError):
         return None
 
     async with AsyncSessionLocal() as db:

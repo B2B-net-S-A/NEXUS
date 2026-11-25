@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt
+import jwt
 
 from app.services.autenti.webhook_verify import (
     AutentiWebhookError,
@@ -186,6 +186,58 @@ async def test_verify_rejects_token_without_iat(monkeypatch, keypair):
     token = _sign(private_key, {"jti": "evt-no-iat"}, kid=jwk["kid"])
 
     with pytest.raises(AutentiWebhookError, match="iat"):
+        await verify_jwt(token)
+
+
+@pytest.mark.asyncio
+async def test_verify_accepts_iat_slightly_ahead_of_our_clock(monkeypatch, keypair):
+    """Zegar Autenti może się spieszyć. jose przyjmował taki ``iat``, a PyJWT
+    domyślnie odrzuca każdy z przyszłości; webhook nie może przez to przepaść.
+    """
+    private_key, jwk = keypair
+    _patch_jwks(monkeypatch, {jwk["kid"]: jwk})
+
+    payload = {"iat": int(time.time()) + 30, "jti": "evt-clock-ahead"}
+    token = _sign(private_key, payload, kid=jwk["kid"])
+
+    assert (await verify_jwt(token))["jti"] == "evt-clock-ahead"
+
+
+@pytest.mark.asyncio
+async def test_verify_refuses_non_numeric_iat_instead_of_500(monkeypatch, keypair):
+    private_key, jwk = keypair
+    _patch_jwks(monkeypatch, {jwk["kid"]: jwk})
+
+    payload = {"iat": "wczoraj", "jti": "evt-bad-iat"}
+    token = _sign(private_key, payload, kid=jwk["kid"])
+
+    with pytest.raises(AutentiWebhookError, match="iat"):
+        await verify_jwt(token)
+
+
+@pytest.mark.asyncio
+async def test_verify_uses_rs256_whatever_the_jwk_alg_says(monkeypatch, keypair):
+    """Algorytm ustala kod, nie pole ``alg`` w JWKS (tak było w jose)."""
+    private_key, jwk = keypair
+    jwk_without_alg = {k: v for k, v in jwk.items() if k != "alg"}
+    _patch_jwks(monkeypatch, {jwk["kid"]: jwk_without_alg})
+
+    payload = {"iat": int(time.time()), "jti": "evt-no-alg"}
+    token = _sign(private_key, payload, kid=jwk["kid"])
+
+    assert (await verify_jwt(token))["jti"] == "evt-no-alg"
+
+
+@pytest.mark.asyncio
+async def test_verify_refuses_a_jwks_key_that_is_not_rsa(monkeypatch, keypair):
+    private_key, jwk = keypair
+    oct_key = {"kty": "oct", "kid": jwk["kid"], "k": "c2VrcmV0"}
+    _patch_jwks(monkeypatch, {jwk["kid"]: oct_key})
+
+    payload = {"iat": int(time.time()), "jti": "evt-oct"}
+    token = _sign(private_key, payload, kid=jwk["kid"])
+
+    with pytest.raises(AutentiWebhookError):
         await verify_jwt(token)
 
 

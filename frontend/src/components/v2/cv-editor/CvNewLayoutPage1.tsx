@@ -3,13 +3,12 @@
 /**
  * „Strona 1” w edytorze nowego CV (wariant A, decyzja Artura 22.11.2026).
  *
- * - Punkty 1–2 „Dlaczego nasz kandydat” to punkty sekcji `why_points`
- *   W DOKUMENCIE edytora (wspólne z plikiem Word): pole pisze transakcją,
- *   pogrubienia zostają, autozapis, historia i QC działają jak na kartce.
- * - Punkt 3 „Najmocniejszy wynik” to dodatek nowego CV (`page1_extras`):
- *   zdanie rekrutera (`result_text`) albo wybrany sprawdzony wynik
- *   (`result_index`); bez nich strona 1 bierze punkt 3 z treści CV
- *   (`services/cv_layout.compose_page1_why`).
+ * - Zdania 1–3 „Dlaczego nasz kandydat” (25.11.2026) to dodatek nowego CV
+ *   (`page1_extras.why`, trzy sloty): doświadczenie, wymagania klienta,
+ *   najważniejsze zadanie. Slot to sprawdzone zdanie generatora strony 1
+ *   albo poprawka rekrutera; pusty slot bierze punkt z treści CV (wspólny
+ *   z Wordem), w slocie 3 najmocniejszy wynik (`lib/cv-page1-why.ts`,
+ *   `services/cv_layout.compose_page1_why`). Treść edytora się nie zmienia.
  * - „Wyróżnik” (25.11.2026) to dodatek `page1_extras.highlight`: jedna rzecz
  *   dająca kandydatowi przewagę, na stronie 1 pod nazwiskiem w wieńcu
  *   laurowym. „Automatycznie” = wcześniejsza praca u klienta rekrutacji.
@@ -19,7 +18,7 @@
 
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
-import { Check, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 
 import { Input, SegmentedRadio, Textarea } from "@/components/ui";
 import { Button } from "@/components/ui/button";
@@ -39,11 +38,21 @@ import type {
 import { apiErrorMessage } from "@/lib/api-error";
 import type { CvSectionKey } from "@/lib/cv-editor-blocks";
 import { page1Summaries, setWhyPoint, tenureHint, whyPoints } from "@/lib/cv-new-layout-form";
+import {
+  autoTexts,
+  chosenResultText,
+  fallbackTexts,
+  generatedFor,
+  isEdited,
+  plainText,
+  whyPatch,
+  whySlots,
+} from "@/lib/cv-page1-why";
 import { cn } from "@/lib/utils";
 
 import { DocTextarea, dispatchCv, useEditorDoc } from "./cv-new-layout-fields";
 
-/** Ile czeka zapis zdania „Najmocniejszy wynik” (i pól wyróżnika) po ostatnim znaku. */
+/** Ile czeka zapis zdania strony 1 (i pól wyróżnika) po ostatnim znaku. */
 export const RESULT_SAVE_DELAY_MS = 1200;
 
 /**
@@ -52,7 +61,7 @@ export const RESULT_SAVE_DELAY_MS = 1200;
  * bez nich.
  */
 export function plainResult(text: string | null | undefined): string {
-  return (text ?? "").replace(/\*\*(.+?)\*\*/g, "$1");
+  return plainText(text);
 }
 
 export interface VerifiedResult {
@@ -81,9 +90,12 @@ export interface CvNewLayoutPage1Props {
   editor: Editor;
   extras: CvPage1Extras | null | undefined;
   disabled: boolean;
-  /** Zapis dodatków strony 1 (wynik, wyróżnik); brak = bez tych pól (np. CV bez etapu). */
+  /** Zapis dodatków strony 1 (zdania, wyróżnik); brak = bez tych pól (np. CV bez etapu). */
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
-  /** „Policz wyniki od nowa” — model szuka wyników w zapisanym CV; brak = bez przycisku. */
+  /**
+   * „Ułóż zdania od nowa” — zdania 1–3 i najmocniejsze wyniki z zapisanego CV
+   * (ta sama trasa co dawne „Policz wyniki od nowa”); brak = bez przycisku.
+   */
   onRecalcResults?: () => Promise<void>;
   onOpenPositions: () => void;
   onOpenText: (section: CvSectionKey) => void;
@@ -103,9 +115,12 @@ export function CvNewLayoutPage1({
   const summaries = page1Summaries(doc);
   const tenure = tenureHint(doc);
 
-  const editPoint = (index: number) => (value: string) => {
-    dispatchCv(editor, setWhyPoint(index, value));
-  };
+  // Liczenie od nowa trwa kilka sekund: pola zdań czekają, żeby poprawka nie minęła się z wynikiem.
+  const [recalculating, setRecalculating] = useState(false);
+  const fallback = fallbackTexts(
+    points.map((point) => point.text),
+    extras,
+  );
 
   return (
     <div className="space-y-4 p-4" data-testid="cv-new-page1">
@@ -114,45 +129,49 @@ export function CvNewLayoutPage1({
         <p className="text-xs text-muted-foreground">podgląd odświeża się kilka sekund po zmianie</p>
       </div>
       {onSaveResult ? <HighlightChoice extras={extras} disabled={disabled} onSave={onSaveResult} /> : null}
-      <section aria-labelledby="cv-new-why" className="space-y-3">
-        <h3 id="cv-new-why" className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" />
-          Dlaczego nasz kandydat
-        </h3>
-        {points.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            CV nie ma punktów „Dlaczego nasz kandydat”. Dopisz je w „Cały tekst” — strona 1 bierze je stamtąd.
-          </p>
-        ) : null}
-        {points[0] ? (
-          <DocTextarea
-            editor={editor}
-            label="1 · Lata doświadczenia"
-            value={points[0].text}
-            onChange={editPoint(0)}
-            disabled={disabled}
-            hint={tenure ?? undefined}
-          />
-        ) : null}
-        {points[1] ? (
-          <DocTextarea
-            editor={editor}
-            label="2 · Technologie"
-            value={points[1].text}
-            onChange={editPoint(1)}
-            disabled={disabled}
-          />
-        ) : null}
+      <section aria-labelledby="cv-new-why" className="space-y-3" data-tour="cv-editor.page1.why">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h3 id="cv-new-why" className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" />
+            Dlaczego nasz kandydat
+          </h3>
+          {onRecalcResults ? (
+            <RefreshWhy
+              disabled={disabled}
+              busy={recalculating}
+              onBusy={setRecalculating}
+              onRefresh={onRecalcResults}
+            />
+          ) : null}
+        </div>
         {onSaveResult ? (
-          <StrongestResult
-            editor={editor}
-            extras={extras}
-            fallback={points[2]?.text ?? null}
-            disabled={disabled}
-            onSave={onSaveResult}
-            onRecalc={onRecalcResults}
-          />
-        ) : null}
+          WHY_FIELDS.map((field, index) => (
+            <WhySentence
+              key={field.label}
+              editor={editor}
+              index={index}
+              label={field.label}
+              extras={extras}
+              fallback={fallback[index]}
+              disabled={disabled || recalculating}
+              onSave={onSaveResult}
+              hint={index === 0 ? (tenure ?? undefined) : undefined}
+            />
+          ))
+        ) : (
+          // CV bez dodatków strony 1 (bez etapu): punkty z treści CV, jak w Wordzie.
+          points.slice(0, 3).map((point, index) => (
+            <DocTextarea
+              key={WHY_FIELDS[index].label}
+              editor={editor}
+              label={WHY_FIELDS[index].label}
+              value={point.text}
+              onChange={(value) => dispatchCv(editor, setWhyPoint(index, value))}
+              disabled={disabled}
+              hint={index === 0 ? (tenure ?? undefined) : undefined}
+            />
+          ))
+        )}
       </section>
       <nav aria-label="Pozostałe części strony 1" className="divide-y divide-border border-t border-border">
         <SectionRow label="Przebieg kariery" summary={summaries.career} onOpen={onOpenPositions} />
@@ -180,33 +199,72 @@ function SectionRow({ label, summary, onOpen }: { label: string; summary: string
   );
 }
 
-function StrongestResult({
+const WHY_FIELDS = [
+  { label: "1 · Doświadczenie", point: "punkt 1" },
+  { label: "2 · Wymagania klienta", point: "punkt 2" },
+  { label: "3 · Najważniejsze zadanie", point: "punkt 3" },
+] as const;
+
+/** Skąd jest zdanie w slocie — jedno zdanie pod polem. */
+function whySource(extras: CvPage1Extras | null | undefined, index: number, fallback: string): string {
+  if (isEdited(extras, index)) return "Wpisane ręcznie · tylko w nowym CV";
+  const item = generatedFor(extras, index);
+  if (whySlots(extras)[index] && item?.verified) {
+    if (index === 0) return "Z generatora · lata policzone z dat stanowisk";
+    if (index === 1) {
+      const proof = (item.evidence ?? []).map((e) => `${e.must} (${e.company})`).join(", ");
+      return proof ? `Z generatora · potwierdzone w CV: ${proof}` : "Z generatora";
+    }
+    return item.source === "screening"
+      ? "Z generatora · dowód z odpowiedzi kandydata na screeningu"
+      : `Z generatora · dowód z CV${item.company ? ` (${item.company})` : ""}`;
+  }
+  const point = WHY_FIELDS[index].point;
+  if (index === 2 && item?.issue === "no_input") {
+    return "Rekrutacja nie ma „Najważniejszego zadania” — strona 1 bierze najmocniejszy wynik albo punkt 3 z CV.";
+  }
+  if (index === 1 && item?.issue === "no_input") {
+    return "Profil Championa nie ma wymagań MUST — strona 1 bierze punkt 2 z CV.";
+  }
+  if (item && !item.verified && item.issue !== "empty") {
+    return `Zdanie z generatora nie przeszło sprawdzenia z CV — strona 1 bierze ${point} z CV.`;
+  }
+  if (!fallback) return "Brak zdania — wpisz je albo dopisz punkty w „Cały tekst”.";
+  if (index === 2 && chosenResultText(extras)) return "Najmocniejszy wynik z CV";
+  return `${point[0].toUpperCase()}${point.slice(1)} z treści CV (wspólny z Wordem)`;
+}
+
+function WhySentence({
   editor,
+  index,
+  label,
   extras,
   fallback,
   disabled,
+  hint,
   onSave,
-  onRecalc,
 }: {
   editor: Editor;
+  index: number;
+  label: string;
   extras: CvPage1Extras | null | undefined;
-  fallback: string | null;
+  fallback: string;
   disabled: boolean;
+  hint?: ReactNode;
   onSave: (patch: CvPage1Update) => Promise<void>;
-  onRecalc?: () => Promise<void>;
 }) {
-  const chosen = chosenResult(extras);
-  const verified = verifiedResults(extras);
-  const typed = extras?.result_text?.trim() || null;
-  const shown = plainResult(typed ?? chosen?.result.text ?? "");
+  const slot = whySlots(extras)[index];
+  const shown = plainText(slot || fallback);
+  const edited = isEdited(extras, index);
   const [draft, setDraft] = useState(shown);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [recalculating, setRecalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
 
   useEffect(() => {
     if (!dirty) setDraft(shown);
@@ -218,149 +276,189 @@ function StrongestResult({
     [],
   );
 
-  const save = async (patch: CvPage1Update, sentText: string | null) => {
+  const stopTimer = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  /** `sent` = tekst z pola, który poszedł; `null` = przycisk (przywróć, inny wynik). */
+  const save = async (text: string, sent: string | null) => {
     setSaving(true);
     setError(null);
     try {
-      await onSave(patch);
+      await onSave({ why: whyPatch(index, text) });
       // Rekruter mógł pisać dalej w trakcie zapisu — wtedy pole zostaje „brudne”.
-      if (sentText === null || draftRef.current === sentText) setDirty(false);
+      if (sent === null || draftRef.current === sent) setDirty(false);
     } catch (reason) {
-      setError(apiErrorMessage(reason, "Nie udało się zapisać wyniku na stronie 1."));
+      setError(apiErrorMessage(reason, "Nie udało się zapisać zdania na stronie 1."));
     } finally {
       setSaving(false);
     }
   };
-  const flush = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    if (!dirty) return;
+  const saveDraft = () => {
     const text = draftRef.current;
-    if (text.trim() === shown.trim()) {
+    if (text.trim() === shownRef.current.trim()) {
       setDirty(false);
       return;
     }
-    void save({ result_text: text.trim() || null }, text);
+    void save(text.trim(), text);
   };
   const change = (value: string) => {
     const text = value.replace(/\s*[\r\n]+\s*/g, " ");
     setDraft(text);
     setDirty(true);
-    if (timer.current) clearTimeout(timer.current);
+    stopTimer();
     timer.current = setTimeout(() => {
       timer.current = null;
-      const current = draftRef.current;
-      if (current.trim() === shown.trim()) {
-        setDirty(false);
-        return;
-      }
-      void save({ result_text: current.trim() || null }, current);
+      saveDraft();
     }, RESULT_SAVE_DELAY_MS);
   };
-  const recalc = async () => {
-    if (!onRecalc) return;
-    setRecalculating(true);
-    setError(null);
-    try {
-      await onRecalc();
-    } catch (reason) {
-      setError(apiErrorMessage(reason, "Nie udało się policzyć wyników od nowa."));
-    } finally {
-      setRecalculating(false);
-    }
+  const flush = () => {
+    stopTimer();
+    if (dirty) saveDraft();
+  };
+  const restore = () => {
+    stopTimer();
+    setDirty(false);
+    void save("", null);
   };
   const pick = (choice: VerifiedResult) => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    setDraft(plainResult(choice.result.text));
-    void save({ result_index: choice.index, result_text: null }, null);
+    stopTimer();
+    setDraft(plainText(choice.result.text));
+    void save(choice.result.text, null);
   };
-
-  const source = typed
-    ? "Źródło: wpisane ręcznie · tylko w nowym CV"
-    : chosen
-      ? `Źródło: ${chosen.result.company?.trim() || "CV kandydata"}, zakres zadań`
-      : "Bez wyniku strona 1 pokazuje punkt 3 „Dlaczego nasz kandydat” z treści CV.";
+  const results = index === 2 ? verifiedResults(extras) : [];
+  const auto = autoTexts(extras)[index];
+  const quote = generatedFor(extras, index)?.quote ?? undefined;
 
   return (
-    <div className="space-y-1.5" data-testid="cv-new-result">
+    <div className="space-y-1.5" data-testid={`cv-new-why-${index + 1}`}>
       <DocTextarea
         editor={editor}
-        label="3 · Najmocniejszy wynik"
+        label={label}
         value={draft}
         onChange={change}
         onBlur={flush}
         editorHistory={false}
         disabled={disabled}
-        placeholder={fallback ? `Punkt 3 z CV: ${fallback}` : "Wpisz wynik z liczbą, np. skrócenie testów o 40%"}
+        hint={hint}
+        placeholder="Wpisz zdanie na stronę 1"
       />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className={cn("min-w-48 flex-1 text-xs text-muted-foreground")} title={chosen?.result.quote ?? undefined}>
-          {source}
+        <p className="min-w-0 basis-full text-xs text-muted-foreground" title={quote}>
+          {whySource(extras, index, fallback)}
         </p>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-          {saving ? (
-            <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Zapisuję…
-            </span>
-          ) : null}
-          {onRecalc ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => void recalc()}
-              disabled={disabled || saving || recalculating}
-              aria-busy={recalculating}
-              className="h-7 rounded-full px-2.5 text-xs"
-            >
-              {recalculating ? (
-                <Loader2 aria-hidden className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw aria-hidden className="mr-1 h-3.5 w-3.5" />
-              )}
-              {recalculating ? "Szukam wyników w CV…" : "Policz wyniki od nowa"}
-            </Button>
-          ) : null}
-          {verified.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={disabled || saving || recalculating}
-                  className="h-7 rounded-full px-2.5 text-xs"
-                >
-                  Inny wynik ({verified.length})
-                  <ChevronDown aria-hidden className="ml-1 h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80">
-                {verified.map((choice) => {
-                  const active = !typed && chosen?.index === choice.index;
-                  return (
-                    <DropdownMenuItem key={choice.index} onSelect={() => pick(choice)} className="items-start gap-2">
-                      <Check
-                        aria-hidden
-                        className={cn("mt-0.5 h-3.5 w-3.5 flex-none", active ? "opacity-100" : "opacity-0")}
-                      />
-                      <span className="grid min-w-0">
-                        <span className="line-clamp-2 text-sm text-foreground">{plainResult(choice.result.text)}</span>
-                        {choice.result.company ? (
-                          <span className="text-xs text-muted-foreground">{choice.result.company}</span>
-                        ) : null}
-                      </span>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
+        {saving ? (
+          <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Zapisuję…
+          </span>
+        ) : null}
+        {edited ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={disabled}
+            // Bez zabrania fokusu: wyjście z pola zapisałoby poprawkę i zablokowało przycisk.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={restore}
+            className="h-7 rounded-full px-2.5 text-xs"
+            data-tour="cv-editor.page1.restore"
+            title={auto ? plainText(auto) : `Strona 1 weźmie ${WHY_FIELDS[index].point} z treści CV`}
+          >
+            <RotateCcw aria-hidden className="mr-1 h-3.5 w-3.5" />
+            Przywróć z generatora
+          </Button>
+        ) : null}
+        {results.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disabled || saving}
+                className="h-7 rounded-full px-2.5 text-xs"
+              >
+                Wynik z CV ({results.length})
+                <ChevronDown aria-hidden className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80">
+              {results.map((choice) => {
+                const active = slot === choice.result.text.trim();
+                return (
+                  <DropdownMenuItem key={choice.index} onSelect={() => pick(choice)} className="items-start gap-2">
+                    <Check
+                      aria-hidden
+                      className={cn("mt-0.5 h-3.5 w-3.5 flex-none", active ? "opacity-100" : "opacity-0")}
+                    />
+                    <span className="grid min-w-0">
+                      <span className="line-clamp-2 text-sm text-foreground">{plainText(choice.result.text)}</span>
+                      {choice.result.company ? (
+                        <span className="text-xs text-muted-foreground">{choice.result.company}</span>
+                      ) : null}
+                    </span>
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function RefreshWhy({
+  disabled,
+  busy,
+  onBusy,
+  onRefresh,
+}: {
+  disabled: boolean;
+  busy: boolean;
+  onBusy: (busy: boolean) => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    onBusy(true);
+    setError(null);
+    try {
+      await onRefresh();
+    } catch (reason) {
+      setError(apiErrorMessage(reason, "Nie udało się ułożyć zdań od nowa. Spróbuj za chwilę."));
+    } finally {
+      onBusy(false);
+    }
+  };
+  return (
+    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={disabled || busy}
+        aria-busy={busy}
+        onClick={() => void run()}
+        className="h-7 rounded-full px-2.5 text-xs"
+        data-tour="cv-editor.page1.refresh"
+        title="Zdania poprawione ręcznie zostają"
+      >
+        {busy ? (
+          <Loader2 aria-hidden className="mr-1 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw aria-hidden className="mr-1 h-3.5 w-3.5" />
+        )}
+        {busy ? "Układam zdania…" : "Ułóż zdania od nowa"}
+      </Button>
+      {error ? (
+        <p role="alert" className="basis-full text-right text-xs text-destructive">
           {error}
         </p>
       ) : null}
@@ -503,7 +601,7 @@ function HighlightChoice({
   const incomplete = mode === "custom" && !customHighlight(draft);
 
   return (
-    <section aria-labelledby={`${ids}-title`} className="space-y-2" data-testid="cv-new-highlight">
+    <section aria-labelledby={`${ids}-title`} className="space-y-2" data-testid="cv-new-highlight" data-tour="cv-editor.page1.highlight">
       <h3 id={`${ids}-title`} className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
         <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" />
         Wyróżnik

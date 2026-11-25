@@ -29,7 +29,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from jose import JWTError
+from jwt import PyJWTError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -273,7 +273,7 @@ async def callback(
 
     try:
         parsed_state = m365_oauth.verify_state(state)
-    except JWTError:
+    except PyJWTError:
         return RedirectResponse(
             _frontend_callback_url("error", "State expired or invalid — try again"),
             status_code=302,

@@ -44,7 +44,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import RedirectResponse
-from jose import JWTError, jwt
+import jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -139,7 +139,7 @@ def _exchange_tokens_are_current(
     try:
         access_payload = decode_token(access_token)
         refresh_payload = decode_token(refresh_token)
-    except JWTError:
+    except jwt.PyJWTError:
         return False
     return bool(
         access_payload.get("sub") == str(user_id)
@@ -244,18 +244,19 @@ def _sign_login_state(browser_binding: str) -> str:
 
 
 def _verify_login_state(token: str) -> LoginState:
-    """Raise JWTError on invalid/expired/wrong purpose/pre-binding state."""
+    """Raise ``jwt.InvalidTokenError`` on invalid/expired/wrong purpose/
+    pre-binding state."""
     payload = jwt.decode(token, _state_signing_key(), algorithms=["HS256"])
     if payload.get("purpose") != _STATE_PURPOSE:
-        raise JWTError("wrong purpose for SSO login state")
+        raise jwt.InvalidTokenError("wrong purpose for SSO login state")
     nonce = payload.get("n")
     binding = payload.get("bb")
     # ``state`` sprzed tej zmiany (logowanie rozpoczęte przed deployem) nie ma
     # tych pól — użytkownik zaczyna od nowa.
     if not isinstance(nonce, str) or not nonce:
-        raise JWTError("SSO login state without nonce")
+        raise jwt.InvalidTokenError("SSO login state without nonce")
     if not isinstance(binding, str) or not binding:
-        raise JWTError("SSO login state without browser binding")
+        raise jwt.InvalidTokenError("SSO login state without browser binding")
     return LoginState(pkce_verifier=_pkce_verifier_for(nonce), browser_binding=binding)
 
 
@@ -620,7 +621,7 @@ async def callback(
 
     try:
         login_state = _verify_login_state(state)
-    except JWTError:
+    except jwt.PyJWTError:
         return RedirectResponse(
             _frontend_login_error_url(SSO_ERR_STATE_EXPIRED),
             status_code=302,

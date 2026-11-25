@@ -364,6 +364,54 @@ def test_no_host_or_key_in_repo_script():
     assert "_ed25519" not in text
 
 
+# --- pg-memory ---------------------------------------------------------------
+
+_CGROUP = "/sys/fs/cgroup/"
+
+
+def test_pg_memory_reads_cgroup_of_postgres_container_and_counts_headroom(
+    fake_ssh, capsys
+):
+    calls, stdout = fake_ssh
+    gib = 1024**3
+    stdout.append(
+        f"{_CGROUP}memory.current:{12 * gib - 1}\n"
+        f"{_CGROUP}memory.max:{12 * gib}\n"
+        f"{_CGROUP}memory.peak:{12 * gib}\n"
+        f"{_CGROUP}memory.stat:anon {2 * gib}\n"
+        f"{_CGROUP}memory.stat:shmem {6 * gib}\n"
+        f"{_CGROUP}memory.stat:kernel {gib // 2}\n"
+        f"{_CGROUP}memory.events:oom_kill 1\n"
+        "postgres: SELECT nazwisko FROM candidates\n"
+        f"{_CGROUP}memory.stat:anon nie-liczba\n"
+    )
+    assert pr.main(["pg-memory"]) == 0
+    remote = calls[0]["argv"][-1]
+    assert "grep '^postgres-ocgkw'" in remote
+    assert remote.endswith(
+        'docker exec "$c" grep -H . /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.max'
+        " /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.stat /sys/fs/cgroup/memory.events"
+    )
+    out = capsys.readouterr().out
+    assert "memory.stat anon 2147483648" in out
+    assert "memory.events oom_kill 1" in out
+    assert "nazwisko" not in out and "nie-liczba" not in out  # druga bramka
+    assert "zapas niezwalnialnej pamięci: 3.50 GiB z 12.00 GiB" in out
+
+
+def test_pg_memory_without_numeric_limit_is_an_error(fake_ssh, capsys):
+    """Cgroup hosta nie ma memory.max: liczby nie dotyczyłyby kontenera bazy."""
+    _, stdout = fake_ssh
+    stdout.append(f"{_CGROUP}memory.max:max\n{_CGROUP}memory.stat:anon 1\n")
+    assert pr.main(["pg-memory"]) == 5
+    out = capsys.readouterr()
+    assert "memory.max" in out.err and "anon" not in out.out
+
+
+def test_pg_memory_takes_no_arguments(no_ssh):
+    assert pr.main(["pg-memory", "/etc/passwd"]) == 2
+
+
 # --- secret-check ------------------------------------------------------------
 
 

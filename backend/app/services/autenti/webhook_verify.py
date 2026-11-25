@@ -27,8 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
-from jose import jwt
-from jose.exceptions import JWTError
+import jwt
 
 from app.core.config import settings
 
@@ -141,7 +140,7 @@ async def verify_jwt(token: str) -> dict[str, Any]:
     """
     try:
         unverified_header = jwt.get_unverified_header(token)
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         raise AutentiWebhookError(f"Cannot decode JWT header: {exc}") from exc
 
     kid = unverified_header.get("kid")
@@ -156,21 +155,34 @@ async def verify_jwt(token: str) -> dict[str, Any]:
             raise AutentiWebhookError(f"Unknown JWT kid={kid!r}")
 
     try:
+        # RS256 ustala kod; pole ``alg`` w JWK pomijamy, tak jak wcześniej jose.
+        signing_key = jwt.PyJWK(cache[kid], algorithm="RS256")
+    except (jwt.PyJWTError, TypeError, ValueError) as exc:
+        raise AutentiWebhookError(f"JWKS key kid={kid!r} unusable: {exc}") from exc
+
+    try:
         claims = jwt.decode(
             token,
-            cache[kid],
+            signing_key,
             algorithms=["RS256"],
-            options={"verify_aud": False},
+            # ``iat`` sprawdzamy niżej sami. PyJWT odrzuca ``iat`` choćby
+            # sekundę w przyszłości, a jose nie odrzucał — wtedy zegar Autenti
+            # spieszący się względem naszego kosztowałby odrzucony webhook.
+            options={"verify_aud": False, "verify_iat": False},
         )
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         raise AutentiWebhookError(f"JWT signature/claims invalid: {exc}") from exc
 
     # Pentest 13.11.2026: token bez ``iat`` omijał okno ochrony przed powtórką.
     iat = claims.get("iat")
     if iat is None:
         raise AutentiWebhookError("JWT has no `iat` — replay protection")
+    try:
+        issued_at = int(iat)
+    except (TypeError, ValueError, OverflowError):
+        raise AutentiWebhookError("JWT `iat` is not a number") from None
     max_age = settings.AUTENTI_WEBHOOK_IAT_MAX_AGE_HOURS * 3600
-    age = int(time.time()) - int(iat)
+    age = int(time.time()) - issued_at
     if age > max_age:
         raise AutentiWebhookError(
             f"JWT iat is {age}s old (max {max_age}s) — replay protection"
