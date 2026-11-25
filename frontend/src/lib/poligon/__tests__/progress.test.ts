@@ -24,6 +24,14 @@ describe("postęp Poligonu", () => {
     expect(resendMissing(["poligon-lista-zakres"], path)).toEqual([]);
   });
 
+  it("gdy serwer nie zna `broken`, zalicza zwykłym „used”", async () => {
+    post.mockRejectedValueOnce(new Error("422"));
+    markDone("baza-profil", { broken: true });
+    await vi.waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith("/api/novelties/poligon-baza-profil/events", { event: "used" }),
+    );
+  });
+
   it("„Coś nie działa” zalicza ćwiczenie zdarzeniem `broken`", () => {
     markDone("baza-szukaj", { broken: true });
     expect(post).toHaveBeenCalledWith("/api/novelties/poligon-baza-szukaj/events", { event: "broken" });

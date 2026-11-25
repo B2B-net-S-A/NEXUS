@@ -244,7 +244,17 @@ export function lessonArea(lesson: Pick<Lesson, "novelties">): string {
  * połączenia lekcja zostaje niezaliczona, ale osoba i tak wraca do listy.
  */
 export async function skipBrokenLesson(run: LessonRun): Promise<boolean> {
-  const ok = await sendLessonEvent(run.lesson.id, "broken");
+  let ok = await sendLessonEvent(run.lesson.id, "broken");
+  // Serwer bez zdarzenia `broken` (front wdrożony przed backendem): zwykła
+  // kolejność etapów zalicza lekcję tak samo.
+  if (!ok) {
+    const id = run.lesson.id;
+    ok = run.review
+      ? await sendLessonEvent(id, "review_passed")
+      : (await sendLessonEvent(id, "shown")) &&
+        (await sendLessonEvent(id, "solo_passed")) &&
+        (await sendLessonEvent(id, "completed"));
+  }
   leaveLesson(run);
   return ok;
 }

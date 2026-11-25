@@ -49,8 +49,12 @@ export function markDone(id: string, opts: { broken?: boolean } = {}): Set<strin
   const done = readLocal();
   done.add(id);
   writeLocal(done);
+  const url = `/api/novelties/${SERVER_PREFIX}${id}/events`;
   const request = api
-    .post(`/api/novelties/${SERVER_PREFIX}${id}/events`, { event: opts.broken ? "broken" : "used" })
+    .post(url, { event: opts.broken ? "broken" : "used" })
+    // Serwer bez zdarzenia `broken` (front wdrożony przed backendem) odpowiada
+    // 422 — zaliczenie i tak ma dojść, więc ponawiamy zwykłym „used”.
+    .catch((error: unknown) => (opts.broken ? api.post(url, { event: "used" }) : Promise.reject(error)))
     .catch((error: unknown) => {
       // Osoba spoza ról poligonu (404) ćwiczy bez zapisu na serwerze.
       console.warn("[poligon] zaliczenie nie trafiło na serwer:", id, error);
