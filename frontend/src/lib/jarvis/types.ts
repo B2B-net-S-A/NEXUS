@@ -95,6 +95,21 @@ export interface JarvisMailDraft {
   body: string;
 }
 
+/** Szkic pisma na kontrakcie (`draft_legal_letter`, asystent prawny F) — nic nie
+ *  wysłano; karta prowadzi do panelu pisma. Treść i cytaty tylko ze strumienia. */
+export interface JarvisLegalLetter {
+  contract_id: number;
+  kind: string;
+  label?: string;
+  subject?: string;
+  text?: string;
+  blocked?: boolean;
+  block_reasons?: string[];
+  lawyer_review?: string[];
+  counts?: { ok?: number; missing?: number; mismatch?: number };
+  error?: string | null;
+}
+
 /** „Klient coś zmienił” (`propose_client_change`) — Jarvis nic nie zapisuje,
  *  karta prowadzi do okna w Profilu Championa. `job_title` tylko ze strumienia. */
 export interface JarvisClientChange {
@@ -145,6 +160,7 @@ export type JarvisItem =
   /** Element podświetlony na ekranie (show_on_screen albo „Pokaż na ekranie”). */
   | { kind: "highlight"; anchor: string; label: string; reason: string }
   | { kind: "mail_draft"; draft: JarvisMailDraft }
+  | { kind: "legal_letter"; letter: JarvisLegalLetter }
   | { kind: "client_change"; proposal: JarvisClientChange }
   /** Karta „Tego nie zrobię” (report_gap) z przyciskiem zgłoszenia potrzeby. */
   | { kind: "gap"; gap: JarvisGap };
@@ -212,6 +228,7 @@ export type JarvisStreamEvent =
   | { type: "delta_reset" }
   | { type: "highlight"; anchor: string; label: string; reason: string }
   | { type: "mail_draft"; draft: JarvisMailDraft }
+  | { type: "legal_letter"; letter: JarvisLegalLetter }
   | { type: "client_change"; proposal: JarvisClientChange }
   | { type: "gap"; gap: JarvisGap }
   /** Przy zapisie wykonanym od razu niesie też komunikat i klucze do odświeżenia. */

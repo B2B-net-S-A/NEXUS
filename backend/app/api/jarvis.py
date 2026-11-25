@@ -527,6 +527,27 @@ def _conversation_items(
                         }
                     )
                 if (
+                    name == "draft_legal_letter"
+                    and str(block.get("id") or "") not in failed
+                ):
+                    # Treść szkicu liczy serwer i nie jest zapisana w rozmowie —
+                    # z historii karta prowadzi do panelu pisma na kontrakcie.
+                    tool_input = block.get("input") or {}
+                    try:
+                        letter_contract_id = int(tool_input.get("contract_id"))
+                    except (TypeError, ValueError):
+                        letter_contract_id = None
+                    if letter_contract_id is not None:
+                        items.append(
+                            {
+                                "kind": "legal_letter",
+                                "letter": {
+                                    "contract_id": letter_contract_id,
+                                    "kind": str(tool_input.get("kind") or "")[:40],
+                                },
+                            }
+                        )
+                if (
                     name == "propose_client_change"
                     and str(block.get("id") or "") not in failed
                 ):
