@@ -177,3 +177,28 @@ def test_full_html_document_draft_does_not_crash_the_reader():
         html, language="pl", blind=False, fallback=None
     ).cv_json
     assert cj["name"] == "Jan Test" and cj["skills"]
+
+
+def test_role_gaps_counts_roles_the_new_layout_cannot_place():
+    from app.services.cv_new_content import role_gaps
+
+    foreign = (
+        '<h1>Tester – Jan Test</h1><h2 data-cv-section="experience">DOŚWIADCZENIE</h2>'
+        "<p>12.2018 – obecnie<br><strong>Nazwa firmy: </strong>Amber</p>"
+        '<p data-cv-section="role"><strong>Tester</strong></p>'
+    )
+    assert role_gaps(foreign, language="pl", blind=False) == {
+        "without_dates": 1,
+        "without_company": 1,
+    }
+    assert role_gaps(foreign, language="pl", blind=True) == {
+        "without_dates": 1,
+        "without_company": 0,
+    }
+    good = (
+        '<h1>Tester – Jan Test</h1><h2 data-cv-section="experience">DOŚWIADCZENIE</h2>'
+        '<p data-cv-section="role"><strong>Tester</strong> 12.2018 – obecnie</p>'
+        '<p data-cv-section="employer">Amber</p>'
+    )
+    assert role_gaps(good, language="pl", blind=False) is None
+    assert role_gaps("", language="pl", blind=False) is None

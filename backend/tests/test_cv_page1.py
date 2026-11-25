@@ -262,6 +262,33 @@ async def test_branded_state_carries_page1_extras(
     )
     assert got.status_code == 200
     assert got.json()["page1_extras"]["results"][0]["company"] == "Firma A"
+    # szkic bez stanowisk — nie ma czego ostrzegać
+    assert got.json()["new_layout_role_gaps"] is None
+
+
+@pytest.mark.asyncio
+async def test_branded_state_warns_about_roles_without_dates_or_company(
+    app_client: AsyncClient, app_auth_headers: dict, flag_on
+):
+    """Decyzja Artura 25.11.2026: CV w obcym formacie (daty i „Nazwa firmy:” nad
+    stanowiskiem) — Nowe CV gubi daty i firmy; karta i edytor ostrzegają."""
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(
+        sid,
+        HTML
+        + '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>'
+        + "<p>12.2018 – obecnie<br><strong>Nazwa firmy: </strong>Amber</p>"
+        + '<p data-cv-section="role"><strong>Tester</strong></p>',
+    )
+    await _set(sid, cv_layout="new")
+    got = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    )
+    assert got.status_code == 200
+    assert got.json()["new_layout_role_gaps"] == {
+        "without_dates": 1,
+        "without_company": 1,
+    }
 
 
 def test_merge_rules_without_database():
