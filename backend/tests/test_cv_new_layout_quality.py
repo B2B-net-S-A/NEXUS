@@ -57,3 +57,53 @@ def test_page1_fits_with_many_skill_categories():
     report = fit_new_cv_page1(NewCvDocument.from_cv_json(data), today=TODAY)
     assert report.fits, report
     assert report.font_pt >= 8.0
+
+
+def test_role_without_company_is_labeled_with_its_position_not_own_business():
+    """#42900: generator zostawił puste firmy; oś podpisywała każdą rolę „Own business”
+    i stawiała je obok siebie — pusta firma to nie własna działalność."""
+    data = english(long_cv())
+    data["experience"] = [
+        {
+            "dates": d,
+            "company": "",
+            "position": p,
+            "industry": "",
+            "technologies": [],
+            "responsibilities": [],
+        }
+        for d, p in (
+            ("09.2023 - currently", "Senior Project Manager"),
+            ("01.2021 - 12.2023", "Program Manager"),
+            ("05.2014 - 01.2020", "Project Manager"),
+        )
+    ]
+    st = stops(build_context(NewCvDocument.from_cv_json(data), TODAY))
+    assert [s.company for s in st] == [
+        "Project Manager",
+        "Program Manager",
+        "Senior Project Manager",
+    ]
+    assert all(s.role == "" for s in st)
+
+
+def test_hand_edited_education_row_keeps_dates_out_of_the_field():
+    """#40571: „2019 - 2022 — Ekonomia, licencjat” bez pogrubionej uczelni szło w całości
+    do kierunku, razem z datami."""
+    from app.services.cv_new_content import cv_json_from_editor_html
+
+    html = (
+        '<h1>Analityk – Jan Test</h1><h2 data-cv-section="education">EDUKACJA</h2>'
+        "<p>2019 - 2022 — Ekonomia, licencjat</p>"
+    )
+    edu = cv_json_from_editor_html(
+        html, language="pl", blind=False, fallback=None
+    ).cv_json["education"]
+    assert edu == [
+        {
+            "dates": "2019 - 2022",
+            "institution": "",
+            "degree": "Ekonomia, licencjat",
+            "location": "",
+        }
+    ]
