@@ -342,3 +342,14 @@ def test_save_draft_button_never_picks_submit():
     )
     assert pick([{"name": "BUT_Submit", "label": "Save as draft"}]) is None
     assert pick([]) is None
+
+
+def test_cv_link_in_draft_view_matches_file_name_variants():
+    name = "Jan_Kowalski_CV.pdf"
+    match = rules.cv_link_matches
+    assert match("Jan_Kowalski_CV.pdf", name)
+    assert match("Jan Kowalski CV", name)
+    assert match("CV: Jan_Kowalski_CV.pdf (EN)", name)
+    assert not match("Anna_Nowak_CV.pdf", name)
+    assert not match("", name)
+    assert not match("Download", "")

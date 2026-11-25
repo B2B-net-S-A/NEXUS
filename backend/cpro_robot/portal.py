@@ -622,12 +622,25 @@ class ItemRun:
             raise _fail(
                 "draft_unconfirmed", "Szkic nie pokazuje zapisanej stawki albo daty."
             )
-        link = self.page.locator(
-            "a", has_text=re.compile(re.escape(self.offer["cv_file_name"][:-4]), re.I)
-        ).first
-        if link.count() == 0:
-            raise _fail("cv_not_opening", "W szkicu nie widać wgranego PDF.")
-        href = link.get_attribute("href") or ""
+        links = self.page.evaluate(
+            """() => [...document.querySelectorAll('a')].map(a => ({
+              text: (a.innerText || '').trim(), href: a.getAttribute('href') || ''}))"""
+        )
+        found = [
+            link
+            for link in links
+            if rules.cv_link_matches(link["text"], self.offer["cv_file_name"])
+        ]
+        if not found:
+            # Bieg 35: widok szkicu podpisuje CV inaczej niż lista CV w edycji.
+            # Dowód z edycji (tylko odczyt): zaznaczone jest CV z tą nazwą.
+            if not self._draft_has_cv_checked():
+                raise _fail(
+                    "cv_not_opening",
+                    "W szkicu nie widać wgranego PDF (ani w widoku, ani w edycji).",
+                )
+            return self._draft_outcome(url)
+        href = found[0]["href"]
         resp = (
             self.page.request.get(urljoin(self.page.url, href))
             if href and not href.startswith("javascript")
@@ -639,12 +652,33 @@ class ItemRun:
             or _pdf_pages(resp.body()) < 1
         ):
             raise _fail("cv_not_opening", "PDF w szkicu nie otwiera się.")
+        return self._draft_outcome(url)
+
+    def _draft_outcome(self, url: str) -> Outcome:
         return Outcome(
             "draft",
             None,
             "Szkic zapisany przez robota NEXUSA i potwierdzony po ponownym otwarciu.",
             cpro_status="DRAFT",
             offer_url=url,
+        )
+
+    def _draft_has_cv_checked(self) -> bool:
+        """Edycja szkicu bez zapisu: czy zaznaczone CV ma nazwę pliku ze zlecenia."""
+
+        drafts = [r for r in self.my_offers() if rules.is_draft(r)]
+        if len(drafts) != 1:
+            return False
+        self.open_draft_edit(drafts[0])
+        self.step = "confirm"
+        checked = self.page.evaluate(
+            """() => [...document.querySelectorAll('input[name=offer_cvids]:checked')].map(b => {
+              const l = b.id && document.querySelector('label[for="' + b.id + '"]');
+              return (l ? l.innerText : (b.parentElement || {}).innerText || '').trim();
+            })"""
+        )
+        return any(
+            rules.cv_label_matches(t, self.offer["cv_file_name"]) for t in checked
         )
 
     # --- przebieg ---------------------------------------------------------------
@@ -688,6 +722,7 @@ class ItemRun:
             except Outcome:
                 pass
             self.path = "edycja szkicu"
+            self.my_offers()  # z powrotem na liście ofert, skąd jest link edycji
             self.open_draft_edit(drafts[0])
             self.upload_cv_unless_present()
         else:
