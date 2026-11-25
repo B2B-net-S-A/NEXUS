@@ -8,8 +8,9 @@ Ten sam klient API, konfiguracja (``KSEF_MODE``, ``KSEF_CONTEXT_NIP``,
 
 * ``run_once(db)`` — pętla co godzinę (wpina koordynator): przyrostowo od
   znacznika ``permanentStorageHwmDate`` (okno ``PermanentStorage``
-  z ``restrictToPermanentStorageHwmDate``), potem ponowna próba dopasowania
-  faktur czekających z powodu, który mógł zniknąć (nowe zamówienie, import MD),
+  z ``restrictToPermanentStorageHwmDate``), potem numer nabywcy z dowodu
+  (``buyer_proof``) i ponowna próba dopasowania faktur czekających z powodu,
+  który mógł zniknąć (nowe zamówienie, import MD),
 * ``fetch_now(db, actor_id)`` — „Pobierz teraz” (Finanse), nie częściej niż co
   5 minut.
 
@@ -47,7 +48,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import DEFAULT_TZ
 from app.models.app_setting import AppSetting
 from app.models.client_sales_invoice import ClientSalesInvoice
-from app.services.client_invoicing import buyer_address, clients, fa_sales, matching
+from app.services.client_invoicing import (
+    buyer_address,
+    buyer_proof,
+    clients,
+    fa_sales,
+    matching,
+)
 from app.services.client_invoicing import settings as module_settings
 from app.services.hr import job_runs
 from app.services.hr.ksef import fa, numbers
@@ -709,6 +716,13 @@ async def _execute(
         error = KsefApiError("internal")
 
     if error is None:
+        try:
+            proven = await buyer_proof.attach(db)
+            await db.commit()
+            run.counts["buyer_numbers"] = proven["added"]
+        except Exception:  # noqa: BLE001 — numer dopisze następny przebieg albo Finanse
+            await db.rollback()
+            logger.exception("[client-invoicing] numery nabywców z dowodu nieudane")
         try:
             rematched = await matching.rematch_pending(db)
             await db.commit()

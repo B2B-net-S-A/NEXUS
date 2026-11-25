@@ -99,6 +99,31 @@ async def nip_registry(db: AsyncSession) -> NipRegistry:
     )
 
 
+async def canonical_clients(db: AsyncSession) -> dict[int, int]:
+    """Klient → klient kanoniczny po scaleniach (jak ``nip_registry``), bez usuniętych."""
+
+    rows = (
+        await db.execute(
+            select(Client.id, Client.merged_into_client_id, Client.deleted_at)
+        )
+    ).all()
+    pointer = {int(cid): (int(m) if m is not None else None) for cid, m, _d in rows}
+    deleted = {int(cid) for cid, _m, removed in rows if removed is not None}
+    found: dict[int, int] = {}
+    for client_id in pointer:
+        current = client_id
+        for _ in range(_MERGE_CHAIN_LIMIT):
+            target = pointer.get(current)
+            if target is None:
+                break
+            current = target
+        else:
+            continue
+        if current in pointer and current not in deleted:
+            found[client_id] = current
+    return found
+
+
 async def family(db: AsyncSession, client_ids: Iterable[int]) -> set[int]:
     """Klienci i ich scalone duplikaty (w obie strony, jeden poziom)."""
 
@@ -310,6 +335,7 @@ __all__ = [
     "BuyerNumber",
     "NipRegistry",
     "add_buyer_number",
+    "canonical_clients",
     "check_buyer_number",
     "extra_numbers",
     "family",
