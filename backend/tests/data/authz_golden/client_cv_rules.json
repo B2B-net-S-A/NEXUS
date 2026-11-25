@@ -43,6 +43,7 @@
   "POST /api/clients/{client_id}/cv-rule/lint": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "POST /api/clients/{client_id}/cv-rule/versions/{version}/restore": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "PUT /api/clients/{client_id}/cv-rule": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "PUT /api/clients/{client_id}/cv-rule/file-format": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "PUT /api/clients/{client_id}/cv-rule/layout": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP"
  }
 }

@@ -228,6 +228,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0761 (23.11.2026): Sprzedaż — ocena potencjału firmy przed spotkaniem
     # z researchu Bota Research, faktów z NEXUSA i bazy wiedzy (F54).
     sales_potential_assessment = "sales_potential_assessment"
+    # 0779 (25.11.2026): Pytania z rozmów — nocne propozycje odpowiedzi pod
+    # pytaniami z banku klienta (F55), oznaczone w interfejsie „do sprawdzenia”.
+    interview_answer_proposal = "interview_answer_proposal"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -287,6 +290,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
+    AIFeatureKey.interview_answer_proposal: "Pytania z rozmów — nocne propozycje odpowiedzi do prepu kandydata",
 }
 
 
@@ -546,6 +550,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Baza wiedzy oceny: opis oferty i referencje (bez podpisów listów i notatek)",
         "(bez kontaktów, decydentów, kandydatów, konsultantów i stawek; tytuł szansy to "
         "tekst handlowca)",
+    ],
+    AIFeatureKey.interview_answer_proposal: [
+        "Treść pytań z banku klienta (z debriefów i archiwum Excela), do 20 na wywołanie",
+        "Nazwa stanowiska z rekrutacji, w której pytanie padło, i do 5 jej umiejętności must-have",
+        "(bez nazwy klienta, danych kandydatów, nazwisk managerów i stawek)",
     ],
 }
 

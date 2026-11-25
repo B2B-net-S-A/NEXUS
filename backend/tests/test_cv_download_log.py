@@ -115,6 +115,9 @@ EXPECTED = {
     "editor-preview-pdf": ("cv_generated_document", "pdf", "draft", 1),
     "stage-version-pdf": ("candidate_stage_cv", "pdf", "approved", 1),
     "stage-preview-pdf": ("candidate_stage_cv", "pdf", "draft", 2),
+    # Format pliku klienta (25.11.2026): PDF wyniku generatora z pliku Word.
+    "generated-pdf": ("cv_generated_document", "pdf", "generated", None),
+    "generated-approved-pdf": ("cv_generated_document", "pdf", "approved", 1),
 }
 
 
@@ -141,6 +144,8 @@ async def _entries(user_id: int) -> list[Activity]:
 async def _request(client: AsyncClient, world: dict, name: str, query: str = ""):
     method, url, body = _routes(world)[ROUTE_NAMES.index(name)]
     headers = _headers(world["user_id"])
+    if query and "?" in url:
+        query = "&" + query.removeprefix("?")
     if method == "GET":
         return await client.get(url + query, headers=headers)
     return await client.post(url + query, headers=headers, json=body)

@@ -138,6 +138,10 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         async def execute(self, statement):
             return SimpleNamespace(first=lambda: (8, 4, csv))
 
+        async def scalar(self, statement):
+            # Odczyt formatu pliku z reguły klienta (25.11.2026) — klient bez reguły.
+            return None
+
         def add(self, value):
             self.added.append(value)
 
