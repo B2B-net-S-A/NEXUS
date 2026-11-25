@@ -253,7 +253,7 @@ def test_migration_is_mirrored_in_entrypoint() -> None:
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    assert module.down_revision == "0776_settlement_extra_source_rcp"
+    assert module.down_revision == "0777_client_cv_file_format"
     migration = _squash(path.read_text())
     entry = _squash((BACKEND / "entrypoint.sh").read_text())
     for ddl in (

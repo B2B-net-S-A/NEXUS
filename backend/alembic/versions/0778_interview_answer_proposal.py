@@ -1,7 +1,7 @@
 """Propozycje odpowiedzi w „Pytaniach z rozmów”: źródło odpowiedzi i klucz AI F55.
 
 Revision ID: 0778_interview_answer_proposal
-Revises: 0776_settlement_extra_source_rcp
+Revises: 0777_client_cv_file_format
 
 Decyzja Artura z 25.11.2026: pod każdym pytaniem z banku klienta stoi
 proponowana odpowiedź. Odpowiedź leży jak dotąd w ``interview_questions.
@@ -19,7 +19,7 @@ Lustro w ``entrypoint.sh``.
 from alembic import op
 
 revision = "0778_interview_answer_proposal"
-down_revision = "0776_settlement_extra_source_rcp"
+down_revision = "0777_client_cv_file_format"
 branch_labels = None
 depends_on = None
 
