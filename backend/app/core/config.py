@@ -1146,6 +1146,10 @@ class Settings(BaseSettings):
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.
     INTERVIEW_AUTO_COMPLETE_GRACE_MINUTES: int = 10
+    # „Pytania z rozmów”: ile pytań bez odpowiedzi nocny bieg F55 wysyła do
+    # modelu w jednej nocy (decyzja Artura 25.11.2026). 1000 = zaległe ~3 400
+    # pytań w cztery noce, potem tylko nowe. 0 = nocny bieg nic nie wysyła.
+    INTERVIEW_ANSWER_PROPOSALS_PER_NIGHT: int = 1000
 
     # ── Email (SMTP) ─────────────────────────────────────────────────────────
     # Default: OFF. Włącza się envem SMTP_ENABLED=true. Bez credsów mailer jest

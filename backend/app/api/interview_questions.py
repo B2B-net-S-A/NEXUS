@@ -39,6 +39,7 @@ from app.models.interview_question import (
 from app.models.job import Job
 from app.models.user import User, UserRole
 from app.services.client_access import assert_client_assignable
+from app.services.interview_answer_proposals import source_after_human_edit
 from app.services.question_suggestions import suggest_questions_for_prep
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -237,6 +238,7 @@ async def create_question(
         iq = InterviewQuestion(
             text=payload.text.strip(),
             ideal_answer=payload.ideal_answer,
+            ideal_answer_source=source_after_human_edit(payload.ideal_answer),
             deal_breaker=payload.deal_breaker,
             competence_category_id=payload.competence_category_id,
             skill_tags=payload.skill_tags or [],
@@ -372,6 +374,7 @@ async def update_question(
     if "text" in data and data["text"]:
         iq.text = data["text"].strip()
         iq.normalized_text_hash = _normalize_hash(iq.text)
+    answer_before = (iq.ideal_answer or "").strip()
     for field in (
         "ideal_answer",
         "deal_breaker",
@@ -383,6 +386,10 @@ async def update_question(
     ):
         if field in data:
             setattr(iq, field, data[field])
+    if "ideal_answer" in data and (data["ideal_answer"] or "").strip() != answer_before:
+        # 0778: odpowiedź poprawiona w Bazie pytań nie jest już propozycją AI;
+        # ten sam tekst odesłany z formularza źródła nie zmienia.
+        iq.ideal_answer_source = source_after_human_edit(data["ideal_answer"])
 
     try:
         await db.commit()

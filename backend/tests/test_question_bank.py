@@ -15,7 +15,7 @@ from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal
 from app.models.contact import Contact
-from app.models.interview_question import InterviewQuestionSource
+from app.models.interview_question import InterviewQuestion, InterviewQuestionSource
 from app.models.job import Job
 from tests.test_client_questions_asked import (
     _admin,
@@ -103,3 +103,107 @@ async def test_manual_bank_question_is_not_listed(app_client: AsyncClient):
 
     ids = {i["id"] for i in await _items_for(app_client, headers, w["client"])}
     assert manual not in ids
+
+
+# ── Odpowiedź pod pytaniem (0778, F55, decyzja Artura 25.11.2026) ───────────
+
+
+async def _set_answer(question_id: int, answer: str | None, source: str | None) -> None:
+    async with AsyncSessionLocal() as db:
+        question = await db.get(InterviewQuestion, question_id)
+        question.ideal_answer = answer
+        question.ideal_answer_source = source
+        await db.commit()
+
+
+async def test_answer_and_its_source_are_in_the_bank(app_client: AsyncClient):
+    _, headers = await _admin()
+    w = await _world()
+    excel = await _bank_question(w["client"], "Czym jest MQ?")
+    legacy = await _bank_question(w["client"], "Odpowiedź sprzed 0778")
+    ai = await _bank_question(w["client"], "Playwright")
+    heading = await _bank_question(w["client"], "Bazy danych i optymalizacja")
+    pending = await _bank_question(w["client"], "Czy zna RLS")
+    await _set_answer(excel, "Broker kolejek IBM.", "excel")
+    await _set_answer(legacy, "Bez źródła w bazie.", None)
+    await _set_answer(ai, "Narzędzie do testów E2E.", "ai")
+    await _set_answer(heading, None, "none")
+
+    items = {i["id"]: i for i in await _items_for(app_client, headers, w["client"])}
+    got = {q: (items[q]["answer"], items[q]["answer_source"]) for q in items}
+    assert got[excel] == ("Broker kolejek IBM.", "excel")
+    assert got[legacy] == ("Bez źródła w bazie.", "excel")
+    assert got[ai] == ("Narzędzie do testów E2E.", "ai")
+    assert got[heading] == (None, "none")
+    assert got[pending] == (None, None)
+
+
+async def test_nightly_run_fills_unanswered_marks_headings_and_never_overwrites(
+    app_client: AsyncClient, monkeypatch
+):
+    import json
+    import re
+
+    from app.services import interview_answer_proposals as iap
+
+    w = await _world()
+    answered = await _bank_question(w["client"], "Pytanie z odpowiedzią z Excela")
+    question = await _bank_question(w["client"], "Klasa abstrakcyjna")
+    heading = await _bank_question(w["client"], "Kolejki i komunikacja asynchroniczna")
+    await _set_answer(answered, "Odpowiedź z arkusza.", "excel")
+    await _pin(w["java"], question, user_id=None)
+    mine = {question, heading}
+    prompts: list[str] = []
+    sent_ids: set[int] = set()
+
+    def fake_model(prompt: str) -> str:
+        prompts.append(prompt)
+        payload = re.search(r"<pytania>\n(.*)\n</pytania>", prompt, re.S)
+        items = json.loads(payload.group(1))
+        sent_ids.update(i["id"] for i in items)
+        # Tylko własne wiersze: wspólna baza testów ma pytania innych testów.
+        return json.dumps(
+            [
+                {"id": i["id"], "answer": None if i["id"] == heading else "Propozycja."}
+                for i in items
+                if i["id"] in mine
+            ]
+        )
+
+    monkeypatch.setattr(iap, "_call_model", fake_model)
+    monkeypatch.setattr(iap, "api_key_configured", lambda _m: True)
+
+    async with AsyncSessionLocal() as db:
+        summary = await iap.run(db, limit=1_000_000)
+    assert summary["status"] == "ok"
+    sent = " ".join(prompts)
+    assert mine <= sent_ids and answered not in sent_ids
+    assert "Java Developer" in sent  # stanowisko z przypięcia importu
+    assert "Asked-" not in sent  # bez nazwy klienta
+
+    async with AsyncSessionLocal() as db:
+        rows = {
+            q.id: (q.ideal_answer, q.ideal_answer_source)
+            for q in [
+                await db.get(InterviewQuestion, i)
+                for i in (answered, question, heading)
+            ]
+        }
+        assert rows == {
+            answered: ("Odpowiedź z arkusza.", "excel"),
+            question: ("Propozycja.", "ai"),
+            heading: (None, "none"),
+        }
+        # Zapis warunkowy: odpowiedź, która już stoi, zostaje.
+        assert await iap.store(db, {answered: "Nadpisanie.", question: None}) == (0, 0)
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.get(InterviewQuestion, answered)
+        ).ideal_answer == "Odpowiedź z arkusza."
+        assert (await db.get(InterviewQuestion, question)).ideal_answer == "Propozycja."
+
+    # Druga noc nie wysyła ponownie ani odpowiedzi, ani nagłówka.
+    sent_ids.clear()
+    async with AsyncSessionLocal() as db:
+        await iap.run(db, limit=1_000_000)
+    assert not mine & sent_ids

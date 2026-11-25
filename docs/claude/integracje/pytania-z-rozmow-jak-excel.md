@@ -28,3 +28,41 @@ lista debriefów w Kalendarzu (A) i fakt w nagłówku rekrutacji (C) odpadły.
   następnego dnia (`upcomingAgenda`), więc link z okienka „Kalendarz” pokazywał
   samo „zrobione”. Komunikat „nie ma w Twoim zakresie” stoi nad Tablicą (pod nią był
   poza ekranem 1280 × 720) i prowadzi do profilu osoby (Notatki → Rozmowy).
+
+## Strona stanowiska i proponowana odpowiedź pod pytaniem (25.11.2026)
+
+Decyzja Artura z 25.11.2026, wariant A z makiet: ekran zaczyna się listą
+stanowisk, a pytania czyta się na stronie stanowiska, bo rekruter przygotowuje
+kandydata pod jedną rolę, nie pod cały bank klienta. Pod każdym pytaniem stoi
+proponowana odpowiedź.
+
+- **Źródło odpowiedzi** to `interview_questions.ideal_answer_source` (0778),
+  w API `answer` i `answer_source` przy `QuestionBankItemOut`:
+  `excel` — odpowiedź z archiwum Excela (67 pytań), `manual` — wpisana
+  w Bazie pytań, `ai` — nocny bieg F55, `none` — nagłówek działu, `null` —
+  jeszcze nie przeliczone. Wiersz z odpowiedzią bez źródła (sprzed 0778)
+  dostaje je jak w backfillu: `excel` przy archiwum, `manual` przy reszcie.
+- **Odpowiedź AI jest zawsze oznaczona „do sprawdzenia”**, bo model pisze ją
+  bez wiedzy o projekcie klienta, a rekruter przekazuje ją kandydatowi dalej.
+- **Nocny bieg F55** (`services/interview_answer_proposals.py`, pętla
+  `interview_answer_proposals`, okno 02:40–05:00 Warszawa, raz na dobę):
+  pytania `client_debrief` i `legacy_import` bez odpowiedzi i bez źródła,
+  najstarsze pierwsze, do `INTERVIEW_ANSWER_PROPOSALS_PER_NIGHT` (1000) na noc,
+  bo zaległe ok. 3 400 pytań mają zejść w kilka nocy bez jednego dużego
+  rachunku. Partie po 20 w obrębie klienta; przy pytaniu idzie stanowisko
+  (tytuł i do 5 must-have rekrutacji, w której padło), bez nazwy klienta,
+  kandydatów, managerów i stawek. Zapis warunkowy: odpowiedź, która już stoi,
+  zostaje. Nieudana partia wraca następnej nocy, trzy z rzędu kończą noc.
+  Ręcznie: `python -m scripts.interview_answer_proposals_run [--limit N]`.
+  Na stagingu pętla stoi (`STAGING_BLOCKED_TASKS`), bo to drugi koszt modelu.
+- **Nagłówki rozstrzyga model, nie kod.** Debrief zapisuje etykiety działów
+  („Kolejki i komunikacja asynchroniczna”) jako osobne linie, ale na kopii
+  produkcji z 25.11 z 32 krótkich wierszy bez „?” nagłówkami były tylko 4,
+  a reszta to krótkie pytania („Playwright”, „Czy zna RLS”). Dlatego nie ma
+  reguły po liczbie słów ani po znaku zapytania. Model zwraca `null` tylko dla
+  etykiety, pod którą stoją kolejne pytania tej samej notatki, albo dla tekstu,
+  który nie jest pytaniem; taki wiersz dostaje `none`, ekran rysuje go jako
+  nagłówek i nie wraca on do modelu co noc.
+- **Poprawka w Bazie pytań** zmienia źródło na `manual`; wyczyszczona
+  odpowiedź wraca do `null` (nie `none`), bo pusta odpowiedź nie robi
+  z pytania nagłówka.

@@ -1,10 +1,13 @@
 "use client";
 
+import { Suspense } from "react";
+
 import { InterviewQuestionBank } from "@/components/v2/recruitment/InterviewQuestionBank";
 
 /**
- * Rekrutacje → „Pytania z rozmów”: baza pytań klientów
- * z debriefów i archiwum Excela, z filtrem po kliencie, stanowisku i managerze.
+ * Rekrutacje → „Pytania z rozmów”: baza pytań klientów z debriefów i archiwum
+ * Excela — lista stanowisk, a w stanowisku pytania z propozycją odpowiedzi.
+ * `Suspense` jest dla `useSearchParams` (stanowisko w adresie).
  */
 export default function InterviewQuestionsPage() {
   return (
@@ -13,11 +16,13 @@ export default function InterviewQuestionsPage() {
         <p className="text-sm text-muted-foreground">Rekrutacje</p>
         <h1 className="text-2xl font-bold tracking-[-0.02em] text-foreground">Pytania z rozmów</h1>
         <p className="mt-1 max-w-4xl text-sm text-muted-foreground">
-          Pytania, które klienci zadali na rozmowach. Każdy debrief dopisuje je sam, stanowisko i manager
-          przychodzą z rekrutacji. To samo pytanie u tego samego klienta jest jednym wierszem.
+          Pytania, które klienci zadali na rozmowach, pogrupowane po stanowisku. Wejdź w stanowisko, żeby
+          zobaczyć pytania i propozycje odpowiedzi. Każdy debrief dopisuje pytania sam.
         </p>
       </div>
-      <InterviewQuestionBank />
+      <Suspense fallback={null}>
+        <InterviewQuestionBank />
+      </Suspense>
     </div>
   );
 }

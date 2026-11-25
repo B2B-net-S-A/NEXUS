@@ -2711,6 +2711,41 @@
     ]
   },
   {
+    "id": "lekcja-pytania-po-stanowisku",
+    "title": "Pytania z rozmów po stanowisku",
+    "novelties": [
+      "pytania-z-rozmow-po-stanowisku"
+    ],
+    "task": "W Rekrutacjach otwórz „Pytania z rozmów” i wejdź w dowolne stanowisko z listy.",
+    "solo_href": "/jobs/pytania",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.question-bank.position"
+    },
+    "questions": [
+      {
+        "q": "Gdzie widzisz pytania klienta z konkretnej rekrutacji?",
+        "options": [
+          "Po kliknięciu stanowiska na liście",
+          "Na jednej długiej liście wszystkich pytań",
+          "Tylko w Excelu"
+        ],
+        "answer": 0,
+        "explain": "Lista pokazuje stanowiska. Pytania i odpowiedzi otwierasz kliknięciem stanowiska, a link do niego możesz wysłać rekruterowi."
+      },
+      {
+        "q": "Przy pytaniu jest „Propozycja odpowiedzi AI”. Co z nią robisz?",
+        "options": [
+          "Sprawdzam, zanim przekażę kandydatowi",
+          "Przekazuję bez czytania",
+          "Nic, to odpowiedź klienta"
+        ],
+        "answer": 0,
+        "explain": "Odpowiedź AI dopisuje się w nocy i jest tylko propozycją. Odpowiedzi z dawnego Excela mają osobny podpis."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

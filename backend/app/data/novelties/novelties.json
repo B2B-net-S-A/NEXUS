@@ -5211,6 +5211,26 @@
     "dot_anchor": "person.panel.conversation-mode"
   },
   {
+    "id": "pytania-z-rozmow-po-stanowisku",
+    "title": "Pytania z rozmów po stanowisku, z odpowiedziami",
+    "why": "Najpierw stanowiska, po kliknięciu jego pytania z propozycją odpowiedzi do prepu. Odpowiedź AI dopisuje się w nocy i jest do sprawdzenia. Link do stanowiska wyślesz rekruterowi.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacje → Pytania z rozmów → stanowisko",
+    "href": "/jobs/pytania",
+    "section": "pipeline",
+    "dot_anchor": "jobs.question-bank.positions",
+    "used_anchor": "jobs.question-bank.position"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
