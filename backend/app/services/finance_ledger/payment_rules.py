@@ -103,6 +103,8 @@ ACK_LABELS: dict[str, str] = {
     "czy podzielona płatność jest obowiązkowa (zał. 15).",
     "garnishment": "Zajęcie wierzytelności: część płatności idzie na rachunek organu "
     "— sprawdź podział przed paczką.",
+    "double_payment": "Możliwa podwójna zapłata: inna faktura tego dostawcy ma tę samą "
+    "kwotę albo ten sam numer — sprawdź przed paczką.",
 }
 HINT_LABELS: dict[str, str] = {
     "art_105a": "Od tego dostawcy w miesiącu ponad 50 000 zł netto — przy usługach "
