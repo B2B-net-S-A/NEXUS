@@ -3,24 +3,32 @@
  *
  * Wygląd maila „Pasek postępu” (#3594, decyzja Artura 19.11.2026): jedna
  * kolumna, karta z paskiem Zgłoszenie ✓ · CV ✓ · Twoje warunki, nagłówek
- * z czerwoną kropką, grafitowy przycisk, jasna stopka. Ciemny tryb przez
+ * z czerwoną kropką, ciemny przycisk, jasna stopka. Ciemny tryb przez
  * `prefers-color-scheme`, jak w mailu. Wszystko pod `.wr-root`, bo CSS z trasy
  * zostaje w dokumencie po nawigacji klienckiej i nie może przeciec do NEXUSA.
+ *
+ * Kolory wariantu 5 „Czerwień w gradientach tech” (decyzja Artura 25.11.2026,
+ * DESIGN.md strony b2bnetwork-www), te same co w mailu (`candidate_terms.py`):
+ * czerwień #C42329, tekst czerwony #B0222A, burgund-obsydian #1F1115 zamiast
+ * grafitu, tło w kamieniu różanym #F4EAE8, żeby białe karty odcinały się jak
+ * dotąd. Bez gradientu, jak w mailu. W ciemnym trybie czerwień na karcie
+ * #2E1A1F miałaby 2,82:1, więc pasek i kropka biorą ciepły blask #D43424
+ * (3,36:1), a drobny tekst morelowy #FFD6C9 (12,2:1).
  */
 
 .wr-root {
-  --wr-snow: #f4f3f0;
-  --wr-snow-deep: #ebe9e3;
+  --wr-snow: #f4eae8;
+  --wr-snow-deep: #e6d6d3;
   --wr-paper: #ffffff;
-  --wr-ink: #1a1816;
-  --wr-ink-soft: #5c5a55;
-  --wr-rule: #ece8e1;
-  --wr-field: rgba(26, 24, 22, 0.25);
-  --wr-red: #d62e40;
-  --wr-red-text: #c42536;
+  --wr-ink: #1f1115;
+  --wr-ink-soft: #5e4a4e;
+  --wr-rule: #e6d6d3;
+  --wr-field: rgba(31, 17, 21, 0.25);
+  --wr-red: #c42329;
+  --wr-red-text: #b0222a;
   --wr-on-ink: #ffffff;
-  --wr-err: #b8212f;
-  --wr-err-bg: #f8e3e5;
+  --wr-err: #961621;
+  --wr-err-bg: #f9e3e1;
   --wr-display: var(--font-kr-display), "Helvetica Neue", Arial, sans-serif;
 
   min-height: 100vh;
@@ -37,18 +45,18 @@
 
 @media (prefers-color-scheme: dark) {
   .wr-root {
-    --wr-snow: #0e0e0d;
-    --wr-snow-deep: #222120;
-    --wr-paper: #181715;
-    --wr-ink: #f3f0e9;
-    --wr-ink-soft: #a9a399;
-    --wr-rule: #33302b;
-    --wr-field: rgba(243, 240, 233, 0.28);
-    --wr-red: #e5485a;
-    --wr-red-text: #ff8a95;
-    --wr-on-ink: #141312;
-    --wr-err: #ff8a95;
-    --wr-err-bg: #3a1a1e;
+    --wr-snow: #1f1115;
+    --wr-snow-deep: #3d2a2e;
+    --wr-paper: #2e1a1f;
+    --wr-ink: #f7efec;
+    --wr-ink-soft: #c4b2b4;
+    --wr-rule: #3d2a2e;
+    --wr-field: rgba(247, 239, 236, 0.28);
+    --wr-red: #d43424;
+    --wr-red-text: #ffd6c9;
+    --wr-on-ink: #1f1115;
+    --wr-err: #ffd6c9;
+    --wr-err-bg: #4a1a22;
   }
 }
 

@@ -1497,6 +1497,12 @@ class Settings(BaseSettings):
     # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
     CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
     CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
+    # Historia stawek z faktur KSeF (0782): pętla porównuje stawkę z faktur
+    # sprzedaży i faktur konsultantów z harmonogramem kontraktu (karta na
+    # kontrakcie). Wpis automatyczny tylko historii, która nie zmienia
+    # dzisiejszej stawki — włączony od razu (decyzja Artura 25.11.2026).
+    CONTRACT_RATE_HISTORY_ENABLED: bool = True
+    CONTRACT_RATE_HISTORY_AUTO_APPLY: bool = True
     # Dane firm z umów (E5a, 0755): pętla czyta podpisaną umowę aktywnych
     # kontraktów B2B bez danych firmy w Generatorze (paczka 25 co 10 min),
     # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu

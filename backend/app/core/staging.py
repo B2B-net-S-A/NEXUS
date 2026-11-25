@@ -55,6 +55,9 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         # na stagingu, pusta kolejka nic nie robi; bez pętli nie da się
         # przeklikać funkcji przed PR-em (wołania AI przepuszcza zapora).
         "duty_search",
+        # Historia stawek z faktur KSeF (0782): sama baza, bez wołań na zewnątrz;
+        # na stagingu pokazuje karty i wpisy automatyczne do przeklikania.
+        "contract_rate_history",
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",
