@@ -12,7 +12,7 @@ Kontrakty:
 - osoba z samą umową nie ma pliku do generacji (automat pomija „brak pliku CV”),
   a komunikat mówi, że w profilu jest umowa, nie CV;
 - wskazanie umowy wprost kończy się komunikatem, nie CV z umowy;
-- nazwiska i słowa z „umow” w środku (Gumowski, podsumowanie) oraz „contractor”
+- nazwiska i słowa z „umow” w środku (Fikumowski, podsumowanie) oraz „contractor”
   zostają CV.
 
 Dane fikcyjne.
@@ -63,8 +63,8 @@ def test_contract_names_are_not_cv(filename: str) -> None:
     "filename",
     [
         OWN,
-        "Jan Gumowski.pdf",
-        "jan_szumowski_resume.pdf",
+        "Jan Fikumowski.pdf",
+        "jan_fikumowski_resume.pdf",
         "podsumowanie_kariery.pdf",
         "Cloud_B2B_contractor.pdf",
         "Contract Manager - Jan Fikcyjny.pdf",

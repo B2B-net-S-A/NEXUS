@@ -46,8 +46,8 @@ _CONTRACT = "Umowa B2B nr 1_Fikcyjna Ewa_sign.pdf"
         ("Ewa_Fikcyjna_Contract_Manager.pdf", False),
         ("Ewa Fikcyjna.pdf", False),
         # 25.11.2026: „umow” w środku nazwiska albo słowa i „contractor” to nie umowa.
-        ("Jan Gumowski.pdf", False),
-        ("Ewa Szumowska.docx", False),
+        ("Jan Fikumowski.pdf", False),
+        ("Ewa Fikumowska.docx", False),
         ("podsumowanie_kariery.pdf", False),
         ("Cloud_contractor_Fikcyjny.pdf", False),
         ("NDA_Ewa Fikcyjna.pdf", True),

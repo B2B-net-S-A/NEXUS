@@ -53,8 +53,8 @@ logger = logging.getLogger(__name__)
 RECEIPT_KEY = "contract_as_cv_repair_2026_10"
 _CV_EXT = (".pdf", ".doc", ".docx")
 # 25.11.2026: wzorzec wspólny z generatorem CV (`cv_source.looks_like_contract_file`).
-# Poprzedni („umow|umów|contract|agreement”) łapał nazwiska (Gumowski,
-# Szumowska), „podsumowanie” i „contractor”, a pomijał NDA.
+# Poprzedni („umow|umów|contract|agreement”) łapał nazwiska z „umow” w środku
+# (Fikumowski), „podsumowanie” i „contractor”, a pomijał NDA.
 _CONTRACT_PATTERN = _cv_source._CONTRACT_WORDS
 _CONTRACT_NAME = re.compile(_CONTRACT_PATTERN, re.IGNORECASE)
 _CV_NAME = re.compile(_cv_source._CV_WORDS, re.IGNORECASE)

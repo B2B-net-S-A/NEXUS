@@ -227,7 +227,7 @@ def client_cv_file_clause() -> ColumnElement[bool]:
 
 # 25.11.2026: umowa albo NDA w nazwie pliku, bez CV w nazwie
 # (`generator-cv/umowa-i-nda-nie-sa-zrodlem-cv.md`). „umow” tylko na początku
-# słowa (nie Gumowski, podsumowanie), „contractor” to opis kandydata,
+# słowa (nie nazwisko z „umow” w środku, nie podsumowanie), „contractor” to opis kandydata,
 # „Contract Manager” to stanowisko. Wzorce działają tak samo w Pythonie
 # i w Postgresie (`~*`).
 _CONTRACT_WORDS = (

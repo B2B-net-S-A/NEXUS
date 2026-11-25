@@ -31,7 +31,7 @@ plik do CV (138 jako główne CV), 9 nie miało innego pliku.
 `cv_source._CONTRACT_WORDS` (Python i Postgres `~*` dają to samo; sprawdzone na
 118 145 nazwach z kopii produkcji, 703 trafienia, 0 różnic):
 
-- „umow”/„umów” tylko na początku słowa: nazwiska Gumowski, Szumowska
+- „umow”/„umów” tylko na początku słowa: nazwiska z „umow” w środku (np. fikcyjny Fikumowski)
   i „podsumowanie” zostają CV;
 - „contract”, ale nie „contractor” (opis kandydata); „Contract Manager” to stanowisko;
 - „agreement”, „NDA” jako osobne słowo, „non-disclosure”;
