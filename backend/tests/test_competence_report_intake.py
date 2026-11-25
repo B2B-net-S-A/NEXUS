@@ -1,4 +1,4 @@
-"""Raport kompetencji: przyjęcie warunków ze strony i rekord raportu (0785).
+"""Raport kompetencji: przyjęcie warunków ze strony i rekord raportu (0792).
 
 Decyzje Artura 25.11.2026: ``source=baza`` z ``report=1`` niesie warunki
 (stawka, obecna stawka, forma, tryby, dni w biurze, miasta, start). Każde pole
@@ -528,10 +528,10 @@ async def test_owner_round_robin_skips_inactive(api, empty_pool):
 
 
 def test_migration_reads_the_shared_ddl() -> None:
-    migration = (_BACKEND / "alembic/versions/0785_competence_reports.py").read_text(
+    migration = (_BACKEND / "alembic/versions/0792_competence_reports.py").read_text(
         encoding="utf-8"
     )
-    assert 'down_revision = "0784_month_check_cases"' in migration
+    assert 'down_revision = "0791_legal_client_fit"' in migration
     assert "for stmt in schema.TABLE_DDL:" in migration
     assert "for stmt in schema.DOWNGRADE_DDL:" in migration
 

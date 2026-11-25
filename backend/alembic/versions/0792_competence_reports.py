@@ -1,7 +1,7 @@
 """Raporty kompetencji w 24 godziny i lista opiekunów.
 
-Revision ID: 0785_competence_reports
-Revises: 0784_month_check_cases
+Revision ID: 0792_competence_reports
+Revises: 0791_legal_client_fit
 
 Decyzje Artura 25.11.2026: osoba, która wyśle z nowej strony CV razem
 z warunkami (``report=1``), dostaje w 24 godziny raport e-mailem. Tabela
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services import competence_report_ddl as schema
 
-revision = "0785_competence_reports"
-down_revision = "0784_month_check_cases"
+revision = "0792_competence_reports"
+down_revision = "0791_legal_client_fit"
 branch_labels = None
 depends_on = None
 
