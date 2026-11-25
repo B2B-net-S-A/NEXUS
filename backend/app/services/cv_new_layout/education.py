@@ -403,3 +403,67 @@ def education_full(ctx: Ctx, certs_hidden: int) -> str:
     if certs_hidden:
         out += cert_table(ctx, certs_by_year(ctx.doc.certifications))
     return out
+
+
+# ---------- bez wieńca, gdy wieniec stoi przy wyróżniku (Artur 25.11.2026, wariant ED) ----------
+# Ikony: biret przy „Wykształceniu”, odznaka przy „Certyfikatach”; kolor wprost w atrybutach,
+# bo WeasyPrint nie stosuje CSS do wnętrza SVG.
+ICON_SCHOOL = (
+    "<svg class='ic' viewBox='0 0 24 24'><g fill='none' stroke='#E73748' stroke-width='1.7' "
+    "stroke-linejoin='round'><path d='M2 9l10-5 10 5-10 5z'/><path d='M6 11v5c2.5 2 9.5 2 12 0v-5'/>"
+    "<path d='M22 9v6'/></g></svg>"
+)
+ICON_CERT = (
+    "<svg class='ic' viewBox='0 0 24 24'><g fill='none' stroke='#E73748' stroke-width='1.7' "
+    "stroke-linejoin='round'><circle cx='12' cy='9' r='6'/><path d='M8.5 14L7 22l5-3 5 3-1.5-8'/>"
+    "<path d='M9.5 9l1.8 1.8L15 7.5'/></g></svg>"
+)
+
+
+def _dot(*parts: str) -> str:
+    return " · ".join(esc(p) for p in parts if p)
+
+
+def education_plain(ctx: Ctx) -> tuple[str, int]:
+    """Edukacja bez wieńca: „Wykształcenie” (kierunek, stopień · rok, uczelnia) obok
+    „Certyfikaty i szkolenia · N” (nazwa, wystawca · rok; wystawca znika, gdy stoi w nazwie)."""
+    schools = ctx.doc.education
+    certs = certs_by_year(ctx.doc.certifications)
+    shown, hidden = _certs_page1(ctx, certs)
+    left = right = ""
+    top = highest_school(schools)
+    if top is not None:
+        field_, degree = split_degree(top.degree or top.institution)
+        uni = top.institution if top.degree else ""
+        meta = _dot(degree, last_year(top.dates))
+        left = (
+            f"<div class='edh'>{ICON_SCHOOL}<span>{esc(ctx.t['schooling_head'])}</span></div>"
+            f"<div class='edi'><div class='edf'>{esc(field_)}</div>"
+            + (f"<div class='edd'>{meta}</div>" if meta else "")
+            + (f"<div class='edu'>{esc(uni)}</div>" if uni else "")
+            + "</div>"
+            + _more(ctx, "school", len(schools) - 1)
+        )
+    if shown:
+        rows = []
+        for c in shown:
+            issuer = (
+                c.issuer if c.issuer and c.issuer.lower() not in c.name.lower() else ""
+            )
+            meta = _dot(issuer, c.year)
+            rows.append(
+                f"<div class='edi c'><div class='edf'>{esc(c.name)}</div>"
+                + (f"<div class='edd'>{meta}</div>" if meta else "")
+                + "</div>"
+            )
+        right = (
+            f"<div class='edh'>{ICON_CERT}<span>{esc(ctx.t['certs_training'])} · {len(certs)}</span></div>"
+            + "".join(rows)
+            + _more(ctx, "certificate", hidden)
+        )
+    if not (left or right):
+        return "", hidden
+    return (
+        f"<div class='edp'><div>{left or right}</div><div>{right if left else ''}</div></div>",
+        hidden,
+    )

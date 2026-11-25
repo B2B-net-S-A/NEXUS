@@ -223,6 +223,7 @@ function memoryApi(initial: CVBrandedState): {
       const extras: CvPage1Extras = { ...(current.page1_extras ?? {}) };
       if ("result_index" in payload) extras.result_index = payload.result_index ?? null;
       if ("result_text" in payload) extras.result_text = payload.result_text?.trim() || null;
+      if (payload.highlight) extras.highlight = payload.highlight;
       current = { ...current, page1_extras: extras };
       return respond(current);
     },

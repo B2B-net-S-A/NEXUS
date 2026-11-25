@@ -17,6 +17,7 @@ from typing import Any, Optional
 from starlette.concurrency import run_in_threadpool
 
 from app.services.cv_layout import compose_page1_why, page1_wreath
+from app.services.cv_new_layout.highlight import choice_from_extras
 from app.services.cv_new_content import cv_json_from_editor_html
 
 MSG_RENDER_FAILED = (
@@ -57,11 +58,14 @@ class NewCvPdf:
 
 @dataclass(frozen=True)
 class CvFacts:
-    """Fakty spoza treści edytora (Artur 23.11.2026): miasto kandydata obok języków
-    i wymagania MUST z Profilu Championa (certyfikat z MUST idzie do wieńca)."""
+    """Fakty spoza treści edytora (Artur 23.11.2026): miasto kandydata obok języków,
+    wymagania MUST z Profilu Championa (certyfikat z MUST idzie do wieńca) i nazwy
+    klienta rekrutacji (wyróżnik „Doświadczenie w …”, Artur 25.11.2026)."""
 
     location: str = ""
     must_have: tuple[str, ...] = ()
+    # nazwa, nazwa wyświetlana i pełna nazwa klienta rekrutacji — wyróżnik „praca u klienta”
+    client_names: tuple[str, ...] = ()
 
 
 def must_names(champion_profile: Any) -> tuple[str, ...]:
@@ -90,12 +94,29 @@ async def cv_facts(db, candidate_id: Optional[int], job_id: Optional[int]) -> Cv
         if candidate_id
         else None
     )
-    profile = (
-        await db.scalar(select(Job.champion_profile).where(Job.id == job_id))
+    from app.models.client import Client
+
+    row = (
+        (
+            await db.execute(
+                select(
+                    Job.champion_profile,
+                    Client.name,
+                    Client.display_name,
+                    Client.legal_name,
+                )
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id == job_id)
+            )
+        ).first()
         if job_id
         else None
     )
-    return CvFacts((location or "").strip(), must_names(profile))
+    profile = row[0] if row else None
+    names = tuple(
+        dict.fromkeys(n.strip() for n in (row[1:] if row else ()) if n and n.strip())
+    )
+    return CvFacts((location or "").strip(), must_names(profile), names)
 
 
 def _consent_image(data: Optional[bytes]) -> tuple[Optional[bytes], Optional[str]]:
@@ -151,9 +172,11 @@ def _render(
             **content.cv_json,
             "candidate_location": facts.location,
             "must_have": list(facts.must_have),
+            "client_names": list(facts.client_names),
         },
         why=compose_page1_why(content.cv_json.get("why_points") or [], extras),
         wreath=page1_wreath(extras),
+        highlight=choice_from_extras(extras),
         # Renderer wstawia klauzulę jako HTML — tekst z edytora idzie escapowany.
         rodo_clause_html=html.escape(content.rodo_clause) or None,
         consent_image=consent,

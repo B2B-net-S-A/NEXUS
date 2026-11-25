@@ -2,6 +2,10 @@
 
   PATCH  /api/candidates/stages/{stage_id}/cv/page1
 
+Wyróżnik kandydata (25.11.2026): `highlight` = „auto” (praca u klienta
+rekrutacji, z dat stanowisk), „custom” (etykieta, znak w wieńcu, zdanie
+rekrutera) albo „off”.
+
 Trzeci punkt strony 1 to dodatek CV (`candidate_stage_cvs.page1_extras`), nie
 treść edytora: zdanie wpisane przez rekrutera (`result_text`) albo wybrany
 sprawdzony wynik z listy (`result_index` w `results`). Punkty 1–2 („lata”,
@@ -27,6 +31,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.schemas.candidate_stage_cv import CVBrandedResponse
 from app.services import cv_layout as layout_service
+from app.services.cv_new_layout.highlight import LABEL_MAX, TEXT_MAX, TOKEN_MAX
 
 router = APIRouter()
 
@@ -39,6 +44,18 @@ MSG_EMPTY = "Podaj wynik do strony 1."
 MSG_BAD_INDEX = "Tego wyniku nie ma na liście sprawdzonych wyników."
 
 
+MSG_HIGHLIGHT_EMPTY = "Wyróżnik potrzebuje etykiety i zdania."
+
+
+class HighlightUpdate(BaseModel):
+    """Wyróżnik pod nazwiskiem: „auto” = praca u klienta rekrutacji, „custom” = wpis rekrutera."""
+
+    mode: Literal["auto", "custom", "off"]
+    label: Optional[str] = Field(default=None, max_length=LABEL_MAX)
+    token: Optional[str] = Field(default=None, max_length=TOKEN_MAX)
+    text: Optional[str] = Field(default=None, max_length=TEXT_MAX)
+
+
 class Page1Update(BaseModel):
     """`result_index` wybiera sprawdzony wynik (i czyści wpisane zdanie, gdy
     `result_text: null`); `result_text` = zdanie rekrutera, pusty = brak."""
@@ -47,6 +64,7 @@ class Page1Update(BaseModel):
     result_text: Optional[str] = Field(default=None, max_length=RESULT_TEXT_MAX * 2)
     # Wieniec na stronie 1 (23.11.2026): „auto” = certyfikat z MUST klienta, inaczej dyplom.
     wreath: Optional[Literal["auto", "cert", "school"]] = None
+    highlight: Optional[HighlightUpdate] = None
 
 
 def _verified_results(extras: dict) -> list:
@@ -81,6 +99,20 @@ def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
             merged["result_text"] = text
         else:
             merged.pop("result_text", None)
+    if "highlight" in sent:
+        choice = payload.highlight
+        if choice is None or choice.mode == "auto":
+            merged.pop("highlight", None)
+        elif choice.mode == "off":
+            merged["highlight"] = {"mode": "off"}
+        else:
+            fields = {
+                key: " ".join((getattr(choice, key) or "").split())
+                for key in ("label", "token", "text")
+            }
+            if not (fields["label"] and fields["text"]):
+                raise HTTPException(422, MSG_HIGHLIGHT_EMPTY)
+            merged["highlight"] = {"mode": "custom", **fields}
     if "wreath" in sent:
         if payload.wreath in (None, "auto"):
             merged.pop("wreath", None)
@@ -99,12 +131,17 @@ async def update_stage_cv_page1(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Strona 1 „Nowego CV”: najmocniejszy wynik (wpisany albo z listy) i wieniec."""
+    """Strona 1 „Nowego CV”: najmocniejszy wynik (wpisany albo z listy), wieniec i wyróżnik."""
     from app.services.new_cv_company_cv import locked_after_send
 
     if not layout_service.enabled():
         raise HTTPException(409, layout_service.MSG_DISABLED)
-    if not payload.model_fields_set & {"result_index", "result_text", "wreath"}:
+    if not payload.model_fields_set & {
+        "result_index",
+        "result_text",
+        "wreath",
+        "highlight",
+    }:
         raise HTTPException(422, MSG_EMPTY)
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     if csv.branded_status == "none":
@@ -129,6 +166,7 @@ async def update_stage_cv_page1(
                     "result_index": merged.get("result_index"),
                     "result_text": bool(merged.get("result_text")),
                     "wreath": merged.get("wreath", "auto"),
+                    "highlight": (merged.get("highlight") or {}).get("mode", "auto"),
                     "version": csv.branded_version,
                 },
             )
