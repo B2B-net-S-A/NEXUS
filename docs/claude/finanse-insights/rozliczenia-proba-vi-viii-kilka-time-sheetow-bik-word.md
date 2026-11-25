@@ -1,6 +1,6 @@
 # Rozliczenia: kilka Time Sheetów na różne prace, raport BIK w Wordzie, stopka RODO (próba VI–VIII 2026)
 
-<!-- indeks: merge_projects, Time Sheet z 2 plików, dwa PDF-y dwa zamówienia, Polkomtel dwa projekty, poprawiona wersja Time Sheetu, Czas (godz.), Czas- (godz.), BIK DOCX, raport BIK w Wordzie, osoba z nazwy pliku BIK, Act MD z jednostką, 17,5MD, Vendor's file, stopka RODO, 2016/679, Akceptacja za inny miesiąc kwiecień 2016 -->
+<!-- indeks: merge_projects, Time Sheet z 2 plików, dwa PDF-y dwa zamówienia, Polkomtel dwa projekty, poprawiona wersja Time Sheetu, Czas (godz.), Czas- (godz.), BIK DOCX, raport BIK w Wordzie, osoba z nazwy pliku BIK, Act MD z jednostką, 17,5MD, Vendor's file, stopka RODO, 2016/679, Akceptacja za inny miesiąc kwiecień 2016, showZeroes, SheetView TypeError, xlsx.load_workbook -->
 
 Od 25.11.2026. Powtórka próby rozliczeń na VI–VIII 2026 (klon kopii produkcji, poczta
 01.06–15.10) pokazała cztery luki odczytu. Prawda to suma pozycji faktur Finansów
@@ -45,3 +45,12 @@ o więcej niż 1 pomijamy.
 - Deklaracja w czasie przyszłym („w dniach 27–31 będę niedostępna”) dalej nie jest
   deklaracją (`mail_declaration`, decyzja z 23.11.2026); MD wpisują Finanse.
 - Skan PDF bez tekstu i arkusz z datami z innego roku (Orlen) — bez MD.
+
+## Arkusz z `showZeroes` (`client_settlements/xlsx.py`)
+
+Arkusz zapisany poza Excelem ma w widoku arkusza `showZeroes` zamiast `showZeros`. openpyxl
+w trybie `read_only` rzuca wtedy `TypeError` dopiero przy czytaniu wierszy, poza `try`
+wokół `load_workbook`, i wywracał cały mail z poczty rozliczeń (5 prób, porzucenie;
+w próbie mail PFRON z 01.07 i jeden z 03.08). Każdy czytnik XLSX rozliczeń otwiera plik
+przez `xlsx.load_workbook`, który usuwa ten atrybut z XML-a arkuszy; dane zostają bez zmian.
+Nowy czytnik XLSX też otwiera plik przez `xlsx.load_workbook`, nie wprost przez openpyxl.

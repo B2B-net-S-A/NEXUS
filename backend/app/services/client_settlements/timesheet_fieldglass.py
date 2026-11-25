@@ -21,14 +21,13 @@ Plik spoza wzoru daje ``None``.
 from __future__ import annotations
 
 import csv
-import io
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Mapping, Optional
 
-from app.services.client_settlements import timesheet_pko
+from app.services.client_settlements import timesheet_pko, xlsx
 from app.services.client_settlements.rcp_bnp import _dec
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -137,12 +136,9 @@ def parse_rows(rows: list[list[str]]) -> Optional[ParsedFieldglass]:
 def parse(content: bytes, mime: str) -> Optional[ParsedFieldglass]:
     if mime != XLSX:
         return None
-    import openpyxl
 
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), read_only=True, data_only=True
-        )
+        workbook = xlsx.load_workbook(content, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 — uszkodzony plik nie blokuje przyjęcia
         logger.info("rozliczenia: XLSX nieczytelny (%s)", type(exc).__name__)
         return None
