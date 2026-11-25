@@ -262,3 +262,38 @@ def from_next_month(event: date) -> Deadline:
             f"{polish_date(start)}.",
         ),
     )
+
+
+def months_word(count: int) -> str:
+    """„1 miesiąc”, „3 miesiące”, „5 miesięcy”."""
+    if count == 1:
+        return "1 miesiąc"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} miesiące"
+    return f"{count} miesięcy"
+
+
+def notice_from_next_month(delivered_on: date, months: int) -> Deadline:
+    """Wypowiedzenie z okresem „liczonym od kolejnego miesiąca” (umowy z 2025 r.).
+
+    Okres zaczyna się 1. dnia miesiąca po doręczeniu i trwa ``months``
+    miesięcy (art. 112 KC), więc umowa kończy się ostatniego dnia ostatniego
+    z nich: doręczenie 12 listopada + 1 miesiąc = 1–31 grudnia. Dzień końca
+    wychodzi taki sam jak przy „na koniec miesiąca kalendarzowego” — różni
+    się podstawa i opis kroków, które pismo pokazuje Partnerowi.
+    """
+    if months < 1:
+        raise ValueError(
+            "Okres wypowiedzenia od kolejnego miesiąca: co najmniej 1 miesiąc."
+        )
+    start = first_day_of_next_month(delivered_on)
+    end = add_months(start, months) - timedelta(days=1)
+    return Deadline(
+        end=end,
+        basis=("art. 112 KC", "art. 113 § 1 KC"),
+        steps=(
+            f"Doręczenie {polish_date(delivered_on)}: okres liczy się od kolejnego "
+            f"miesiąca, czyli od {polish_date(start)}.",
+            f"{months_word(months)} od {polish_date(start)} upływa {polish_date(end)}.",
+        ),
+    )

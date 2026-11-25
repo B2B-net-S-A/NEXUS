@@ -49,6 +49,10 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     # odczyt jak pobranie dokumentu kontraktu (zapis idzie przez „Dodaj plik”).
     "/api/legal/redline",
     "/api/legal/redline/render",
+    # Asystent prawny, pismo na kontrakcie (część F): szkic i DOCX niczego nie
+    # zapisują — odczyt jak pobranie dokumentu kontraktu; „Zatwierdzam” to zapis.
+    "/api/contracts/{contract_id}/legal-letter/draft",
+    "/api/contracts/{contract_id}/legal-letter/docx",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

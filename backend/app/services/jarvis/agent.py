@@ -888,6 +888,9 @@ async def _handle_tool(
     if tool.name == "draft_email":
         return await _draft_email(state, transport, tool, args, use_id, events)
 
+    if tool.name == "draft_legal_letter":
+        return await _draft_legal_letter(transport, args, use_id, events)
+
     if tool.name == "propose_client_change":
         return await _client_change(transport, args, use_id, events)
 
@@ -1146,6 +1149,81 @@ async def _client_change(
         "Pokazałem kartę z przyciskiem „Pokaż i popraw”. NIC nie zostało zmienione — "
         "listę zmian użytkownik zobaczy i zastosuje w oknie na stronie rekrutacji. "
         "Nie powtarzaj streszczenia z karty.",
+    )
+
+
+#: Ile znaków szkicu pisma idzie w karcie (pełny tekst jest w panelu kontraktu).
+LEGAL_LETTER_CARD_CHARS = 6000
+
+
+async def _draft_legal_letter(
+    transport: JarvisTransport,
+    args: dict[str, Any],
+    use_id: str,
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Szkic pisma na kontrakcie (asystent prawny, część F): dane osoby, termin
+    i cytaty liczy serwer tokenem pytającego (bramka pobrania dokumentu
+    kontraktu) — od modelu idą tylko kontrakt, rodzaj i prośba słowami
+    użytkownika. Nic nie wysyłamy: karta prowadzi do panelu pisma."""
+    try:
+        contract_id = int(args.get("contract_id"))
+    except (TypeError, ValueError):
+        return _tool_result(use_id, "Podaj contract_id.", is_error=True)
+    kind = str(args.get("kind") or "")
+    body: dict[str, Any] = {
+        "kind": kind,
+        "instruction": str(args.get("instruction") or "")[:2000],
+    }
+    amount = args.get("penalty_amount")
+    if isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0:
+        body["penalty_amount"] = float(amount)
+    resp = await transport.call(
+        RequestSpec(
+            "POST", f"/api/contracts/{contract_id}/legal-letter/draft", json=body
+        )
+    )
+    data = resp.data if resp.ok and isinstance(resp.data, dict) else None
+    if data is None:
+        return _tool_result(use_id, describe_error(resp), is_error=True)
+    counts = data.get("counts") or {}
+    text = str(data.get("text") or "")
+    events.append(
+        {
+            "type": "legal_letter",
+            "letter": {
+                "contract_id": contract_id,
+                "kind": kind,
+                "label": str(data.get("label") or ""),
+                "subject": str(data.get("subject") or ""),
+                "text": text[:LEGAL_LETTER_CARD_CHARS],
+                "blocked": bool(data.get("blocked")),
+                "block_reasons": [str(r) for r in data.get("block_reasons") or []][:6],
+                "lawyer_review": [str(r) for r in data.get("lawyer_review") or []][:4],
+                "counts": {k: int(v) for k, v in counts.items() if isinstance(v, int)},
+                "error": data.get("error"),
+            },
+        }
+    )
+    if not text:
+        return _tool_result(
+            use_id,
+            "Szkicu nie ma ("
+            + str(data.get("error") or "brak treści")
+            + "). Pokazałem kartę z przyciskiem do panelu pisma — tam są fragmenty "
+            "źródeł i można napisać pismo samemu. NIC nie zostało wysłane.",
+        )
+    state_line = (
+        "Szkic jest zablokowany do poprawy: "
+        + "; ".join(data.get("block_reasons") or [])
+        if data.get("blocked")
+        else "Cytaty sprawdzone."
+    )
+    return _tool_result(
+        use_id,
+        "Pokazałem kartę „Szkic pisma — nic nie wysłano” z przyciskiem do panelu "
+        f"pisma na stronie kontraktu. {state_line} Pismo zatwierdza i wysyła "
+        "użytkownik. Nie powtarzaj treści szkicu.",
     )
 
 

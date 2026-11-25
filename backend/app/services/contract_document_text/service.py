@@ -35,21 +35,16 @@ from app.services.framework_contract_text import (
     read_in_order,
 )
 from app.services.hybrid_search import reciprocal_rank_fusion
+from app.services.legal import citations
 
 RETRIEVAL_HYBRID = "hybrid"
 RETRIEVAL_KEYWORDS = "keywords"
 RETRIEVAL_NONE = "none"
 
 
-# TODO(asystent-prawny A): podmienić na ``app.services.legal.SourcePassage``
-# po scaleniu fundamentu — ten sam kształt (kind, ref, text, url, label).
-@dataclass(frozen=True)
-class SourcePassage:
-    kind: str
-    ref: str
-    text: str
-    url: Optional[str] = None
-    label: Optional[str] = None
+# Kształt fundamentu asystenta (część A): ``kind``, ``ref``, ``text``, ``url``,
+# ``label``, ``act_key`` (tu zawsze ``None``) — weryfikator cytatów czyta go wprost.
+SourcePassage = citations.SourcePassage
 
 
 _TYPE_WORDS = {

@@ -3877,6 +3877,52 @@ DRAFT_EMAIL = JarvisTool(
 )
 
 
+#: Rodzaje pisma na kontrakcie (lustro ``services/legal/letters.LETTER_KIND_KEYS``).
+LEGAL_LETTER_KINDS: tuple[str, ...] = (
+    "notice_reply",
+    "termination_notice",
+    "termination_agreement",
+    "notice_withdrawal",
+    "penalty_note",
+    "client_letter",
+)
+
+DRAFT_LEGAL_LETTER = JarvisTool(
+    name="draft_legal_letter",
+    label="Przygotowuję szkic pisma",
+    description=(
+        "Szkic pisma w sprawie umowy B2B konsultanta — NIC nie wysyła i nic nie "
+        "zapisuje. Rodzaje (kind): notice_reply — odpowiedź na wypowiedzenie złożone "
+        "przez Partnera; termination_notice — wypowiedzenie przez B2B.net; "
+        "termination_agreement — porozumienie o rozwiązaniu; notice_withdrawal — "
+        "cofnięcie wypowiedzenia; penalty_note — nota/wezwanie do zapłaty kary umownej "
+        "(podaj penalty_amount z umowy); client_letter — pismo do klienta (instruction: "
+        "czego dotyczy). NEXUS czyta PODPISANĄ umowę z Dokumentów kontraktu, liczy "
+        "termin, dane osoby i formy Pan/Pani sam, a cytaty sprawdza z tekstem źródeł. "
+        "Użytkownik dostaje kartę ze szkicem i przyciskiem do panelu pisma na stronie "
+        "kontraktu, gdzie zatwierdza i wysyła. `instruction` — tylko prośba "
+        "użytkownika jego słowami, bez nazwisk, dat i kwot. contract_id podaje "
+        "list_contracts."
+    ),
+    input_schema=_schema(
+        {
+            "contract_id": INT,
+            "kind": {"type": "string", "enum": list(LEGAL_LETTER_KINDS)},
+            "instruction": {**STR, "maxLength": 2000},
+            "penalty_amount": {"type": "number", "exclusiveMinimum": 0},
+        },
+        ("contract_id", "kind"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.delivery,
+    any_permission=("amounts_view",),
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 # Lustro ``ClientChangeIn.text`` w ``api/jobs.py`` (najkrótsza treść dla okna).
 CLIENT_CHANGE_TEXT_MIN = 10
 CLIENT_CHANGE_TEXT_MAX = 6000
@@ -3927,6 +3973,7 @@ ALL_TOOLS: tuple[JarvisTool, ...] = (
     SHOW_ON_SCREEN,
     REPORT_GAP,
     DRAFT_EMAIL,
+    DRAFT_LEGAL_LETTER,
     PROPOSE_CLIENT_CHANGE,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}

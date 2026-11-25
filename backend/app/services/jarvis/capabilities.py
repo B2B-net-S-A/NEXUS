@@ -38,6 +38,7 @@ WRITE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("spotkanie w kalendarzu", ("create_calendar_event",)),
     ("werdykt klienta", ("record_hm_feedback",)),
     ("zmiana od klienta w Profilu Championa", ("propose_client_change",)),
+    ("szkic pisma w sprawie umowy konsultanta", ("draft_legal_letter",)),
     ("nowa firma w Sprzedaży z NIP-u", ("new_sales_company",)),
 )
 # Operacje, których Jarvis nie wykonuje nigdy (``link``) — stałe dla każdej roli.
