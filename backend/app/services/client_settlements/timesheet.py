@@ -35,7 +35,6 @@ Odczyt nigdy nie blokuje przyjęcia pliku.
 from __future__ import annotations
 
 import calendar
-import io
 import logging
 import re
 from collections import Counter, defaultdict
@@ -44,7 +43,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements import timesheet_pko
+from app.services.client_settlements import timesheet_pko, xlsx
 from app.services.client_settlements.declared import (
     month_mismatch,
     pdf_text,
@@ -381,12 +380,8 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
 
 
 def _sheets(content: bytes) -> Optional[list[list[list[Any]]]]:
-    import openpyxl
-
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), data_only=True, read_only=True
-        )
+        workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("timesheet: XLSX nieczytelny (%s)", type(exc).__name__)
         return None

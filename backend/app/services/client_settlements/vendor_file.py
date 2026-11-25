@@ -16,13 +16,13 @@ bez śladu.
 
 from __future__ import annotations
 
-import io
 import logging
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
+from app.services.client_settlements import xlsx
 from app.services.client_settlements.declared import Declared
 from app.services.client_settlements.mail_text import MONTHS_EN, _month_index
 from app.services.client_settlements.rcp_checks import name_tokens
@@ -132,12 +132,9 @@ def parse_rows(rows: list[list[Any]]) -> Optional[tuple[Row, ...]]:
 def parse(content: bytes, mime: str) -> Optional[tuple[Row, ...]]:
     if mime != XLSX:
         return None
-    import openpyxl
 
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), data_only=True, read_only=True
-        )
+        workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001 — uszkodzony plik nie blokuje rozliczenia
         logger.info("vendor_file: XLSX nieczytelny (%s)", type(exc).__name__)
         return None
