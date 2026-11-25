@@ -191,6 +191,7 @@ from app.api import public_candidate_terms
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
+from app.api import custom_document_templates
 from app.api import b2b_esign
 from app.api import b2b_mass_send as b2b_mass_send_api
 from app.api import pre_contracts as pre_contracts_api
@@ -259,6 +260,8 @@ from app.api import settlement_reminders as settlement_reminders_api
 from app.api import settlement_cases as settlement_cases_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
+from app.api import legal as legal_api
+from app.api import legal_case_law as legal_case_law_api
 from app.api import supervisory_board as supervisory_board_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
@@ -392,7 +395,12 @@ from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
 from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
+from app.api import legal_redline as legal_redline_api
+from app.api import legal_client_fit as legal_client_fit_api
 from app.api import contract_partner_reads as contract_partner_reads_api
+from app.api import contract_document_text as contract_document_text_api
+from app.api import legal_letters as legal_letters_api
+from app.api import legal_tasks as legal_tasks_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
@@ -912,6 +920,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.sales_tenders import sales_tenders_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
+    from app.tasks.legal_corpus import legal_corpus_loop
     from app.tasks.cpro_bot import cpro_bot_loop
     from app.tasks.board_krs import board_krs_loop
     from app.tasks.jjit_import import jjit_import_loop
@@ -1179,6 +1188,10 @@ async def lifespan(app: FastAPI):
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
             # wyłącznik LAW_RADAR_ENABLED przed pętlą.
             "law_radar": asyncio.create_task(law_radar_loop()),
+            # Asystent prawny: teksty jednolite ELI i wersje skonsolidowane UE,
+            # co godzinę akty sprawdzone ponad 20 h temu; wyłącznik
+            # LEGAL_CORPUS_REFRESH_ENABLED przed pętlą.
+            "legal_corpus": asyncio.create_task(legal_corpus_loop()),
             # Bot Cpro: karty z kolejki Cpro do Grok Bota (Nordea, nordea.onevms.se);
             # wyłącznik CPRO_BOT_ENABLED przed pętlą.
             "cpro_bot": asyncio.create_task(cpro_bot_loop()),
@@ -1692,6 +1705,10 @@ app.include_router(
 )
 # Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
 app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
+# Asystent prawny (część A, 25.11.2026): korpus prawa, weryfikator cytatów, szkic pisma.
+app.include_router(legal_api.router, prefix="/api/legal", tags=["legal"])
+# Asystent prawny, część C (25.11.2026): orzecznictwo z SAOS jako źródło.
+app.include_router(legal_case_law_api.router, prefix="/api/legal", tags=["legal"])
 # Rada nadzorcza (R1, decyzje Artura 16.11.2026): dokumenty korporacyjne i odpis KRS.
 app.include_router(
     supervisory_board_api.router,
@@ -1903,6 +1920,12 @@ app.include_router(
     tags=["rejection-emails"],
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
+# Treść podpisanych dokumentów kontraktu (asystent prawny E, 0789) — przed
+# routerem kontraktów, choć ścieżki się nie gryzą (`documents/search`).
+app.include_router(contract_document_text_api.router, prefix="/api", tags=["contracts"])
+# Pismo na stronie kontraktu i zadania asystenta prawnego (część F, 0790).
+app.include_router(legal_letters_api.router, prefix="/api", tags=["contracts"])
+app.include_router(legal_tasks_api.router, prefix="/api/legal", tags=["legal"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
 # Multiposting (0360): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
 app.include_router(job_portals_api.router, prefix="/api", tags=["job-portals"])
@@ -1915,6 +1938,9 @@ app.include_router(
 app.include_router(
     contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
+# Asystent prawny — „Popraw dokument” (DOCX ze śledzeniem zmian, część D planu).
+app.include_router(legal_redline_api.router, prefix="/api/legal", tags=["legal"])
+app.include_router(legal_client_fit_api.router, prefix="/api/legal", tags=["legal"])
 # Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
 app.include_router(
     contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]
@@ -1949,6 +1975,12 @@ app.include_router(
 )
 app.include_router(
     b2b_documents.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+# Wzory własne Generatora (0786, asystent prawny część B).
+app.include_router(
+    custom_document_templates.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
@@ -4298,6 +4330,11 @@ async def api_health_deep_check(request: Request):
     from app.models.cpro_bot import CproBotRun
     from app.models.cv_parse_batch import CvParseBatchItem
     from app.models.client_report import ClientReportDefinition, ClientReportRun
+    from app.models.legal_corpus import LegalAct, LegalActVersion, LegalProvision
+    from app.models.custom_document_template import (
+        CustomDocumentTemplate,
+        CustomDocumentTemplateVersion,
+    )
     from app.models.law_radar import (
         LawChange,
         LawChangeEvent,
@@ -4315,11 +4352,15 @@ async def api_health_deep_check(request: Request):
         TrainingTranscript,
     )
     from app.models.finance_archive import FinanceArchiveDocument
+    from app.models.legal_case_law import LegalCase
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.contract_rate_history_finding import ContractRateHistoryFinding
     from app.models.month_check_case import MonthCheckCase
     from app.models.contract_partner_read import ContractPartnerRead
+    from app.models.contract_document_chunk import ContractDocumentChunk
+    from app.models.legal_assistant_task import LegalAssistantTask
+    from app.models.legal_client_fit import LegalClientFitCheck, LegalClientFitFinding
     from app.models.client_order_cost_step import (
         ClientOrderCostReview,
         ClientOrderCostStep,
@@ -5026,6 +5067,15 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0785: korpus prawa asystenta prawnego.
+        ("legal_acts", LegalAct),
+        ("legal_act_versions", LegalActVersion),
+        ("legal_provisions", LegalProvision),
+        # 0787: orzecznictwo asystenta prawnego.
+        ("legal_cases", LegalCase),
+        # 0786: wzory własne Generatora Umów B2B — wzór i wersje.
+        ("custom_document_templates", CustomDocumentTemplate),
+        ("custom_document_template_versions", CustomDocumentTemplateVersion),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
         ("cpro_bot_runs", CproBotRun),
         # 0750: kolejka odczytów CV wsadem.
@@ -5058,6 +5108,14 @@ async def api_health_deep_check(request: Request):
         ("month_check_cases", MonthCheckCase),
         # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
         ("contract_partner_reads", ContractPartnerRead),
+        # 0789: treść podpisanych dokumentów kontraktu (asystent prawny,
+        # Jarvis); sonda ``contract_documents`` sprawdza kolumny ``text_*``.
+        ("contract_document_chunks", ContractDocumentChunk),
+        # 0790: zamknięte zadania asystenta prawnego (pasek na liście kontraktów).
+        ("legal_assistant_tasks", LegalAssistantTask),
+        # 0791: zgodność umów B2B z umową ramową klienta (asystent prawny G).
+        ("legal_client_fit_checks", LegalClientFitCheck),
+        ("legal_client_fit_findings", LegalClientFitFinding),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
         ("client_order_cost_steps", ClientOrderCostStep),
         ("client_order_cost_reviews", ClientOrderCostReview),

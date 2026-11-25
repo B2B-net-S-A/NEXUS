@@ -346,7 +346,10 @@ def contract_effect_permission(doc_type: DocumentType) -> ProductAction | None:
       a umowa przedwstępna niczego w kontraktach nie zmienia.
     """
 
-    if doc_type.family == "preliminary" or doc_type.key == "annex_rate_change":
+    if (
+        doc_type.family in ("preliminary", "custom")
+        or doc_type.key == "annex_rate_change"
+    ):
         return None
     if doc_type.family == "termination":
         return ProductAction.contract_status
@@ -434,6 +437,10 @@ async def describe(
     user: User | None = None,
 ) -> EffectPlan:
     plan = EffectPlan()
+    if doc_type.family == "custom":
+        # Wzór własny tylko tworzy dokument — skutki w kontraktach mają
+        # wyłącznie typy z rejestru programisty (decyzja Artura 25.11.2026).
+        return plan
     values = _payload(doc)
     contract_id = current_contract_id(doc, parent)
     contract = await db.get(Contract, contract_id) if contract_id is not None else None
@@ -785,8 +792,23 @@ async def apply(
 
     from app.api import contracts as contracts_api
 
-    values = _payload(doc)
     summary: dict[str, Any] = {"type": doc_type.key}
+    if doc_type.family == "custom":
+        # Dokument ze wzoru własnego: sam podpis, bez kontraktu i zamówień.
+        summary["no_contract_effects"] = True
+        db.add(
+            Activity(
+                entity_type="b2b_contract_document",
+                entity_id=doc.id,
+                action="signed_effect_applied",
+                user_id=user.id,
+                details=summary,
+            )
+        )
+        doc.effect_applied_at = datetime.now(timezone.utc)
+        doc.effect_summary = summary
+        return summary
+    values = _payload(doc)
     contract = await _load_contract(db, current_contract_id(doc, parent))
     if contract is not None and contract.status == ContractStatus.void:
         raise HTTPException(

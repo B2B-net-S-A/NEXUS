@@ -534,6 +534,53 @@ def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
     }
 
 
+_CONTRACT_DOCUMENT_KEYS = (
+    "id",
+    "filename",
+    "doc_type",
+    "in_current_folder",
+    "readable",
+    "pages",
+    "total_chunks",
+    "note",
+)
+_CONTRACT_DOCUMENT_PASSAGE_KEYS = (
+    "document_id",
+    "ref",
+    "filename",
+    "first_chunk",
+    "last_chunk",
+    "text",
+)
+
+
+def _shape_contract_document_search(data: Any, _args: dict[str, Any]) -> Any:
+    """Jak umowy ramowe: fragmenty w całości, limit znaków pilnuje serwer
+    (``framework_contract_text.PASSAGE_BUDGET``)."""
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        **pick(data, ("contract_id", "retrieval", "note")),
+        "passages": [
+            pick(p, _CONTRACT_DOCUMENT_PASSAGE_KEYS) for p in data.get("passages") or []
+        ],
+        "documents": [
+            pick(d, _CONTRACT_DOCUMENT_KEYS)
+            for d in (data.get("documents") or [])[:MAX_LIST_ITEMS]
+        ],
+    }
+
+
+def _shape_contract_document_text(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        **pick(data, ("contract_id", "next_chunk", "note")),
+        "document": pick(data.get("document"), _CONTRACT_DOCUMENT_KEYS),
+        "passage": pick(data.get("passage"), _CONTRACT_DOCUMENT_PASSAGE_KEYS),
+    }
+
+
 def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
     """Liczba okresu + wiersze „kto, gdzie, kiedy, czyja zasługa” bez linków API."""
     if not isinstance(data, dict):
@@ -1290,6 +1337,60 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             _clean({"from_chunk": a.get("from_chunk")}),
         ),
         shape=_shape_amendment_text,
+    ),
+    JarvisTool(
+        name="search_contract_documents",
+        label="Szukam w umowie konsultanta",
+        description=(
+            "Treść PODPISANYCH dokumentów kontraktu konsultanta z zakładki Dokumenty: umowa "
+            "B2B, aneksy, wypowiedzenie, porozumienie (PDF/DOCX, także skany). Fragmenty "
+            "najlepiej pasujące do pytania z odnośnikiem ref (np. „umowa nr 12/2025 § 8 "
+            "ust. 2”) plus lista dokumentów (czy treść da się czytać i dlaczego nie). "
+            "Umowy z różnych lat mają różne zapisy (np. wypowiedzenie „na koniec miesiąca” "
+            "albo „od kolejnego miesiąca”), więc odpowiadaj z tej umowy, nie ze wzoru. "
+            "contract_id podaje list_contracts. Dalszy ciąg: read_contract_document."
+        ),
+        input_schema=_schema(
+            {"contract_id": INT, "query": {"type": "string", "maxLength": 300}},
+            ("contract_id", "query"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/contracts/{contract_id}/documents/search",
+        section=ProductSection.delivery,
+        any_permission=("amounts_view",),
+        build=lambda a: _get(
+            f"/api/contracts/{_int(a, 'contract_id')}/documents/search",
+            {"q": str(a.get("query") or "")[:300]},
+        ),
+        shape=_shape_contract_document_search,
+    ),
+    JarvisTool(
+        name="read_contract_document",
+        label="Czytam umowę konsultanta",
+        description=(
+            "Treść jednego dokumentu kontraktu po kolei, od fragmentu from_chunk (domyślnie "
+            "od początku). document_id podaje search_contract_documents; dalszy ciąg "
+            "zapisu: from_chunk = last_chunk + 1. Wynik podaje next_chunk, gdy dokument ma "
+            "dalszą treść."
+        ),
+        input_schema=_schema(
+            {
+                "document_id": INT,
+                "from_chunk": {"type": "integer", "minimum": 0},
+            },
+            ("document_id",),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/contract-documents/{document_id}/text",
+        section=ProductSection.delivery,
+        any_permission=("amounts_view",),
+        build=lambda a: _get(
+            f"/api/contract-documents/{_int(a, 'document_id')}/text",
+            _clean({"from_chunk": a.get("from_chunk")}),
+        ),
+        shape=_shape_contract_document_text,
     ),
     JarvisTool(
         name="list_contracts",
@@ -3776,6 +3877,52 @@ DRAFT_EMAIL = JarvisTool(
 )
 
 
+#: Rodzaje pisma na kontrakcie (lustro ``services/legal/letters.LETTER_KIND_KEYS``).
+LEGAL_LETTER_KINDS: tuple[str, ...] = (
+    "notice_reply",
+    "termination_notice",
+    "termination_agreement",
+    "notice_withdrawal",
+    "penalty_note",
+    "client_letter",
+)
+
+DRAFT_LEGAL_LETTER = JarvisTool(
+    name="draft_legal_letter",
+    label="Przygotowuję szkic pisma",
+    description=(
+        "Szkic pisma w sprawie umowy B2B konsultanta — NIC nie wysyła i nic nie "
+        "zapisuje. Rodzaje (kind): notice_reply — odpowiedź na wypowiedzenie złożone "
+        "przez Partnera; termination_notice — wypowiedzenie przez B2B.net; "
+        "termination_agreement — porozumienie o rozwiązaniu; notice_withdrawal — "
+        "cofnięcie wypowiedzenia; penalty_note — nota/wezwanie do zapłaty kary umownej "
+        "(podaj penalty_amount z umowy); client_letter — pismo do klienta (instruction: "
+        "czego dotyczy). NEXUS czyta PODPISANĄ umowę z Dokumentów kontraktu, liczy "
+        "termin, dane osoby i formy Pan/Pani sam, a cytaty sprawdza z tekstem źródeł. "
+        "Użytkownik dostaje kartę ze szkicem i przyciskiem do panelu pisma na stronie "
+        "kontraktu, gdzie zatwierdza i wysyła. `instruction` — tylko prośba "
+        "użytkownika jego słowami, bez nazwisk, dat i kwot. contract_id podaje "
+        "list_contracts."
+    ),
+    input_schema=_schema(
+        {
+            "contract_id": INT,
+            "kind": {"type": "string", "enum": list(LEGAL_LETTER_KINDS)},
+            "instruction": {**STR, "maxLength": 2000},
+            "penalty_amount": {"type": "number", "exclusiveMinimum": 0},
+        },
+        ("contract_id", "kind"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.delivery,
+    any_permission=("amounts_view",),
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 # Lustro ``ClientChangeIn.text`` w ``api/jobs.py`` (najkrótsza treść dla okna).
 CLIENT_CHANGE_TEXT_MIN = 10
 CLIENT_CHANGE_TEXT_MAX = 6000
@@ -3826,6 +3973,7 @@ ALL_TOOLS: tuple[JarvisTool, ...] = (
     SHOW_ON_SCREEN,
     REPORT_GAP,
     DRAFT_EMAIL,
+    DRAFT_LEGAL_LETTER,
     PROPOSE_CLIENT_CHANGE,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}

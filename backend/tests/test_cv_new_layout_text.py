@@ -302,6 +302,75 @@ def test_split_degree():
     assert split_degree("Kurs analityczny") == ("Kurs analityczny", "")
 
 
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        # 25.11.2026 (ścieżka na stagingu): 54% wpisów szkół z 60 dni miało
+        # stopień w jednym napisie z kierunkiem, a strona 1 drukowała go w linii
+        # kierunku zamiast w „stopień · rok”.
+        (
+            "Engineering degree in Computer Science",
+            ("Computer Science", "Engineering degree"),
+        ),
+        (
+            "MA in Economics, Department of Banking",
+            ("Economics, Department of Banking", "MA"),
+        ),
+        (
+            "Master of Science in Computer Science",
+            ("Computer Science", "Master of Science"),
+        ),
+        ("Master's degree in Law", ("Law", "Master's degree")),
+        ("Bachelor's Degree in Economics", ("Economics", "Bachelor's Degree")),
+        (
+            "Bachelor of Engineering in Computer Science",
+            ("Computer Science", "Bachelor of Engineering"),
+        ),
+        ("MSc Eng. in Telecommunications", ("Telecommunications", "MSc Eng.")),
+        ("PhD in Law", ("Law", "PhD")),
+        (
+            "Engineer's degree, Computer Science",
+            ("Computer Science", "Engineer's degree"),
+        ),
+        (
+            "National Security, Bachelor's Degree",
+            ("National Security", "Bachelor's Degree"),
+        ),
+        ("Master's degree, Computer Science", ("Computer Science", "Master's degree")),
+        (
+            "Studia inżynierskie, Informatyka: Analityk",
+            ("Informatyka: Analityk", "Studia inżynierskie"),
+        ),
+        ("Informatyka, studia magisterskie", ("Informatyka", "Studia magisterskie")),
+        ("Studia podyplomowe - Controlling", ("Controlling", "Studia podyplomowe")),
+        (
+            "Licencjat (Lic.), Informatyka z ekonometrią",
+            ("Informatyka z ekonometrią", "Licencjat (Lic.)"),
+        ),
+        ("Inżynier, Informatyka", ("Informatyka", "Inżynier")),
+        ("Economics, bachelor's studies", ("Economics", "Bachelor's studies")),
+        ("Informatyka, studia I stopnia", ("Informatyka", "Studia I stopnia")),
+        ("MSc Embedded Systems", ("Embedded Systems", "MSc")),
+        ("B.Sc. Software Engineering", ("Software Engineering", "B.Sc.")),
+        # sam stopień bez kierunku nie dubluje się w linii „stopień · rok”
+        ("Master's degree", ("Master's degree", "")),
+        (
+            "Master of Business Administration (MBA)",
+            ("Master of Business Administration (MBA)", ""),
+        ),
+        # polski dopełniacz zostaje w całości (bez kierunku „ekonomii”)
+        (
+            "Magister ekonomii, specjalność E-biznes",
+            ("Magister ekonomii, specjalność E-biznes", ""),
+        ),
+        # kierunek ze słowem „in” bez stopnia na początku zostaje kierunkiem
+        ("Data Science in Practice", ("Data Science in Practice", "")),
+    ],
+)
+def test_split_degree_degree_in_one_string(title, expected):
+    assert split_degree(title) == expected
+
+
 def test_md_bold_escapes_html():
     assert md_bold("**<b>x</b>** & y") == "<b>&lt;b&gt;x&lt;/b&gt;</b> &amp; y"
 

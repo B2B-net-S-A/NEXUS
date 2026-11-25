@@ -5,6 +5,7 @@ import {
   daysLeftLabel,
   deadlineEntries,
   deadlinesByMonth,
+  eventLine,
   orderChanges,
   runSummaryLine,
   safeExternalUrl,
@@ -110,5 +111,10 @@ describe("Przepisy — model", () => {
     expect(
       runSummaryLine({ kind: "collect", summary: { items_in: 2, lex_skipped: true, gofin_skipped: true } }),
     ).toBe("pozycje w raporcie: 2 · LEX pominięty · Gofin pominięty");
+  });
+  it("zmianę założoną przez NEXUS (Przejrzyj wzory) dziennik nie przypisuje Analitykowi", () => {
+    const base = { id: 1, kind: "created" as const, from: null, to: null, note: null, task_id: null, by: null, at: "2099-01-01T00:00:00Z" };
+    expect(eventLine({ ...base, bot: true })).toBe("Zmiana założona przez Analityka");
+    expect(eventLine({ ...base, bot: false })).toBe("Zmiana założona przez NEXUS");
   });
 });

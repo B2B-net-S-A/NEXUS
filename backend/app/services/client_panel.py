@@ -15,6 +15,7 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
+from functools import partial
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterable, Optional
 from urllib.parse import urlsplit
@@ -1076,8 +1077,10 @@ async def stamp_for_download(
     candidate_id: Optional[int],
     docx: bytes,
     language: Optional[str] = None,
+    at_end: bool = False,
 ) -> bytes:
     """Plik z ramką panelu, gdy panel rekrutacji działa; inaczej bez zmian.
+    ``at_end`` — Word „Nowego CV”: ramka na końcu (strona 1 to obraz z PDF).
 
     Zapisane bajty dokumentu zostają nietknięte. Żadna awaria nie zatrzymuje
     pobrania: najwyżej plik wychodzi bez ramki.
@@ -1087,7 +1090,11 @@ async def stamp_for_download(
         return docx
     url, short_url, expires_at = link
     return await run_in_threadpool(
-        stamp_panel_link, docx, url, short_url, expires_at, language=language or "pl"
+        partial(stamp_panel_link, language=language or "pl", at_end=at_end),
+        docx,
+        url,
+        short_url,
+        expires_at,
     )
 
 

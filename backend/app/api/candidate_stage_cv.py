@@ -2934,6 +2934,28 @@ async def ensure_draft_downloadable(db: AsyncSession, csv: CandidateStageCV) -> 
     consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
 
 
+def _new_docx_response(docx: bytes, filename: str, headers: dict[str, str]) -> Response:
+    return Response(
+        content=docx,
+        media_type=DOCX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": content_disposition_attachment(filename),
+            "Cache-Control": "private, no-store",
+            **headers,
+        },
+    )
+
+
+async def _new_layout_docx(make: Any) -> Any:
+    """Word „Nowego CV” (25.11.2026); awaria renderu = 503 z polskim komunikatem."""
+    from app.services.cv_new_pdf import NewCvPdfError
+
+    try:
+        return await make
+    except NewCvPdfError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @router.post("/candidates/stages/{stage_id}/cv/branded/preview-docx")
 async def preview_branded_docx(
     stage_id: int,
@@ -2942,10 +2964,47 @@ async def preview_branded_docx(
     db: AsyncSession = Depends(get_db),
     intent: Optional[str] = None,
     surface: Optional[str] = None,
+    layout: Optional[str] = None,
 ) -> Response:
-    """Render the current editor contents and frozen assets without approval."""
+    """Render the current editor contents and frozen assets without approval.
+
+    CV w układzie „Nowe CV” daje Worda w nowym wyglądzie (strona 1 jako obraz
+    z PDF, dalej tabele — decyzja Artura z 25.11.2026); ``?layout=classic`` —
+    klasyczny Word z tej samej treści („Word (klasyczne)” w menu).
+    """
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
+    if layout_service.wanted(layout, csv.cv_layout) == layout_service.LAYOUT_NEW:
+        from app.services.cv_new_pdf import stage_editor_docx
+        from app.services.cv_rodo_clause import keep_rodo_clause
+
+        await ensure_draft_downloadable(db, csv)
+        content = keep_rodo_clause(
+            csv.branded_draft_html, sanitize_cv_html(payload.content_html)
+        )
+        result = await _new_layout_docx(stage_editor_docx(db, csv, content))
+        await log_cv_download(
+            db,
+            intent=intent,
+            surface=surface,
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            user=current_user,
+            file_format="docx",
+            state="draft",
+            version=csv.branded_version,
+        )
+        docx = result.docx
+        if intent == DOWNLOAD_INTENT:
+            docx = await stamp_for_download(
+                db,
+                job_id=csv.job_id,
+                candidate_id=csv.candidate_id,
+                docx=docx,
+                language=csv.branded_language,
+                at_end=True,
+            )
+        return _new_docx_response(docx, draft_docx_filename(csv), result.headers())
     docx = await draft_docx_for_download(db, csv, payload.content_html)
     await log_cv_download(
         db,
@@ -3169,9 +3228,44 @@ async def download_approved_docx(
     db: AsyncSession = Depends(get_db),
     intent: Optional[str] = None,
     surface: Optional[str] = None,
+    layout: Optional[str] = None,
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     version = await approved_version_for_download(db, csv, version_number)
+    if layout_service.wanted(layout, version.cv_layout) == layout_service.LAYOUT_NEW:
+        # Word „Nowego CV” z zamrożonej treści wersji (25.11.2026); `?layout=classic`
+        # daje zapisany klasyczny plik tej wersji.
+        from app.services.cv_new_pdf import approved_version_docx
+
+        result = await _new_layout_docx(approved_version_docx(db, version))
+        await log_cv_download(
+            db,
+            intent=intent,
+            surface=surface,
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            user=current_user,
+            file_format="docx",
+            state="approved",
+            version=version.version,
+        )
+        docx = result.docx
+        if intent == DOWNLOAD_INTENT:
+            docx = await stamp_for_download(
+                db,
+                job_id=csv.job_id,
+                candidate_id=csv.candidate_id,
+                docx=docx,
+                language=csv.branded_language,
+                at_end=True,
+            )
+        headers = approved_docx_headers(version)
+        headers.pop("ETag", None)  # plik powstaje z wersji przy każdym pobraniu
+        return Response(
+            content=docx,
+            media_type=DOCX_MEDIA_TYPE,
+            headers={**headers, **result.headers()},
+        )
     await log_cv_download(
         db,
         intent=intent,

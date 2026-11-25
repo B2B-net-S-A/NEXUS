@@ -410,6 +410,14 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_answer_proposal'",
     # 0783: Przegrane — wnioski AI ze spotkania z DL (F56).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'lost_review_summary'",
+    # 0785: asystent prawny — szkic pisma ze sprawdzonymi cytatami (F57).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_assistant'",
+    # 0786: wzory własne Generatora — szkic wzoru z asystentem prawnym.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_template_draft'",
+    # 0788: asystent prawny — propozycje zmian w umowie DOCX („Popraw dokument”).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_redline'",
+    # 0791: asystent prawny — zgodność umów B2B z umową ramową klienta (F60).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_client_fit'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -8241,6 +8249,26 @@ _DATA_STATEMENTS = [
     "WHEN source = 'legacy_import' THEN 'excel' ELSE 'manual' END "
     "WHERE ideal_answer_source IS NULL "
     "AND NULLIF(btrim(ideal_answer), '') IS NOT NULL",
+    # 0785: seed klucza AI asystenta prawnego.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'legal_assistant', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'legal_assistant')",
+    # 0786: seed klucza AI szkicu wzoru własnego (asystent prawny).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'legal_template_draft', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'legal_template_draft')",
+    # 0788: seed klucza AI propozycji zmian w umowie DOCX.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'legal_redline', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'legal_redline')",
+    # 0791: seed klucza AI zgodności umów B2B z umową ramową klienta.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'legal_client_fit', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'legal_client_fit')",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "

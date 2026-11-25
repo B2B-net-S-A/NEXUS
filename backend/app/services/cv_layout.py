@@ -62,6 +62,16 @@ def filename_for(name: Optional[str], layout: Any) -> Optional[str]:
     return f"{_DOCUMENT_EXTENSION.sub('', name)}.pdf"
 
 
+def wanted(requested_layout: Optional[str], stored: Any) -> Layout:
+    """Układ pliku: jawny ``?layout=`` (miniatura drugiego układu, „Word (klasyczne)”)
+    albo zapisany. Przy wyłączonej fladze zawsze klasyczny — jak dotąd."""
+    if not enabled():
+        return LAYOUT_CLASSIC
+    if requested_layout in LAYOUTS:
+        return normalized(requested_layout)
+    return normalized(stored)
+
+
 def requested(value: Optional[str]) -> Optional[Layout]:
     """Układ z żądania (generator, przełącznik); ``None`` = bez zmiany."""
     if value is None or not enabled():

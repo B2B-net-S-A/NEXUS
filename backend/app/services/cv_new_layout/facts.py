@@ -329,22 +329,48 @@ def edu_rank(degree: str, institution: str) -> int:
     return next((r for r, keys in _EDU_RANK if any(k in txt for k in keys)), 0)
 
 
-_LEVEL = re.compile(
-    r"^(magister inżynier|mgr inż\.?|magister|mgr|inżynier|inż\.?|licencjat|doktor|dr|master|bachelor|engineer|mba)$",
-    re.I,
+# Stopień jako osobny człon: „Informatyka - magister”, „Engineer's degree, Computer
+# Science”, „Studia inżynierskie, Informatyka”, „Licencjat (Lic.), …”.
+_ABBR = r"m\.?sc\.?(?: ?eng\.?)?|b\.?sc\.?(?: ?eng\.?)?|m\.?eng\.?|b\.?eng\.?"
+_DEG = (
+    r"magister inżynier|mgr inż\.?|magister(?: \(mgr\.?\))?|mgr\.?"
+    r"|inżynier(?: \(inż\.?\))?|inż\.?|licencjat(?: \(lic\.?\))?|doktor|dr"
+    r"|studia (?:magisterskie|inżynierskie|licencjackie|podyplomowe|doktoranckie)"
+    r"|studia (?:i|ii|iii|pierwszego|drugiego|trzeciego) stopnia"
+    r"|(?:master|bachelor) of (?:science|arts|engineering)"
+    r"|(?:complementary |integrated )?(?:master|bachelor|engineer)['’]?s?(?: degree| studies)?"
+    r"|\w+ degree"
+    rf"|mba|ph\.?d\.?|{_ABBR}|m\.?a\.?|b\.?a\.?"
 )
+_LEVEL = re.compile(rf"^(?:{_DEG})$", re.I)
+# „MA in Economics”, „Master of Science in Computer Science”
+_DEG_IN = re.compile(rf"^({_DEG})\s+in\s+(\S.*)$", re.I)
+# „MSc Embedded Systems”, „B.Sc. Software Engineering” — tylko skróty: polski
+# „Magister ekonomii” zostaje w całości, bo kierunek byłby w dopełniaczu.
+_ABBR_FIELD = re.compile(rf"^({_ABBR})\s+(\S.*)$", re.I)
+
+
+def _cap(degree: str) -> str:
+    return degree[0].upper() + degree[1:]
 
 
 def split_degree(title: str) -> tuple[str, str]:
-    """„Informatyka - magister inżynier” → („Informatyka”, „Magister inżynier”);
-    bez rozpoznanego stopnia całość to kierunek."""
-    parts = [x.strip() for x in re.split(r"\s+-\s+|,\s*", title or "") if x.strip()]
+    """„Informatyka - magister inżynier” → („Informatyka”, „Magister inżynier”),
+    „MA in Economics” → („Economics”, „MA”); bez rozpoznanego stopnia albo bez
+    kierunku całość to kierunek (linia stopnia nie powtarza tytułu)."""
+    title = (title or "").strip()
+    m = _DEG_IN.match(title)
+    if m:
+        return m.group(2).strip(), _cap(m.group(1))
+    parts = [x.strip() for x in re.split(r"\s+-\s+|,\s*", title) if x.strip()]
     levels = [x for x in parts if _LEVEL.match(x)]
-    if not levels:
-        return title, ""
-    field_ = ", ".join(x for x in parts if x not in levels)
-    d = levels[0]
-    return (field_ or title), d[0].upper() + d[1:]
+    if levels:
+        field_ = ", ".join(x for x in parts if x not in levels)
+        return (field_, _cap(levels[0])) if field_ else (title, "")
+    m = _ABBR_FIELD.match(title)
+    if m:
+        return m.group(2).strip(), _cap(m.group(1))
+    return title, ""
 
 
 def last_year(dates: str) -> str:

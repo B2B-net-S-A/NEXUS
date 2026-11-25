@@ -8,9 +8,11 @@ import {
   Download,
   FileText,
   Plus,
+  Scale,
   Trash2,
   Upload,
 } from "lucide-react";
+import { ClientFitDialog } from "@/components/legal-assistant/client-fit/ClientFitDialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { CALM_SUBLINE } from "@/lib/calm-table";
@@ -86,6 +88,7 @@ export function FrameworkContractsTab({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
+  const [showFit, setShowFit] = useState(false);
   const [expandedFcId, setExpandedFcId] = useState<number | null>(null);
   const [highlightedFcId, setHighlightedFcId] = useState<number | null>(null);
   const focusServed = useRef<number | null>(null);
@@ -174,13 +177,26 @@ export function FrameworkContractsTab({
             </span>
           ) : null}
         </h3>
-        {canEdit && !failed && (
-          <Button size="sm" variant="primary" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            Nowa umowa
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Asystent prawny (część G): wymogi umowy ramowej i aneksów
+              porównane w tle z naszym wzorem umowy B2B. */}
+          {!failed && contracts.length > 0 ? (
+            <Button size="sm" variant="outline" onClick={() => setShowFit(true)}>
+              <Scale className="h-3.5 w-3.5" aria-hidden="true" />
+              Zgodność umów B2B
+            </Button>
+          ) : null}
+          {canEdit && !failed && (
+            <Button size="sm" variant="primary" onClick={() => setShowCreate(true)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Nowa umowa
+            </Button>
+          )}
+        </div>
       </div>
+      {showFit ? (
+        <ClientFitDialog clientId={clientId} open={showFit} onOpenChange={setShowFit} />
+      ) : null}
 
       {failed ? (
         <QueryStateNotice

@@ -152,6 +152,14 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/contracts/AddProjectDialog", () => ({
   AddProjectDialog: () => null,
 }));
+// Pasek zadań i panel pisma asystenta prawnego mają własne testy
+// (`components/legal-assistant/letters/__tests__`).
+vi.mock("@/components/legal-assistant/letters/LegalTasksStrip", () => ({
+  LegalTasksStrip: () => null,
+}));
+vi.mock("@/components/legal-assistant/letters/LegalLetterPanel", () => ({
+  LegalLetterPanel: () => null,
+}));
 vi.mock("@/components/ContractAmendmentsTab", () => ({
   ContractAmendmentsTab: (props: {
     readOnly?: boolean;

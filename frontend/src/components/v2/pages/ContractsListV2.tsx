@@ -1,5 +1,6 @@
 "use client";
 
+import { LegalTasksStrip } from "@/components/legal-assistant/letters/LegalTasksStrip";
 import { RateDocumentRowNote } from "@/components/contracts/rate-documents/RateDocumentRowNote";
 import { RateHistoryRowNote } from "@/components/contracts/rate-history-ksef/RateHistoryRowNote";
 import {
@@ -1998,6 +1999,10 @@ export function ContractsListV2({
  )}
  </div>
  </div>
+
+ {/* Zadania asystenta prawnego w tle (część F): np. szkic odpowiedzi na
+ wypowiedzenie Partnera. Pusty stan = brak paska. */}
+ <LegalTasksStrip />
 
  <div className="flex flex-wrap items-center gap-2">
  <div
