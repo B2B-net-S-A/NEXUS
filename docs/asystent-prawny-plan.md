@@ -125,3 +125,37 @@ Pakiet `backend/app/services/legal/`:
   scalonej gałęzi.
 - Wdrożenie: PR z migracjami idzie pasem migracji (etykieta `czeka-na-migracje`,
   bez auto-merge), produkcja w oknie pon–pt 18:00–08:00.
+
+## Podział F / G (sesja główna, 25.11.2026 po scaleniu A–E)
+
+Migracje: F `0783_legal_assistant_tasks` (`down_revision = "0782_contract_document_chunks"`),
+G `0784_legal_client_fit` (`down_revision = "0782_contract_document_chunks"`; łańcuch
+poprawia sesja główna). Funkcja AI części G: `legal_client_fit` = F59.
+
+**Zadania asystenta na liście kontraktów — właściciel F.** F tworzy w
+`app/services/legal/tasks.py`:
+
+```python
+@dataclass(frozen=True)
+class LegalTaskRow:
+    key: str                     # stabilny, bez duplikatów
+    kind: Literal["notice_reply", "client_fit_gap", "template_review"]
+    severity: Literal["info", "warn", "gap"]
+    title: str
+    detail: str
+    action_label: str
+    href: str
+    client_id: int | None
+    contract_id: int | None
+    created_at: datetime
+
+TaskProvider = Callable[[AsyncSession, User], Awaitable[list[LegalTaskRow]]]
+TASK_PROVIDERS: list[TaskProvider]   # F rejestruje swój dostawcę
+```
+
+oraz `GET /api/legal/tasks` (sumuje dostawców; każdy dostawca sam pilnuje
+zakresu klientów i bramek) i pasek na liście kontraktów.
+**G** pisze tylko dostawcę `client_fit_tasks(db, user) -> list[LegalTaskRow]`
+w swoim pakiecie (kształt jak wyżej, lokalna kopia dataclassa oznaczona do
+podmiany, jeśli F jeszcze nie scalona); rejestrację w `TASK_PROVIDERS` robi
+sesja główna przy scalaniu. G nie zmienia `ContractsListV2.tsx`.
