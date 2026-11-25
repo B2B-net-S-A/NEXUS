@@ -1,4 +1,4 @@
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://api.nexus.dynaminds.pl').replace(/\/$/, '')
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://api.nexus.b2bnetwork.pl').replace(/\/$/, '')
 
 function originTarget(base: string): RegExp[] {
   // Konfiguracja Sentry ładuje ten moduł przed resztą aplikacji: zły adres nie może jej wywrócić.

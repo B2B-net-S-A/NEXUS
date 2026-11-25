@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 // ── Typy (kontrakt GET /api/public/cv-i/{token}) ────────────────────────────
 

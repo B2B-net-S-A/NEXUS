@@ -252,6 +252,27 @@ describe("AppVersionGuard — nowa wersja wczytuje się sama", () => {
     expect(notice()).toBeNull();
   });
 
+  it("stara paczka bez profilu w sklepie (np. `/api/auth/me` zablokowane przez CSP) na stronie aplikacji przeładowuje się (NEXUS-FE-C3)", async () => {
+    mocks.user = null;
+    mocks.pathname = "/jobs";
+    mocks.fetchDeployedSha.mockResolvedValue(NEW);
+    render(<AppVersionGuard />);
+    await flush();
+    expect(mocks.fetchDeployedSha).toHaveBeenCalled();
+    expect(mocks.reloadOnceForVersion).toHaveBeenCalledWith(NEW);
+  });
+
+  it("strona logowania bez sesji też zostaje w spokoju", async () => {
+    mocks.user = null;
+    mocks.pathname = "/login";
+    mocks.fetchDeployedSha.mockResolvedValue(NEW);
+    render(<AppVersionGuard />);
+    await flush();
+    await pass(VERSION_CHECK_EVERY_MS * 2);
+    expect(mocks.fetchDeployedSha).not.toHaveBeenCalled();
+    expect(mocks.reloadOnceForVersion).not.toHaveBeenCalled();
+  });
+
   it("paczka bez SHA (lokalnie) i podglądy `/preview/*` nie pytają serwera", async () => {
     mocks.buildSha = "";
     const local = render(<AppVersionGuard />);

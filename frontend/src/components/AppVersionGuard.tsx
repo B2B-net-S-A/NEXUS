@@ -14,6 +14,7 @@ import {
   reloadNow,
   reloadOnceForVersion,
 } from "@/lib/app-version";
+import { isPublicPath } from "@/lib/public-paths";
 import { transfersInFlight } from "@/lib/transfers-in-flight";
 import { useAuthStore } from "@/store/auth";
 
@@ -54,11 +55,18 @@ function modalOpen(): boolean {
  */
 export function AppVersionGuard() {
   const pathname = usePathname();
-  // Tylko zalogowani: strony dla osób z zewnątrz (zgłoszenie z linku, podpis,
-  // kariera) żyją w tej samej aplikacji, a komunikat o NEXUSIE nie jest dla nich.
+  // Strony dla osób z zewnątrz (zgłoszenie z linku, podpis, kariera) żyją w tej
+  // samej aplikacji, a komunikat o NEXUSIE nie jest dla nich. Ścieżka spoza
+  // `lib/public-paths.ts` jest za bramką logowania middleware'u, więc pilnujemy
+  // jej także bez profilu w sklepie: stara paczka po zmianie adresu API
+  // (api.nexus.dynaminds.pl → api.nexus.b2bnetwork.pl, 05.11.2026) nie przejdzie
+  // `/api/auth/me` przez CSP i bez tego nigdy by się nie przeładowała (NEXUS-FE-C3).
   const loggedIn = useAuthStore((s) => s.user != null);
+  const path = pathname ?? "";
   const inert =
-    !isBuildSha(BUILD_SHA) || !loggedIn || (pathname ?? "").startsWith("/preview");
+    !isBuildSha(BUILD_SHA) ||
+    path.startsWith("/preview") ||
+    (!loggedIn && isPublicPath(path));
   // Stara karta, której nie wolno teraz przeładować — do komunikatu.
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   // Przeładowanie dla tej wersji już było (albo nie da się go zlecić) — sama
