@@ -104,6 +104,8 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "order_outside_period",
         "currency_differs",
         "amount_differs",
+        # Osoba z pozycji faktury rozstrzyga kwotę równą u kilku osób (25.11.2026).
+        "amount_ambiguous",
         "amount_other_person",
         "expected_unknown",
         "unknown_order_number",

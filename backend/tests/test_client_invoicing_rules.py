@@ -767,6 +767,8 @@ def test_md_person_amount_does_not_bind_another_named_person():
 
 def test_other_person_reason_is_retried_and_alerts_the_delivery_lead():
     assert "amount_other_person" in RETRY_REASONS
+    # Osoba z pozycji może rozstrzygnąć kwotę równą u kilku osób przy kolejnej próbie.
+    assert "amount_ambiguous" in RETRY_REASONS
     assert "amount_other_person" in REASON_LABELS
     assert "amount_other_person" in GAP_REASONS
 
