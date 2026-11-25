@@ -18,7 +18,7 @@ co zostaje w procesie danej roli.
 - **Web** nie bierze blokady lidera. Stan pętli do `/api/health` i `/api/admin/snapshot`
   czyta z workera (`GET /api/health/background`, bufor 10 s). Worker nie odpowiada =
   `checks.background_tasks` zaczyna się od `unhealthy` i alarmuje `uptime-probe`.
-- **Pule:** web 40+10 na proces, worker 15+15. Web ma do 2 procesów (`kilka-procesow-web.md`),
+- **Pule:** web 20+30 na proces (od 25.11.2026, `pamiec-postgresa.md`), worker 15+15. Web ma do 2 procesów (`kilka-procesow-web.md`),
   a przy rolling update (etap B2) żyją chwilę dwa kontenery tej samej roli: 2 × 2 × 50 + 30 = 230,
   dlatego `max_connections=250` (zapas 15 na zrzut i blokady, pilnuje `tests/test_process_roles.py`).
 

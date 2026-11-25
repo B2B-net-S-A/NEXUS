@@ -69,7 +69,10 @@ META_RETURNED_AT = "returned_to_pool_at"
 NOTE = "NEXUS: 2 dni robocze bez śladu — karta wróciła do „Nowych” dla wszystkich."
 # Bezpiecznik jednego przebiegu (pierwszy przebieg na produkcji ma setki kart).
 MAX_PER_RUN = 200
-_CLAIM_ACTIONS = ("candidate_claimed",)
+# Oddanie osoby z blokadą (25.11.2026) to „Biorę” osoby, która ją dostała
+# (``details.to_user_id``), nie tej, która kliknęła.
+_HANDED_OVER = "candidate_claim_handed_over"
+_CLAIM_ACTIONS = ("candidate_claimed", _HANDED_OVER)
 _SHEET_ACTION = "screening_answered"
 _BOOKED_HOLD = timedelta(minutes=30)
 # Klucze decyzji „Dzwonię” i porcji, które karta wracająca do puli traci.
@@ -259,9 +262,15 @@ async def cards_for_jobs(
         for sid in stage_ids.get(pair, ())
     }
     if new_stage_owner:
-        for entity_id, user_id, created_at in (
+        for entity_id, action, actor_id, details, created_at in (
             await db.execute(
-                select(Activity.entity_id, Activity.user_id, Activity.created_at).where(
+                select(
+                    Activity.entity_id,
+                    Activity.action,
+                    Activity.user_id,
+                    Activity.details,
+                    Activity.created_at,
+                ).where(
                     Activity.entity_type == "pipeline",
                     Activity.action.in_(_CLAIM_ACTIONS),
                     Activity.entity_id.in_(sorted(new_stage_owner)),
@@ -269,6 +278,11 @@ async def cards_for_jobs(
             )
         ).all():
             pair = new_stage_owner[entity_id]
+            user_id = (
+                (details or {}).get("to_user_id")
+                if action == _HANDED_OVER
+                else actor_id
+            )
             if user_id is None:
                 continue
             prev = claim_at.get(pair)

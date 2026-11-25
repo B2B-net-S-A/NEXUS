@@ -179,6 +179,18 @@ class RecruitmentProcess(Base, TimestampMixin):
     claimed_until: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 0777 (25.11.2026): prośba o oddanie osoby z aktywną blokadą — kto prosi,
+    # dlaczego i kiedy. Obowiązuje tylko przy aktywnej blokadzie kogoś innego;
+    # nowa blokada (`candidate_claim.set_claim`/`clear_claim`) ją zdejmuje.
+    claim_request_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    claim_request_reason: Mapped[Optional[str]] = mapped_column(
+        String(300), nullable=True
+    )
+    claim_request_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Skąd osoba weszła do rekrutacji: added_manual | application | proposal |
     # reassign | auto_match | import | system (0515). NULL = proces sprzed 0352.
     entry_source: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)

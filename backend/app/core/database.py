@@ -57,9 +57,10 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
-    # Połączenia ponad `pool_size` są zamykane po oddaniu: przy 20 + 40
-    # produkcja otwierała ~95 nowych połączeń na minutę (27.10.2026).
-    # Suma 60 na proces; web i worker dostają mniejsze w compose (max_connections=150).
+    # Połączenia ponad `pool_size` są zamykane po oddaniu: przy 20 + 40 jeden
+    # proces z HTTP i wszystkimi pętlami otwierał ~95 nowych połączeń na minutę
+    # (27.10.2026). Web i worker mają własne pule w compose; trzymane połączenie
+    # to ok. 35 MB w limicie Postgresa → docs/claude/podstawy/pamiec-postgresa.md
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
     json_serializer=_json_serializer,

@@ -186,6 +186,15 @@ SPECS: dict[str, _Spec] = {
     "candidate_claim_taken": _Spec(
         "Ktoś przejął Twoją osobę", chip="Zespół", label="Otwórz kandydata"
     ),
+    "candidate_claim_handover": _Spec(
+        "Ktoś oddał Ci osobę", chip="Zespół", label="Otwórz kandydata"
+    ),
+    "candidate_claim_request": _Spec(
+        "Ktoś prosi o Twoją osobę", chip="Zespół", label="Otwórz kandydata"
+    ),
+    "candidate_claim_request_answer": _Spec(
+        "Odpowiedź na Twoją prośbę o osobę", chip="Zespół", label="Otwórz kandydata"
+    ),
     "job_p0_set": _Spec(
         "Rekrutacja na P0 — ultrapilne", chip="P0", label="Otwórz rekrutację"
     ),

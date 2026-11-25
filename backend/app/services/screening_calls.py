@@ -259,6 +259,10 @@ async def book(
     db.add(event)
     await db.flush()
     newly_taken = not (state.active(now) and state.user_id == user.id)
+    # Prośba o oddanie (0777) była do poprzedniej osoby — nie przechodzi
+    # na nową blokadę.
+    if process.claimed_by_user_id != user.id:
+        candidate_claim.clear_request(process)
     process.claimed_by_user_id = user.id
     process.claimed_until = hold_until(start, now)
     # Osoba od systemu: umówienie to ta sama decyzja co „Dzwonię”.
@@ -459,6 +463,8 @@ async def extend_hold(db: AsyncSession, event: CalendarEvent, now: datetime) -> 
         None,
         event.operational_owner_id,
     ):
+        if process.claimed_by_user_id != event.operational_owner_id:
+            candidate_claim.clear_request(process)
         process.claimed_by_user_id = event.operational_owner_id
         process.claimed_until = hold_until(event.start_time, now)
 

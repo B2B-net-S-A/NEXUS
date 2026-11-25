@@ -18,7 +18,6 @@ której w raporcie nie ma, nie dostaje z niego nic (``None``).
 
 from __future__ import annotations
 
-import io
 import logging
 import re
 import unicodedata
@@ -27,7 +26,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
 
-from app.services.client_settlements import declared
+from app.services.client_settlements import declared, xlsx
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
     _fmt,
@@ -121,14 +120,10 @@ def _columns(header: list[Any]) -> Optional[_Columns]:
 
 
 def _rows(content: bytes) -> Optional[list[list[Any]]]:
-    import openpyxl
-
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            workbook = openpyxl.load_workbook(
-                io.BytesIO(content), data_only=True, read_only=True
-            )
+            workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001 — obcy plik nie blokuje przyjęcia
         logger.info("report_ca: arkusz nieczytelny (%s)", type(exc).__name__)
         return None

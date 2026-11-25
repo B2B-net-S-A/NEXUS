@@ -39,3 +39,34 @@ export function cvFictionHtml(fullName: string): string {
     "<ul><li><p>Analiza wymagań do systemu płatności i odbiory z biznesem.</p></li></ul>"
   );
 }
+
+/**
+ * Zdania 1–3 strony 1 „Nowego CV” z generatora dla CV z `cvFictionHtml`
+ * (lekcja „Nowe CV: strona 1”, 25.11.2026) — tak, jak je zapisuje serwer
+ * (`page1_extras.why_generated`) po sprawdzeniu kodem. Bez formy z rodzajem.
+ */
+export const CV_FICTION_WHY = [
+  {
+    slot: "experience",
+    text: "**13 lat** w IT, w tym **9 lat** jako Project Manager, w bankowości i IT, przez ten czas w zespołach pracujących w Scrum i SAFe.",
+    verified: true,
+    roles: [0, 1, 2],
+  },
+  {
+    slot: "requirements",
+    text: "**Scrum i Jira** w programie migracji systemu płatności w Firmie Przykładowej S.A.",
+    verified: true,
+    evidence: [
+      { must: "Scrum", quote: "Koordynacja czterech zespołów w Scrum i planowanie w Jira", company: "Firma Przykładowa S.A." },
+      { must: "Jira", quote: "Koordynacja czterech zespołów w Scrum i planowanie w Jira", company: "Firma Przykładowa S.A." },
+    ],
+  },
+  {
+    slot: "key_task",
+    text: "Migracja systemu płatności — prowadzenie programu w Firmie Przykładowej S.A.: **harmonogram, ryzyka i budżet**.",
+    verified: true,
+    quote: "Prowadzenie programu migracji systemu płatności: harmonogram, ryzyka i budżet",
+    source: "cv",
+    company: "Firma Przykładowa S.A.",
+  },
+] as const;
