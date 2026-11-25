@@ -1,7 +1,7 @@
 """Moduł „Przegrane” w Insights: „Co zdecydowało?”, wnioski ze spotkania z DL, klucz AI F56.
 
 Revision ID: 0783_lost_review
-Revises: 0781_client_buyer_numbers
+Revises: 0782_contract_rate_history_ksef
 
 Decyzja Artura z 25.11.2026: co miesiąc spotkanie z Delivery Leadami
 o przegranych rekrutacjach. Dwie nowe tabele (``job_loss_reviews``,
@@ -15,7 +15,7 @@ from alembic import op
 from app.services import lost_review_schema as schema
 
 revision = "0783_lost_review"
-down_revision = "0781_client_buyer_numbers"
+down_revision = "0782_contract_rate_history_ksef"
 branch_labels = None
 depends_on = None
 
