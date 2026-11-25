@@ -291,6 +291,7 @@ services:
       DL_ALERTS_ENABLED:
       ACCESS_USAGE_COUNTER_ENABLED:
       ORDER_GAPS_ENABLED:
+      LEGAL_CORPUS_EMBEDDINGS_ENABLED:
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:
