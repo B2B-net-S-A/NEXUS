@@ -64,6 +64,11 @@ def test_wiersz_osoby_daje_md_godziny_i_miesiac():
     assert found.consultant == PERSON
 
 
+def test_md_z_jednostka_w_komorce():
+    found = _declared(_row(md="17,5MD", hours=140))
+    assert found is not None and found.md == Decimal("17.5")
+
+
 def test_osoba_bez_polskich_liter_i_miesiac_liczba():
     found = _declared(
         _row(person="Lukasz Zolw", month=10, md=21.5, hours=172), person="Łukasz Żółw"

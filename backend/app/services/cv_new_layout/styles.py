@@ -64,7 +64,6 @@ def _inner(inner_mm: float) -> str:
         f".s1r{{padding:{0.9 + inner_mm * 0.45:.2f}mm 0}}"
         f".p1 h2{{margin-bottom:{2.6 + inner_mm * 0.5:.2f}mm}}"
         f".axis{{margin:{inner_mm * 0.9:.2f}mm 0}}"
-        f".cl .cli{{padding:{0.9 + inner_mm * 0.45:.2f}mm 0}}"
         f".edi{{margin-bottom:{1.6 + inner_mm * 0.45:.2f}mm}}"
     )
 
@@ -125,12 +124,6 @@ ul.why li b{{color:{INK};font-weight:700}}
 .s1i .it.sep::after{{content:'';display:inline-block;width:.3mm;height:.85em;background:#C9C1B7;
  margin:0 2.2mm;vertical-align:-.08em}}
 .s1i .more{{color:{SOFT};font-weight:600;white-space:nowrap}}
-.ed{{display:grid;grid-template-columns:92mm minmax(0,1fr);column-gap:7mm;align-items:center}}
-.wb{{display:flex;align-items:center}}
-.wb svg{{flex:none;margin-right:3.5mm}}
-.wdl{{font:600 .72em Poppins,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:{BRAND_TEXT};margin-bottom:.5mm}}
-.wtt{{font:700 1.05em/1.25 Poppins,sans-serif;margin:0 0 .6mm}}
-.wts2{{font-size:.88em;color:#6B655D;line-height:1.3;margin-top:.6mm}}
 .ce{{font-family:'Source Sans 3',sans-serif;font-size:.95em}}
 .ce .ceh,.ce .cer{{display:grid;grid-template-columns:11mm 1fr}}
 .ce.noy .ceh,.ce.noy .cer{{grid-template-columns:1fr}}
@@ -149,7 +142,7 @@ h1.title{{font:700 19pt/1.12 Poppins,sans-serif;color:{BRAND};letter-spacing:-.0
 .hl .hlw{{flex:none;margin-right:2.4mm}}
 .hlk{{font:700 .74em Poppins,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:{BRAND_TEXT};margin-bottom:.6mm}}
 .hlt{{font-size:1.1em;line-height:1.35;color:#2b2926}}.hlt b{{color:{INK};font-weight:700}}
-/* Edukacja bez wieńca (wariant ED): dwie kolumny z ikonami */
+/* Edukacja (wariant ED, zawsze od 25.11.2026): dwie kolumny z ikonami */
 .edp{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:8mm}}
 .edh{{display:flex;align-items:center;font:700 .78em Poppins,sans-serif;letter-spacing:.12em;text-transform:uppercase;
  color:{BRAND_TEXT};margin-bottom:1.6mm}}
@@ -162,15 +155,6 @@ h1.title{{font:700 19pt/1.12 Poppins,sans-serif;color:{BRAND};letter-spacing:-.0
 .pills{{padding-top:1.2mm}}
 .pill.loc{{display:inline-flex;align-items:center}}
 .pill .pin{{width:1.05em;height:1.05em;margin:0 .8mm 0 -.6mm}}
-.sublab{{font:700 .8em Poppins,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:{BRAND_TEXT};
- padding-bottom:1mm;margin-bottom:1.6mm;border-bottom:.3mm solid {BRAND}}}
-.ed{{align-items:start}}
-.gap{{height:2mm}}
-.sch{{font-size:.95em;line-height:1.35}}.sch b{{font:700 1em Poppins,sans-serif;color:{INK}}}
-.cl .cli{{display:grid;grid-template-columns:11mm 1fr;padding:.9mm 0;border-bottom:1px solid {RULE};line-height:1.3;break-inside:avoid}}
-.cl .cly{{color:{BRAND_TEXT};font:700 .9em Poppins,sans-serif;font-variant-numeric:tabular-nums;padding-top:.15mm}}
-.cl .cln{{font-weight:600;color:{INK};grid-column:2}}
-.cl.noy .cli{{grid-template-columns:1fr}}.cl.noy .cln{{grid-column:1}}
 
 /* ---------- od strony 2 ---------- */
 .rest{{break-before:page}}

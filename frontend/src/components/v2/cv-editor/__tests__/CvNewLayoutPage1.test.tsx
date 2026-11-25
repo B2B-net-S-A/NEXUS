@@ -176,12 +176,10 @@ describe("Strona 1", () => {
     );
   });
 
-  it("wybór wieńca zapisuje się w dodatkach strony 1 (23.11.2026)", async () => {
-    const user = userEvent.setup();
-    const { props } = renderPage1({ extras: { ...EXTRAS, wreath: "school" } });
-    expect(screen.getByRole("button", { name: "Szkoła" })).toHaveAttribute("aria-pressed", "true");
-    await user.click(screen.getByRole("button", { name: "Certyfikat" }));
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ wreath: "cert" }));
+  it("bez wyboru wieńca — wieniec stoi tylko przy wyróżniku (25.11.2026)", () => {
+    renderPage1();
+    expect(screen.queryByTestId("cv-wreath-choice")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Szkoła" })).not.toBeInTheDocument();
   });
 
   it("błąd zapisu zdania mówi po polsku, co się stało", async () => {

@@ -208,7 +208,9 @@ def test_language_parts_levels_and_codes():
     assert (
         lang_code("Angielski") == "EN"
         and lang_code("German") == "DE"
-        and lang_code("Esperanto") == "ES"
+        and lang_code("Esperanto")
+        == "EO"  # nie „ES” (hiszpański) — kod z listy, 25.11.2026
+        and lang_code("Klingoński") == "KL"  # nieznany język: dwie pierwsze litery
     )
 
 
@@ -675,42 +677,37 @@ def _edu(data: dict, **kw) -> str:
     return html[html.index("<span>Edukacja</span>") : html.index("class='rest'")]
 
 
-def test_wreath_shows_degree_when_no_certificate_is_required():
+def test_education_never_has_a_wreath():
+    """Artur 25.11.2026: wieniec tylko u góry przy wyróżniku; Edukacja zawsze z ikonami."""
     edu = _edu(long_cv())
-    assert ">2008</text>" in edu  # rok dyplomu w wieńcu
-    assert "Wykształcenie" in edu and "Certyfikaty i szkolenia · 10" in edu
+    assert "<svg viewBox='0 0 32 32'" not in edu and "class='wb'" not in edu
+    assert "class='edp'" in edu and "Informatyka" in edu and "2008" in edu
+    assert "Certyfikaty i szkolenia · 10" in edu
 
 
-def test_wreath_shows_certificate_required_by_client():
+def _cert_order(edu: str) -> list[str]:
+    return re.findall(r"<div class='edi c'><div class='edf'>([^<]+)</div>", edu)
+
+
+def test_certificate_required_by_client_is_listed_first():
+    """Certyfikat z MUST klienta (dawniej w wieńcu) stoi pierwszy na liście."""
     data = dict(long_cv(), must_have=["Python", "PRINCE2 Practitioner"])
     data["certifications"] = data["certifications"] + [
         "PRINCE2 Practitioner - Axelos (2021)"
     ]
-    edu = _edu(data)
-    assert ">PRINCE2</text>" in edu and ">2021</text>" in edu
-    assert "Certyfikat" in edu and "Inne certyfikaty i szkolenia · 10" in edu
-    assert "<b>Informatyka</b>" in edu  # dyplom obok, bez wieńca
+    assert _cert_order(_edu(data))[0] == "PRINCE2 Practitioner"
 
 
-def test_recruiter_can_force_certificate_or_school_in_the_wreath():
-    with_cert = dict(long_cv(), must_have=["PRINCE2 Practitioner"])
-    with_cert["certifications"] = with_cert["certifications"] + [
-        "PRINCE2 Practitioner - Axelos (2021)"
-    ]
-    assert ">2008</text>" in _edu(with_cert, wreath="school")
-    forced = _edu(long_cv(), wreath="cert")
-    assert "Inne certyfikaty i szkolenia" in forced and ">2008</text>" not in forced
-
-
-def test_course_is_not_treated_as_required_certificate():
-    data = dict(long_cv(), must_have=["Python"])
-    data["certifications"] = ["Kurs Python dla analityków - Akademia (2023)"]
-    assert ">2008</text>" in _edu(data)
-
-
-def test_skill_requirement_does_not_pull_a_course_certificate_into_the_wreath():
+def test_course_or_skill_requirement_does_not_jump_to_the_top():
     """Staging 23.11: MUST „UX Design” (umiejętność) dopasowało „Foundations of User
-    Experience Design” — wieniec ma dostać certyfikat tylko za wymaganie-certyfikat."""
-    data = dict(long_cv(), must_have=["UX Design", "Figma"])
-    data["certifications"] = ["Foundations of User Experience Design - Google (2022)"]
-    assert ">2008</text>" in _edu(data)
+    Experience Design”, a kurs nie jest certyfikatem z wymagań."""
+    data = dict(long_cv(), must_have=["UX Design", "Python"])
+    data["certifications"] = data["certifications"] + [
+        "Foundations of User Experience Design - Google (2022)",
+        "Kurs Python dla analityków - Akademia (2023)",
+    ]
+    first = _cert_order(_edu(data))[0]
+    assert first not in (
+        "Foundations of User Experience Design",
+        "Kurs Python dla analityków",
+    )

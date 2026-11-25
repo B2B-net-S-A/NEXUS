@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
 
-from app.services.cv_layout import compose_page1_why, page1_wreath
+from app.services.cv_layout import compose_page1_why
 from app.services.cv_new_layout.highlight import choice_from_extras
 from app.services.cv_new_content import cv_json_from_editor_html
 from app.services.cv_page1_result_checks import rechecked_extras
@@ -60,7 +60,7 @@ class NewCvPdf:
 @dataclass(frozen=True)
 class CvFacts:
     """Fakty spoza treści edytora (Artur 23.11.2026): miasto kandydata obok języków,
-    wymagania MUST z Profilu Championa (certyfikat z MUST idzie do wieńca) i nazwy
+    wymagania MUST z Profilu Championa (certyfikat z MUST stoi pierwszy w Edukacji) i nazwy
     klienta rekrutacji (wyróżnik „Doświadczenie w …”, Artur 25.11.2026)."""
 
     location: str = ""
@@ -178,7 +178,6 @@ def _render(
             "client_names": list(facts.client_names),
         },
         why=compose_page1_why(content.cv_json.get("why_points") or [], extras),
-        wreath=page1_wreath(extras),
         highlight=choice_from_extras(extras),
         # Renderer wstawia klauzulę jako HTML — tekst z edytora idzie escapowany.
         rodo_clause_html=html.escape(content.rodo_clause) or None,

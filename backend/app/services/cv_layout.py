@@ -123,16 +123,6 @@ def page1_why(extras: Optional[dict]) -> Optional[list[str]]:
     return slots if any(slots) else None
 
 
-WREATH_CHOICES = ("auto", "cert", "school")
-
-
-def page1_wreath(extras: Optional[dict]) -> str:
-    """Co idzie do wieńca na stronie 1 (Artur 23.11.2026): „auto” = certyfikat,
-    gdy klient go wymaga (MUST), inaczej dyplom; „cert” albo „school” wybiera rekruter."""
-    value = extras.get("wreath") if isinstance(extras, dict) else None
-    return value if value in WREATH_CHOICES else "auto"
-
-
 def chosen_result(extras: Optional[dict]) -> Optional[str]:
     """„Najmocniejszy wynik” do strony 1: zdanie wpisane przez rekrutera
     (`result_text`) albo wybrane z listy modelu — tylko sprawdzone z cytatem
@@ -170,9 +160,9 @@ _RESULT_KEYS = (
 def forget_page1_result(extras: Optional[dict]) -> Optional[dict]:
     """Dodatki strony 1 po wczytaniu innej generacji (przegląd 25.11.2026):
     bez najmocniejszego wyniku (listy, wyboru, zdania rekrutera), bez zdań 1–3
-    (`why`, `why_generated`) i bez własnego
-    wyróżnika (`highlight.mode == "custom"`) — opisują poprzednie CV. Wieniec
-    i wyłączony wyróżnik zostają. ``None`` = nic nie zostało."""
+    (`why`, `why_generated`) i bez własnego wyróżnika (`highlight.mode ==
+    "custom"`) — opisują poprzednie CV. Wyłączony wyróżnik i stary wpis `wreath`
+    zostają. ``None`` = nic nie zostało."""
     if not isinstance(extras, dict):
         return extras
     kept = {k: v for k, v in extras.items() if k not in _RESULT_KEYS}

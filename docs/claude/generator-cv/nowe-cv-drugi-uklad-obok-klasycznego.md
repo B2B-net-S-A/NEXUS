@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1, wieniec certyfikat/dyplom (`page1_extras.wreath`); runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja bez wieńca z ikonami, pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora” -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora” -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -76,17 +76,13 @@ https://claude.ai/artifact/KQVGVPioPeiDDUQnQDmKcq, prywatne).
   lata to jasny odcinek tego samego paska z przerwą „//”, nad nim lata
   („1997–2014”), pod nim zwykłym pismem „13 stanowisk, m.in. …” z dwiema
   najdłuższymi firmami (wariant A1). Drobny blok „Wcześniej” z boku zniknął.
-- **Edukacja i wieniec (wariant E4):** wieniec przyciąga wzrok, więc trafia do
-  niego to, co dla klienta ważniejsze. Domyślnie (`page1_extras.wreath` puste
-  albo „auto”) certyfikat, gdy klient go wymaga — wszystkie słowa wymagania MUST
-  z Profilu Championa (`stack.must`) stoją w nazwie certyfikatu; kurs ani
-  szkolenie się nie liczy — inaczej najwyższy dyplom. Rekruter zmienia to w karcie
-  „CV do klienta” (obok układu) albo w edytorze, zakładka „Strona 1”
-  (`PATCH …/cv/page1` z `wreath: auto|cert|school`). „Certyfikat” bez certyfikatu
-  z MUST bierze najważniejszy certyfikat zawodowy dla roli (punktacja
-  `top_certs`). Z certyfikatem w wieńcu (skrót PMP/ISTQB/PL-900 w środku, rok pod
-  nim) obok stoją podpisane „Wykształcenie” i „Inne certyfikaty i szkolenia · N”;
-  z dyplomem — „Wykształcenie” i „Certyfikaty i szkolenia · N”. Liczba N = wszystkie.
+- **Edukacja (od 25.11.2026 bez wieńca):** wariant E4 (wieniec z certyfikatem
+  albo dyplomem, wybór `page1_extras.wreath` w karcie i edytorze) zdjęty —
+  patrz „Wieniec tylko u góry” w rundzie 37. Certyfikat z wymagań klienta stoi
+  pierwszy na liście: wszystkie słowa wymagania MUST z Profilu Championa
+  (`stack.must`), które samo jest certyfikatem, stoją w nazwie certyfikatu;
+  kurs ani szkolenie się nie liczy (`required_by_client`). Reszta miejsc
+  z punktacji `top_certs`. Liczba N w „Certyfikaty i szkolenia · N” = wszystkie.
 - **Rekruter, generator:** wybór układu to osobny krok „3 · Jak CV zobaczy
   klient” z dwiema kartami (schemat strony 1, co dostaje klient, „polecane” przy
   Nowym CV), przed „Treścią CV”. Domyślny układ bez zmian (reguła klienta).
@@ -114,9 +110,13 @@ https://claude.ai/artifact/USSM8YEU8BSmS49CUZ5fFi, wersje 1–4).
   Nie pisz „Zna klienta od środka” (Artur: brzmi źle). Edytor: sekcja
   „Wyróżnik” w zakładce „Strona 1”, ten sam `PATCH …/cv/page1`; Historia
   zdarzeń zapisuje tylko tryb, bez treści.
-- **Wieniec raz na stronie:** z wyróżnikiem Edukacja idzie bez wieńca —
-  dwie kolumny z ikonami (biret, odznaka): kierunek, stopień · rok, uczelnia;
-  certyfikat, wystawca · rok (`education_plain`). Bez wyróżnika jak dotąd.
+- **Wieniec tylko u góry** (Artur 25.11.2026, „Tylko u góry, Edukacja zawsze
+  z ikonami”): wieniec stoi wyłącznie przy wyróżniku pod nazwiskiem. Edukacja
+  zawsze w dwóch kolumnach z ikonami (biret, odznaka): kierunek, stopień · rok,
+  uczelnia; certyfikat, wystawca · rok (`education_plain`) — także w CV bez
+  wyróżnika. Wyboru wieńca nie ma w karcie „CV do klienta” ani w edytorze,
+  `PATCH …/cv/page1` nie przyjmuje `wreath`; stary wpis `page1_extras.wreath`
+  zostaje w bazie, ale render go nie czyta. Nie przywracaj wieńca w Edukacji.
 - **Oś kariery po kolei (S1, `axis.py`):** odcinki NIE w skali czasu — każdy
   ma miejsce na pełną nazwę firmy w 2 liniach (przy ciasnocie 3), resztę
   dzielą prace według pierwiastka ze stażu. Nad odcinkiem firma, pod nim rok
@@ -233,7 +233,7 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
   czyści `results`, `result_index`, `result_text`, `results_source_sha`,
   zdania 1–3 (`why`, `why_generated`, `why_source_sha`) i własny wyróżnik
   (`highlight.mode == "custom"`) — `cv_layout.forget_page1_result`.
-  Wybór wieńca i wyłączony wyróżnik zostają. Od 25.11.2026 (#3972) przycisk
+  Wyłączony wyróżnik (i stary wpis `wreath`) zostają. Od 25.11.2026 (#3972) przycisk
   to „Ułóż zdania od nowa” w nagłówku „Dlaczego nasz kandydat” (dawne „Policz
   wyniki od nowa” przy polu wyniku): najpierw zapis szkicu, potem
   `POST …/cv/page1/results` liczy wyniki i zdania naraz; w czasie liczenia pola

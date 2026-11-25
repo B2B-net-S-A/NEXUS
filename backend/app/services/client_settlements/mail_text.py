@@ -417,6 +417,10 @@ def read_acceptance(text: str, month: str, *, english: bool = False) -> Acceptan
                 continue
             index = MONTHS_EN.index(match.group(1).lower()) + 1
             months.add(f"{match.group(2) or year}-{index:02d}")
+    # Data sprzed lat to nie miesiąc pracy, tylko np. stopka RODO z „rozporządzenia
+    # (UE) 2016/679 z dnia 27 kwietnia 2016 roku” (próba VI–VIII 2026: PKO,
+    # „Akceptacja za inny miesiąc: kwiecień 2016”).
+    months = {m for m in months if abs(int(m[:4]) - year) <= 1}
     patterns = (*_HOURS, _HOURS_EN) if english else _HOURS
     hours = tuple(
         value

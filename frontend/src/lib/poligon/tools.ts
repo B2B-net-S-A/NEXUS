@@ -103,7 +103,7 @@ export function createTools(ctx: ToolsContext) {
   const branded = new Map<number, { html: string; revision: number; status: string }>();
   /** Układ CV per etap (Nowe CV / Klasyczne, 23.11.2026); brak wpisu = klasyczny jak u klienta bez reguły. */
   const layouts = new Map<number, "classic" | "new">();
-  /** Dodatki strony 1 nowego CV per etap po zmianach w edytorze (wieniec, wyróżnik, zdania). */
+  /** Dodatki strony 1 nowego CV per etap po zmianach w edytorze (wyróżnik, zdania). */
   const page1 = new Map<number, Row>();
   const newByDefault = new Set(
     meta.people.filter((p) => (POLIGON_NEW_CV_CANDIDATES as readonly number[]).includes(p.candidate_id)).map((p) => p.entry_id),
@@ -484,7 +484,7 @@ export function createTools(ctx: ToolsContext) {
       layoutFor(entryId) === "new"
         ? { why: CV_FICTION_WHY.map((item) => item.text), why_generated: JSON.parse(JSON.stringify(CV_FICTION_WHY)) }
         : {};
-    return { wreath: "auto", ...recorded, ...generated, ...(page1.get(entryId) ?? {}) };
+    return { ...recorded, ...generated, ...(page1.get(entryId) ?? {}) };
   }
 
   /** Lustro `PATCH …/cv/page1` w pamięci: `why` per slot (`null` = bez zmiany, "" = z generatora). */
@@ -494,13 +494,6 @@ export function createTools(ctx: ToolsContext) {
     const extras = { ...((current.data as Row).page1_extras as Row) };
     const next: Row = { ...(page1.get(entryId) ?? {}) };
     let touched = false;
-    if ("wreath" in body) {
-      if (body.wreath !== "auto" && body.wreath !== "cert" && body.wreath !== "school") {
-        return { status: 422, data: { detail: "Wieniec to „auto”, „cert” albo „school”." } };
-      }
-      next.wreath = body.wreath;
-      touched = true;
-    }
     if ("highlight" in body && body.highlight && typeof body.highlight === "object") {
       const highlight = body.highlight as Row;
       if (highlight.mode === "custom" && !(textOf(highlight.label).trim() && textOf(highlight.text).trim())) {
@@ -545,7 +538,7 @@ export function createTools(ctx: ToolsContext) {
     return after.status === 200 ? { status: 200, data: (after.data as Row).page1_extras } : after;
   }
 
-  /** Odczyt CV etapu do zapisu układu albo wieńca; etap bez CV do klienta → 409 jak na serwerze. */
+  /** Odczyt CV etapu do zapisu układu albo strony 1; etap bez CV do klienta → 409 jak na serwerze. */
   function brandedFor(entryId: number): PoligonResponse {
     const recorded = ctx.recorded("GET", `/api/candidates/stages/${entryId}/cv/branded`);
     if (recorded.status !== 200) return recorded;

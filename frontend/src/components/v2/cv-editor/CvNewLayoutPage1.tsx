@@ -51,7 +51,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { DocTextarea, dispatchCv, useEditorDoc } from "./cv-new-layout-fields";
-import { WreathChoice } from "@/components/v2/cv-generator/WreathChoice";
 
 /** Ile czeka zapis zdania strony 1 (i pól wyróżnika) po ostatnim znaku. */
 export const RESULT_SAVE_DELAY_MS = 1200;
@@ -91,7 +90,7 @@ export interface CvNewLayoutPage1Props {
   editor: Editor;
   extras: CvPage1Extras | null | undefined;
   disabled: boolean;
-  /** Zapis dodatków strony 1 (zdania, wyróżnik, wieniec); brak = bez tych pól (np. CV bez etapu). */
+  /** Zapis dodatków strony 1 (zdania, wyróżnik); brak = bez tych pól (np. CV bez etapu). */
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
   /**
    * „Ułóż zdania od nowa” — zdania 1–3 i najmocniejsze wyniki z zapisanego CV
@@ -180,13 +179,6 @@ export function CvNewLayoutPage1({
         <SectionRow label="Edukacja" summary={summaries.education} onOpen={() => onOpenText("education")} />
         <SectionRow label="Języki" summary={summaries.languages} onOpen={() => onOpenText("languages")} />
       </nav>
-      {onSaveResult ? (
-        <WreathChoice
-          value={extras?.wreath ?? "auto"}
-          onChange={(wreath) => void onSaveResult({ wreath })}
-          disabled={disabled}
-        />
-      ) : null}
     </div>
   );
 }
