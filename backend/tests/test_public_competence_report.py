@@ -304,6 +304,42 @@ async def test_sent_report_keeps_the_snapshot_that_went_out(
     assert report.snapshot == _old_snapshot()
 
 
+async def test_old_link_updates_newer_unsent_reports_only(
+    app_client: AsyncClient, person: int
+):
+    """Token wysłanego raportu poprawia też nowszy, niewysłany raport tej osoby."""
+    raw, old_id = await _seed_report(person, snapshot=True)
+    _, newer_id = await _seed_report(person, status="ready", sent=False, snapshot=True)
+    _, waiting_id = await _seed_report(person, status="waiting_cv", sent=False)
+    _, other_sent_id = await _seed_report(person, snapshot=True)
+    stranger = await _seed_candidate()
+    try:
+        _, foreign_id = await _seed_report(
+            stranger, status="ready", sent=False, snapshot=True
+        )
+
+        r = await app_client.post(f"{_BASE}/{raw}/conditions", json=_body(rate=240))
+
+        assert r.status_code == 200, r.text
+        by_id = {rep.id: rep for rep in await _reports(person)}
+        assert by_id[old_id].conditions["rate"] == 240
+        assert by_id[old_id].snapshot == _old_snapshot(), "wysłany zostaje jak wyszedł"
+        assert by_id[newer_id].conditions["rate"] == 240
+        assert by_id[newer_id].snapshot["conditions"]["rate"] == 240
+        assert by_id[newer_id].snapshot["profile"]["role_label"] != "Stary raport"
+        assert by_id[waiting_id].conditions["rate"] == 240
+        assert by_id[waiting_id].snapshot is None
+        assert by_id[other_sent_id].conditions["rate"] == _CONDITIONS["rate"]
+        [foreign] = await _reports(stranger)
+        assert foreign.id == foreign_id
+        assert foreign.conditions["rate"] == _CONDITIONS["rate"]
+        assert foreign.snapshot == _old_snapshot()
+        [entry] = await _activities(person, "candidate_terms_answered")
+        assert sorted(entry.details["also_reports"]) == sorted([newer_id, waiting_id])
+    finally:
+        await _cleanup(stranger)
+
+
 async def test_failed_rebuild_still_saves_and_falls_back(
     app_client: AsyncClient, person: int, monkeypatch
 ):

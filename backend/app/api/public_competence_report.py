@@ -156,6 +156,26 @@ async def _rebuild(db: AsyncSession, row: CompetenceReport) -> None:
         row.snapshot = fallback_snapshot(row).model_dump(mode="json")
 
 
+async def _pending_reports(
+    db: AsyncSession, row: CompetenceReport
+) -> list[CompetenceReport]:
+    """Inne niewysłane raporty tej osoby. Blokada czeka na pętlę wysyłki:
+    raport, który w międzyczasie wyszedł, odpada z warunku ``status``."""
+    return list(
+        await db.scalars(
+            select(CompetenceReport)
+            .where(
+                CompetenceReport.candidate_id == row.candidate_id,
+                CompetenceReport.id != row.id,
+                CompetenceReport.status.in_(_UNSENT),
+                CompetenceReport.opted_out_at.is_(None),
+            )
+            .order_by(CompetenceReport.id)
+            .with_for_update()
+        )
+    )
+
+
 @router.get("/public/competence-report/{token}", response_model=ReportPageView)
 @limiter.limit("30/minute")
 async def get_report_page(
@@ -198,8 +218,13 @@ async def save_report_conditions(
         protect=True,
     )
     row.conditions = conditions.model_dump(mode="json")
-    if row.status in _UNSENT and row.snapshot:
-        await _rebuild(db, row)
+    # Najnowsze słowo kandydata obowiązuje też raporty, które jeszcze nie wyszły
+    # (np. po ponownym zgłoszeniu ze strony) — decyzja z 25.11.2026.
+    pending = await _pending_reports(db, row)
+    for report in pending:
+        report.conditions = row.conditions
+    for report in (r for r in (row, *pending) if r.status in _UNSENT and r.snapshot):
+        await _rebuild(db, report)
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.TERMS_ANSWERED,
@@ -211,6 +236,7 @@ async def save_report_conditions(
             "saved": result["saved"],
             "kept": result["kept"],
             "answer": row.conditions,
+            "also_reports": [r.id for r in pending],
         },
     )
     await db.commit()
