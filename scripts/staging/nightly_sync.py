@@ -44,6 +44,7 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 REPO = Path(__file__).resolve().parents[2]
 CLONE_SCRIPT = REPO / "scripts/staging/clone_from_hetzner.py"
 SCORING_SERVICE = REPO / "backend/app/services/scoring_service.py"
+CONFIG = REPO / "backend/app/core/config.py"
 
 NIGHTLY_DB = re.compile(r"nexus_staging_nightly_(\d{8})\Z")
 DATE_DIR = re.compile(r"\d{8}\Z")
@@ -76,6 +77,67 @@ SALES_FLAGS = (
 # Z domyślnym 400 z `config.py` pomiary kolejki warunków na kopii nie zgadzały się
 # z produkcją. Pętla `candidate_terms_sender` stoi w `STAGING_BLOCKED_TASKS`.
 CANDIDATE_TERMS_FLAGS = ("CANDIDATE_TERMS_DAILY_LIMIT",)
+# Pozostałe flagi `*_ENABLED` z `config.py` idą jak na produkcji (decyzja Artura z 25.11.2026:
+# `CV_NEW_LAYOUT_ENABLED` było na stagingu wyłączone, a na produkcji włączone). Wyjątek to
+# pętle i wysyłki na zewnątrz: zostają z `.env.staging`, choć i tak trzyma je
+# `STAGING_BLOCKED_TASKS` i zapora wyjścia w `app/core/staging.py`. Logowanie i blokada
+# lidera też zostają lokalne, bo staging ma własne konta testowe i jeden proces.
+FORBIDDEN_FLAGS = frozenset(
+    {
+        # Poczta, Teams i powiadomienia do ludzi.
+        "SMTP_ENABLED",
+        "NOTIFICATION_EMAIL_OUTBOX_ENABLED",
+        "DAILY_DIGEST_EMAIL_ENABLED",
+        "DL_ALERT_EMAIL_ENABLED",
+        "TEAMS_NOTIFICATIONS_ENABLED",
+        "KPI_COACH_NUDGER_ENABLED",
+        "KPI_COACH_V2_NUDGES_ENABLED",
+        "CANDIDATE_TERMS_ENABLED",
+        "B2B_MASS_SEND_ENABLED",
+        "HR_APPROVALS_MAIL_REPLY_ENABLED",
+        "CPRO_MAIL_ENABLED",
+        # M365: synchronizacje, webhooki, skrzynki i nagrania.
+        "M365_INTEGRATION_ENABLED",
+        "M365_APP_MAIL_ENABLED",
+        "M365_SYNC_LOOP_ENABLED",
+        "M365_REMATCH_ENABLED",
+        "M365_SIGNATURE_INJECTION_ENABLED",
+        "M365_RECORDING_DISCOVERY_ENABLED",
+        "M365_WEBHOOKS_ENABLED",
+        "TEAMS_PREP_APP_ONLY_ENABLED",
+        "TEAMS_PREP_TRANSCRIPTS_ENABLED",
+        "SALES_TEAMS_TRANSCRIPTS_ENABLED",
+        "TRAININGS_TEAMS_ENABLED",
+        "CONTRACT_DOCS_SP_SYNC_ENABLED",
+        "ORDER_MAIL_INGEST_ENABLED",
+        "ORDER_MAIL_AUTOAPPLY_ENABLED",
+        "ORDER_MAIL_RECHECK_ENABLED",
+        "ADMIN_CASES_MAIL_INGEST_ENABLED",
+        # Boty, rejestry i portale poza siecią.
+        "CPRO_BOT_ENABLED",
+        "CPRO_BOT_AUTO_DRAFT_ENABLED",
+        "SALES_SIGNALS_ENABLED",
+        "SALES_TENDERS_ENABLED",
+        "SALES_COGNISM_PEOPLE_ENABLED",
+        "LAW_RADAR_ENABLED",
+        "BOARD_KRS_ENABLED",
+        "AUTENTI_ENABLED",
+        "PROXYCURL_ENABLED",
+        "TRAFFIT_SYNC_ENABLED",
+        "PORTAL_PRACUJ_ENABLED",
+        "PORTAL_JJIT_ENABLED",
+        "PORTAL_ROCKETJOBS_ENABLED",
+        "JJIT_ENABLED",
+        # Pętle HR i logowanie, proces staging ustawia sam.
+        "HR_PROGRAM_ENABLED",
+        "HR_LOOPS_ENABLED",
+        "PASSWORD_LOGIN_ENABLED",
+        "SELF_REGISTRATION_ENABLED",
+        "AAD_GROUP_RBAC_ENABLED",
+        "BACKGROUND_LEADER_LOCK_ENABLED",
+    }
+)
+CONFIG_ENABLED = re.compile(r"^    ([A-Z0-9_]+_ENABLED)\s*:", re.M)
 # launchd uruchamia te skrypty z kopii w `~/.claude/nexus-rutyny/bin/kopia`, nie z maina
 # (rutyny-nocne.md). Kopia sprzed #3254 nie znała adaptera zapytania i od 09.11.2026
 # staging liczył inny `ranker_version`, choć main był poprawny.
@@ -186,14 +248,25 @@ def scoring_inputs(source: str) -> tuple[str, ...]:
     raise SyncError("Brak _SCORING_CACHE_INPUTS w scoring_service.py")
 
 
-def allowed_flags(source: str) -> tuple[str, ...]:
-    return (
+def enabled_flags(config_source: str) -> tuple[str, ...]:
+    """Flagi `*_ENABLED` z `config.py` poza zakazanymi, bez importu backendu."""
+    return tuple(
+        name
+        for name in dict.fromkeys(CONFIG_ENABLED.findall(config_source))
+        if name not in FORBIDDEN_FLAGS
+    )
+
+
+def allowed_flags(source: str, config_source: str) -> tuple[str, ...]:
+    explicit = (
         scoring_inputs(source)
         + RANKING_POOL_FLAGS
         + CLIENT_LIST_FLAGS
         + SALES_FLAGS
         + CANDIDATE_TERMS_FLAGS
     )
+    rest = tuple(n for n in enabled_flags(config_source) if n not in explicit)
+    return tuple(dict.fromkeys(explicit)) + rest
 
 
 def client_list_text(name: str, value: object) -> str:
@@ -1093,7 +1166,7 @@ def sync(cfg: Config, report: Report, now_utc: datetime, date: str) -> tuple[int
     database = f"nexus_staging_nightly_{date}"
     sha = ""
     try:
-        allowed = allowed_flags(SCORING_SERVICE.read_text())
+        allowed = allowed_flags(SCORING_SERVICE.read_text(), CONFIG.read_text())
         active_database(cfg.env_file.read_text())
         postgres = local_postgres()
         if database in existing_databases(postgres):
