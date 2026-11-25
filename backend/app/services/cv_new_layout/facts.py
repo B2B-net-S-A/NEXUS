@@ -180,15 +180,19 @@ def parse_dates(text: str, now: float) -> Span:
     wcześniej „09.2018 - 2019” wychodziło 4 mies. (pętla jakości 25.11.2026)."""
     sides = [
         x.strip()
-        # myślnik także bez spacji („05.2025-obecnie”, #39655) — daty mają kropki, nie myślniki
-        for x in re.split(r"\s*[-–—]\s*", (text or "").strip().lower())
+        # zakres: myślnik ze spacjami albo półpauza/pauza; myślnik bez spacji tylko po roku
+        # („05.2025-obecnie”, #39655) — „11-2009” to miesiąc i rok (#38606)
+        for x in re.split(
+            r"\s+-\s+|\s*[–—]\s*|(?<=(?:19|20)\d{2})\s*-\s*",
+            (text or "").strip().lower(),
+        )
         if x.strip()
     ]
 
     def side(t: str, is_end: bool) -> tuple[Optional[float], bool]:
         if CURRENT_WORD.search(t):
             return now, True
-        m = re.search(r"(\d{1,2})[./](\d{4})", t)
+        m = re.search(r"(\d{1,2})[./-](\d{4})", t)
         if m:
             y, mo = int(m.group(2)), int(m.group(1))
             return (y + mo / 12 if is_end else y + (mo - 1) / 12), True

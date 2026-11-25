@@ -147,3 +147,16 @@ def test_same_company_after_a_break_is_one_segment():
         "Pegasystems Software Limited",
     ]
     assert st[-1].current and st[-1].role == "IT Specialist"
+
+
+@pytest.mark.parametrize(
+    ("text", "months"),
+    [("05.2008 - 11-2009", 19), ("11-2009 - 03.2011", 17), ("05.2025-obecnie", None)],
+)
+def test_month_with_hyphen_is_a_date_not_a_range(text, months):
+    """#38606: „05.2008 - 11-2009” po przecięciu myślnikiem bez spacji dawało 1 mies.;
+    myślnik bez spacji dzieli zakres tylko po roku („05.2025-obecnie”)."""
+    span = parse_dates(text, NOW)
+    assert span.start is not None and span.end is not None
+    if months is not None:
+        assert round((span.end - span.start) * 12) == months
