@@ -10,7 +10,8 @@ reguła ``cl.integration_costs``, zgoda DL-a) — jeden model kosztów dodatkowy
 * ``client_settlement_extras`` (0691 + kolumny 0751) — ``status``: ``pending`` (zgłoszony),
   ``approved`` (zatwierdzony: liczy się do kwoty faktury kontraktora),
   ``rejected`` (odrzucony z powodem). ``source``: ``back_office`` (karta sprawy),
-  ``finance`` (Finanse na karcie osoby), ``portal`` (konsultant w panelu).
+  ``finance`` (Finanse na karcie osoby), ``portal`` (konsultant w panelu),
+  ``kesu`` (koszty dodatkowe z KEŚU), ``rcp`` (koszty delegacji z RCP, 0776).
   ``bill_to_client``: dodatek idzie też do faktury dla klienta (reguła
   ``cl.extra_costs_on_invoice``); przy Aliorze koszty bywają tylko naszą zgodą.
 * ``client_settlement_extra_documents`` — pliki dodatku (faktura, paragon,
@@ -25,7 +26,9 @@ from __future__ import annotations
 
 from app.services.consultant_portal_schema import quoted
 
-SOURCES: tuple[str, ...] = ("back_office", "finance", "portal", "kesu")
+SOURCES: tuple[str, ...] = ("back_office", "finance", "portal", "kesu", "rcp")
+#: Źródła sprzed 0776 (downgrade).
+SOURCES_BEFORE_RCP: tuple[str, ...] = SOURCES[:-1]
 DOC_CHANNELS: tuple[str, ...] = ("portal", "staff")
 
 DECISION_NOTE_MAX = 500
@@ -88,9 +91,27 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_settlement_extras (bo_card_id) WHERE bo_card_id IS NOT NULL",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+
+def source_constraint_ddl(sources: tuple[str, ...] = SOURCES) -> str:
+    """CHECK źródła: DROP + ADD w jednym bloku (0776 dokłada ``rcp``).
+
+    ``_constraint`` z ``COLUMN_DDL`` nie poszerza istniejącego więzu, więc
+    lustro entrypointu podmienia go tu. Timeout zamka wycofuje obie instrukcje
+    naraz, a następny start ponawia."""
+
+    return (
+        "DO $$ BEGIN "
+        "ALTER TABLE client_settlement_extras "
+        "DROP CONSTRAINT IF EXISTS ck_client_settlement_extras_source; "
+        "ALTER TABLE client_settlement_extras ADD CONSTRAINT "
+        f"ck_client_settlement_extras_source CHECK (source IN ({quoted(sources)})); "
+        "END $$"
+    )
+
+
+CONSTRAINT_DDL: tuple[str, ...] = (source_constraint_ddl(),)
 DATA_DDL: tuple[str, ...] = ()
 
 TABLES: tuple[str, ...] = ("client_settlement_extra_documents",)
 
-ALL_DDL: tuple[str, ...] = (*TABLE_DDL, *COLUMN_DDL, *INDEX_DDL)
+ALL_DDL: tuple[str, ...] = (*TABLE_DDL, *COLUMN_DDL, *INDEX_DDL, *CONSTRAINT_DDL)

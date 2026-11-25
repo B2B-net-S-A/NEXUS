@@ -2325,6 +2325,8 @@ async def _recompute(
         if proof is not None and (source := proof.meta.pop("document_id", None)):
             # MD z innego pliku miesiąca niż wybrany: ten plik jest dowodem.
             report = next((d for d in reports if d.id == source), report)
+        if proof is not None:
+            await _sync_rcp_travel(db, s, proof)
     # Podział na zamówienia z maila klienta (próba IX–X 2026: BIK, Polkomtel).
     splits = await _mail_splits(reports)
     hit = (
@@ -3488,6 +3490,27 @@ async def _sync_kesu_extra(
         month=s.period_month,
         gross=gross,
         vat=kesu.VAT,
+        now=datetime.now(timezone.utc),
+    )
+
+
+async def _sync_rcp_travel(
+    db: AsyncSession, s: ClientSettlement, proof: rcp_checks.ProofResult
+) -> None:
+    """Koszty delegacji z RCP → dodatek na fakturę dla klienta; akceptacja
+    klienta zatwierdza go od razu (``extras.sync_from_rcp``, decyzja Artura
+    z 25.11.2026). Dowód bez kosztów delegacji usuwa niezdecydowany dodatek."""
+
+    if s.kind != ACTUAL:
+        return
+    total, accepted = proof.travel_cost or (None, False)
+    await settlement_extras.sync_from_rcp(
+        db,
+        contract_id=s.contract_id,
+        client_id=s.client_id,
+        month=s.period_month,
+        total=total,
+        accepted=accepted,
         now=datetime.now(timezone.utc),
     )
 

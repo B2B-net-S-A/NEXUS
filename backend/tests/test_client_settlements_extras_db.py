@@ -462,3 +462,190 @@ async def test_koszty_z_keszu_jako_zgloszony_dodatek_bez_nadpisania_decyzji() ->
         assert (after.status, after.amount) == ("approved", Decimal("200.00"))
     finally:
         await _cleanup(client_id)
+
+
+async def test_delegacja_z_rcp_bez_dubli_i_bez_nadpisania_decyzji() -> None:
+    """Koszty delegacji z RCP (decyzja Artura z 25.11.2026): akceptacja klienta
+    zatwierdza dodatek od razu, bez niej jest zgłoszony. Przeliczenie poprawia
+    kwotę i stan tylko przed decyzją Finansów i nie dubluje wiersza."""
+
+    from sqlalchemy import delete
+
+    from app.models.user import User, UserRole
+    from tests.test_client_settlements_integration_costs_db import _user
+
+    client_id, contract_id, _ = await _world()
+    month, other_month = _month(-1), _month(-2)
+    finance = await _user(UserRole.admin)
+
+    async def sync(total, accepted: bool, period: str = month):
+        async with AsyncSessionLocal() as db:
+            extra = await extras.sync_from_rcp(
+                db,
+                contract_id=contract_id,
+                client_id=client_id,
+                month=period,
+                total=None if total is None else Decimal(total),
+                accepted=accepted,
+                now=local_now(),
+            )
+            await db.commit()
+            return extra
+
+    async def rows(period: str = month) -> list[ClientSettlementExtra]:
+        async with AsyncSessionLocal() as db:
+            return list(
+                (
+                    await db.scalars(
+                        select(ClientSettlementExtra).where(
+                            ClientSettlementExtra.contract_id == contract_id,
+                            ClientSettlementExtra.period_month == period,
+                        )
+                    )
+                ).all()
+            )
+
+    try:
+        assert await sync(None, False) is None  # RCP bez kosztów delegacji
+        assert await sync("0", True) is None
+        assert await rows() == []
+
+        await sync("640.00", True)
+        await sync("640.00", True)  # ponowne przeliczenie tego samego RCP
+        [row] = await rows()
+        assert (row.kind, row.status, row.source, row.bill_to_client) == (
+            "travel",
+            "approved",
+            "rcp",
+            True,
+        )
+        # Kwota z RCP to netto pozycji, bez przeliczenia VAT (jak Finanse).
+        assert (row.amount, row.decided_by) == (Decimal("640.00"), None)
+        assert row.decided_at is not None
+
+        await sync("655.50", False)  # nowy RCP bez akceptacji klienta
+        [row] = await rows()
+        assert (row.status, row.amount, row.decided_at) == (
+            "pending",
+            Decimal("655.50"),
+            None,
+        )
+        await sync(None, False)  # poprawiony RCP bez kosztów
+        assert await rows() == []
+
+        await sync("700.00", False)
+        [row] = await rows()
+        async with AsyncSessionLocal() as db:
+            await extras.approve(
+                db, row.id, contract_id, actor_id=finance.id, now=local_now()
+            )
+            await db.commit()
+        await sync("710.00", False)  # decyzji Finansów RCP nie cofa
+        await sync(None, False)
+        [after] = await rows()
+        assert (after.id, after.status, after.amount, after.decided_by) == (
+            row.id,
+            "approved",
+            Decimal("700.00"),
+            finance.id,
+        )
+
+        await sync("300.00", False, other_month)
+        [pending] = await rows(other_month)
+        async with AsyncSessionLocal() as db:
+            await extras.reject(
+                db,
+                pending.id,
+                contract_id,
+                actor_id=finance.id,
+                now=local_now(),
+                reason="Wyjazd bez zgody klienta",
+            )
+            await db.commit()
+        await sync("300.00", True, other_month)  # odrzucenie zostaje
+        [rejected] = await rows(other_month)
+        assert (rejected.status, rejected.amount) == ("rejected", Decimal("300.00"))
+    finally:
+        await _cleanup(client_id)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.id == finance.id))
+            await db.commit()
+
+
+async def test_delegacja_wpisana_recznie_wygrywa_z_rcp() -> None:
+    """Delegacja od Finansów, back office'u albo z panelu w tym miesiącu: RCP
+    nie dokłada drugiej pozycji za ten sam wyjazd."""
+
+    client_id, contract_id, _ = await _world()
+    month = _month(-1)
+
+    async def sync() -> object:
+        async with AsyncSessionLocal() as db:
+            extra = await extras.sync_from_rcp(
+                db,
+                contract_id=contract_id,
+                client_id=client_id,
+                month=month,
+                total=Decimal("640.00"),
+                accepted=True,
+                now=local_now(),
+            )
+            await db.commit()
+            return extra
+
+    try:
+        assert await sync() is not None
+        manual = await _add(
+            contract_id,
+            month,
+            kind="travel",
+            amount="640",
+            approve=True,
+            bill_to_client=True,
+        )
+        assert await sync() is None
+        async with AsyncSessionLocal() as db:
+            found = (
+                await db.scalars(
+                    select(ClientSettlementExtra).where(
+                        ClientSettlementExtra.contract_id == contract_id
+                    )
+                )
+            ).all()
+        # Niezdecydowany wiersz z RCP schodzi, zostaje wpis Finansów.
+        assert [(e.id, e.source) for e in found] == [(manual, "finance")]
+    finally:
+        await _cleanup(client_id)
+
+
+async def test_przeliczenie_zaklada_delegacje_z_rcp_tylko_dla_faktycznego() -> None:
+    """``service._sync_rcp_travel``: wynik odczytu RCP z kosztami → dodatek;
+    estymacja (plan) nie zakłada dodatku."""
+
+    from app.services.client_settlements.rcp_checks import ProofResult
+
+    client_id, contract_id, _ = await _world()
+    month = _month(-1)
+    proof = ProofResult(
+        md_regular=Decimal("20"),
+        md_extra=Decimal("0"),
+        travel_cost=(Decimal("512.30"), True),
+    )
+
+    def settlement(kind: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            kind=kind, contract_id=contract_id, client_id=client_id, period_month=month
+        )
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await service._sync_rcp_travel(db, settlement("estimate"), proof)
+            await db.commit()
+            assert (await extras.for_contracts(db, [contract_id], month)) == {}
+            await service._sync_rcp_travel(db, settlement("actual"), proof)
+            await db.commit()
+            billed = await extras.billed_to_client(db, [contract_id], month)
+        [extra] = billed[contract_id]
+        assert (extra.amount, extra.source) == (Decimal("512.30"), "rcp")
+    finally:
+        await _cleanup(client_id)
