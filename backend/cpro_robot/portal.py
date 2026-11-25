@@ -300,7 +300,7 @@ class ItemRun:
             page.goto(mine[0]["offer"])
             self._wait_offer_form()
             if not created:
-                self.upload_cv()
+                self.upload_cv_unless_present()
             return
         orphan = any(
             rules.norm(f"{first} {last}") in rules.norm(t) for t in found["orphans"]
@@ -439,8 +439,22 @@ class ItemRun:
         if lang:
             _put(form, "cv_language", lang)
         self.verify_account()
-        _js_click(form.locator("button[type=submit]"), "Upload")
+        _js_click(form.locator("button[type=submit], input[type=submit]"), "Upload")
         self._wait_offer_form()
+
+    def upload_cv_unless_present(self) -> None:
+        """Szkic albo profil z poprzedniego biegu ma już ten PDF — bez drugiego uploadu."""
+
+        labels = self.page.evaluate(
+            """() => [...document.querySelectorAll('input[name=offer_cvids]')].map(b => {
+              const l = b.id && document.querySelector('label[for="' + b.id + '"]');
+              return (l ? l.innerText : (b.parentElement || {}).innerText || '').trim();
+            })"""
+        )
+        if any(rules.cv_label_matches(t, self.offer["cv_file_name"]) for t in labels):
+            self.step = "cv_reuse"
+            return
+        self.upload_cv()
 
     def select_only_new_cv(self) -> None:
         self.step = "cv_select"
@@ -522,31 +536,40 @@ class ItemRun:
         )
 
     def save_draft(self) -> None:
+        """Save as draft. Cpro zapisuje w tle, bez przejścia na inną stronę
+        (biegi 14–22): dowodem zapisu jest dopiero lista ofert w ``confirm_draft``."""
+
         self.step = "save"
         self.before_write("Save as draft")
-        self.verify_account()
         page = self.page
-        before = page.url
-        try:
-            with page.expect_navigation(timeout=STEP_TIMEOUT_MS):
-                _js_click(
-                    page.locator(
-                        "form[action=OfferController] button[name=BUT_SaveAsDraft]"
-                    ),
-                    "Save as draft",
-                )
-        except Exception as exc:
-            raise _fail(
-                "other", "Cpro nie przyjął zapisu szkicu (brak przejścia po Save)."
-            ) from exc
-        self.saved = True
-        page.wait_for_load_state("domcontentloaded")
-        still_form = page.locator(
-            "form[action=OfferController] button[name=BUT_SaveAsDraft]"
+        form = page.locator("form[action=OfferController]")
+        invalid = form.first.evaluate(
+            "f => [...f.elements].filter(e => e.willValidate && !e.checkValidity()).map(e => e.name)"
         )
-        if page.url == before or still_form.count():
+        if invalid:
             raise _fail(
-                "draft_unconfirmed", "Po Save portal został na formularzu oferty."
+                "other",
+                "Formularz oferty niekompletny: "
+                + ", ".join(sorted(set(invalid)))[:200],
+            )
+        self.verify_account()
+        _js_click(
+            form.locator("button[name=BUT_SaveAsDraft]"),
+            "Save as draft",
+        )
+        self.saved = True
+        try:
+            page.wait_for_load_state("networkidle", timeout=STEP_TIMEOUT_MS)
+        except Exception:
+            pass
+        rejected = page.evaluate(
+            """() => [...document.querySelectorAll('form[action=OfferController] .is-invalid')].map(e => e.name)"""
+        )
+        if rejected:
+            raise _fail(
+                "draft_unconfirmed",
+                "Cpro oznaczył pola oferty jako błędne: "
+                + ", ".join(sorted(set(rejected)))[:200],
             )
 
     # --- potwierdzenie --------------------------------------------------------
@@ -628,7 +651,7 @@ class ItemRun:
             raise _fail("ambiguous_draft", "Kilka szkiców tej osoby na requeście.")
         if drafts:
             self.open_draft_edit(drafts[0])
-            self.upload_cv()
+            self.upload_cv_unless_present()
         else:
             self.open_offer_from_profile()
         self.select_only_new_cv()

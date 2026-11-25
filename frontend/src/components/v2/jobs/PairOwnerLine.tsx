@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserRoundCog } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { ClaimHandoverActions, ClaimRequestBanner } from "@/components/v2/jobs/ClaimHandover";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -53,7 +54,13 @@ type OwnerItem = Pick<
   | "taken_by_user_id"
   | "taken_by_name"
   | "claim_user_id"
+  | "claim_user_name"
   | "claim_until"
+  | "claim_request_user_id"
+  | "claim_request_user_name"
+  | "claim_request_reason"
+  | "can_hand_over"
+  | "can_ask"
   | "entry_source"
   | "entry_autofill"
 > &
@@ -231,7 +238,8 @@ export function PairOwnerLine({
   jobId,
   onTake,
   taking,
-}: { item: OwnerItem; jobId: number } & TakeProps) {
+  readOnly = false,
+}: { item: OwnerItem; jobId: number; readOnly?: boolean } & TakeProps) {
   const user = useAuthStore((s) => s.user);
   const canAssign = mayAssignOwner(getUserRoles(user));
   const [open, setOpen] = useState(false);
@@ -259,10 +267,15 @@ export function PairOwnerLine({
             </button>
           ) : null}
         </div>
-        <div className="truncate pl-[18px]">
-          {owner.detail}
-          {inactive ? " · konto nieaktywne" : ""}
+        <div className="flex min-w-0 items-center gap-1.5 pl-[18px]">
+          <span className="truncate">
+            {owner.detail}
+            {inactive ? " · konto nieaktywne" : ""}
+          </span>
+          {/* Oddanie osoby z blokadą (25.11.2026): „Oddaj…”, „Zwolnij”, „Poproś o oddanie”. */}
+          <ClaimHandoverActions item={item} jobId={jobId} readOnly={readOnly} />
         </div>
+        <ClaimRequestBanner item={item} jobId={jobId} readOnly={readOnly} />
       </div>
       {open ? (
         <OwnerDialog

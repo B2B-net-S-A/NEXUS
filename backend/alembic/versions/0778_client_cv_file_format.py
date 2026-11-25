@@ -1,7 +1,7 @@
 """Format pliku CV klienta: ``client_cv_rules.cv_file_format`` (Word / PDF / oba).
 
-Revision ID: 0777_client_cv_file_format
-Revises: 0776_settlement_extra_source_rcp
+Revision ID: 0778_client_cv_file_format
+Revises: 0777_claim_handover
 
 Decyzja Artura z 25.11.2026: reguła CV klienta mówi, w jakim pliku klient chce
 CV, a główny przycisk pobrania idzie za nią. NULL = bez wymagań (jak dotąd).
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import cv_layout_schema as schema
 
-revision = "0777_client_cv_file_format"
-down_revision = "0776_settlement_extra_source_rcp"
+revision = "0778_client_cv_file_format"
+down_revision = "0777_claim_handover"
 branch_labels = None
 depends_on = None
 

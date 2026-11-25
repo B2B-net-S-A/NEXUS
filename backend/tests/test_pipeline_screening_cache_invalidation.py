@@ -28,6 +28,8 @@ class _FakeStage:
         # proces pary przy sprawdzeniu blokady 12 h (Pipeline v4): bez blokady.
         self.claimed_by_user_id = None
         self.claimed_until = None
+        # 0777: prośba o oddanie osoby z blokadą — brak.
+        self.claim_request_user_id = None
 
 
 class _FakeDb:

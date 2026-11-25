@@ -829,6 +829,11 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_task_waiting'",
     # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
+    # 0777: oddanie osoby z blokadą, prośba o nie i odpowiedź.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_handover'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_request'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS "
+    "'candidate_claim_request_answer'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
     # 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
@@ -1242,7 +1247,7 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
 try:
     from app.services import cv_layout_schema as _cv_layout_schema
 
-    # + format pliku klienta (migracja 0777, `FILE_FORMAT_DDL`).
+    # + format pliku klienta (migracja 0778, `FILE_FORMAT_DDL`).
     _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL) + list(
         _cv_layout_schema.FILE_FORMAT_DDL
     )
@@ -6557,6 +6562,13 @@ _COLUMN_STATEMENTS = [
     "claimed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
     "claimed_until TIMESTAMPTZ NULL",
+    # 0777: prośba o oddanie osoby z blokadą „Biorę”.
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "claim_request_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "claim_request_reason VARCHAR(300) NULL",
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "claim_request_at TIMESTAMPTZ NULL",
     "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
     "entry_source VARCHAR(24) NULL",
     "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
