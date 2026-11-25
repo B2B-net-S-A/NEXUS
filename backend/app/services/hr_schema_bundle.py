@@ -90,6 +90,7 @@ from app.services.law_radar import schema as law_radar
 from app.services.cpro_bot import schema as cpro_bot
 from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 from app.services.contract_partner_reads import schema_sql as contract_partner_reads
+from app.services.contract_rate_history import schema_sql as contract_rate_history
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -211,6 +212,8 @@ MODULES = (
     contractor_payment_blocks,
     # 0774: informacja zwrotna o wadach rozliczenia — wada × kontrakt × miesiąc (24.11.2026).
     settlement_feedback,
+    # 0781: historia stawek kontraktu z faktur KSeF (25.11.2026).
+    contract_rate_history,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

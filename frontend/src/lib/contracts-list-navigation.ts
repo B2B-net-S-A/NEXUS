@@ -41,6 +41,11 @@ export interface ContractsListState {
    */
   rateDocument?: boolean;
   /**
+   * „Stawka z faktur” (`?rate_hist=1`, 0781): faktury KSeF pokazują stawkę,
+   * której nie ma w harmonogramie. Filtruje serwer (`bucket=rate_history`).
+   */
+  rateHistory?: boolean;
+  /**
    * „Zamówione po końcu” (`?after_end=1`, 19.11.2026): kończący się albo
    * zakończony kontrakt z zamówieniem po końcu projektu. Filtruje serwer
    * (`bucket=order_after_end`).
@@ -108,6 +113,7 @@ const LIST_PARAM_NAMES = [
   "ending",
   "agreement",
   "rate_doc",
+  "rate_hist",
   "after_end",
   "start_from",
   "start_to",
@@ -188,6 +194,7 @@ export function parseContractsListState(
   const endingSoon = params.get("ending") === "30";
   const agreementNotTerminated = params.get("agreement") === "not_terminated";
   const rateDocument = params.get("rate_doc") === "1";
+  const rateHistory = params.get("rate_hist") === "1";
   const orderAfterEnd = params.get("after_end") === "1";
   const rawSort = params.get("sort");
 
@@ -199,7 +206,11 @@ export function parseContractsListState(
         ? []
         : validStatuses.length > 0
           ? validStatuses
-          : endingSoon || agreementNotTerminated || rateDocument || orderAfterEnd
+          : endingSoon ||
+              agreementNotTerminated ||
+              rateDocument ||
+              rateHistory ||
+              orderAfterEnd
             ? []
             : [...DEFAULT_CONTRACT_STATUS_FILTER],
       typeFilter: uniqueValues(
@@ -212,6 +223,7 @@ export function parseContractsListState(
       endingSoon,
       agreementNotTerminated,
       rateDocument,
+      rateHistory,
       orderAfterEnd,
       startFrom: validIsoDate(params.get("start_from")),
       startTo: validIsoDate(params.get("start_to")),
@@ -254,6 +266,7 @@ export function buildContractsListUrl(
   if (state.endingSoon) params.set("ending", "30");
   if (state.agreementNotTerminated) params.set("agreement", "not_terminated");
   if (state.rateDocument) params.set("rate_doc", "1");
+  if (state.rateHistory) params.set("rate_hist", "1");
   if (state.orderAfterEnd) params.set("after_end", "1");
   if (state.startFrom) params.set("start_from", state.startFrom);
   if (state.startTo) params.set("start_to", state.startTo);

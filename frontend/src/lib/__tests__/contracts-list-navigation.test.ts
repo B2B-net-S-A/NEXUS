@@ -33,6 +33,7 @@ describe("contracts list navigation state", () => {
         endingSoon: false,
         agreementNotTerminated: false,
         rateDocument: false,
+        rateHistory: false,
         orderAfterEnd: false,
         startFrom: "",
         startTo: "",
@@ -309,5 +310,15 @@ describe("„Stawka z dokumentu” w adresie listy (0739)", () => {
     expect(parsed.state.rateDocument).toBe(true);
     expect(parsed.state.statusFilter).toEqual([]);
     expect(buildContractsListUrl(parsed.state)).toContain("rate_doc=1");
+  });
+});
+
+describe("„Stawka z faktur” w adresie listy (0781)", () => {
+  it("odczytuje i zapisuje rate_hist=1 bez domyślnych statusów", () => {
+    const parsed = parseContractsListState("?rate_hist=1");
+    expect(parsed.explicit).toBe(true);
+    expect(parsed.state.rateHistory).toBe(true);
+    expect(parsed.state.statusFilter).toEqual([]);
+    expect(buildContractsListUrl(parsed.state)).toContain("rate_hist=1");
   });
 });

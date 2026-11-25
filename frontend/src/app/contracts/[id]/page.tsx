@@ -12,6 +12,7 @@ import api, {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { ContractRateDocumentsCard } from "@/components/contracts/rate-documents/ContractRateDocumentsCard";
+import { ContractRateHistoryKsefCard } from "@/components/contracts/rate-history-ksef/ContractRateHistoryKsefCard";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
@@ -1680,6 +1681,11 @@ export default function ContractDetailPage() {
           potwierdzić, więc stoi przy sprawach do zrobienia. */}
       {!editing && (
         <ContractRateDocumentsCard contractId={id} canDismiss={canEditContract} />
+      )}
+      {/* Stawka z faktur KSeF (0781): podpowiedź historii stawek albo pasek
+          „Cofnij” po wpisie automatycznym — znika, gdy nie ma czego pokazać. */}
+      {!editing && (
+        <ContractRateHistoryKsefCard contractId={id} canDismiss={canEditContract} />
       )}
       {recordAgreementOpen && (
         <ContractAgreementRecordDialog
