@@ -380,3 +380,26 @@ def test_preview_html_shows_field_labels_escaped() -> None:
     html = svc.preview_html(_docx("A {{ x }} B {{ g.g_pan }}"), fields)
     assert "&lt;b&gt;Etykieta&lt;/b&gt;" in html
     assert 'data-field="x"' in html and "forma Pan/Pani" in html
+
+
+def test_several_inserts_after_one_paragraph_keep_model_order() -> None:
+    result = draft.apply_changes(
+        BASE,
+        BASE_FIELDS,
+        {
+            "changes": [
+                {"op": "insert_after", "i": 1, "text": "7. Pierwszy."},
+                {"op": "insert_after", "i": 1, "text": "8. Drugi."},
+                {"op": "insert_after", "i": 1, "text": "9. Trzeci."},
+            ]
+        },
+        title="W",
+    )
+    lines = _text(result.docx).split("\n")
+    start = lines.index("§ 2. Szkolenie odbywa się w formie zdalnej.")
+    assert lines[start + 1 : start + 4] == ["7. Pierwszy.", "8. Drugi.", "9. Trzeci."]
+    assert [c["after"] for c in result.changes] == [
+        "7. Pierwszy.",
+        "8. Drugi.",
+        "9. Trzeci.",
+    ]

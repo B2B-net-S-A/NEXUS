@@ -89,6 +89,30 @@ HINTS: dict[str, tuple[str, str, str, bool]] = {
     "rights.works": ("Utwory objęte przeniesieniem praw", "textarea", "manual", False),
     "rights.own": ("Materiały własne Partnera", "textarea", "manual", False),
     "rights.third_party": ("Materiały osób trzecich", "textarea", "manual", False),
+    "fees.prep": ("Wynagrodzenie — przygotowanie", "money", "manual", False),
+    "fees.delivery": ("Wynagrodzenie — przeprowadzenie", "money", "manual", False),
+    "fees.presentation": ("Wynagrodzenie — prezentacja", "money", "manual", False),
+    "fees.audio": ("Wynagrodzenie — nagrania audio/wideo", "money", "manual", False),
+    "fees.rights": ("Wynagrodzenie — prawa autorskie", "money", "manual", False),
+    "fees.total": ("Wynagrodzenie łącznie netto", "money", "manual", True),
+    "deliv.materials.flag": (
+        "Materiały szkoleniowe (TAK / NIE)",
+        "text",
+        "manual",
+        False,
+    ),
+    "deliv.materials.due": ("Materiały szkoleniowe — termin", "text", "manual", False),
+    "deliv.materials.format": (
+        "Materiały szkoleniowe — format",
+        "text",
+        "manual",
+        False,
+    ),
+    "deliv.presentation.flag": ("Prezentacja (TAK / NIE)", "text", "manual", False),
+    "deliv.audio.flag": ("Nagrania audio/wideo (TAK / NIE)", "text", "manual", False),
+    "deliv.files_due": ("Termin przekazania plików", "text", "manual", False),
+    "deliv.files_format": ("Format plików", "text", "manual", False),
+    "deliv.other": ("Inne pliki", "text", "manual", False),
 }
 
 #: Grupa formularza po pierwszym członie ścieżki.

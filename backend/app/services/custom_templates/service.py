@@ -339,6 +339,8 @@ def submit_problems(version: CustomDocumentTemplateVersion) -> list[str]:
 
 
 def mark_submitted(version: CustomDocumentTemplateVersion, user: User) -> None:
+    # Migawka sprawdzeń z chwili zgłoszenia — ślad, co widział zatwierdzający.
+    version.checks = review(version).checks
     version.status = "pending"
     version.submitted_by = user.id
     version.submitted_at = _now()

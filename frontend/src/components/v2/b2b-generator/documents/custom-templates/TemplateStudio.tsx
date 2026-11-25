@@ -571,7 +571,8 @@ function DraftStep({ detail, onNext }: { detail: CustomTemplateDetail; onNext: (
           className={cn(
             "max-h-[460px] space-y-2 overflow-y-auto rounded-md border border-border bg-background px-5 py-4 text-[13px] leading-relaxed",
             "[&_h1]:text-center [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-center [&_h2]:font-semibold",
-            "[&_ol]:list-decimal [&_ol]:pl-5 [&_p.right]:text-right [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-1",
+            // Numeracja list jest w tekście wzoru albo w stylu Worda — podgląd jej nie dokłada.
+            "[&_ol]:list-none [&_ol]:pl-0 [&_p.right]:text-right [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-1",
             "[&_.tpl-field]:rounded [&_.tpl-field]:bg-warning-muted [&_.tpl-field]:px-1 [&_.tpl-field]:text-[12.5px] [&_.tpl-field]:font-medium [&_.tpl-field]:text-warning-muted-foreground",
             "[&_.tpl-control]:font-mono [&_.tpl-control]:text-[11px] [&_.tpl-control]:text-muted-foreground",
           )}
@@ -1119,7 +1120,7 @@ function SaveStep({ detail, onClose }: { detail: CustomTemplateDetail; onClose: 
         ) : null}
       </div>
 
-      <aside className="space-y-2">
+      <aside className="space-y-2 self-start">
         <div className={SECTION_LABEL}>Tak zobaczą go inni</div>
         <CustomTemplateCard
           name={name || version.name}
@@ -1207,7 +1208,7 @@ export function CustomTemplateCard({
   approvedAt?: string | null;
 }) {
   return (
-    <div className="flex h-full flex-col items-start gap-1 rounded-lg border border-border bg-card p-3 text-left">
+    <div className="flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-3 text-left">
       <span className="flex items-center gap-2 text-sm font-medium text-foreground">
         <FileText className="h-4 w-4 text-primary" aria-hidden="true" />
         {name}

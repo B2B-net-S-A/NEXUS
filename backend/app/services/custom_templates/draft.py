@@ -244,7 +244,11 @@ def apply_changes(
         and isinstance(c.get("i"), int)
         and 0 <= c["i"] < len(all_p)
     ]
-    for change in sorted(valid, key=lambda c: c["i"], reverse=True):
+    # Od końca także w obrębie akapitu: kolejna wstawka „po akapicie i” trafia
+    # tuż za niego, więc wstawki z tym samym ``i`` idą od ostatniej — wtedy
+    # w dokumencie stoją w kolejności od modelu.
+    ordered = sorted(enumerate(valid), key=lambda pc: (pc[1]["i"], pc[0]), reverse=True)
+    for position, change in ordered:
         op = change.get("op")
         target: Paragraph = all_p[change["i"]]
         text = str(change.get("text") or "")[:MAX_CHANGE_TEXT].strip()
@@ -279,9 +283,12 @@ def apply_changes(
                 "after": text if op != "delete" else "",
                 "context": before if op == "insert_after" else "",
                 "reason": reason,
+                "_position": position,
             }
         )
-    applied.sort(key=lambda c: (c["i"], c["op"] != "replace"))
+    applied.sort(key=lambda c: (c["i"], c["op"] != "replace", c["_position"]))
+    for item in applied:
+        del item["_position"]
     buf = io.BytesIO()
     document.save(buf)
     new_title = data.get("title") if isinstance(data.get("title"), str) else None

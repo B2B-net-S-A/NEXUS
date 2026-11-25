@@ -365,7 +365,7 @@ export function DocumentsTabContent({
       </Card>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="py-4">
           <CustomTemplatesPanel
             canGenerate={canGenerate}
             onOpen={(id) => openStudio(id)}
