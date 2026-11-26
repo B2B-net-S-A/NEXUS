@@ -1,4 +1,4 @@
-"""DDL stanu „Wstrzymana” (0796) — jedno źródło dla migracji i ``entrypoint.sh``.
+"""DDL stanu „Wstrzymana” (0795) — jedno źródło dla migracji i ``entrypoint.sh``.
 
 ``entrypoint.sh`` niesie te same instrukcje dosłownie (alembic na produkcji
 bywa osierocony, entrypoint jest wtedy wdrożeniem); pilnuje

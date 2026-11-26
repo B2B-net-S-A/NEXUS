@@ -908,7 +908,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_overdue'",
     # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_idle_reminder'",
-    # 0796: rekrutacja „Wstrzymana” — zmiana stanu (mail obowiązkowy) i pytanie do DL.
+    # 0795: rekrutacja „Wstrzymana” — zmiana stanu (mail obowiązkowy) i pytanie do DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_check'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
@@ -7012,7 +7012,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """CREATE UNIQUE INDEX IF NOT EXISTS ux_job_work_assignments_live ON job_work_assignments (job_id, user_id) WHERE state <> 'released'""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_user_state ON job_work_assignments (user_id, state)""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_changed ON job_work_assignments (assigned_at, released_at)""",
-    # 0796: „Wstrzymana” — powód, termin „Sprawdzę z klientem”, chwila wznowienia
+    # 0795: „Wstrzymana” — powód, termin „Sprawdzę z klientem”, chwila wznowienia
     # i CHECK stanu pracy z `on_hold` (po CHECK-u z 0371 wyżej). Jedno źródło:
     # `app/services/job_hold_schema.py` — pilnuje `test_job_hold.py`.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hold_reason TEXT NULL",
