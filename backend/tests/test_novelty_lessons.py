@@ -191,6 +191,22 @@ def test_finance_novelty_starts_on_its_own_view_not_the_overview() -> None:
     assert wrong == [], f"Dopisz practice_href z ?view= widoku: {wrong}"
 
 
+def test_solo_check_does_not_wait_for_a_save_the_poligon_blocks() -> None:
+    """Na Poligonie zapisy są zablokowane. „Przywróć z generatora” pokazuje się
+    dopiero przy zapisanej poprawce zdania (`isEdited` z zapisanych danych CV),
+    więc 26.11.2026 zadanie „sam” lekcji „Nowe CV: strona 1” było nie do
+    zrobienia. Warunek lekcji nie może czekać na element, który wymaga zapisu."""
+    needs_save = {"cv-editor.page1.restore"}
+    wrong = [
+        lesson.id
+        for lesson in load_lessons().values()
+        if lesson.check.kind == "click" and lesson.check.anchor in needs_save
+    ]
+    assert wrong == [], (
+        f"Warunek czeka na zapis, którego Poligon nie przepuszcza: {wrong}"
+    )
+
+
 def test_show_does_not_start_by_folding_an_open_cv_section() -> None:
     """Panel Jakuba (990108, „Zweryfikowany”) otwiera się z rozwiniętą sekcją
     „CV” (bieżący etap). 26.11.2026 pokaz „Nowe CV: strona 1” zaczynał od

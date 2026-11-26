@@ -2753,11 +2753,11 @@
       "nowe-cv-wyroznik",
       "nowe-cv-zdania-strony-1"
     ],
-    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej, popraw na stronie 1 zdanie 3 i przywróć je z generatora.",
+    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
     "solo_href": "/jobs/990001?candidate=990109",
     "check": {
       "kind": "click",
-      "anchor": "cv-editor.page1.restore"
+      "anchor": "cv-editor.page1.refresh"
     },
     "questions": [
       {
