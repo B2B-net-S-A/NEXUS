@@ -134,10 +134,13 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   Nordea office in <biuro> <N>x/week, <dostępność>`, gdzie dostępność to
   `available ASAP`, `available from DD.MM.RRRR` albo `a N-week notice period`;
   na końcu `a former employee at Nordea` albo `a former consultant at Nordea`.
-  Biuro = miasto osoby, gdy rekrutacja je wymienia (Trójmiasto → Gdynia/Gdańsk
-  z rekrutacji), inaczej pierwsze miasto rekrutacji. **Dni z karty kandydata**
+  Biuro = biuro z trybu pracy karty („3 dni w tyg/Łódź” → Lodz, 26.11.2026);
+  bez niego miasto osoby, gdy rekrutacja je wymienia (Trójmiasto →
+  Gdynia/Gdańsk z rekrutacji), inaczej pierwsze miasto rekrutacji. **Dni z karty kandydata**
   („2 dni w tygodniu w biurze” → `2x/week`, 26.11.2026), bez nich
   z `jobs.onsite_days_per_week`, domyślnie 3. Praca zdalna → `working remotely`.
+- **QC CV:** „przepuszczone mimo QC” (`overridden`) nie zatrzymuje bota,
+  choć licznik błędów blokujących zostaje (26.11.2026).
 - **Former employee / consultant:** z karty „Czy pracował u Klienta” (UoP =
   pracownik, B2B = konsultant, „nie” = oba No). Od 26.11.2026 samo „tak” bez
   rodzaju umowy nie liczy się jako wypełnione pole karty (`has_value`), a

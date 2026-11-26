@@ -98,16 +98,26 @@ def city_label(text: Optional[str]) -> Optional[str]:
 
 
 def office_city(
-    candidate_city: Optional[str], job_location: Optional[str]
+    candidate_city: Optional[str],
+    job_location: Optional[str],
+    card_office: Optional[str] = None,
 ) -> Optional[str]:
     """Biuro Nordei, do którego osoba będzie dojeżdżać.
 
-    Miasto osoby, gdy rekrutacja je wymienia; osoba z Trójmiasta przy
+    Biuro wpisane w trybie pracy karty („3 dni w tyg/Łódź”) wygrywa — to,
+    na co osoba się zgodziła (26.11.2026: bez tego bot wpisał Gdynię, pierwsze
+    miasto rekrutacji). Trójmiasto z karty rozstrzyga rekrutacja. Bez biura
+    w karcie: miasto osoby, gdy rekrutacja je wymienia; osoba z Trójmiasta przy
     rekrutacji w Gdyni albo Gdańsku — to z nich, które rekrutacja wymienia
     pierwsze; inaczej pierwsze miasto rekrutacji, a bez miast — miasto osoby.
     """
 
     job = cities_in(job_location)
+    chosen = cities_in(card_office)
+    if chosen and chosen[0] not in ("trojmiasto", "tricity"):
+        return CITY_NAMES[chosen[0]]
+    if chosen:
+        candidate_city = card_office
     own = cities_in(candidate_city)
     if own and own[0] in job:
         return CITY_NAMES[own[0]]
