@@ -63,6 +63,7 @@ try:
     from scripts.poligon_terms_practice import PERSON as TERMS_CARD, terms_practice
     from scripts.poligon_board_tasks_practice import board_tasks_practice
     from scripts.poligon_payments_practice import payments_practice
+    from scripts.poligon_review_batch_practice import review_batch_practice
 except (
     ModuleNotFoundError
 ):  # wywołanie z `backend/`: python3 scripts/build_poligon_dataset.py
@@ -73,6 +74,7 @@ except (
     from poligon_terms_practice import PERSON as TERMS_CARD, terms_practice
     from poligon_board_tasks_practice import board_tasks_practice
     from poligon_payments_practice import payments_practice
+    from poligon_review_batch_practice import review_batch_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -1420,6 +1422,9 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     # Plan przelewów z fakturą kontraktora ćwiczebnego (lekcja „Zajęcia i spory”).
     payments, payments_fiction = payments_practice()
     dataset.update(payments)
+    # Porcja dnia z osobami ćwiczebnymi (lekcje „Porcja…”, 26.11.2026).
+    batch, batch_fiction = review_batch_practice(dataset)
+    dataset.update(batch)
     meta = {
         **meta,
         "people": people,
@@ -1439,6 +1444,7 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
                 *texts_fiction,
                 *board_fiction,
                 *payments_fiction,
+                *batch_fiction,
             }
         ),
     }

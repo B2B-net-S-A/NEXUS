@@ -94,13 +94,13 @@ async def test_role_client_mix_sigma_deduplicates_person_across_clients(
         async with AsyncSessionLocal() as db:
             candidates = [
                 Candidate(
-                    name="Piotr",
-                    lastname="Klimczak",
+                    name="Oskar",
+                    lastname="Testowy",
                     competence_category=role,
                 ),
                 Candidate(
-                    name="PIOTR",
-                    lastname="Klim-czak",
+                    name="OSKAR",
+                    lastname="Test-owy",
                     competence_category=role,
                 ),
             ]

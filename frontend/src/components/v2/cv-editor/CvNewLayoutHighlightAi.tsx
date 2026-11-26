@@ -100,6 +100,7 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
             disabled={busy}
             aria-busy={finding}
             onClick={() => void find()}
+            data-tour="cv-editor.page1.highlight-find"
             className="ml-auto h-7 rounded-full px-2.5 text-xs"
             title="AI szuka nagrody, wyróżnienia albo certyfikatu z wymagań MUST, z cytatem z CV"
           >
@@ -151,7 +152,7 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
       {pending.length ? (
         <ul className="space-y-2" aria-label="Propozycje wyróżnika do przyjęcia">
           {pending.map(({ index, proposal }) => (
-            <li key={proposal.key || index}>
+            <li key={proposal.key || index} data-tour="cv-editor.page1.highlight-proposal">
               <ProposalCard
                 label={proposal.label}
                 token={proposal.token}
@@ -165,6 +166,7 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
                   size="sm"
                   disabled={busy}
                   onClick={() => onAccept(proposal.key)}
+                  data-tour="cv-editor.page1.highlight-accept"
                   className="h-7 px-2.5 text-xs"
                 >
                   Przyjmij

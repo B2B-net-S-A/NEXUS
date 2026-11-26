@@ -13,3 +13,5 @@ wyraźny cienie i nie pokazuj tego”.
 - Warstwa CSS `[data-soft="true"]` w `globals.css` zostaje bez zmian; nowy
   wygląd kart projektuj pod nią, a nie pod styl płaski. Przywrócenie wyboru
   stylu = najpierw pytanie do Artura.
+- Od 26.11.2026 warstwa bez świata to „Klocki + ciemne menu”
+  (`wyrazny-bez-motywu-klocki-i-ciemne-menu.md`).

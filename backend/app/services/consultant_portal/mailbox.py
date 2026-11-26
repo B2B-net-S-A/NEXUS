@@ -708,6 +708,10 @@ async def _ingest_message(
         indirect = await _forwarded_contract(
             db, inner.senders, state=state, today=today
         )
+    # Wątek wskazuje kontrakt, ale nie fakturę osoby u dwóch klientów.
+    invoice_waits = indirect is not None and await identity.thread_invoice_waits(
+        db, thread_contract_id=indirect.id, sender=sender, settings=state, today=today
+    )
     by_file_name = False
     company = contract is None and identity.is_company_address(sender)
     staff_clients: frozenset[int] = frozenset()
@@ -735,6 +739,8 @@ async def _ingest_message(
         sender_clients = await identity.client_ids_for_sender(db, sender)
     by_file: dict[int, Contract] = {}
     indirect_created = 0
+    # Faktura zatrzymana przez ``invoice_waits``: treść maila dalej należy do wątku.
+    held_invoice = False
     contract_id = contract.id if contract else None
     created = skipped = 0
     # Plik nadawcy, który już mamy (ten sam Time Sheet drugi raz): mail i tak może
@@ -775,7 +781,10 @@ async def _ingest_message(
             skipped += 1
             continue
         year, month, guessed = period_for(subject, name, received.date())
+        # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
+        kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         owner = contract_id
+        held = False
         if owner is None and indirect is not None and _named_kind(subject, name):
             # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
             # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
@@ -786,7 +795,8 @@ async def _ingest_message(
             if (own is not None and own.id == indirect.id) or not (
                 await identity.names_someone_else(db, name, indirect, today=today)
             ):
-                owner = indirect.id
+                held = invoice_waits and kind == "invoice"
+                owner = None if held else indirect.id
         elif owner is None and by_file_name and _named_kind("", name):
             # Koordynator wysyła protokoły kilku osób jednym mailem („PROTOKÓŁ_ Imię
             # Nazwisko_WRZESIEŃ 2026.pdf”): plik idzie do jedynej osoby z jego nazwy,
@@ -838,8 +848,6 @@ async def _ingest_message(
             if from_sheet is not None:
                 owner = from_sheet.id
                 by_file[from_sheet.id] = from_sheet
-        # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
-        kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         by_template = None
         if kind == "report":
             by_template = await _by_template(
@@ -901,9 +909,11 @@ async def _ingest_message(
         created += 0 if stored.duplicate else 1
         if owner is not None and owner != contract_id and not stored.duplicate:
             indirect_created += 1
+        if held and not stored.duplicate:
+            held_invoice = True
         if stored.duplicate and owner is not None and owner == contract_id:
             known += 1
-    body_owner = contract or (indirect if indirect_created else None)
+    body_owner = contract or (indirect if indirect_created or held_invoice else None)
     if body_owner is None and indirect_created and len(by_file) == 1:
         body_owner = next(iter(by_file.values()))
     if (

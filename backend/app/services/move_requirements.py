@@ -1043,6 +1043,23 @@ def _skip_fill_gates(items: list[_Item]) -> None:
             )
 
 
+def _first_per_key(items: Iterable[_Item]) -> list[_Item]:
+    """Jedno wymaganie na klucz przy ruchu przez kilka kolumn (26.11.2026).
+
+    Klient z formularzem ma ``client_form`` i w „QC CV”, i w „CV wysłane”.
+    Przeskok „Zweryfikowany” → „CV wysłane” dawał go dwa razy, a ekran
+    kluczuje wiersze po ``key`` (React gubił wiersz). Zostaje pierwsze
+    wystąpienie — z wcześniejszej kolumny, która niesie bramkę.
+    """
+    seen: set[str] = set()
+    out: list[_Item] = []
+    for item in items:
+        if item.key not in seen:
+            seen.add(item.key)
+            out.append(item)
+    return out
+
+
 def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     """Lista wymagań i główna akcja dla ruchu na ``to_column``."""
 
@@ -1065,7 +1082,9 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     start, stop = _index(from_column), _index(to_column)
     path = list(BOARD_COLUMN_ORDER[start + 1 : stop + 1])
     result["skipped_columns"] = path[:-1]
-    items = [item for column in path for item in _items_for(column, facts)]
+    items = _first_per_key(
+        item for column in path for item in _items_for(column, facts)
+    )
     if facts.skips_fill_gates:
         _skip_fill_gates(items)
     # Ruch za „Screening” z odpowiedzią, która narusza „Odpada, gdy…”:
