@@ -51,8 +51,8 @@ klienta jest z `order_policies/known_clients.KNOWN_REGISTRY_IDS` (NIP).
 
 ## Czego ta zmiana nie robi
 
-- Nie przypisuje faktury. Faktura z przekazanym wątkiem od osoby u dwóch klientów
-  też czeka na człowieka (od 26.11.2026,
+- Nie przypisuje faktury. Faktura osoby u dwóch klientów czeka na człowieka bez
+  względu na to, co wskazało kontrakt (od 26.11.2026,
   `finanse-insights/rozliczenia-nadawca-i-okres-z-poczty.md`).
 - Nie działa dla koordynatora, który przesyła cudze pliki: adres nie wskazuje osoby.
 - Nie przepina dokumentów zapisanych wcześniej.

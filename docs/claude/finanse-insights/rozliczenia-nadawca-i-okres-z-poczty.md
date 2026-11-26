@@ -1,6 +1,6 @@
 # Rozliczenia: nadawca i okres raportu z poczty — Gmail bez kropek, erste.pl, „MM RRRR”
 
-<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, thread_invoice_waits, dwóch klientów -->
+<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, faktura czeka na przypisanie, invoice_waits, dwóch klientów, skrzynka u klienta faktura, portfel Delivery Leada -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (powtórka na kopii produkcji) 24 przypadki poza
 Nordeą miały status „bez dokumentu”, choć Finanse wystawiły za nie faktury. Przegląd archiwum
@@ -71,24 +71,35 @@ z okresu 01.09–20.11, ten sam kod (#3909) raz bez poprawki, raz z nią.
   z 15.09. Na produkcji tak samo bywa, gdy następny kontrakt jest wpisany przed startem
   (tu tydzień wcześniej), a raport za bieżący miesiąc przychodzi w tym czasie.
 
-## Faktura z przekazanym wątkiem u osoby z dwoma klientami czeka (od 26.11.2026)
+## Faktura osoby u dwóch klientów nie przypina się sama (od 26.11.2026)
 
 Konsultant z kontraktami w dwóch bankach wysłał z adresu firmy fakturę za VII z przekazanym
 wątkiem ze skrzynki w jednym z nich. Czytnik dawał kontrakt z wątku (`mailbox._forwarded_contract`)
 każdemu plikowi z nazwy raportu albo faktury, więc faktura sama trafiła do tego banku, choć
-wyglądała na jedną za oba kontrakty (tak bywa, `resolve_report_owner`).
+wyglądała na jedną za oba kontrakty (tak bywa, `resolve_report_owner`). Pierwsza poprawka
+(#4065) zamknęła tylko tę drogę. Tego samego dnia Artur zdecydował, że faktura takiej osoby
+czeka bez względu na drogę.
 
-- Faktura (rodzaj po sprawdzeniu treści pliku) nie bierze kontraktu z przekazanego wątku, gdy
-  osoba z tego kontraktu albo jedyna osoba pod adresem nadawcy ma działające kontrakty u co
-  najmniej dwóch klientów (`identity.thread_invoice_waits`). Działający to też zakończony do
-  60 dni temu, więc dotyczy to osoby po zmianie klienta. Faktura czeka na ręczne przypisanie.
-- Pozostałe pliki tego maila idą jak dotąd: wzór klienta, wątek.
-- Treść maila z akceptacją dalej zapisuje się przy kontrakcie z wątku, także gdy jedynym
-  plikiem była faktura.
-- Osoba u jednego klienta: faktura z wątku trafia do kontraktu jak dotąd.
-- Inne drogi bez zmian: skrzynka konsultanta u klienta jako nadawca i nazwisko z nazwy pliku
-  w portfelu Delivery Leada. Dokumentów zapisanych wcześniej czytnik nie przepina, a okres
-  faktury dalej bierze z numeru w nazwie.
+- Warunek stoi w jednym miejscu, tuż przed zapisem pliku z poczty (`identity.invoice_waits`,
+  `mailbox._ingest_message`): faktura (rodzaj po sprawdzeniu treści pliku, więc też PDF bez
+  słów-kluczy) nie bierze wskazanego kontraktu, gdy osoba z tego kontraktu albo jedyna osoba
+  pod adresem nadawcy ma działające kontrakty u co najmniej dwóch klientów. Działający to
+  też zakończony do 60 dni temu, więc dotyczy to osoby po zmianie klienta. Faktura czeka na
+  ręczne przypisanie.
+- Dotyczy każdej drogi: skrzynki konsultanta u klienta, adresu wpisanego tylko w jednym
+  kontrakcie (także prywatnego), przekazanego wątku, nazwiska w nazwie pliku od klienta albo
+  w portfelu Delivery Leada i numeru umowy wykonawczej. Nowa droga przypinania plików nie
+  potrzebuje własnego warunku.
+- Raporty, wzory klientów i pozostałe pliki tego maila idą jak dotąd.
+- Treść maila z akceptacją zapisuje się jak dotąd przy kontrakcie, który wskazała droga,
+  także gdy jedynym plikiem była faktura.
+- Osoba u jednego klienta: faktura trafia do kontraktu jak dotąd.
+- Dokumentów zapisanych wcześniej czytnik nie przepina, a okres faktury dalej bierze
+  z numeru w nazwie.
+
+Pomiar na kopii produkcji z 26.11.2026: 7 osób ma działające kontrakty u co najmniej dwóch
+klientów i żaden dokument nie był do nich przypięty. Jedna z nich ma prywatny adres wpisany
+tylko w jednym kontrakcie, więc faktura z niego szłaby sama do tego kontraktu.
 
 ## Czego ta zmiana nie robi
 
