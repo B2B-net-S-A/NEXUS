@@ -40,6 +40,19 @@
         "Head of Recruitment"
       ]
     },
+    "dokumenty-konsultantow": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/dokumenty-konsultantow.md",
+      "sciezki": [
+        "frontend/src/components/back-office/CardDocuments.tsx",
+        "backend/app/api/consultant_portal_staff.py",
+        "backend/app/services/consultant_portal/documents.py"
+      ],
+      "role": [
+        "Finanse",
+        "Admin",
+        "Delivery Lead"
+      ]
+    },
     "zamowienia": {
       "scenariusz": ".claude/skills/sciezka/scenariusze/zamowienia.md",
       "sciezki": [

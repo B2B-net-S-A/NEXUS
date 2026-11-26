@@ -687,7 +687,8 @@ async def document_cards(db: AsyncSession, today: date) -> list[CardSpec]:
     """Dokumenty konsultanta: karta na (kontrakt, okres, rodzaj), z obu kanałów.
 
     Dzięki temu raport wysłany w portalu i mailem na rozliczenia@ to jedna karta.
-    Plik z nieznanego adresu ma własną kartę do ręcznego przypisania. Bez kwot.
+    Plik bez kontraktu ma własną kartę do ręcznego przypisania: nadawca bywa znany
+    (osoba z dwoma kontraktami), więc tytuł o nim nie mówi. Bez kwot.
     """
 
     rows = await _rows(
@@ -738,7 +739,7 @@ async def document_cards(db: AsyncSession, today: date) -> list[CardSpec]:
             source_key=f"document:unmatched:{row['id']}",
             team="finance",
             lane="invoice",
-            title=f"{kind_labels[row['kind']]} od nieznanego nadawcy",
+            title=f"{kind_labels[row['kind']]} bez kontraktu",
             person="Do przypisania",
             meta={
                 "document_ids": [row["id"]],
