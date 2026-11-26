@@ -14,6 +14,7 @@ import {
   type AdPublication,
   type AdTechItem,
   type JobAdState,
+  type PracujMailSuggestion,
   type RenderedAd,
   type RenderedField,
   type RenderedSection,
@@ -286,7 +287,21 @@ export const FINDINGS: AdFinding[] = [
   ...ADVICE,
 ];
 
-export type HarnessState = "ready" | "findings" | "template" | "empty" | "published";
+export type HarnessState =
+  | "ready"
+  | "findings"
+  | "template"
+  | "empty"
+  | "published"
+  // Mail Pracuj.pl z niepewnym dopasowaniem: „To ta rekrutacja” / „Nie” (26.11.2026).
+  | "pracuj-mail";
+
+const PRACUJ_MAIL: PracujMailSuggestion = {
+  email_id: 9001,
+  subject: "Publikacja ogłoszenia na Senior Java Developer (k/m/x)",
+  received_at: "2026-11-20T14:59:00Z",
+  url: "https://www.pracuj.pl/praca?groupId=00000000-0000-4000-8000-000000000001",
+};
 
 const PRACUJ_LINK = "https://www.pracuj.pl/praca/senior-java-developer-warszawa,oferta,1000000001";
 
@@ -342,6 +357,7 @@ export function stateOf(
     career: patch.career ?? NO_CAREER_PAGE,
     reminders: null,
     pracuj_request: null,
+    pracuj_mail_suggestions: [],
     jjit_api: patch.jjit_api ?? null,
     can_mark_publications: true,
   };
@@ -360,6 +376,7 @@ function initial(state: HarnessState): JobAdState {
       career: NO_CAREER_PAGE,
       reminders: null,
       pracuj_request: null,
+      pracuj_mail_suggestions: [],
       jjit_api: null,
       can_mark_publications: true,
     };
@@ -369,6 +386,18 @@ function initial(state: HarnessState): JobAdState {
       publications: PUBLISHED,
       career: { ...CAREER_LIVE, status: "outdated" },
     });
+  }
+  if (state === "pracuj-mail") {
+    return {
+      ...stateOf(CONTENT, TECH, ADVICE),
+      pracuj_request: {
+        sent_at: "2026-11-18T10:00:00Z",
+        sent_by_name: "Preview Delivery Lead",
+        to: "opiekun@pracuj.example",
+        waiting: false,
+      },
+      pracuj_mail_suggestions: [PRACUJ_MAIL],
+    };
   }
   if (state === "findings") return stateOf(FINDINGS_CONTENT, TECH, FINDINGS);
   if (state === "template") {
@@ -431,6 +460,42 @@ export function memoryApi(state: HarnessState): JobAdWindowApi {
     },
     publishCareer: async () => {
       current = { ...current, career: CAREER_LIVE };
+      return current;
+    },
+    confirmPracujMail: async (_jobId, emailId) => {
+      const mail = current.pracuj_mail_suggestions.find((item) => item.email_id === emailId);
+      if (!mail) return current;
+      current = {
+        ...current,
+        pracuj_request: null,
+        pracuj_mail_suggestions: [],
+        publications: [
+          ...current.publications.filter((item) => item.portal !== "pracuj"),
+          {
+            portal: "pracuj",
+            url: mail.url,
+            outdated: false,
+            published_at: "2026-11-20T15:09:00Z",
+            published_by_name: "Preview Delivery Lead",
+            removed_at: null,
+            from_mail: {
+              email_id: mail.email_id,
+              subject: mail.subject,
+              received_at: mail.received_at,
+            },
+          },
+        ],
+      };
+      return current;
+    },
+    rejectPracujMail: async (_jobId, emailId) => {
+      current = {
+        ...current,
+        pracuj_mail_suggestions: current.pracuj_mail_suggestions.filter(
+          (item) => item.email_id !== emailId,
+        ),
+        publications: current.publications.filter((item) => item.from_mail?.email_id !== emailId),
+      };
       return current;
     },
     markRemoved: async (_jobId, portal) => {

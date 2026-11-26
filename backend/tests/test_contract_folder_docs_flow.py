@@ -28,6 +28,7 @@ from app.models.contract_document import ContractDocument
 from app.services.contract_folder_docs import service, sync
 from app.services.contract_folder_docs.matching import Folder
 from app.services.m365 import sharepoint_docs as sp
+from tests._namesake_pair import fictional_namesakes  # noqa: F401 (fixture)
 
 DRIVE = "drive-test"
 ROOT = "root-test"
@@ -486,17 +487,18 @@ async def test_push_compares_content_before_linking_same_name_and_size(
     assert fake.content[item_id] == remote_content
 
 
-async def test_filip_jablonski_is_never_pushed(monkeypatch):
+@pytest.mark.usefixtures("fictional_namesakes")
+async def test_namesakes_are_never_pushed(monkeypatch):
     fake = FakeSharePoint()
     fake.install(monkeypatch)
     async with AsyncSessionLocal() as db:
         doc = ContractDocument(contract_id=0, filename="x.pdf", file_path="nie/ma.pdf")
         stats = sync.SyncStats()
         await sync._push_one(
-            db, None, DRIVE, ROOT, doc, "Filip", "Jabłoński", [], {}, stats
+            db, None, DRIVE, ROOT, doc, "Józef", "Przykładowy", [], {}, stats
         )
     assert doc.sharepoint_push_status == "skipped"
-    assert "Filip" in (doc.sharepoint_push_error or "")
+    assert doc.sharepoint_push_error == sync.PUSH_SKIP_EXCLUDED
     assert fake.uploads == []
 
 

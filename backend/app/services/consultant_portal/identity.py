@@ -197,6 +197,31 @@ async def contracts_at_several_clients(
     return contracts if len({row.client_id for row in contracts}) > 1 else []
 
 
+async def thread_invoice_waits(
+    db: AsyncSession,
+    *,
+    thread_contract_id: int,
+    sender: str,
+    settings: PortalSettings,
+    today: date,
+) -> bool:
+    """Czy faktura z maila z przekazanym wątkiem czeka na ręczne przypisanie.
+
+    Konsultant u dwóch klientów bywa, że wystawia jedną fakturę na oba kontrakty
+    (``resolve_report_owner``), a wątek wskazuje najwyżej jeden z nich: faktura
+    za VII z wątkiem ze skrzynki w jednym banku trafiała do kontraktu tego banku
+    (poczta za VII 2026). Pytamy o osobę z kontraktu z wątku i o jedyną osobę pod
+    adresem nadawcy, bo w wątku bywa ktoś inny niż autor faktury.
+    """
+
+    for owner_id in (thread_contract_id, None):
+        if await contracts_at_several_clients(
+            db, owner_id=owner_id, sender=sender, settings=settings, today=today
+        ):
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class TemplateChoice:
     """Kontrakt wskazany wzorem dokumentu; ``None`` = karta do ręcznego przypisania."""

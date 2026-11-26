@@ -2,8 +2,8 @@
 
 Układ z korpusu::
 
-    Zatrudnienie kontraktora - P. Konrad
-    Niemyjski, stawka 210,00 zł netto/h = 1680.00
+    Zatrudnienie kontraktora - P. Jan
+    Testowy, stawka 100,00 zł netto/h = 800.00
     zł netto/1 MD
     …
     Nazwa artykułu / 1.07.2026 - 30.09.2026 / … / Termin realizacji

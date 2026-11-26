@@ -71,7 +71,11 @@ frontend/tsconfig.tsbuildinfo
 frontend/playwright-report/
 frontend/test-results/
 frontend/e2e/.auth/
-.claude/
+# Pliki Claude'a są lokalne (worktree, locki, settings.local.json) poza skillami
+# repo: CLAUDE.md i bramka ścieżki na stagingu odsyłają do .claude/skills/.
+# Z gwiazdką, bo pod ignorowanym katalogiem wyjątek nie działa.
+**/.claude/*
+!/.claude/skills/
 
 # UAT: wyniki i zgłoszenia zostają lokalnie — repo jest publiczne
 docs/uat/wyniki/

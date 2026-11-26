@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.schemas.job_ad_publication import AdPublicationRead
+from app.schemas.job_ad_publication import AdPublicationRead, PracujMailSuggestion
 from app.services.job_ad import fixed_blocks, generate
 
 Lang = Literal["pl", "en"]
@@ -318,6 +318,8 @@ class JobAdResponse(BaseModel):
     reminders: Optional[AdReminders] = None
     # Ostatni mail do opiekuna Pracuj.pl (27.10.2026).
     pracuj_request: Optional[PracujRequestRead] = None
+    # Maile Pracuj.pl z niepewnym dopasowaniem do tej rekrutacji (26.11.2026).
+    pracuj_mail_suggestions: list[PracujMailSuggestion] = Field(default_factory=list)
     jjit_api: Optional[AdJjitApi] = None
     # Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026).
     can_mark_publications: bool = False

@@ -105,3 +105,43 @@ def test_publications_come_in_portal_order():
         for portal in reversed(PORTALS)
     ]
     assert [item.portal for item in publications._sorted(items)] == list(PORTALS)
+
+
+# Link z panelu pracodawcy Pracuj.pl (26.11.2026): 47 z 96 zapisanych linków
+# otwierał tylko ktoś zalogowany na konto firmy.
+_GID = "00000000-0000-4000-8000-000000000001"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://publikacja.pracuj.pl/showjoboffer/{_GID}",
+        f"https://publikacja.pracuj.pl/showJobOffer/{_GID.upper()}/",
+    ],
+)
+def test_a_panel_link_becomes_the_public_offer(url):
+    assert (
+        publications.clean_url(url, "pracuj")
+        == f"https://www.pracuj.pl/praca?groupId={_GID}"
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://publikacja.pracuj.pl/previewJobOffer/{_GID}",
+        "https://strefa.pracuj.pl/apps/kandydaci/123456",
+        "https://publikacja.pracuj.pl/oidc-auth?code=abc&state=def",
+        f"https://publikacja.pracuj.pl/showjoboffer/{_GID}/edit",
+    ],
+)
+def test_a_panel_page_without_the_offer_is_refused_with_a_hint(url):
+    with pytest.raises(ValueError) as error:
+        publications.clean_url(url, "pracuj")
+    assert "panelu pracodawcy" in str(error.value)
+    assert "Publikacja ogłoszenia na" in str(error.value)
+
+
+def test_a_public_group_link_is_kept_as_typed():
+    url = f"https://www.pracuj.pl/praca?groupId={_GID}"
+    assert publications.clean_url(url, "pracuj") == url

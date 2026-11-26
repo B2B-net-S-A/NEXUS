@@ -1,7 +1,9 @@
 """Business identity used by every aggregate active-contractor counter."""
 
+import re
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,12 +13,16 @@ from app.api import contract_analytics
 from app.api.contractors import contractor_stats
 from app.models.contract import ContractStatus
 from app.models.user import UserRole
+from app.services import contractor_identity
 from app.services.contractor_identity import (
     contractor_identity_key,
     count_unique_contractors,
     summarize_active_contracts,
 )
 from app.core.scheduling import business_today
+from tests._namesake_pair import fictional_namesakes  # noqa: F401 (fixture)
+
+_BACKEND = Path(__file__).resolve().parents[1]
 
 
 def _candidate(
@@ -35,8 +41,8 @@ def _candidate(
 
 def test_regular_contractor_key_folds_case_whitespace_punctuation_and_diacritics():
     variants = [
-        _candidate(1, "  PIOTR ", "Klimczak", "first@example.com"),
-        _candidate(2, "Piotr", "  Klim-czak ", "other@example.com"),
+        _candidate(1, "  OSKAR ", "Testowy", "first@example.com"),
+        _candidate(2, "Oskar", "  Test-owy ", "other@example.com"),
     ]
 
     assert count_unique_contractors(variants) == 1
@@ -51,25 +57,27 @@ def test_non_latin_names_are_preserved_and_deduplicated():
     assert count_unique_contractors(variants) == 1
 
 
-def test_only_filip_jablonski_is_split_by_normalized_profile_email():
-    filip_variants = [
-        _candidate(1, " Filip ", "Jabłoński", " FIRST@Example.com "),
-        _candidate(2, "FILIP", "Jablonski", "first@example.com"),
-        _candidate(3, "Filip", "Jabłoński", "second@example.com"),
+@pytest.mark.usefixtures("fictional_namesakes")
+def test_only_a_namesake_pair_is_split_by_normalized_profile_email():
+    namesake_variants = [
+        _candidate(1, " Józef ", "Przykładowy", " FIRST@Example.com "),
+        _candidate(2, "JOZEF", "Przy-kladowy", "first@example.com"),
+        _candidate(3, "Józef", "Przykładowy", "second@example.com"),
     ]
     ordinary_same_name_different_email = [
         _candidate(4, "Anna", "Nowak", "one@example.com"),
         _candidate(5, "ANNA", "NOWAK", "two@example.com"),
     ]
 
-    assert count_unique_contractors(filip_variants) == 2
+    assert count_unique_contractors(namesake_variants) == 2
     assert count_unique_contractors(ordinary_same_name_different_email) == 1
 
 
-def test_filip_jablonski_without_email_fails_closed_by_candidate_id():
+@pytest.mark.usefixtures("fictional_namesakes")
+def test_namesake_without_email_fails_closed_by_candidate_id():
     incomplete_profiles = [
-        _candidate(6, "Filip", "Jabłoński", None),
-        _candidate(7, "filip", "jablonski", " "),
+        _candidate(6, "Józef", "Przykładowy", None),
+        _candidate(7, "jozef", "przykladowy", " "),
     ]
 
     assert count_unique_contractors(incomplete_profiles) == 2
@@ -85,10 +93,10 @@ def test_placeholder_names_fall_back_to_candidate_id_instead_of_collapsing():
 
 
 def test_headcount_keeps_person_and_contract_totals_separate():
-    piotr = _candidate(20, "Piotr", "Klimczak", "piotr@example.com")
-    duplicate_profile = _candidate(21, " piotr ", "KLIMCZAK", "duplicate@example.com")
+    oskar = _candidate(20, "Oskar", "Testowy", "oskar@example.com")
+    duplicate_profile = _candidate(21, " oskar ", "TESTOWY", "duplicate@example.com")
     contracts = [
-        SimpleNamespace(candidate=piotr),
+        SimpleNamespace(candidate=oskar),
         SimpleNamespace(candidate=duplicate_profile),
         SimpleNamespace(candidate=None),
     ]
@@ -99,18 +107,20 @@ def test_headcount_keeps_person_and_contract_totals_separate():
     assert result.active_contracts == 3
 
 
+@pytest.mark.usefixtures("fictional_namesakes")
 def test_raw_key_normalizes_exception_email_case_and_space():
-    assert contractor_identity_key(
-        "Filip", "Jabłoński", " FILIP@EXAMPLE.COM "
-    ) == contractor_identity_key("filip", "jablonski", "filip@example.com")
+    key = contractor_identity_key("Józef", "Przykładowy", " JOZEF@EXAMPLE.COM ")
+
+    assert key == contractor_identity_key("jozef", "przykladowy", "jozef@example.com")
+    assert key == ("name_email", "jozef", "przykladowy", "jozef@example.com")
 
 
 @pytest.mark.asyncio
 async def test_finance_summary_exposes_one_person_and_two_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    first_profile = _candidate(30, "Piotr", "Klimczak", "first@example.com")
-    duplicate_profile = _candidate(31, " PIOTR ", "klimczak", "duplicate@example.com")
+    first_profile = _candidate(30, "Oskar", "Testowy", "first@example.com")
+    duplicate_profile = _candidate(31, " OSKAR ", "testowy", "duplicate@example.com")
     contracts = [
         SimpleNamespace(
             candidate=first_profile,
@@ -195,8 +205,8 @@ class _SequentialDb:
 
 @pytest.mark.asyncio
 async def test_contractor_stats_deduplicates_active_people_but_keeps_contract_count():
-    first_profile = _candidate(40, "Piotr", "Klimczak", "one@example.com")
-    duplicate_profile = _candidate(41, "piotr", "KLIMCZAK", "two@example.com")
+    first_profile = _candidate(40, "Oskar", "Testowy", "one@example.com")
+    duplicate_profile = _candidate(41, "oskar", "TESTOWY", "two@example.com")
     far_end = business_today() + timedelta(days=90)
     contracts = [
         SimpleNamespace(
@@ -242,10 +252,10 @@ async def test_utilization_deduplicates_denominator_and_bench_gap_per_identity()
         return SimpleNamespace(**vars(candidate), end_date=end_date, status=status)
 
     population_rows = [
-        # Piotr Klimczak — dwa profile, jeden pracuje (kontrakt bez daty końca).
-        _row(_candidate(50, "Piotr", "Klimczak", "one@example.com"), None),
+        # Oskar Testowy — dwa profile, jeden pracuje (kontrakt bez daty końca).
+        _row(_candidate(50, "Oskar", "Testowy", "one@example.com"), None),
         _row(
-            _candidate(51, "PIOTR", "Klim-czak", "two@example.com"),
+            _candidate(51, "OSKAR", "Test-owy", "two@example.com"),
             today - timedelta(days=5),
         ),
         # Anna Nowak — dwa profile, oba zakończone: jedna osoba na ławce.
@@ -313,25 +323,26 @@ async def test_role_client_mix_global_person_total_is_not_sum_of_cells():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fictional_namesakes")
 async def test_location_distribution_uses_lowest_profile_once_per_identity():
     rows = [
         SimpleNamespace(
-            **vars(_candidate(60, "Piotr", "Klimczak", "one@example.com")),
+            **vars(_candidate(60, "Oskar", "Testowy", "one@example.com")),
             hub_city="Warszawa",
             region="Mazowieckie",
         ),
         SimpleNamespace(
-            **vars(_candidate(61, "PIOTR", "Klim-czak", "two@example.com")),
+            **vars(_candidate(61, "OSKAR", "Test-owy", "two@example.com")),
             hub_city="Kraków",
             region="Małopolskie",
         ),
         SimpleNamespace(
-            **vars(_candidate(62, "Filip", "Jabłoński", "first@example.com")),
+            **vars(_candidate(62, "Józef", "Przykładowy", "first@example.com")),
             hub_city="Gdańsk",
             region="Pomorskie",
         ),
         SimpleNamespace(
-            **vars(_candidate(63, "FILIP", "JABLONSKI", "second@example.com")),
+            **vars(_candidate(63, "JOZEF", "PRZYKLADOWY", "second@example.com")),
             hub_city="Wrocław",
             region="Dolnośląskie",
         ),
@@ -346,3 +357,44 @@ async def test_location_distribution_uses_lowest_profile_once_per_identity():
     assert result.total_with_hub == 3
     hubs = {row.hub_city: row.count for row in result.hubs}
     assert hubs == {"Warszawa": 1, "Gdańsk": 1, "Wrocław": 1}
+
+
+# ── Para imienników istnieje w repo wyłącznie jako skrót ─────────────────────
+
+
+def test_namesake_digests_match_the_repo_guard_list():
+    """Literówka w skrócie po cichu wyłączyłaby wyjątek — trzyma go druga kopia."""
+    guard = (
+        _BACKEND.parent / "frontend/src/__tests__/fixtures/real-people.ts"
+    ).read_text(encoding="utf-8")
+
+    assert contractor_identity.NAMESAKE_NAME_DIGESTS
+    for digest in contractor_identity.NAMESAKE_NAME_DIGESTS:
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        assert f'"{digest[:16]}"' in guard
+
+
+def test_app_code_does_not_name_the_namesakes():
+    """Strażnik repo czyta testy i dokumenty — ten wyjątek siedział w kodzie."""
+    pairs_by_file: dict[str, set[tuple[str, str]]] = {}
+    for root in (_BACKEND / "app", _BACKEND / "scripts"):
+        for path in root.rglob("*"):
+            if path.suffix not in {".py", ".md", ".json", ".html", ".txt"}:
+                continue
+            text = path.read_text(encoding="utf-8").lower()
+            for letter, plain in zip("ąćęłńóśźż", "acelnoszz"):
+                text = text.replace(letter, plain)
+            # „_” też dzieli słowa: nazwisko w nazwie stałej to nadal nazwisko.
+            words = re.findall(r"[^\W_]+", text)
+            pairs_by_file[str(path.relative_to(_BACKEND))] = set(zip(words, words[1:]))
+
+    all_pairs = set().union(*pairs_by_file.values())
+    named = {
+        (one, other)
+        for one, other in all_pairs
+        if contractor_identity.is_namesake_pair(one, other)
+        or contractor_identity.is_namesake_pair(other, one)
+    }
+
+    assert len(all_pairs) > 10_000  # strażnik nie jest pusty
+    assert [path for path, pairs in pairs_by_file.items() if pairs & named] == []

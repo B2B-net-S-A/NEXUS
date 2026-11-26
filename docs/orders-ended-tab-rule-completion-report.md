@@ -5,8 +5,8 @@ Data: 2026-09-03 · jeden PR na ticket · poprzedza go #1355 (zamówienia z mail
 ## Zgłoszenie
 
 Osoby z zakończonym okresem zamówienia trafiały do „Zakończonych" niekonsekwentnie;
-Piotr Klimczak (VeloBank, Contract 469) wylądował tam mimo aktywnej współpracy
-i czekającego przedłużenia.
+Contract 469 (VeloBank) wylądował tam mimo aktywnej współpracy i czekającego
+przedłużenia.
 
 ## Co było naprawdę (dane z produkcji, 03.09)
 
@@ -19,7 +19,7 @@ bywał przepisany z pierwszego okresu zamówienia; do tego wskrzeszenie kontrakt
 żywym zamówieniem przepisywało do umowy datę końca ZAMÓWIENIA, więc po jej
 upływie osoba wracała do „Zakończonych". W całej bazie klasa „zakończona bez
 wypowiedzenia, a zamówienie trwało po dacie końca umowy" liczy 3 wiersze — wszystkie
-VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Klimczak.
+VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Contract 469.
 
 ## Zmiany
 
@@ -39,10 +39,10 @@ VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Klimcza
 
 ## Poza zakresem (świadomie)
 
-- Baczewski (465) i Więckiewicz (470) zostają w „Zakończonych" — nie ma ich na nowym
+- Kontrakty 465 i 470 zostają w „Zakończonych" — tych osób nie ma na nowym
   zamówieniu; wskrzeszenie wciągnęłoby ich do MRR i alertów. Administracja może
   zakończyć/odtworzyć ich umowy w Kontraktach.
-- Contract 444 (Anna Gąsowska, klient 26): `ended` z `terminated_at` 30.09 w przyszłości
+- Contract 444 (klient 26): `ended` z `terminated_at` 30.09 w przyszłości
   i `end_date` 31.08 — niespójność sprzed tej zmiany, do przeglądu przez administrację.
 
 ## Weryfikacja

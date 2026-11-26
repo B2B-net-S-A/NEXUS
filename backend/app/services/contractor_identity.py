@@ -7,14 +7,17 @@ not use either ``candidate_id`` or ``contract_id`` as the identity key.
 The agreed rule is deliberately narrow:
 
 * normally, normalized first name + surname identify one contractor;
-* exactly Filip Jablonski is a known real-name collision, so his normalized
-  candidate-profile e-mail is an additional key component.
+* a known real-name collision (two different people with the same first name
+  and surname) additionally keys on the normalized candidate-profile e-mail.
+  The repository is public, so such a pair is stored only as a digest in
+  ``NAMESAKE_NAME_DIGESTS`` — never as text, in code or tests.
 
 Contract counts remain separate.  This module only answers "how many people?".
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -23,7 +26,13 @@ from typing import Any, Hashable, Protocol
 from sqlalchemy import String, and_, case, cast, func
 
 
-_FILIP_JABLONSKI = ("filip", "jablonski")
+# SHA-256 of ``"<first> <last>"`` after ``normalize_contractor_name_part``.  The
+# first 16 characters are the same person's entry in the repo guard
+# (``frontend/src/__tests__/fixtures/real-people.ts``).  How to add a pair:
+# ``docs/claude/kontrakty/imiennicy-tylko-jako-skrot.md``.
+NAMESAKE_NAME_DIGESTS: frozenset[str] = frozenset(
+    {"f53ec585b3897e2dd92a59856ca0b7aabb0d92dcc211de73c09f9ea5ae739e3b"}
+)
 _SQL_SINGLE_CHAR_DIACRITICS = "ąćęłńóśźżđðøàáâãäåçèéêëìíîïñòôõöùúûüýÿčďěňřšťž"
 _SQL_SINGLE_CHAR_ASCII = "acelnoszzddoaaaaaaceeeeiiiinoooouuuuyycdenrstz"
 _SQL_MULTI_CHAR_TRANSLITERATION = (("æ", "ae"), ("œ", "oe"), ("ß", "ss"))
@@ -76,6 +85,18 @@ def normalize_contractor_name_part(value: Any) -> str:
     return "".join(character for character in folded if character.isalnum())
 
 
+def name_pair_digest(first: str, last: str) -> str:
+    """Digest of an already normalized first name + surname pair."""
+
+    return hashlib.sha256(f"{first} {last}".encode("utf-8")).hexdigest()
+
+
+def is_namesake_pair(first: str, last: str) -> bool:
+    """Whether the normalized pair is shared by two different people."""
+
+    return name_pair_digest(first, last) in NAMESAKE_NAME_DIGESTS
+
+
 def contractor_identity_key(
     first_name: Any,
     last_name: Any,
@@ -87,9 +108,9 @@ def contractor_identity_key(
 
     Name normalization folds case, surrounding/internal punctuation and Polish
     diacritics, so display variants such as ``" PIOTR "`` / ``"Piotr"`` and
-    ``"Jabłoński"`` / ``"Jablonski"`` agree.  Invalid/placeholder names do
-    not all collapse into one fictional person: callers can provide the
-    Candidate id as a fail-closed fallback.
+    ``"Łąkowy"`` / ``"Lakowy"`` agree.  Invalid/placeholder names do not all
+    collapse into one fictional person: callers can provide the Candidate id
+    as a fail-closed fallback.
     """
 
     first = normalize_contractor_name_part(first_name)
@@ -100,7 +121,7 @@ def contractor_identity_key(
             return ("candidate", fallback_id)
         return ("name", first, last)
 
-    if (first, last) == _FILIP_JABLONSKI:
+    if is_namesake_pair(first, last):
         normalized_email = normalize_contractor_email(email)
         if normalized_email:
             return ("name_email", first, last, normalized_email)
@@ -148,22 +169,25 @@ def contractor_identity_sql_expression(
     last = _name_part(last_name)
     normalized_email = func.lower(func.btrim(func.coalesce(email, "")))
     fallback = func.concat("candidate:", cast(candidate_id, String))
-    filip_key = case(
+    # Mirror of ``name_pair_digest`` with Postgres built-ins only.
+    pair_digest = func.encode(
+        func.sha256(func.convert_to(func.concat(first, " ", last), "UTF8")),
+        "hex",
+        type_=String,
+    )
+    namesake_key = case(
         (
             normalized_email != "",
-            func.concat("name_email:filip:jablonski:", normalized_email),
+            func.concat("name_email:", first, ":", last, ":", normalized_email),
         ),
         else_=func.concat(
-            "name_email_missing:filip:jablonski:", cast(candidate_id, String)
+            "name_email_missing:", first, ":", last, ":", cast(candidate_id, String)
         ),
     )
     return case(
         (func.length(first) == 0, fallback),
         (func.length(last) == 0, fallback),
-        (
-            and_(first == _FILIP_JABLONSKI[0], last == _FILIP_JABLONSKI[1]),
-            filip_key,
-        ),
+        (pair_digest.in_(sorted(NAMESAKE_NAME_DIGESTS)), namesake_key),
         else_=func.concat("name:", first, ":", last),
     )
 

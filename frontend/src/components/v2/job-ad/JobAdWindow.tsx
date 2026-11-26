@@ -65,7 +65,8 @@ export type JobAdTab = "pracuj" | "jjit";
 export type JobAdWindowApi = Pick<
   typeof jobAdApi,
   "get" | "generate" | "save" | "markPublished" | "markRemoved" | "publishCareer"
->;
+> &
+  Partial<Pick<typeof jobAdApi, "confirmPracujMail" | "rejectPracujMail">>;
 
 export interface JobAdWindowProps {
   jobId: number;

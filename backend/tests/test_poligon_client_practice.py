@@ -21,6 +21,7 @@ from scripts import poligon_client_practice as practice
 from scripts import poligon_cv_practice as cv_practice
 from scripts import poligon_person_texts as person_texts
 from scripts import poligon_pre_contract_practice as pre_contract_practice
+from scripts import poligon_review_batch_practice as review_batch_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -136,12 +137,14 @@ def test_zestaw_w_repo_jest_aktualny(responses):
     # Poza klientem ćwiczebnym wymyślone są QC edytora z nowości CV, pary
     # „stop do podpisu przedwstępnej” (`poligon_pre_contract_practice.py`)
     # teksty osoby-szablonu (`poligon_person_texts.py`) i „Czeka na Ciebie”
-    # (`poligon_board_tasks_practice.py`).
+    # (`poligon_board_tasks_practice.py`) i porcja dnia
+    # (`poligon_review_batch_practice.py`).
     _, cv_fiction = cv_practice.cv_practice(stored)
     _, board_fiction = board_tasks_practice.board_tasks_practice(stored)
     _, payments_fiction = payments_practice.payments_practice()
     _, pre_contract_fiction = pre_contract_practice.pre_contract_practice(stored)
     _, texts_fiction = person_texts.person_texts(stored)
+    _, batch_fiction = review_batch_practice.review_batch_practice(stored)
     assert set(meta["fiction_responses"]) == (
         set(responses)
         | set(cv_fiction)
@@ -149,6 +152,7 @@ def test_zestaw_w_repo_jest_aktualny(responses):
         | set(texts_fiction)
         | set(board_fiction)
         | set(payments_fiction)
+        | set(batch_fiction)
     )
     assert meta["client_people"] == practice.CLIENT_PEOPLE
     for key, body in responses.items():

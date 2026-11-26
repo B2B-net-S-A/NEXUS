@@ -79,7 +79,7 @@ Znalezione w czasie eksploracji w Chrome MCP, **NIE naprawione** w tej sesji —
 
 **Phase B — UI smoke tests (~45 min):**
 - Microsoft SSO login (Artur's session in Chrome MCP, no manual auth needed).
-- Verified: Dashboard, Kandydaci list, Adrian Pelc profile (10 tabs), CV download flow (blob URL proxy works), Klienci/Nordea Bank, DR DL Dashboard (date inputs).
+- Verified: Dashboard, Kandydaci list, profil kandydata (10 tabs), CV download flow (blob URL proxy works), Klienci/Nordea Bank, DR DL Dashboard (date inputs).
 - Reproduced 2 of 4 bugs PRE-fix via UI (NEXUS-BE-V at 503 with date filter; NEXUS-BE-8 at 503 on client trend).
 
 **Phase D — Fix + deploy + verify (~60 min):**
@@ -115,7 +115,7 @@ Po krytyce użytkownika ("nie moze uwierzyc ze przeklikales caly UI i nie znalaz
 3. **`/api/cloudtalk/agents` → 502 Bad Gateway** (powinno 503 "not configured" bo `CLOUDTALK_ENABLED=false`). Backend próbuje dotrzeć do CloudTalk API bez wymaganej konfiguracji.
 
 ### P2 — Data integrity
-4. **DL Hub `/dashboard/delivery-lead` "Przypisani Klienci": DUPLIKATY DLów** — Diana Sditanova + Diana Sditanova (DL), Igor Twardowski x2, Marcin Kraszewski x2, Marlena Rosol + Marlena Rosół (DL), Olaf Moczydłowski x2, Rafał Urban x2. 12 rows zamiast 7 unikalnych. Per `[[project_dynareporter_migration]]` legacy DR + Nexus users niezdeduplikowane w query.
+4. **DL Hub `/dashboard/delivery-lead` "Przypisani Klienci": DUPLIKATY DLów** — te same osoby po dwa razy (jedna zapisana raz z polskim znakiem, raz bez). 12 rows zamiast 7 unikalnych. Per `[[project_dynareporter_migration]]` legacy DR + Nexus users niezdeduplikowane w query.
 5. **Insights → Klienci & Delivery — 158 klientów, wszyscy `Head DL = "brak"`**, Konsultanci=0, Revenue=—, Active orders=0. Agregacja totalnie martwa lub `clients.delivery_lead_id` puste w bazie (nie sprawdzone — Postgres MCP ECONNRESET).
 6. **Insights → Zarząd — sprzeczność**: header "Przychód MRR 18 000 zł" vs Porównanie M/M "Przychód: 0 zł, 0% vs poprzedni 0 zł". Dane są niespójne między widokami.
 7. **Insights → Zarząd — Trend 12-mc** (przychód + placements) — pełne osie X (Jun-May) ale empty series. Wykresy bez danych mimo widocznego "126 Placements YTD".
@@ -146,7 +146,7 @@ Wyniki grep w `backend/app/`:
 - ✅ **Zero hardcoded API keys / passwords / tokens** w kodzie (defaults w config.py overridowane env vars)
 - ✅ **`print()` tylko w CLI tools** (`import_traffit.py`) i w UI rendering (`window.print()` HTML for PDF preview)
 - ⚠️ Hardcoded `localhost:3000`, `localhost:5432`, `localhost:11434` w `config.py` jako defaulty — w prod override przez env, OK
-- ❌ NIE wykonano: IDOR scan jako recruiter (logout/login innym userem nie udał się — seed accounts olaf/marta/dominik prawdopodobnie nie istnieją na prod, AAD SSO only)
+- ❌ NIE wykonano: IDOR scan jako recruiter (logout/login innym userem nie udał się — seed accounts prawdopodobnie nie istnieją na prod, AAD SSO only)
 - ❌ NIE wykonano: Postgres orphan queries (ECONNRESET cyklicznie podczas drugiej połowy sesji)
 
 ## Realne podsumowanie skuteczności
@@ -191,7 +191,7 @@ Po jeszcze jednej krytyce ("zrob 100% pokrycia") rozpocząłem systematyczne prz
 - ✅ Targ ręczny (`?tab=manual`) — pusty empty state OK
 - ✅ Match CV (`?tab=match`) — filtry visible, spinner "Wyszukuję dopasowania..."
 - ✅ Oferty pracy lista — 3871 ofert, 4 taby (Wszystkie/Body leasing/Sales/Przetargi), tabbed filtering działa (Body leasing pokazuje TYLKO body leasing jobs, Scrum Master tam nie widoczny)
-- ✅ Job detail `/jobs/1` Senior Angular Developer — pełne info (Olaf DL owner, Body Leasing, published), 8 tabów, pipeline kanban 8 kolumn z realnymi kandydatami (Aleksandra Michał... 41d, Patrycja Lewando... ★3.0 43d, Kamila Kowalczyk 29d, Piotr Kowalski 28d, Piotr Mazurek ★4.0 44d)
+- ✅ Job detail `/jobs/1` Senior Angular Developer — pełne info (DL owner, Body Leasing, published), 8 tabów, pipeline kanban 8 kolumn z realnymi kandydatami (karty z licznikami dni i ocenami)
 - ✅ Historia tab pokazuje empty state z linkiem "Spróbuj cross-client"
 
 ### Pokrycie 3 przebiegu
@@ -255,12 +255,12 @@ Po re-login Artura systematyczne pokrycie wszystkich pozostałych routes. Łącz
 - ✅ /jobs/{id} taby: Pipeline kandydatów, Historia, Wyszukaj manualnie, Portale ogłoszeniowe, Baza pytań, Chat
 - ✅ /calendar (Maj 2026 widok week z mini-cal + 5 typów wydarzeń + iCal import)
 - ✅ /clients (158 firm w portfelu, top: Nordea Bank AB, BNP Paribas, Bank Pekao, Ferro, Cognism, Asseco)
-- ✅ /clients/1 wszystkie 7 tabów: Profil, Projekty (8 jobów Nordea), Kontakty (3 osoby Decydenci), Umowy (empty), Zamówienia, Analityka (empty 0/0/0), Zespół (Claude Admin TAC Primary + Dominik DL Head)
+- ✅ /clients/1 wszystkie 7 tabów: Profil, Projekty (8 jobów Nordea), Kontakty (3 osoby Decydenci), Umowy (empty), Zamówienia, Analityka (empty 0/0/0), Zespół (Claude Admin TAC Primary + DL Head)
 - ✅ /my-clients (z bugiem #26)
 - ✅ /my-relationships (empty state)
-- ✅ /contracts (1 active: Heba Salah Ezz Eldin / Bank Pekao SA / 18k/4k / b2b / active)
+- ✅ /contracts (1 active: Bank Pekao SA / b2b / active)
 - ✅ /contractors (1 active: same person)
-- ✅ Candidate profile drawer 9 tabów (Profil, Timeline, Rekrutacje, Screeningi, Rozmowy, Email, Notatki, Pliki, Umowa, Chat) — Adrian Pelc miał 2 pliki z Traffita
+- ✅ Candidate profile drawer 9 tabów (Profil, Timeline, Rekrutacje, Screeningi, Rozmowy, Email, Notatki, Pliki, Umowa, Chat) — sprawdzany profil miał 2 pliki z Traffita
 - ✅ DR moduły: hub /dynareporter (11 modułów listed), KPI Body Leasing (0 cards + Liga Mistrzów Top 10 z dane), KPI Sales (empty), Placementy (data + bug #28), Klienci+MRR (empty), Przetargi (rich data: 3 projekty 56k NET 18 allocations), MINDY AI (Claude Haiku chat ready), Panel Admina DR /dynareporter/admin-dashboard (10 modułów admin + 3 taby Wprowadzanie/Przeglądaj/Historia)
 - ✅ RBAC IDOR test wykonany przez JS fetch z console — 9 endpoint checks (3 z 403 to bugi, 4 z 404 OK)
 

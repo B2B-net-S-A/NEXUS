@@ -41,8 +41,10 @@ Kod: `services/job_ad/pracuj_mail.py`, trasy
   i stan kanału `requested` w przypomnieniach: przez dzień wysyłki
   i `QUIET_BUSINESS_DAYS` (3) dni robocze kalendarza firmy Pracuj.pl nie jest
   brakiem, potem wraca. Ogłoszenie oznaczone jako wiszące = 409 `pracuj_live`.
-- **Link wkleja DL** („Oznacz jako opublikowane”) — NEXUS nie czyta
-  odpowiedzi opiekuna ze skrzynki (decyzja 27.10).
+- **Link bierze NEXUS z maila Pracuj.pl** „Publikacja ogłoszenia na …” (od
+  26.11.2026, `link-pracuj-z-maila-pracuj.md`); bez takiego maila wkleja DL
+  („Oznacz jako opublikowane”). Odpowiedzi opiekuna NEXUS nadal nie czyta
+  (decyzja 27.10).
 - **Wejścia:** karta Pracuj.pl w oknie „Ogłoszenie”; przycisk „Wyślij do
   Pracuj.pl” w codziennym mailu o brakach (`?ogloszenie=pracuj&wyslij=opiekun`
   otwiera od razu okno maila); krok „Ogłoszenie” po utworzeniu rekrutacji

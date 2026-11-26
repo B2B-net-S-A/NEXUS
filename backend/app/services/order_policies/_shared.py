@@ -45,9 +45,9 @@ normalize_date = _normalize_date
 _DATE = r"(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4})"
 _RANGE_SEP = r"\s*(?:[-–—]|do|to)\s*"
 # Znaki sterujące kierunkiem tekstu (LRE/RLE/PDF, ZWSP…) — ekstrakcja z PDF
-# potrafi wstawić je przed nazwiskiem (mLeasing: „BL(mL) - ‪‪‪Urszula Pasik").
+# potrafi wstawić je przed nazwiskiem (mLeasing: „BL(mL) - ‪‪‪Anna Przykładowa").
 _INVISIBLE_RE = re.compile(r"[​-‏‪-‮⁠-⁤﻿]")
-# Tytuły grzecznościowe przed nazwiskiem w prozie („P. Konrad Niemyjski").
+# Tytuły grzecznościowe przed nazwiskiem w prozie („P. Jan Testowy").
 _HONORIFIC_RE = re.compile(r"^(?:p\.|pan|pani|mr\.?|mrs\.?|ms\.?)\s+", re.IGNORECASE)
 
 

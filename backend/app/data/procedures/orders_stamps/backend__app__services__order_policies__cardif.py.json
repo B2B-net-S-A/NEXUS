@@ -1,4 +1,4 @@
 {
-  "sha256": "861776fb2fe74e0ebc9fe879d5a56b8dbaf37180d3a2ed14173c867cf13013dd",
+  "sha256": "2430b58ae54a5660bc0e12f58d76e8e8f3ef7bc9e77466b8302f9821f4125b65",
   "source": "backend/app/services/order_policies/cardif.py"
 }

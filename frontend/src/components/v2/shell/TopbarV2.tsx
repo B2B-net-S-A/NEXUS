@@ -63,7 +63,7 @@ export function TopbarV2({
   }, []);
 
   return (
-    <header className={TOPBAR_HEADER_CLASS}>
+    <header data-app-topbar="" className={TOPBAR_HEADER_CLASS}>
       <button
         onClick={onOpenMobileSidebar}
         aria-label="Otwórz menu"

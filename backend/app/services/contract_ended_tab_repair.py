@@ -6,13 +6,15 @@ do „Zakończonych" trafiły dokładnie te 4, którym umowa miała wpisaną dat
 30.06 (przepisaną przy założeniu kontraktu z pierwszego okresu zamówienia, bez
 wypowiedzenia), reszta miała umowę bezterminową i została w „Aktywnych".
 
-Ticket wskazuje jedną korektę: Piotr Klimczak (VeloBank, Contract 469) dostaje
-przedłużenie, więc jego umowa ma wrócić do „Aktywnych". Id nie jest zaufane
-samo — klient, nazwisko, status, brak wypowiedzenia i data muszą się zgadzać
-(wzorzec 0250). Pozostałe umowy z tej klasy (bez wypowiedzenia, z zamówieniem
-trwającym PO dacie końca umowy) są wyłącznie AUDYTOWANE do paragonu
-w ``app_settings``: dwie z trzech u VeloBanku to osoby, których na nowym
-zamówieniu nie ma, więc masowe wskrzeszenie wciągnęłoby je do MRR i alertów.
+Ticket wskazuje jedną korektę: Contract 469 (VeloBank) dostaje przedłużenie,
+więc ta umowa ma wrócić do „Aktywnych". Id nie jest zaufane samo — klient,
+status, brak wypowiedzenia i data muszą się zgadzać (wzorzec 0250). Danych
+osoby warunek nie porównuje, bo repozytorium jest publiczne; blok wykonał się
+na produkcji 03.09.2026 (znacznik w ``app_settings``). Pozostałe umowy z tej
+klasy (bez wypowiedzenia, z zamówieniem trwającym PO dacie końca umowy) są
+wyłącznie AUDYTOWANE do paragonu w ``app_settings``: dwie z trzech u VeloBanku
+to osoby, których na nowym zamówieniu nie ma, więc masowe wskrzeszenie
+wciągnęłoby je do MRR i alertów.
 
 Blok jest jednorazowy (marker + advisory lock) i idempotentny; jedno źródło
 dla migracji 0274 i dla safety-netu w ``entrypoint.sh`` (alembic na prodzie
@@ -78,15 +80,12 @@ BEGIN
            c.status::text AS previous_status,
            c.end_date AS previous_end_date
       FROM contracts AS c
-      JOIN candidates AS cand ON cand.id = c.candidate_id
       JOIN clients AS cl ON cl.id = c.client_id
      WHERE c.id = 469
        AND c.status = 'ended'
        AND c.terminated_at IS NULL
        AND c.termination_reason IS NULL
        AND c.end_date = DATE '2026-06-30'
-       AND lower(coalesce(cand.name, '')) = 'piotr'
-       AND lower(coalesce(cand.lastname, '')) = 'klimczak'
        AND lower(concat_ws(' ', cl.name, cl.display_name, cl.legal_name))
            LIKE '%velobank%';
 

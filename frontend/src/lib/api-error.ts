@@ -123,7 +123,7 @@ export function messageFromApiResponse(
     // Lifecycle kontraktu: 409 {message: "Missing required fields",
     // missing: [...]}. Surowy `message` gubił LISTĘ pól — użytkownik widział
     // goły angielski banner bez wskazania, czego brakuje (zgłoszenie:
-    // formularz „Nowy kontrakt", Jakub Jedynak / CARDIF). Tłumaczymy nazwy
+    // formularz „Nowy kontrakt" u klienta CARDIF). Tłumaczymy nazwy
     // pól na etykiety z formularza. Jawny match na message lifecycle'u — sam
     // klucz `missing` mógłby w przyszłości znaczyć co innego w innym endpointzie.
     if (

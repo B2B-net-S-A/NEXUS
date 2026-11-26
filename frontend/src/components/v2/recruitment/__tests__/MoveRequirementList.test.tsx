@@ -35,6 +35,27 @@ describe("MoveRequirementList", () => {
     expect(reminder?.className).not.toContain("bg-warning-muted");
   });
 
+  it("ten sam klucz w dwóch kolumnach drogi to dwa wiersze bez ostrzeżenia Reacta (26.11.2026)", () => {
+    // Odpowiedź stagingu dla „Zweryfikowany” → „CV wysłane” u klienta
+    // z formularzem: `client_form` z kolumny „QC CV” i z „CV wysłane”.
+    const items: MoveRequirementItem[] = [
+      { key: "client_form", column: "cv_qc", label: "Formularz CV klienta", status: "waiting", blocking: false },
+      { key: "client_score", column: "cv_qc", label: "Tabela punktowa klienta", status: "waiting", blocking: false },
+      { key: "client_form", column: "cv_sent", label: "Formularz CV klienta", status: "waiting", blocking: false },
+      { key: "client_rate", column: "cv_sent", label: "Stawka do klienta", status: "waiting", blocking: false },
+    ];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<MoveRequirementList items={items} askedDuringMove onAction={vi.fn()} />);
+      const sameKey = errors.mock.calls.filter((call) => String(call[0]).includes("same key"));
+      expect(sameKey).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.getAllByText("Formularz CV klienta")).toHaveLength(2);
+  });
+
   it("przycisk „Odrzuć z powodem” oddaje akcję z notatką", () => {
     const onAction = vi.fn();
     render(<MoveRequirementList items={[DEAL_BREAKER]} askedDuringMove onAction={onAction} />);

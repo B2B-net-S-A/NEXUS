@@ -37,7 +37,7 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 | 6 | React Frontend Developer | 3 | 200 | 0.40 | 0.67 | 1.00 | 0.61 |
 | 7 | Scrum Master / Agile Coach | 4 | 200 | 0.60 | 0.75 | 1.00 | 0.88 |
 | 13 | Data Engineer | 3 | 200 | 0.40 | 0.67 | 1.00 | 0.64 |
-| 1391 | PEP4917_Solution Delivery_Senior Analyst_Replacement of Alek | 61 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 1391 | PEP4917_Solution Delivery_Senior Analyst_Replacement of [osoba] | 61 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1392 | Bank Pocztowy: Kierownik Projektu | 11 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1393 | Analityk Biznesowo Systemowy x2 CZII Zamówienie 43 | 6 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1394 | Senior UX/UI Designer (ITVM-6228) | 36 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
@@ -47,7 +47,7 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 | 1398 | Tester manualny (ZOB-2627) | 15 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1399 | Analityk biznesowo - systemowy (RFQ_41-2026) | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1400 | Nordea: PL_IT Developer (Senior) for Data Quality (Platform  | 33 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
-| 1401 | Tester manualny - zastępstwo za: Krzysztof Suwała | 7 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 1401 | Tester manualny - zastępstwo za: [osoba] | 7 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1402 | 1 X Senior Power Platform Developer (41788) | 22 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1403 | 1 X Data engineer to support building our Metadata Dataprodu | 41 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
 | 1404 | Java developers for new project called STP for loan system ( | 23 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
@@ -58,11 +58,11 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 | 1410 | Nordea: Senior Test Automation Engineer D&A Hub (41806) | 32 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
 | 1411 | Nordea: PL - Senior SME – ICT Risk, Resilience & DORA Implem | 7 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1412 | Orch, SA:FCP SA: IIS Poland Operations specialist WAW/GDA/GD | 45 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
-| 1413 | UX/UI Designer - zastępstwo za: Kosma Ostrowski | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 1413 | UX/UI Designer - zastępstwo za: [osoba] | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 
 ## Error analysis (worst Recall@20, default profile)
 
-- **Job 1391 — PEP4917_Solution Delivery_Senior Analyst_Replacement of Aleksandra Vencensius (41791)** — GT=61, R@20=0.00, missed=[69762, 23811, 71428, 6405, 26242] ...
+- **Job 1391 — PEP4917_Solution Delivery_Senior Analyst_Replacement of [osoba] (41791)** — GT=61, R@20=0.00, missed=[69762, 23811, 71428, 6405, 26242] ...
 - **Job 1392 — Bank Pocztowy: Kierownik Projektu** — GT=11, R@20=0.00, missed=[13251, 3529, 72779, 72653, 72050] ...
 - **Job 1393 — Analityk Biznesowo Systemowy x2 CZII Zamówienie 43** — GT=6, R@20=0.00, missed=[26209, 33705, 19531, 70704, 13203] ...
 - **Job 1394 — Senior UX/UI Designer (ITVM-6228)** — GT=36, R@20=0.00, missed=[3968, 75785, 71689, 12684, 12685] ...
