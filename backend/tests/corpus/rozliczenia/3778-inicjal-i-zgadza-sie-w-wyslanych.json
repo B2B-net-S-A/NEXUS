@@ -1,0 +1,70 @@
+[
+ {
+  "id": "rozl-3778-inicjal-imienia-w-temacie-naszego-maila",
+  "poprawka": "cc854f311 #3778",
+  "opis": "Nasz mail z Wysłanych „Potwierdzenie godzin R.Korpusowy” ma sam inicjał imienia; przełożony u klienta potwierdza, a plik godzin z naszego maila nie trafiał do osoby, bo osoby szukano tylko po pełnym imieniu i nazwisku",
+  "dzis": "2026-10-05",
+  "klienci": {"K1": {"nazwa": "Technika Przykładowa", "kontakty": ["przelozony@technika.example.com"]}},
+  "osoby": {"A": {"imie": "Robert", "nazwisko": "Korpusowy", "email_kontraktu": "robert.korpusowy@example.com", "klient": "K1"}},
+  "wyslane": [
+   {
+    "id": "w1",
+    "od": "koordynator@firma.example.com",
+    "do": ["przelozony@technika.example.com"],
+    "temat": "Potwierdzenie godzin R.Korpusowy",
+    "wyslano": "2026-10-01T09:00:00Z",
+    "pliki": [{"nazwa": "Time Sheet 09.2026.pdf", "pdf": "Time Sheet\nMiesiąc\t09.2026\nSuma godzin\t160"}]
+   }
+  ],
+  "maile": [
+   {
+    "id": "m1",
+    "od": "przelozony@technika.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "RE: Potwierdzenie godzin R.Korpusowy",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "tresc": "Potwierdzam.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\n\nProszę o potwierdzenie godzin za wrzesień.\n",
+    "eml": "From: Przelozony <przelozony@technika.example.com>\nTo: rozliczenia@firma.example.com\nSubject: RE: Potwierdzenie godzin R.Korpusowy\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPotwierdzam.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\n\nProszę o potwierdzenie godzin za wrzesień.\n"
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Time Sheet 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "RE: Potwierdzenie godzin R.Korpusowy.eml", "rodzaj": "report", "osoba": "A"}
+  ],
+  "liczba_dokumentow": 2
+ },
+ {
+  "id": "rozl-3778-wszystko-sie-zgadza-to-akceptacja",
+  "poprawka": "cc854f311 #3778",
+  "opis": "Przełożony odpisuje na nasze „Potwierdzenie godzin” słowami „Wszystko się zgadza”: czytnik nie uznawał tego za akceptację i plik godzin z naszego maila z Wysłanych przepadał",
+  "dzis": "2026-10-05",
+  "klienci": {"K1": {"nazwa": "Technika Przykładowa", "kontakty": ["przelozony@technika.example.com"]}},
+  "osoby": {"A": {"imie": "Robert", "nazwisko": "Korpusowy", "email_kontraktu": "robert.korpusowy@example.com", "klient": "K1"}},
+  "wyslane": [
+   {
+    "id": "w1",
+    "od": "koordynator@firma.example.com",
+    "do": ["przelozony@technika.example.com"],
+    "temat": "Potwierdzenie godzin wrzesień 2026 - Robert Korpusowy",
+    "wyslano": "2026-10-01T09:00:00Z",
+    "pliki": [{"nazwa": "Time Sheet 09.2026.pdf", "pdf": "Time Sheet\nMiesiąc\t09.2026\nSuma godzin\t160"}]
+   }
+  ],
+  "maile": [
+   {
+    "id": "m1",
+    "od": "przelozony@technika.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "RE: Potwierdzenie godzin wrzesień 2026 - Robert Korpusowy",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "tresc": "Dzień dobry, wszystko się zgadza.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\n\nProszę o potwierdzenie godzin za wrzesień.\n",
+    "eml": "From: Przelozony <przelozony@technika.example.com>\nTo: rozliczenia@firma.example.com\nSubject: RE: Potwierdzenie godzin wrzesień 2026 - Robert Korpusowy\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nDzień dobry, wszystko się zgadza.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\n\nProszę o potwierdzenie godzin za wrzesień.\n"
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Time Sheet 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "RE: Potwierdzenie godzin wrzesień 2026 - Robert Korpusowy.eml", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}
+  ],
+  "liczba_dokumentow": 2
+ }
+]
