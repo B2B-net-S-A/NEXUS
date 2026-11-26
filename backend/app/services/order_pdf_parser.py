@@ -722,9 +722,9 @@ def _cross_line_context_is_name_only(
 def _cross_line_span_is_ambiguous(lines: list[str], *, start: int, width: int) -> bool:
     """Odrzuć nierozstrzygalny układ trzech pojedynczych wierszy.
 
-    ``Prus / Rudzińska / Natalia / Anna`` może oznaczać zarówno target w
-    pierwszych trzech liniach, jak i dwie osoby zapisane kolumnami: Prus Natalia
-    oraz Rudzińska Anna. Trzy nagie, jednotokenowe linie wymagają więc dowodu
+    ``Testowa / Przykładowa / Anna / Maria`` może oznaczać zarówno target w
+    pierwszych trzech liniach, jak i dwie osoby zapisane kolumnami: Testowa Anna
+    oraz Przykładowa Maria. Trzy nagie, jednotokenowe linie wymagają więc dowodu
     strukturalnego: sąsiedniego wiersza z etykietą/stawką. Brak sąsiada albo
     kolejny pojedynczy token pozostaje stanem do ręcznej weryfikacji.
     """
@@ -1976,8 +1976,8 @@ _ERSTE_VAT_DIVISOR = _GROSS_RATE_VAT_DIVISOR
 RATE_MARK_GROSS = "gross"
 RATE_MARK_NET = "net"
 
-# Separatory tysięcy (spacje wszelkiej szerokości) usuwane, by „1 426,80"
-# zlało się z „1426,80" — słowa brutto/netto nie stoją między cyframi, więc
+# Separatory tysięcy (spacje wszelkiej szerokości) usuwane, by „1 234,50"
+# zlało się z „1234,50" — słowa brutto/netto nie stoją między cyframi, więc
 # przeżywają to zwinięcie.
 _DIGIT_GROUP_SEP_RE = re.compile("(?<=\\d)[ \u00a0\u202f\u2009\u2007](?=\\d)")
 # Ile znaków wokół kwoty stawki przeszukujemy pod kątem brutto/netto. Na tyle
@@ -2007,8 +2007,8 @@ def erste_net_from_gross(gross: Decimal) -> Decimal:
 def _amount_text_variants(amount: Decimal) -> list[str]:
     """Formy, w jakich kwota może wystąpić w dokumencie (bez separatorów tysięcy).
 
-    Formę CAŁKOWITĄ bez groszy („1426") dopuszczamy wyłącznie dla kwot okrągłych
-    — dla „1426,80" goła „1426" zakotwiczyłaby się w numerach/ID (mniejsze ryzyko
+    Formę CAŁKOWITĄ bez groszy („1234") dopuszczamy wyłącznie dla kwot okrągłych
+    — dla „1234,50" goła „1234" zakotwiczyłaby się w numerach/ID (mniejsze ryzyko
     trafienia obok słowa brutto/netto, ale niepotrzebne).
     """
 
@@ -2228,7 +2228,7 @@ def apply_gross_to_net_rate_policy(
 
     ``rate_unit`` to jednostka, w której KLIENT rozlicza stawkę brutto — reguła
     klientowa, nie przedmiot niepewności: PFRON pisze „Stawka za jedną
-    Roboczogodzinę", Erste „23,00 dni roboczych x 1 426,80 PLN BRUTTO". Do
+    Roboczogodzinę", Erste „20,00 dni roboczych x 1 234,50 PLN BRUTTO". Do
     09.2026 obie polityki wymuszały „hour" — na dokumencie Erste zapisywało to
     stawkę DZIENNĄ jako godzinową z pewnością 1.0.
 
@@ -2453,8 +2453,8 @@ def apply_pfron_order_policy(
 # Układ z korpusu (09.2026)::
 #
 #     Zlecenie K/2026/194208/JP/525/26ERSTE10
-#     Dane kontraktora / Alicja Kalbarczyk / Zlecenie od / 2026-07-01 / Zlecenie do / 2026-07-31
-#     Wartość zlecenia / 23,00 dni roboczych x 1 426,80 PLN / BRUTTO = / 32 816,40 PLN BRUTTO
+#     Dane kontraktora / Anna Przykładowa / Zlecenie od / 2026-07-01 / Zlecenie do / 2026-07-31
+#     Wartość zlecenia / 20,00 dni roboczych x 1 234,50 PLN / BRUTTO = / 24 690,00 PLN BRUTTO
 #
 # Stawka jest DZIENNA i BRUTTO — czynnik za „x" we wzorze, przeliczany ÷ 1,23.
 # Etykiety są jednoznaczne, więc wartości z nich mają proweniencję
@@ -2599,8 +2599,8 @@ _NAME_TITLES = {
 def _name_token_variants(value: str, *, min_tokens: int = 2) -> set[tuple[str, ...]]:
     """Warianty tokenów nazwiska: myślnik jako separator albo bez znaku.
 
-    Dzięki temu ``Prus-Rudzińska Natalia``, ``Natalia Prus Rudzińska`` oraz
-    OCR-owe ``Natalia PrusRudzinska`` trafiają do tej samej przestrzeni, bez
+    Dzięki temu ``Nowak-Testowa Anna``, ``Anna Nowak Testowa`` oraz
+    OCR-owe ``Anna NowakTestowa`` trafiają do tej samej przestrzeni, bez
     utraty granic pozostałych członów imienia i nazwiska.
     """
 
@@ -2652,7 +2652,7 @@ def _safe_token_distance(expected: str, actual: str) -> Optional[int]:
 
     Substytucja/wstawienie/usunięcie może tworzyć inne realne nazwisko
     (``Nowak``/``Nowik``), więc trafia do ręcznej weryfikacji. Transpozycja
-    typu ``Rudzinska``/``Rudzniska`` zachowuje dokładnie ten sam zestaw liter
+    typu ``Przykladowa``/``Przykladwoa`` zachowuje dokładnie ten sam zestaw liter
     i jest znacznie mniej kolizyjną, typową literówką/OCR.
     """
 
