@@ -800,6 +800,8 @@ async def _upsert_daily(
         existing.message = message
         existing.link = link
         existing.is_read = False
+        # „Przed chwilą” w okienku zamiast czasu pierwszego przebiegu.
+        existing.created_at = datetime.now(timezone.utc)
         return True
     notification = await emit(
         db,

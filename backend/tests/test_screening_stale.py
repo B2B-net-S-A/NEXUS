@@ -619,6 +619,7 @@ async def test_one_bell_a_day_lists_cards_from_every_run() -> None:
         await _sweep(first, THURSDAY_MORNING)
         (bell,) = await _returned_bells(rec)
         assert bell.title == "Wróciło do „Nowych”: 1 osoba"
+        first_at = bell.created_at
         async with AsyncSessionLocal() as db:
             row = await db.get(Notification, bell.id)
             row.is_read = True
@@ -628,6 +629,7 @@ async def test_one_bell_a_day_lists_cards_from_every_run() -> None:
         (bell,) = await _returned_bells(rec)
         assert bell.title == "Wróciło do „Nowych”: 2 osoby"
         assert bell.is_read is False
+        assert bell.created_at >= first_at
         async with AsyncSessionLocal() as db:
             for world in (first, second):
                 cand = await db.get(Candidate, world["candidate_id"])
