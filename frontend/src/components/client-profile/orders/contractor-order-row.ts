@@ -28,6 +28,14 @@ function dateOnly(value: string | null | undefined): string | null {
   return value ? value.slice(0, 10) : null;
 }
 
+/** Najpóźniejszy koniec zakończonego zamówienia — data na karcie samej historii. */
+function latestOrderEnd(orders: readonly ClientOrderRead[]): string | null {
+  return orders
+    .filter((order) => order.status === "completed")
+    .map((order) => dateOnly(order.end_date))
+    .reduce<string | null>((latest, end) => (end && (!latest || end > latest) ? end : latest), null);
+}
+
 // ── Stany terminalne kontraktu ───────────────────────────────────────────────
 
 /** Stany TERMINALNE kontraktu — jedyne, w których nie ma już czego kończyć. */
@@ -158,6 +166,7 @@ export function contractorMissingOrder(
   contractor: ContractWithOrdersRead,
   todayIso: string = localTodayIso(),
 ): { label: string; hint: string } | null {
+  if (contractor.history_only) return null;
   if (contractor.draft_card === true) {
     return {
       label: "Brak zamówienia",
@@ -360,11 +369,15 @@ export function contractorRowSummary(
   const ending = contractorEnding(contractor, split, today);
   const missing = contractorMissingOrder(contractor, today);
   const isEnded =
-    contractClosed(contractor, today) || contractor.contract_status === "void";
+    contractClosed(contractor, today) ||
+    contractor.contract_status === "void" ||
+    contractor.history_only === true;
 
   let state: ContractorRowSummary["state"];
   if (isEnded) {
-    const end = dateOnly(contractor.contract_end_date);
+    const end = contractor.history_only
+      ? latestOrderEnd(contractor.orders)
+      : dateOnly(contractor.contract_end_date);
     state = {
       kind: "ended",
       label:

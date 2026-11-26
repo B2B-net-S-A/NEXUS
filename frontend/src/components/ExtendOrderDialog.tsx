@@ -15,6 +15,7 @@ import {
 } from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
   ContractWithOrdersRead,
@@ -308,7 +309,7 @@ export function ExtendOrderDialog({
       showToast("Przedłużenie dodane", "success");
     },
     onError: (err: unknown) => {
-      showToast(err instanceof Error ? err.message : "Błąd zapisu", "error");
+      showToast(apiErrorMessage(err, "Nie udało się zapisać przedłużenia."), "error");
     },
   });
 

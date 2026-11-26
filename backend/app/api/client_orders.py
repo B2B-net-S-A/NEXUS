@@ -2250,7 +2250,7 @@ async def create_order_extension(
     # kosztowy/MD z tego formularza materializuje się w linię grupy, więc
     # niczego nie dubluje.
     if order_type == OrderType.periodic:
-        await assert_no_open_md_group_line(db, contract.id)
+        await assert_no_open_md_group_line(db, contract.id, start_date, end_date)
     await _assert_no_duplicate_order_number(
         db, contract.id, title, start_date, end_date
     )

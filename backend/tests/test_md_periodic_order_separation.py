@@ -192,6 +192,61 @@ async def test_periodic_order_is_refused_next_to_a_live_group_line(
     assert resp.json()["detail"]["code"] == "consultant_already_on_group_order"
 
 
+async def test_past_periodic_order_before_the_md_line_is_allowed(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """KIR 25.11.2026: zamówienie okresowe za kwartał SPRZED linii MD.
+
+    Faktury IV–VI cytują numer zamówienia okresowego, a linia MD zaczyna się
+    dopiero w listopadzie. Okresy się nie stykają, więc to nie drugi,
+    równoległy zapis tej samej współpracy — bramka nie może go blokować.
+    Zamówienie nachodzące na okres linii dalej dostaje 409.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    today = business_today()
+    await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [
+            _line_payload(
+                contracts[0], start_date=(today - timedelta(days=10)).isoformat()
+            )
+        ],
+    )
+
+    def payload(title: str, start: date, end: date) -> dict:
+        return {
+            "contract_id": str(contracts[0]),
+            "title": title,
+            "order_type": "periodic",
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        }
+
+    overlapping = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data=payload(
+            "ZAM-NA-LINII", today - timedelta(days=20), today - timedelta(days=5)
+        ),
+        headers=app_auth_headers,
+    )
+    assert overlapping.status_code == 409, overlapping.text
+    assert overlapping.json()["detail"]["code"] == "consultant_already_on_group_order"
+
+    before = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data=payload(
+            "ZAM-PRZED-MD", today - timedelta(days=28), today - timedelta(days=11)
+        ),
+        headers=app_auth_headers,
+    )
+    assert before.status_code in (200, 201), before.text
+    row = await _order_row(before.json()["id"])
+    assert row.end_date == today - timedelta(days=11)
+
+
 async def test_adding_a_group_line_absorbs_the_auto_draft_shell(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
