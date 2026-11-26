@@ -9,8 +9,8 @@ Data: 2026-06-26 · PR [#594](https://github.com/artur-t-96/Nexus/pull/594) (mer
 Wstawienie do Nexus 6 zamówień od klienta **Polkomtel** (id 15) z pliku
 `Zamówienia_Polkomtel.xlsx`. Dane wymusiły dwie zmiany modelu:
 
-1. **Stawka klienta dziesiętna** (Paweł Kossakowski `118.13`, Weronika Kortas
-   `218.75` PLN/h) — kolumny stawek były `Integer`.
+1. **Stawka klienta dziesiętna** (dwie z sześciu stawek miały dwa miejsca po
+   przecinku) — kolumny stawek były `Integer`.
 2. **Brak daty rozpoczęcia** — kolumna „Zamówienie od" pusta dla wszystkich;
    `contracts.start_date` było `NOT NULL`.
 
@@ -37,30 +37,33 @@ Pliki: `backend/alembic/versions/0147_*.py`, `app/models/{client_order,contract}
 
 ## Wstawione dane (klient 15, status active, rate_unit hourly, 160 h/mc)
 
-| Kontraktor | candidate_id | Contract | Order | my płacimy | klient | marża/mc | do |
-|---|---|---|---|---|---|---|---|
-| Dariusz Wysocki | 12576 | #471 | #7 | 70 | 110 | 6400 | — |
-| Katarzyna Maszewska | 12628 | #472 | #8 | 60 | 100 | 6400 | 2026-08-31 |
-| Natalia Prus-Rudzińska | 5367 | #473 | #9 | 65 | 105 | 6400 | 2026-08-31 |
-| Paweł Kossakowski | 64386 | #474 | #10 | 65 | **118.13** | 8500.80 | — |
-| Rafał Witulski | 18542 | #475 | #11 | 115 | 150 | 5600 | — |
-| Weronika Kortas | 64163 | #476 | #12 | 220 | **218.75** | −200 | — |
+Osoby i stawki nie są wypisane w raporcie, bo repo jest publiczne — są w
+NEXUSIE na kontraktach i zamówieniach z tej tabeli.
 
-Uwaga: Weronika ma stawkę konsultanta (220) wyższą niż klienta (218.75) →
-ujemna marża; tak wynika z Excela.
+| Konsultant | candidate_id | Contract | Order | do |
+|---|---|---|---|---|
+| A | 12576 | #471 | #7 | — |
+| B | 12628 | #472 | #8 | 2026-08-31 |
+| C | 5367 | #473 | #9 | 2026-08-31 |
+| D | 64386 | #474 | #10 | — |
+| E | 18542 | #475 | #11 | — |
+| F | 64163 | #476 | #12 | — |
+
+Uwaga: konsultant F ma stawkę kosztową wyższą niż przychodową → ujemna marża;
+tak wynika z Excela.
 
 ## Weryfikacja (DoD)
 
 - CI PR #594: Backend (ruff + pytest, w tym `alembic upgrade`) ✅, Frontend ✅.
 - Deploy: `/api/health` → `version=329a7bc…`, `status=healthy` ✅ (migracja przeszła).
-- API `GET /api/clients/15/contracts-with-orders`: dokładne stawki (`118.13`,
-  `218.75`), daty start `null` ✅.
+- API `GET /api/clients/15/contracts-with-orders`: dokładne stawki dziesiętne
+  (bez zaokrągleń), daty start `null` ✅.
 - UI (Chrome, zalogowany Admin): zakładka **Zamówienia** Polkomtel — 6 zamówień,
-  Paweł renderuje `klient 118,13/mc · marża 8500,8/mc`, daty „od" puste ✅.
+  stawka dziesiętna i marża renderują się z groszami, daty „od" puste ✅.
 
 ## Znane ograniczenia
 
 - Profil klienta („Obecni konsultanci") pokazuje marżę z **zaokrąglonej**
-  stawki kontraktu (Paweł 8480 zł = (118−65)×160), bo `Contract.rate_client`
-  jest `int`. Dokładna marża (8500,80) widoczna na poziomie **Zamówienia**.
+  stawki kontraktu, bo `Contract.rate_client` jest `int`. Dokładna marża
+  (z groszami) widoczna na poziomie **Zamówienia**.
   To świadoma decyzja izolująca zmianę do podsystemu zamówień.

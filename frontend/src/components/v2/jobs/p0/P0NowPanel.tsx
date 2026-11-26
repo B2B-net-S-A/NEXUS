@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Flame } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
+import { useHydrated } from "@/hooks/useHydrated";
 import { Button } from "@/components/ui/button";
 import { RequestBoard } from "@/components/v2/request-board/RequestBoard";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -259,6 +260,10 @@ function P0Requests({ requests, canDecide }: { requests: P0Request[]; canDecide:
  */
 export function P0NowPanel({ className, compact = false }: { className?: string; compact?: boolean }) {
   const query = useP0Jobs();
+  // `P0TopbarButton` w powłoce pobiera ten sam klucz, zanim React dojdzie do
+  // treści strony, a serwer renderuje z pustym cache'em — bez bramki pulpit
+  // rozjeżdżał hydratację (React #418, 26.11.2026).
+  const hydrated = useHydrated();
   const board = useRequestBoard({ enabled: query.isSuccess });
   const [expanded, setExpanded] = useState(false);
   const [tableOpen, setTableOpen] = useState(false);
@@ -270,7 +275,7 @@ export function P0NowPanel({ className, compact = false }: { className?: string;
     () => new Map((board.data?.requests ?? []).map((request) => [request.job_id, request])),
     [board.data?.requests],
   );
-  if (!query.isSuccess || (items.length === 0 && requests.length === 0)) return null;
+  if (!hydrated || !query.isSuccess || (items.length === 0 && requests.length === 0)) return null;
   const tableHidden = compact && !tableOpen;
   const shown = tableHidden ? [] : expanded || compact ? items : items.slice(0, P0_PANEL_VISIBLE);
   const hidden = items.length - shown.length;

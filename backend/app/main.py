@@ -895,6 +895,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
     from app.tasks.qc_quality_daily import qc_quality_daily_loop
     from app.tasks.job_ad_prepare import job_ad_prepare_loop
+    from app.tasks.pracuj_mail_links import pracuj_mail_links_loop
     from app.tasks.recommendation_card_import import (
         recommendation_card_import_loop,
     )
@@ -1103,6 +1104,9 @@ async def lifespan(app: FastAPI):
             # Ogłoszenia (21.10.2026): w nocy treść dla otwartych rekrutacji bez
             # ogłoszenia — rano kolejka „Strona kariery do uzupełnienia”.
             "job_ad_prepare": asyncio.create_task(job_ad_prepare_loop()),
+            # 26.11.2026: link do Pracuj.pl z maila „Publikacja ogłoszenia na …”
+            # w skrzynce DL-a — oznaczenie bez wklejania (job_ad/pracuj_inbox).
+            "pracuj_mail_links": asyncio.create_task(pracuj_mail_links_loop()),
             # 0413: karty rekomendacji z notatek; wyłączona flagą kończy się od razu.
             "recommendation_card_import": asyncio.create_task(
                 recommendation_card_import_loop()

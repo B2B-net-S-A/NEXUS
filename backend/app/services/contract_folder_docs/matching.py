@@ -15,8 +15,9 @@ znaczenia. Wynik:
   zobaczyć (polskie znaki, drugie imię / człon nazwiska, literówka),
 * ``ambiguous`` — pasuje kilka folderów; nie zgadujemy,
 * ``none`` — nic nie pasuje,
-* ``excluded`` — Filip Jabłoński (dwie różne osoby o tym nazwisku; dokumenty
-  dodaje człowiek, decyzja z ticketu).
+* ``excluded`` — imiennicy, czyli dwie różne osoby o tym samym imieniu
+  i nazwisku (``contractor_identity.NAMESAKE_NAME_DIGESTS``; dokumenty dodaje
+  człowiek, decyzja z ticketu).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from app.services.contract_folder_docs.classify import fold
+from app.services.contractor_identity import is_namesake_pair
 
 SURE = "sure"
 UNCERTAIN = "uncertain"
@@ -43,7 +45,6 @@ REASON_MULTIPLE_FOLDERS = "multiple_folders"
 
 _SPLIT_RE = re.compile(r"[\s\-‐‑–—_]+")
 _NON_ALNUM_RE = re.compile(r"[^\w]+", re.UNICODE)
-_FILIP_JABLONSKI = frozenset({"filip", "jablonski"})
 
 
 def _raw_word(word: str) -> str:
@@ -65,14 +66,22 @@ def name_words(text: str | None) -> tuple[frozenset[str], frozenset[str]]:
     return folded, raw
 
 
+def _is_namesake_words(words: frozenset[str]) -> bool:
+    """Dokładnie imię i nazwisko imienników, w dowolnej kolejności."""
+    if len(words) != 2:
+        return False
+    one, other = words
+    return is_namesake_pair(one, other) or is_namesake_pair(other, one)
+
+
 def is_excluded_person(first: str | None, last: str | None) -> bool:
     folded, _ = name_words(f"{first or ''} {last or ''}")
-    return folded == _FILIP_JABLONSKI
+    return _is_namesake_words(folded)
 
 
 def is_excluded_folder(name: str | None) -> bool:
     folded, _ = name_words(name)
-    return folded == _FILIP_JABLONSKI
+    return _is_namesake_words(folded)
 
 
 @dataclass(frozen=True)

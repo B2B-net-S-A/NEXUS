@@ -3,7 +3,7 @@
 Zwykły tekst z pdfplumbera składa wiersz tabeli w jedną linię i gubi granice
 kolumn. Komórki są wyśrodkowane w pionie, więc środkowa linia wielolinijkowego
 profilu („Inżynier / DevSecOpS / Senior") ląduje w linii wiersza i skleja się
-z nazwiskiem: „Konrad Różycki DevSecOpS 2026-10-01 …" (ticket 12, 10.2026).
+z nazwiskiem: „Jan Testowy DevSecOpS 2026-10-01 …" (ticket 12, 10.2026).
 Słownik słów profilu nie zna każdego profilu, więc granicę wyznaczamy
 geometrycznie:
 

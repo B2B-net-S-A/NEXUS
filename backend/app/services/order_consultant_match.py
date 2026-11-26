@@ -8,7 +8,7 @@ celowo wąska i opisana w tickecie:
   wielką literą; wszystko przed nim („Active", „UR –", „Projekt 2") to
   **dopisek**, nie część nazwiska;
 * tolerowane różnice: dopisek przed rdzeniem oraz polskie znaki diakrytyczne
-  („Goceł"/„Gocel", „Łukasz"/„Lukasz"); wielkość liter i myślnik zamiast
+  („Żółtek"/„Zoltek", „Łukasz"/„Lukasz"); wielkość liter i myślnik zamiast
   spacji to formatowanie, nie litera;
 * **każda inna różnica w rdzeniu** (inna litera, przestawione litery, inne
   imię) oznacza brak dopasowania. System NIGDY nie zgaduje ani nie koryguje
@@ -65,7 +65,7 @@ def raw_words(value: Optional[str]) -> list[str]:
     """Wyrazy w ORYGINALNEJ pisowni, bez interpunkcji na brzegach.
 
     Samotny myślnik („UR – Jan") znika, a myślnik wewnątrz nazwiska
-    („Prus-Rudzińska") zostaje — to jeden wyraz.
+    („Nowak-Testowa") zostaje — to jeden wyraz.
     """
 
     cleaned = _INVISIBLE.sub("", value or "")

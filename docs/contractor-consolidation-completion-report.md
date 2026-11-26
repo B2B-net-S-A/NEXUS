@@ -5,7 +5,7 @@
 
 ## 1. Konsolidacja: jedna osoba × N klientów
 
-**Problem:** Paweł Małek pracujący naraz u Banku Pocztowego i VeloBanku
+**Problem:** konsultant pracujący naraz u Banku Pocztowego i VeloBanku
 istniał w module Kontrakty jako dwa niepowiązane wiersze, a profil kandydata
 pokazywał tylko jednego klienta.
 
@@ -22,7 +22,7 @@ pokazywał tylko jednego klienta.
 - FE ([ContractsListV2.tsx](../frontend/src/components/v2/pages/ContractsListV2.tsx)):
   kolumna „Stawka klient" → **„Stawka przychodowa"**, nowa kolumna
   **„Stawka kosztowa"**; dla wierszy wieloklientowych okres/stawki/marża
-  rozbite per klient („Bank Pocztowy: 175,00 zł / VeloBank: 162,50 zł");
+  rozbite per klient (przykład: „Klient A: 100,00 zł / Klient B: 90,00 zł");
   licznik nagłówka mówi o kontraktorach, nie umowach.
 - Tryb płaski (bez parametru) bez zmian — historia kandydata, rejestr
   klienta i eksport dalej widzą pojedyncze umowy.
@@ -133,7 +133,7 @@ pokazywał tylko jednego klienta.
   stron, nowe vitesty (grupowanie listy, `extractErrorMsg` missing[]),
   middleware 95/95.
 - Wizualnie (Chrome, harness `/preview/contracts-consolidation` — publiczny,
-  same mocki, zasiany cache react-query): zgrupowany wiersz Pawła Małka
+  same mocki, zasiany cache react-query): zgrupowany wiersz konsultanta z przykładu
   (BP+VeloBank, rozbicie stawek per klient, „pracuje u 2 klientów"),
   dialog „+ Dodaj kolejny projekt" z walidacją (baner + czerwone pola
   + opisy PL przy próbie zapisu bez klienta).

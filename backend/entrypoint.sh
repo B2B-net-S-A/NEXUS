@@ -9846,6 +9846,12 @@ SELECT 'job', id, 'archived',
     # 0612: konta SSO od 19.10 bez decyzji o roli → „Czeka na Ciebie” HoR
     # i adminów (`app/services/new_person_setup_schema.py`, idempotentne).
     "UPDATE users u SET setup_pending_since = u.created_at WHERE u.setup_pending_since IS NULL AND u.is_active AND u.roles = jsonb_build_array('employee') AND u.created_at >= '2026-10-19' AND EXISTS (SELECT 1 FROM activities a WHERE a.entity_type = 'user' AND a.entity_id = u.id AND a.action = 'sso_user_provisioned') AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.entity_type = 'user' AND a.entity_id = u.id AND a.action IN ('role_changed', 'roles_changed', 'new_person_setup_decided'))",
+    # 0793: linki Pracuj.pl z panelu pracodawcy → publiczne albo bez linku.
+    # Lustro 1:1 z `app/services/job_ad_publication_schema.PRACUJ_PANEL_LINKS_DML`
+    # (pilnuje test_job_ad_publications_migration_mirror); po pierwszym
+    # przebiegu niczego nie znajduje.
+    "UPDATE job_ad_publications SET url = 'https://www.pracuj.pl/praca?groupId=' || substring(lower(url) from '^https?://publikacja[.]pracuj[.]pl/showjoboffer/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?$'), updated_at = now() WHERE portal = 'pracuj' AND lower(url) ~ '^https?://publikacja[.]pracuj[.]pl/showjoboffer/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?$'",
+    "UPDATE job_ad_publications SET url = NULL, updated_at = now() WHERE portal = 'pracuj' AND lower(url) ~ '^https?://(publikacja|strefa)[.]pracuj[.]pl([/?#]|$)'",
 ]
 
 

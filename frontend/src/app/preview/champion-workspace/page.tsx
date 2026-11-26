@@ -90,6 +90,7 @@ const JOB_AD: JobAdState = {
   career: NO_CAREER_PAGE,
   reminders: null,
   pracuj_request: null,
+  pracuj_mail_suggestions: [],
   jjit_api: null,
 };
 const isoDay = (offsetDays: number) =>

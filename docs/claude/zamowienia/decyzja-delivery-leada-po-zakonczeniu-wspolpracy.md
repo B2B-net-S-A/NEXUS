@@ -13,8 +13,8 @@ poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
 | `restore` | **pula NIETKNIĘTA** | linia wraca na `active`, kontrakt wraca do aktywnych |
 
 - **`restore` powstał, bo bez niego jedynym wyjściem ze sprawy było zapisanie
-  decyzji, która się nie wydarzyła.** Zgłoszone przypadki (Płonka 90 MD, Dynek
-  120 MD, Krawczyk 85 MD) to współpraca, która trwa dalej — ani nie oddano
+  decyzji, która się nie wydarzyła.** Zgłoszone przypadki (trzy osoby: 90, 120
+  i 85 MD) to współpraca, która trwa dalej — ani nie oddano
   puli, ani jej nikomu nie przekazano.
 - **Gałąź `restore` MUSI omijać `_reduce_legacy_md_budget`.** Zdjęcie
   niewykorzystanych MD z wartości zamówienia byłoby zapisaniem faktu, który się

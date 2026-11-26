@@ -38,7 +38,11 @@ function Harness() {
   const params = useSearchParams();
   const raw = params?.get("state");
   const state: HarnessState =
-    raw === "findings" || raw === "template" || raw === "empty" || raw === "published"
+    raw === "findings" ||
+    raw === "template" ||
+    raw === "empty" ||
+    raw === "published" ||
+    raw === "pracuj-mail"
       ? raw
       : "ready";
   const tab = params?.get("tab") === "jjit" ? "jjit" : "pracuj";

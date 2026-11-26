@@ -2,7 +2,7 @@
 
 Do faktury cyklicznej Nordei Finanse wpisują w pozycji::
 
-    NIDS: 2022-001168, IT Retail Banking, Nordea Contact: Poul Marcussen, Contractor: Edyta Karpowicz ID:
+    NIDS: 2022-001168, IT Retail Banking, Nordea Contact: John Example, Contractor: Anna Przykładowa ID:
 
 Źródła w Call Off Agreement:
 
@@ -17,7 +17,7 @@ Do faktury cyklicznej Nordei Finanse wpisują w pozycji::
 
 W układzie pdfplumbera sekcja „Invoice reference” jest prawą kolumną
 PRZEPLECIONĄ z adresem do faktury („Satamaradankatu 5, … Contact person:
-Poul Marcussen”), więc wartość stoi na końcu linii.
+John Example”), więc wartość stoi na końcu linii.
 
 Formuła jest ZAPISANA przy zamówieniu (``client_orders.invoice_lines``):
 powstaje przy wgraniu PDF-a (``_attach_po_bytes`` — formularz i poczta

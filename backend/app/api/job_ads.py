@@ -20,7 +20,10 @@
   ``POST …/pracuj-mail`` — mail z ogłoszeniem do opiekuna Pracuj.pl ze
   skrzynki osoby (27.10.2026, ``job_ad.pracuj_mail``);
 * ``POST /api/jobs/{job_id}/portal-ad/jjit`` — publikacja albo aktualizacja na
-  JustJoin.IT przez API (03.11.2026, kolejka ``job_portals.service``).
+  JustJoin.IT przez API (03.11.2026, kolejka ``job_portals.service``);
+* ``PUT/DELETE /api/jobs/{job_id}/portal-ad/pracuj-mail-links/{email_id}`` —
+  „To ta rekrutacja” / „To nie to ogłoszenie” przy linku z maila Pracuj.pl
+  (26.11.2026, ``job_ad.pracuj_inbox``).
 
 Bramka jak przy opisie publicznym (``career_links``): rola ``RecruiterPlus``
 + sekcja Pipeline (router) + członkostwo w rekrutacji. Front kopiuje wyłącznie
@@ -85,12 +88,13 @@ from app.services.job_ad import (
     material,
     on_create,
     portal_content,
+    pracuj_inbox,
     pracuj_mail,
     publications,
     reminders,
     render,
 )
-from app.services.job_ad_publication_schema import PORTAL_JJIT
+from app.services.job_ad_publication_schema import PORTAL_JJIT, PORTAL_PRACUJ
 from app.services.job_ad_reminder_schema import CHANNEL_PRACUJ
 from app.services.job_portals.jjit_payload import native_apply_enabled
 from app.services.job_portals.service import (
@@ -157,6 +161,7 @@ async def _response(
         "career": (await career.career_state(db, job, ad, user_id=user_id)).as_dict(),
         "reminders": await _reminders_panel(db, job.id, user_id),
         "pracuj_request": await _pracuj_request(db, job.id),
+        "pracuj_mail_suggestions": await _pracuj_mail_suggestions(db, job),
         "jjit_api": await _jjit_api(db, job.id),
         "can_mark_publications": await _can_mark(db, job, user_id),
         "recent_channels": (await on_create.recent_channels(db, job)).as_dict(),
@@ -178,10 +183,44 @@ async def _response(
         findings=[f.as_dict() for f in findings],
         rendered=rendered,
         can_copy=not lint.has_blocking(findings),
-        publications=[
-            vars(item) for item in await publications.for_job(db, job.id, ad)
-        ],
+        publications=await _publications(db, job.id, ad),
     )
+
+
+async def _publications(db: AsyncSession, job_id: int, ad: JobAd) -> list[dict]:
+    """Oznaczenia portali; przy Pracuj.pl także mail, z którego jest link."""
+    out = []
+    for item in await publications.for_job(db, job_id, ad):
+        row = dict(vars(item))
+        if item.portal == PORTAL_PRACUJ and item.removed_at is None:
+            source = await pracuj_inbox.linked_from(db, job_id, item.url)
+            row["from_mail"] = vars(source) if source is not None else None
+        out.append(row)
+    return out
+
+
+async def _pracuj_mail_suggestions(db: AsyncSession, job: Job) -> list[dict]:
+    """Maile Pracuj.pl do potwierdzenia — tylko gdy Pracuj.pl nie jest oznaczony."""
+    if job.status != JobStatus.published:
+        return []
+    active = await db.scalar(
+        select(JobAdPublication.job_id).where(
+            JobAdPublication.job_id == job.id,
+            JobAdPublication.portal == PORTAL_PRACUJ,
+            JobAdPublication.removed_at.is_(None),
+        )
+    )
+    if active is not None:
+        return []
+    return [
+        {
+            "email_id": mail.email_id,
+            "subject": mail.subject,
+            "received_at": mail.received_at,
+            "url": mail.url,
+        }
+        for mail in await pracuj_inbox.suggestions_for_job(db, job.id)
+    ]
 
 
 async def _jjit_api(db: AsyncSession, job_id: int) -> Optional[AdJjitApi]:
@@ -1198,4 +1237,105 @@ async def _log_pracuj_request(
             user_id=user_id,
             details=details,
         )
+    )
+
+
+async def _suggested_mail(
+    db: AsyncSession, job: Job, email_id: int
+) -> pracuj_inbox.PracujMail:
+    for mail in await pracuj_inbox.suggestions_for_job(db, job.id):
+        if mail.email_id == email_id:
+            return mail
+    raise HTTPException(
+        status_code=404,
+        detail="Tego maila Pracuj.pl nie łączymy już z tą rekrutacją — odśwież okno.",
+    )
+
+
+@router.put(
+    "/jobs/{job_id}/portal-ad/pracuj-mail-links/{email_id}",
+    response_model=JobAdResponse,
+)
+async def confirm_pracuj_mail_link(
+    job_id: int,
+    email_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """„To ta rekrutacja” — oznacz Pracuj.pl linkiem z maila Pracuj.pl."""
+    job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
+    ad = await db.get(JobAd, job_id)
+    if ad is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Najpierw przygotuj ogłoszenie — potem oznaczysz publikację.",
+        )
+    mail = await _suggested_mail(db, job, email_id)
+    mat = await _material(db, job)
+    try:
+        await publications.mark_published(
+            db,
+            ad,
+            portal=PORTAL_PRACUJ,
+            url=mail.url,
+            user_id=current_user.id,
+            blocked=not (
+                await _response(db, job, ad, mat, user_id=current_user.id)
+            ).can_copy,
+        )
+    except publications.ContentBlocked as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_ad_blocked",
+                "message": (
+                    "W treści są fragmenty, których nie publikujemy. Usuń je, "
+                    "zanim oznaczysz ogłoszenie jako opublikowane."
+                ),
+            },
+        ) from exc
+    pracuj_inbox.log_linked(db, job_id, mail, user_id=current_user.id, mode="confirmed")
+    await db.commit()
+    return await _response(db, job, ad, mat, user_id=current_user.id)
+
+
+@router.delete(
+    "/jobs/{job_id}/portal-ad/pracuj-mail-links/{email_id}",
+    response_model=JobAdResponse,
+)
+async def reject_pracuj_mail_link(
+    job_id: int,
+    email_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """„To nie to ogłoszenie” — ten mail nie wraca przy tej rekrutacji.
+
+    Oznaczenie zrobione z tego maila znika (link i stan „opublikowane”), bo
+    nikt go nie potwierdzał; ręcznie wklejonego linku to nie rusza.
+    """
+    job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
+    mail = await pracuj_inbox.mail_by_id(db, email_id)
+    if mail is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono maila Pracuj.pl.")
+    row = await db.get(JobAdPublication, (job_id, PORTAL_PRACUJ), with_for_update=True)
+    linked = await pracuj_inbox.linked_from(db, job_id, mail.url)
+    if (
+        row is not None
+        and row.removed_at is None
+        and row.url == mail.url
+        and linked is not None
+        and linked.email_id == email_id
+    ):
+        await db.delete(row)
+    pracuj_inbox.log_rejected(db, job_id, email_id, current_user.id)
+    await db.commit()
+    return await _response(
+        db,
+        job,
+        await db.get(JobAd, job_id),
+        await _material(db, job),
+        user_id=current_user.id,
     )

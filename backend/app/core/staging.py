@@ -61,6 +61,9 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         # Kontrola miesiąca (0784): przebieg na bazie; maile idą przez SMTP
         # stagingu do Mailpitu, więc nic nie wychodzi na zewnątrz.
         "month_check",
+        # Link do Pracuj.pl z maila Pracuj.pl (26.11.2026): czyta zapisane maile
+        # i oznacza ogłoszenia w bazie, bez Graph i bez wysyłek.
+        "pracuj_mail_links",
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",

@@ -10,6 +10,7 @@ import {
   type AdPublication,
   type AdTechItem,
   type JobAdState,
+  type PracujMailSuggestion,
   type PracujRequest,
 } from "@/lib/api/jobAd";
 
@@ -56,6 +57,7 @@ export function adState(
     career?: AdCareerState;
     reminders?: AdReminders | null;
     pracuj_request?: PracujRequest | null;
+    pracuj_mail_suggestions?: PracujMailSuggestion[];
     jjit_api?: AdJjitApi | null;
   } = {},
 ): JobAdState {
@@ -83,6 +85,7 @@ export function adState(
     career: patch.career ?? NO_CAREER_PAGE,
     reminders: patch.reminders ?? null,
     pracuj_request: patch.pracuj_request ?? null,
+    pracuj_mail_suggestions: patch.pracuj_mail_suggestions ?? [],
     jjit_api: patch.jjit_api ?? null,
     rendered: {
       title: `${content.title} (k/m/x)`,
@@ -170,6 +173,7 @@ export const EMPTY_STATE: JobAdState = {
   career: NO_CAREER_PAGE,
   reminders: null,
   pracuj_request: null,
+  pracuj_mail_suggestions: [],
   jjit_api: null,
 };
 

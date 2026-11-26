@@ -168,6 +168,23 @@ export interface AdPublication extends JobAdPublicationBrief {
   published_by_name: string | null;
   /** Ustawione = zdjęte z portalu. */
   removed_at: string | null;
+  /** Link wzięty z maila Pracuj.pl „Publikacja ogłoszenia na …” (26.11.2026). */
+  from_mail?: AdPublicationMail | null;
+}
+
+/** Mail Pracuj.pl, z którego NEXUS wziął link do ogłoszenia. */
+export interface AdPublicationMail {
+  email_id: number;
+  subject: string;
+  received_at: string | null;
+}
+
+/** Mail Pracuj.pl z niepewnym dopasowaniem — okno pyta „To ta rekrutacja?”. */
+export interface PracujMailSuggestion {
+  email_id: number;
+  subject: string;
+  received_at: string;
+  url: string;
 }
 
 /**
@@ -254,6 +271,8 @@ export interface JobAdState {
   reminders: AdReminders | null;
   /** Ostatni mail do opiekuna Pracuj.pl (27.10.2026). */
   pracuj_request: PracujRequest | null;
+  /** Maile Pracuj.pl do potwierdzenia przy tej rekrutacji (26.11.2026). */
+  pracuj_mail_suggestions: PracujMailSuggestion[];
   /** JustJoin.IT przez API; `null` = portal wyłączony (kopiuj-wklej, 03.11.2026). */
   jjit_api: AdJjitApi | null;
   /** Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026). */
@@ -387,6 +406,9 @@ function normalize(data: unknown): JobAdState {
           }
         : null,
     pracuj_request: d.pracuj_request ?? null,
+    pracuj_mail_suggestions: Array.isArray(d.pracuj_mail_suggestions)
+      ? d.pracuj_mail_suggestions
+      : [],
     jjit_api: d.jjit_api ?? null,
     can_mark_publications: d.can_mark_publications === true,
     recent_channels:
@@ -454,6 +476,16 @@ export const jobAdApi = {
     const res = await api.post(`/api/jobs/${jobId}/portal-ad/career`, {
       expected_updated_at: expectedUpdatedAt,
     });
+    return normalize(res.data);
+  },
+  /** „To ta rekrutacja” — Pracuj.pl oznaczony linkiem z maila Pracuj.pl. */
+  confirmPracujMail: async (jobId: number, emailId: number): Promise<JobAdState> => {
+    const res = await api.put(`/api/jobs/${jobId}/portal-ad/pracuj-mail-links/${emailId}`);
+    return normalize(res.data);
+  },
+  /** „To nie to ogłoszenie” — mail nie wraca; oznaczenie z niego znika. */
+  rejectPracujMail: async (jobId: number, emailId: number): Promise<JobAdState> => {
+    const res = await api.delete(`/api/jobs/${jobId}/portal-ad/pracuj-mail-links/${emailId}`);
     return normalize(res.data);
   },
   /** „Zdjęte z portalu” — wiersz zostaje jako ślad. */

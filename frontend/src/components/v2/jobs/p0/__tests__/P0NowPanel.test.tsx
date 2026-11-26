@@ -4,8 +4,10 @@
  * i „Pokaż wszystkie”, prośby DL o P0 — HoR zatwierdza, DL wycofuje.
  */
 
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel";
@@ -286,5 +288,35 @@ describe("P0NowPanel — pasek na pulpicie (compact)", () => {
     render(<P0NowPanel />);
     expect(screen.queryByTestId("p0-now-line")).toBeNull();
     expect(screen.getByTestId("p0-board")).toHaveAttribute("data-recruiters", "chipy");
+  });
+});
+
+describe("P0NowPanel — hydratacja pulpitu", () => {
+  it("cache P0 wypełniony przez przycisk w pasku nie rozjeżdża hydratacji (React #418, 26.11.2026)", async () => {
+    // Serwer renderuje z pustym cache'em, a `P0TopbarButton` w powłoce pobiera
+    // ten sam klucz, zanim React dojdzie do treści strony.
+    state.value = {};
+    state.board = {};
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    container.innerHTML = renderToString(<P0NowPanel compact />);
+    state.value = { isSuccess: true, data: { items: [item(1, 23)], can_set: false, requests: [] } };
+
+    const recoverable: unknown[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let root: ReturnType<typeof hydrateRoot> | null = null;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <P0NowPanel compact />, {
+          onRecoverableError: (error) => recoverable.push(error),
+        });
+      });
+      expect(recoverable).toEqual([]);
+      expect(await within(container).findByTestId("p0-now-line")).toHaveTextContent("Pilne u klientów · 1");
+    } finally {
+      spy.mockRestore();
+      act(() => (root as ReturnType<typeof hydrateRoot> | null)?.unmount());
+      container.remove();
+    }
   });
 });

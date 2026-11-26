@@ -180,3 +180,49 @@ def test_ts_field_counts_only_in_type_declaration():
         "retryLimit",  # typ w sygnaturze metody: `;` na końcu
         "rate_from_note",  # nowa deklaracja `type` w hunku
     }  # bez `refresh`, `page1_extras: extras,` i `timeout` — przypisania w obiekcie
+
+
+# PR #4058: pola `proposal` i `highlight_reject` doszły w modelach `HighlightUpdate`
+# i `Page1Update` w `backend/app/api/cv_page1.py`. Mapa pokazała je tylko dlatego,
+# że były też w typie TS; pole dodane wyłącznie w modelu w `api/` nie dawało miejsc.
+PR4058_CV_PAGE1_DIFF = (Path(__file__).parent / "data/impact_map/pr4058-api-cv-page1.diff").read_text()
+
+
+def test_pr4058_fields_of_models_in_api_module_are_symbols():
+    syms = im.symbols_from_diff(im.changed_lines(PR4058_CV_PAGE1_DIFF))
+    assert {s.name for s in syms if s.kind == "pole"} == {"mode", "proposal", "highlight_reject"}
+    # bez `extras`, `payload`, `stands_in_cv`: parametry `def _merged(` z tego pliku
+
+
+def test_py_field_in_api_counts_only_in_model_class():
+    diff = """\
++++ b/backend/app/api/rates.py
+@@ -10,3 +10,9 @@ class RateIn(BaseModel):
++    rate_note: str | None = None
+ 
+ 
++class RateOut(RateIn):
++    rate_history: list[int]
++
++
++class _Pair(NamedTuple):
++    left_rate: int
++
++
++@dataclass
++class _Cache:
++    cache_hits: int = 0
++
++
++async def update_rate(
++    rate_source: str,
++    db: AsyncSession = Depends(get_db),
++):
++    payload_rate: dict = {}
+@@ -90,2 +96,3 @@ async def list_rates(
++    rate_filter: Optional[str] = None,
+"""
+    assert {s.name for s in im.symbols_from_diff(im.changed_lines(diff))} == {
+        "rate_note",  # model z nagłówka hunka
+        "rate_history",  # model pochodny: baza nie jest typem spoza pydantic
+    }  # bez pól `NamedTuple`, klasy bez bazy, parametrów i zmiennych funkcji

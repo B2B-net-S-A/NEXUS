@@ -75,8 +75,8 @@ dla DL (przestemplowana).
 
 Ticket: „Wejścia" zbierały każdą osobę zaczynającą zamówienie w miesiącu, także
 przedłużających i pracujących równolegle — Finanse czytają tę listę jako „kto
-doszedł", więc kłamała (Adam Matecki, Aleksandra Likas, Piotr Żukowski
-figurowali jako wejścia, choć zmienili tylko numer zamówienia). „Zejścia"
+doszedł", więc kłamała (trzy osoby
+figurowały jako wejścia, choć zmieniły tylko numer zamówienia). „Zejścia"
 pokazywały wiersze z werdyktem „Kontynuacja", czyli osoby, które NIE schodzą.
 Żadna zakładka nie miała wyszukiwania ani filtrów, a eksport zawsze zrzucał
 cztery arkusze.
@@ -127,9 +127,9 @@ odczycie; CHECK na `order_change_events.field` i dziennik zostają nietknięte.
   dnia) wywracają testy — nie są puste.
 - vitest: 8 testów panelu, 9 formatowania, strona Finansów, middleware.
 - `tsc --noEmit` i ESLint czyste (182 ostrzeżenia = dotychczasowy dług, limit 300).
-- Wizualnie: harness `/preview/finance-order-changes` w przeglądarce — Matecki
-  jako „Kontynuacja zamówienia", Żukowski jako „Zmiana klienta", w Wejściach
-  wyłącznie Grono i Kalbarczyk z plakietką „Nowy konsultant"; chipy filtrów,
+- Wizualnie: harness `/preview/finance-order-changes` w przeglądarce — jedna osoba
+  jako „Kontynuacja zamówienia", druga jako „Zmiana klienta", w Wejściach
+  wyłącznie dwie nowe osoby z plakietką „Nowy konsultant"; chipy filtrów,
   „Wyczyść wszystko", brak błędów w konsoli.
 
 ## Znane ograniczenia
