@@ -382,13 +382,23 @@ export function PdfDocumentViewer({
       internalsRef.current = null;
       resizeObserver?.disconnect();
       abort.abort();
-      pdfViewer?.setDocument(null as never);
       // Zapytania `GetPage` w locie muszą dostać odpowiedź przed `destroy()` —
-      // inaczej pdf.js odrzuca je „Transport destroyed” (NEXUS-FE-7M). Bez
-      // dokumentu (wczytywanie trwa) zbiór jest pusty i niszczymy od razu.
+      // inaczej pdf.js odrzuca je „Transport destroyed” (NEXUS-FE-7M) — i przed
+      // `setDocument(null)`: pdf.js dociąga strony 2..N i w odpowiedzi czyta
+      // `_pages[n - 1].pdfPage`, a `setDocument(null)` czyści `_pages`
+      // (26.11.2026: nieobsłużony „reading 'pdfPage'” na Tablicy). Czekamy też
+      // na strony, o które pdf.js poprosi w trakcie. Bez dokumentu (wczytywanie
+      // trwa) zbiór jest pusty i sprzątamy od razu.
+      const viewer = pdfViewer;
       const task = loadingTask;
-      void Promise.allSettled([...pendingPages])
-        .then(() => task?.destroy())
+      const drain = async (): Promise<void> => {
+        while (pendingPages.size > 0) await Promise.allSettled([...pendingPages]);
+      };
+      void drain()
+        .then(() => {
+          viewer?.setDocument(null as never);
+          return task?.destroy();
+        })
         .catch((error: unknown) => {
           Sentry.captureException(error, {
             tags: { component: "PdfDocumentViewer", phase: "pdf-viewer-cleanup" },

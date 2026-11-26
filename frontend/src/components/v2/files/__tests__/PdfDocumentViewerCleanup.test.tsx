@@ -11,6 +11,8 @@ const fake = vi.hoisted(() => ({
   destroy: vi.fn(() => Promise.resolve()),
   getPage: vi.fn(),
   documentPromise: null as null | Promise<unknown>,
+  /** Zachowanie `PDFViewer.setDocument` w danym teście (domyślnie nic). */
+  setDocument: null as null | ((viewer: { _pages: { pdfPage: unknown }[] }, doc: unknown) => void),
 }));
 
 vi.mock("@/lib/pdfjs-loader", () => {
@@ -23,7 +25,10 @@ vi.mock("@/lib/pdfjs-loader", () => {
     currentPageNumber = 1;
     pagesCount = 1;
     currentScaleValue = "";
-    setDocument() {}
+    _pages: { pdfPage: unknown }[] = [];
+    setDocument(doc: unknown) {
+      fake.setDocument?.(this, doc);
+    }
   }
   const modules = {
     lib: {
@@ -53,6 +58,7 @@ function pdfFile() {
 beforeEach(() => {
   fake.destroy.mockClear();
   fake.getPage.mockReset();
+  fake.setDocument = null;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -87,6 +93,44 @@ describe("PdfDocumentViewer: sprzątanie", () => {
 
     answerPage();
     await waitFor(() => expect(fake.destroy).toHaveBeenCalledTimes(1));
+  });
+
+  it("nie zdejmuje dokumentu z przeglądarki, zanim pdf.js dostanie strony w locie", async () => {
+    // 26.11.2026: pdf.js po `setDocument` dociąga strony 2..N i w odpowiedzi
+    // czyta `this._pages[n - 1].pdfPage`. Odmontowanie podglądu (`setDocument(null)`
+    // czyści `_pages`) przed odpowiedzią dawało nieobsłużony
+    // „Cannot read properties of undefined (reading 'pdfPage')” na Tablicy.
+    const errors: unknown[] = [];
+    let answerPage2: () => void = () => undefined;
+    fake.getPage.mockImplementation((n: number) =>
+      n === 2
+        ? new Promise((resolve) => {
+            answerPage2 = () => resolve({ n });
+          })
+        : Promise.resolve({ getTextContent: () => Promise.resolve({ items: [{ str: "CV" }] }) }),
+    );
+    fake.setDocument = (viewer, doc) => {
+      if (!doc) {
+        viewer._pages = [];
+        return;
+      }
+      viewer._pages = [{ pdfPage: null }, { pdfPage: null }];
+      (doc as { getPage: (n: number) => Promise<unknown> })
+        .getPage(2)
+        .then((page) => {
+          const pageView = viewer._pages[1];
+          if (!pageView.pdfPage) pageView.pdfPage = page;
+        })
+        .catch((error: unknown) => errors.push(error));
+    };
+    fake.documentPromise = Promise.resolve({ numPages: 2, getPage: fake.getPage });
+    const view = render(<PdfDocumentViewer file={pdfFile()} />);
+    await waitFor(() => expect(fake.getPage).toHaveBeenCalledWith(2));
+
+    view.unmount();
+    answerPage2();
+    await waitFor(() => expect(fake.destroy).toHaveBeenCalledTimes(1));
+    expect(errors).toEqual([]);
   });
 
   it("odmontowanie w trakcie wczytywania dokumentu niszczy go od razu", async () => {
