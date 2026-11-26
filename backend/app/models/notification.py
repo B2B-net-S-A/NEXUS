@@ -332,12 +332,12 @@ class NotificationType(str, enum.Enum):
     # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).
     # Mail obowiązkowy (`services/job_idle.py`).
     job_idle_reminder = "job_idle_reminder"
-    # 0794 (26.11.2026): rekrutacja wstrzymana albo wznowiona — do rekruterów
+    # 0795 (26.11.2026): rekrutacja wstrzymana albo wznowiona — do rekruterów
     # z kartami w toku i zespołu, bez osoby, która to zrobiła; related_entity=
     # (job, None), bo wstrzymanie i wznowienie tego samego dnia to dwa wpisy.
     # Mail obowiązkowy (`services/job_hold.py`).
     job_hold_changed = "job_hold_changed"
-    # 0794 (26.11.2026): „Czy ta rekrutacja nadal trwa?” — do Delivery Leada
+    # 0795 (26.11.2026): „Czy ta rekrutacja nadal trwa?” — do Delivery Leada
     # (bez niego: Head of Recruitment): zgłoszenie rekrutera, termin
     # „Sprawdzę z klientem”, 30 dni wstrzymania; do rekrutera odpowiedź DL na
     # jego zgłoszenie. Sam dzwonek, kategoria przypomnień.

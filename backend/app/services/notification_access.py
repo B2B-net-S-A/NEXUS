@@ -191,7 +191,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_p0_overdue: ProductSection.pipeline,
     # 0617: rekrutacje bez ruchu — link prowadzi na rekrutację.
     NotificationType.job_idle_reminder: ProductSection.pipeline,
-    # 0794: wstrzymanie rekrutacji — link prowadzi na rekrutację.
+    # 0795: wstrzymanie rekrutacji — link prowadzi na rekrutację.
     NotificationType.job_hold_changed: ProductSection.pipeline,
     NotificationType.job_hold_check: ProductSection.pipeline,
     # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.

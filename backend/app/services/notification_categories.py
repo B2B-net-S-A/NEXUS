@@ -163,10 +163,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
     # zadanie (daj im znać), nie do wyciszenia jak przydział.
     _T.job_closed_people_waiting: _C.mentions,
-    # 0794: rekrutacja, nad którą pracujesz, wstrzymana / wznowiona — imienne
+    # 0795: rekrutacja, nad którą pracujesz, wstrzymana / wznowiona — imienne
     # (nie proponuj projektu kandydatom), nie do wyciszenia jak przydział.
     _T.job_hold_changed: _C.mentions,
-    # 0794: rekruter pyta DL, czy klient wstrzymał, i dostaje odpowiedź; DL
+    # 0795: rekruter pyta DL, czy klient wstrzymał, i dostaje odpowiedź; DL
     # dostaje też termin „Sprawdzę z klientem” — imienne pytanie, nie do
     # wyciszenia (rekruterka z wyciszonymi przypomnieniami nie dostała
     # odpowiedzi na stagingu 26.11).

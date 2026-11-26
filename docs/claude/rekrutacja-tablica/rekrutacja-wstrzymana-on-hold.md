@@ -82,7 +82,7 @@ ustawiono 3 razy, a zamknięcie z powodem „wstrzymana” 6 razy. W 15 rekrutac
   `services/job_similarity.request_status_expr` / `request_stage_expr`.
 - Trasy: `api/job_hold.py` (`GET/PUT/DELETE /api/jobs/{id}/hold`,
   `POST …/hold/report`, `GET /api/hold-checks`, `POST …/hold-check`).
-- Migracja 0794 (`hold_reason`, `hold_review_on`, `hold_ended_at`, dwa typy
+- Migracja 0795 (`hold_reason`, `hold_review_on`, `hold_ended_at`, dwa typy
   powiadomień) z lustrem w `entrypoint.sh`.
 - Front: `JobHoldDialog`, `JobHoldBanner`, `HoldChecksPanel`, pigułka
   w `JobChampionsStatus`, pytanie w `usePipelineMoveCore`, harness

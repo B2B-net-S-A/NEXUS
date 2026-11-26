@@ -1,7 +1,7 @@
 """Rekrutacja „Wstrzymana” (``work_state = on_hold``) i dwa dzwonki.
 
-Revision ID: 0794_job_hold
-Revises: 0793_pracuj_public_links
+Revision ID: 0795_job_hold
+Revises: 0794_competence_reports
 
 Zgłoszenie rekruterki z 26.11.2026: zaproponowała kandydatowi projekt i zrobiła
 weryfikację, a dopiero potem Delivery Lead powiedział, że klient wstrzymał
@@ -21,8 +21,8 @@ from alembic import op
 
 from app.services.job_hold_schema import COLUMN_STATEMENTS, ENUM_STATEMENTS
 
-revision = "0794_job_hold"
-down_revision = "0793_pracuj_public_links"
+revision = "0795_job_hold"
+down_revision = "0794_competence_reports"
 branch_labels = None
 depends_on = None
 
@@ -35,7 +35,7 @@ BEGIN
            SELECT 1 FROM notifications
            WHERE notification_type::text IN ('job_hold_changed', 'job_hold_check')
        ) THEN
-        RAISE EXCEPTION 'Downgrade 0794 odmawia: są rekrutacje wstrzymane albo wpisy job_hold_*, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0795 odmawia: są rekrutacje wstrzymane albo wpisy job_hold_*, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
