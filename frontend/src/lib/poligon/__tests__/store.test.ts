@@ -6,6 +6,7 @@ import { EXERCISES, POLIGON_BUDGET_MAX_HOURLY, POLIGON_CANDIDATE_HOURLY, POLIGON
 import { SLOTS_MAIL_OTHER } from "../tools";
 import { poligonPath } from "../usePoligonPath";
 import type { BoardTasksResponse } from "@/lib/api/boardTasks";
+import type { ReviewBatchQueue, ReviewBatchStatus } from "@/lib/api/reviewBatch";
 import { buildPersonQueue } from "@/lib/dashboard-person-queue";
 import { BLOCKED_WRITE_MESSAGE, POLIGON_PROGRESS, createPoligonStore, mentionsPoligon, resolveDates, type PoligonAction, type PoligonDataset } from "../store";
 
@@ -241,6 +242,33 @@ describe("poligon: „Czeka na Ciebie” na pulpicie", () => {
     expect(queue.length).toBeGreaterThan(0);
     const people = new Set(DATA.meta.people.map((p) => p.candidate_id));
     expect(queue.every((entry) => people.has(entry.candidateId) && entry.jobId === JOB)).toBe(true);
+  });
+});
+
+describe("poligon: porcja dnia", () => {
+  // 26.11.2026 lekcje „Porcja…” brały porcję z prawdziwego API: pusta porcja,
+  // karta bez profilu albo brak rekrutacji niżej niż P0 = brak elementu z zadania.
+  it("porcja, karty i wybór rekrutacji idą z zestawu, z osobami ćwiczebnymi", () => {
+    const { store } = setup();
+    const people = new Set(DATA.meta.people.map((p) => p.candidate_id));
+    const status = store.handle({ method: "get", url: "/api/review-batch/me" });
+    expect(status).not.toBe("network");
+    expect((status as { data: ReviewBatchStatus }).data).toMatchObject({ enabled: true, applies: true, met: false, focus: null });
+    const queue = store.handle({ method: "get", url: "/api/review-batch/me/queue", params: { limit: 20 } }) as { status: number; data: ReviewBatchQueue };
+    expect(queue.status).toBe(200);
+    expect(queue.data.items.length).toBeGreaterThan(1);
+    expect(queue.data.items.every((item) => people.has(item.candidate_id) && item.job_id === JOB)).toBe(true);
+    expect(queue.data.job_profiles?.[String(JOB)]).toBeTruthy();
+    const focus = store.handle({ method: "get", url: "/api/review-batch/me/focus" }) as { status: number; data: { items: unknown[] } };
+    expect(focus.status).toBe(200);
+    expect(focus.data.items.length).toBeGreaterThan(1);
+    expect(store.handle({ method: "get", url: `/api/review-batch/me/focus/${JOB}` })).toMatchObject({ status: 200 });
+  });
+
+  it("wybór rekrutacji i profil „Kogo szukamy” nie zapisują się na Poligonie", () => {
+    const { store } = setup();
+    expect(store.handle({ method: "put", url: "/api/review-batch/me/focus", body: { job_id: JOB } })).toMatchObject({ status: 409 });
+    expect(store.handle({ method: "put", url: `/api/review-batch/jobs/${JOB}/profile`, body: { role: "x" } })).toMatchObject({ status: 409 });
   });
 });
 

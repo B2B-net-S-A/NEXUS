@@ -49,7 +49,11 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   na Poligonie odpowiedź z zestawu (`OWNED_PATHS` / `READ_POSTS` w
   `lib/poligon/store.ts`, moduł `backend/scripts/poligon_*_practice.py`), a nie
   dane osoby; kolumna, z której zadanie każe ruszyć kartę, ma osobę ćwiczebną.
-  Porcja zostaje na prawdziwej kolejce, ale w lekcji startuje od „Do decyzji”.
+  Od 26.11.2026 także Porcja: na produkcji „Oddaj do Nowych” zaliczały
+  wyłącznie furtką (pusta porcja, brak rekrutacji niżej niż P0), więc
+  `/api/review-batch/me`, `/me/queue` i `/me/focus` idą na Poligonie z zestawu
+  (`poligon_review_batch_practice.py`: karty z „Nowych”, „Do domknięcia” ze
+  „Screeningu”, P0 to druga rekrutacja ćwiczebna). Lekcja startuje od „Do decyzji”.
 - **Pokaz prowadzi tą drogą, której wymaga zadanie.** Krok, który każe coś
   kliknąć albo przejść, nie jest `ack` (strażnik
   `test_step_that_says_click_is_not_passed_with_understood`); wpis bez kroków

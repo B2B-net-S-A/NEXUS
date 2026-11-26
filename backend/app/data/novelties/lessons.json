@@ -183,7 +183,7 @@
       "podpis-paczka-umowa-nda",
       "podpis-dokumenty-kodem-z-maila"
     ],
-    "task": "Kandydat z rekrutacji ćwiczebnej ma gotową umowę. Otwórz jej wysyłkę do podpisu i znajdź, jaki podpis jest potrzebny przy NDA. Na Poligonie nic się nie wyśle.",
+    "task": "Kandydat z rekrutacji ćwiczebnej ma gotową umowę. W jego panelu otwórz zakładkę „Umowa”, przewiń do umowy B2B i kliknij „Wyślij do podpisu”. W oknie znajdź, jaki podpis jest potrzebny przy NDA. Na Poligonie nic się nie wyśle.",
     "solo_href": "/jobs/990001?candidate=990115",
     "check": {
       "kind": "click",

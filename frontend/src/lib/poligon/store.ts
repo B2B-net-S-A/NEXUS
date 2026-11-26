@@ -702,6 +702,13 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     // Zadania asystenta prawnego (lekcja z 26.11.2026): zadanie kontraktu
     // ćwiczebnego, nie prawdziwe wypowiedzenia u klientów osoby.
     "/api/legal/tasks",
+    // Porcja dnia (lekcje „Porcja…”, 26.11.2026): karty z osobami ćwiczebnymi,
+    // profil „Kogo szukamy” i rekrutacja spoza P0 do „Oddaj do Nowych”, nie
+    // prawdziwa porcja osoby — pusta albo bez profilu nie miała elementów
+    // z zadań (`backend/scripts/poligon_review_batch_practice.py`).
+    "/api/review-batch/me",
+    "/api/review-batch/me/queue",
+    "/api/review-batch/me/focus",
   ]);
   /** Zapisy, które w rzeczywistości są odczytami (wyniki dopasowania, podpowiedzi). */
   const READ_POSTS = new Set([
