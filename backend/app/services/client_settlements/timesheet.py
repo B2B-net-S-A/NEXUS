@@ -540,6 +540,27 @@ def parse(content: bytes, mime: str) -> Optional[ParsedTimesheet]:
     return parse_rows(sheets) if sheets is not None else None
 
 
+# Cechy tylko z Time Sheet VeloBanku (archiwum III–XI 2026, 246 arkuszy z tabelą):
+# kolumna strumienia projektu albo bank w nazwie projektu. Sam arkusz „GridTable”
+# ma kilku klientów, a „velo” stoi też w „Development”.
+_VELO_COLUMNS = frozenset({"strumień", "nr strumienia"})
+_VELO_PROJECT = re.compile(r"\bvelo(?:[ -]?bank\w*)?\b", re.IGNORECASE)
+
+
+def parse_velobank(content: bytes) -> Optional[ParsedTimesheet]:
+    """Time Sheet XLSX, który jest wzorem VeloBanku; inny plik = ``None``."""
+
+    sheets = _sheets(content)
+    parsed = parse_rows(sheets) if sheets is not None else None
+    if parsed is None:
+        return None
+    labelled = ({_label(cell) for cell in row} for rows in sheets for row in rows)
+    column = any("date" in row and row & _VELO_COLUMNS for row in labelled)
+    projects = (parsed.project_name, *(entry.project for entry in parsed.entries))
+    named = any(_VELO_PROJECT.search(project) for project in projects if project)
+    return parsed if column or named else None
+
+
 def month_business_days(month: str) -> list[date]:
     """Dni robocze miesiąca ``RRRR-MM`` (bez weekendów i polskich świąt)."""
 
