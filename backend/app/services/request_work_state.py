@@ -9,6 +9,8 @@ Delivery Lead w NEXUSIE (``jobs.work_state``, Traffit go nie nadpisuje):
   z automatu przydziału i jest na pulpicie daily;
 * ``client_silent`` — „Klient milczy”: otwarty, ale nikt nad nim nie
   pracuje; wraca sam, gdy klient się odezwie;
+* ``on_hold`` — „Wstrzymana” (26.11.2026): klient wstrzymał projekt; DL
+  ustawia ją z powodem (``services/job_hold.py``), nie wraca sama;
 * ``finished`` — „Zakończony”: znika z list (status z Traffita zostaje).
 
 „Mamy championa” NIE jest wartością kolumny — to ``champion_found_at``
@@ -37,12 +39,21 @@ from app.models.user import User
 from app.services.job_similarity import CLIENT_STAGES
 
 FINISHED = "finished"
-WORK_STATES = ("to_review", "searching", "client_silent", FINISHED)
+ON_HOLD = "on_hold"
+WORK_STATES = ("to_review", "searching", "client_silent", ON_HOLD, FINISHED)
 # Stany, w których ktoś nad requestem pracuje. Automaty (nocny przegląd bazy,
-# propozycje z nowych CV, dopasowania „Moich ludzi”) pomijają „Klient milczy”
-# i „Zakończony” — ten drugi bywa przy ``status=published`` (runda 6 audytu).
+# propozycje z nowych CV, dopasowania „Moich ludzi”) pomijają „Klient milczy”,
+# „Wstrzymaną” i „Zakończony” — ten ostatni bywa przy ``status=published``
+# (runda 6 audytu).
 IN_WORK_STATES = ("to_review", "searching")
-VISIBLE_STATES = ("to_review", "searching", "champion", "client_silent", "finished")
+VISIBLE_STATES = (
+    "to_review",
+    "searching",
+    "champion",
+    "client_silent",
+    ON_HOLD,
+    "finished",
+)
 
 # Zamknięcie rekrutacji = „Zakończony”; ponowne otwarcie wraca do przejrzenia
 # (``update_job``), bo nikt jeszcze nie zdecydował, czy nad nią pracujemy.
@@ -54,6 +65,7 @@ LABELS = {
     "searching": "Szukamy kandydatów",
     "champion": "Mamy championa",
     "client_silent": "Klient milczy",
+    ON_HOLD: "Wstrzymana",
     "finished": "Zakończony",
 }
 
@@ -223,28 +235,42 @@ async def set_work_state(
     *,
     actor_id: Optional[int],
     reason: str = "manual",
+    details: Optional[dict] = None,
 ) -> bool:
     """Zmień stan requestu. ``False`` = stan już był taki (bez zapisu).
 
     Wołający trzyma blokadę wiersza rekrutacji i commituje. Przejście na
     „Szukamy” zgłasza rekrutację do nocnego przeglądu bazy — od liczby
     pasujących w bazie zależy, czy automat da rekrutera, czy sourcera.
+    Wyjście z „Wstrzymanej” (każdą drogą: wznowienie, zamknięcie, „Porządek
+    w requestach”) czyści powód i termin, a ``hold_ended_at`` staje się
+    kotwicą licznika „bez ruchu” (``services/job_idle.py``).
     """
     if state not in WORK_STATES:
         raise WorkStateError("Nieznany stan requestu.")
     previous = job.work_state
     if previous == state:
         return False
+    now = datetime.now(timezone.utc)
     job.work_state = state
-    job.work_state_changed_at = datetime.now(timezone.utc)
+    job.work_state_changed_at = now
     job.work_state_changed_by = actor_id
+    if previous == ON_HOLD:
+        job.hold_reason = None
+        job.hold_review_on = None
+        job.hold_ended_at = now
     db.add(
         Activity(
             entity_type="job",
             entity_id=job.id,
             action="work_state_changed",
             user_id=actor_id,
-            details={"from": previous, "to": state, "reason": reason},
+            details={
+                **(details or {}),
+                "from": previous,
+                "to": state,
+                "reason": reason,
+            },
         )
     )
     if state == "searching":

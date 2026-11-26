@@ -3696,6 +3696,38 @@
    "file": "components/v2/jobs/JobCproBanner.tsx",
    "marker": "job-cpro-banner-show",
    "v3_home": "Tablica → nad kolumnami"
+  },
+ {
+   "id": "board.hold-banner",
+   "area": "tablica",
+   "opis": "Pas „Rekrutacja wstrzymana przez klienta” nad Tablicą (26.11.2026): od kiedy, kto, powód, „Nie proponuj kandydatom tego projektu i nie umawiaj weryfikacji”, termin sprawdzenia; DL: „Wznów rekrutację”, „Zmień termin”, rekruter: „Zapytaj DL”",
+   "file": "components/v2/jobs/hold/JobHoldBanner.tsx",
+   "marker": "job-hold-banner",
+   "v3_home": "Tablica → nad kolumnami"
+  },
+ {
+   "id": "header.hold-state",
+   "area": "naglowek",
+   "opis": "Sekcja „Stan rekrutacji” w dymku pigułki statusu (26.11.2026): DL wstrzymuje, wznawia i zmienia powód lub termin (okno `JobHoldDialog`), rekruter zgłasza DL-owi „Słyszysz, że klient wstrzymał?”",
+   "file": "components/v2/jobs/hold/JobHoldPopoverSection.tsx",
+   "marker": "job-hold-section",
+   "v3_home": "nagłówek → pigułka statusu → dymek"
+  },
+ {
+   "id": "board.hold-move-warning",
+   "area": "tablica",
+   "opis": "Ostrzeżenie przy ruchu karty naprzód w wstrzymanej rekrutacji (26.11.2026): „Ta rekrutacja jest wstrzymana”, „Przesuń mimo to” / „Nie przesuwaj”; odrzucenie i rezygnacja bez pytania",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "confirmHoldMove",
+   "v3_home": "Tablica → przeciągnięcie, strzałka, ruch zbiorczy"
+  },
+ {
+   "id": "list.hold-filter",
+   "area": "lista",
+   "opis": "Lista rekrutacji: plakietka „Wstrzymana od DD.MM” w paski i pigułka „Wstrzymane” w „Stan requestu” (26.11.2026)",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "REQUEST_STAGE_CHIP_LABEL",
+   "v3_home": "lista rekrutacji → Stan requestu"
   }
  ]
 }

@@ -483,6 +483,10 @@ async def _live(
             in_process=(row.job_id, row.user_id) in in_process,
         )
         for row in rows
+        # „Wstrzymana” (decyzja Artura 26.11.2026): zespół zostaje bez zmian
+        # do wznowienia — planer nie widzi aktywnych przypisań, więc ich nie
+        # zwalnia ani nie liczy w obłożeniu. Propozycje automatu gasną.
+        if not (states.get(row.job_id) == "on_hold" and row.state == "active")
     ]
     out = {job_id: state for job_id, state in states.items() if state != "searching"}
     return live, out, inactive

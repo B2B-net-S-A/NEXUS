@@ -4,6 +4,7 @@ import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   REQUEST_STAGE_CHIPS,
+  REQUEST_STAGE_CHIP_LABEL,
   REQUEST_STAGE_META,
   initialStagesFromUrl,
   type RequestStage,
@@ -26,6 +27,7 @@ import {
   ChevronRight,
   Eye,
   Link2,
+  Pause,
   Plus,
   Search,
   X,
@@ -63,6 +65,8 @@ import {
   JobCategoryShortBadge,
   JobDeadlineCell,
   JobRecruiterCell,
+  HOLD_ROW_CLASS,
+  HOLD_TONE_CLASS,
   RequestStageBadge,
   useJobListAbsences,
   SimilarJobsIconButton,
@@ -425,6 +429,8 @@ function JobsTable({
                 locked && "opacity-60",
                 // P0 — ultrapilne (27.10.2026): przypięte na górze przez serwer.
                 isP0Active(job) && "bg-destructive-muted hover:bg-destructive-muted/80",
+                // „Wstrzymana” (26.11.2026): paski w wierszu, jak plakietka statusu.
+                !isP0Active(job) && job.request_stage === "on_hold" && HOLD_ROW_CLASS,
               )}
               data-p0={isP0Active(job) ? "true" : undefined}
             >
@@ -549,6 +555,8 @@ function JobsTable({
                   stage={job.request_stage}
                   fallbackStatus={job.request_status}
                   champions={job.champions}
+                  holdSince={job.hold_since}
+                  holdReason={job.hold_reason}
                 />
               </TableCell>
               <TableCell className="px-2">
@@ -1384,17 +1392,23 @@ export function JobsListV2({
                   }}
                   className={cn(
                     "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
-                    on
-                      ? "border-primary/40 bg-primary/10 font-semibold text-primary"
-                      : "border-border text-muted-foreground hover:bg-muted",
+                    on && value === "on_hold"
+                      ? cn(HOLD_TONE_CLASS, "border-warning/60 font-semibold")
+                      : on
+                        ? "border-primary/40 bg-primary/10 font-semibold text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  {REQUEST_STAGE_META[value].label}
+                  {value === "on_hold" ? (
+                    <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  ) : null}
+                  {REQUEST_STAGE_CHIP_LABEL[value] ?? REQUEST_STAGE_META[value].label}
                   {count != null && (
                     <span
                       className={cn(
                         "tabular-nums",
-                        on ? "text-primary" : "text-muted-foreground/80",
+                        on && value !== "on_hold" && "text-primary",
+                        !on && "text-muted-foreground/80",
                       )}
                     >
                       {count.toLocaleString("pl-PL")}

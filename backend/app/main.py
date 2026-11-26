@@ -338,6 +338,7 @@ from app.api import job_champions as job_champions_api
 from app.api import cpro_mail as cpro_mail_api
 from app.api import client_wait as client_wait_api
 from app.api import job_idle as job_idle_api
+from app.api import job_hold as job_hold_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -2827,6 +2828,7 @@ app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
+app.include_router(job_hold_api.router, prefix="/api", tags=["job-hold"])
 app.include_router(
     client_wait_api.router, prefix="/api/client-wait", tags=["client-wait"]
 )

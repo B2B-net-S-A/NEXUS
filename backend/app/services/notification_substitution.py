@@ -91,6 +91,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.job_deadline_3d,
         T.job_deadline_7d,
         T.job_idle_reminder,
+        T.job_hold_changed,
+        T.job_hold_check,
         T.job_p0_overdue,
         T.job_p0_set,
         T.job_twin_linked,

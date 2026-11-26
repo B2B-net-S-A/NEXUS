@@ -75,7 +75,12 @@ class ReviewResponse(BaseModel):
 
 class StateChange(BaseModel):
     job_id: int = Field(gt=0)
-    state: Literal["to_review", "searching", "client_silent", "finished"]
+    # ``on_hold`` przyjmujemy tylko po to, żeby odmówić zdaniem po polsku —
+    # wstrzymanie wymaga powodu (``PUT /api/jobs/{id}/hold``).
+    state: Literal["to_review", "searching", "client_silent", "on_hold", "finished"]
+
+
+HOLD_REFUSED = "Wstrzymanie ustawisz w rekrutacji — wymaga powodu."
 
 
 class ChangesPayload(BaseModel):
@@ -90,7 +95,7 @@ def _listable():
 @router.get("", response_model=ReviewResponse)
 async def list_request_work_states(
     tab: Literal[
-        "to_review", "searching", "champion", "client_silent", "finished"
+        "to_review", "searching", "champion", "client_silent", "on_hold", "finished"
     ] = Query("to_review"),
     mine: bool = Query(False),
     q: Optional[str] = Query(None, max_length=120),
@@ -208,6 +213,10 @@ async def change_request_work_states(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     wanted = {change.job_id: change.state for change in payload.changes}
+    # Z „Wstrzymanej” wolno wyjść (``set_work_state`` czyści jej pola), wejść
+    # — tylko z powodem, na rekrutacji.
+    if "on_hold" in wanted.values():
+        raise HTTPException(422, HOLD_REFUSED)
     jobs = list(
         (
             await db.scalars(

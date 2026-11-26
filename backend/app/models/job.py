@@ -201,6 +201,15 @@ class Job(Base, TimestampMixin):
     work_state_changed_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0793: „Wstrzymana” (work_state = on_hold, 26.11.2026) — powód (wymagany
+    # przy wstrzymaniu), „Sprawdzę z klientem” (kalendarz firmy) i chwila
+    # wznowienia, od której licznik „bez ruchu” liczy od nowa
+    # (`services/job_hold.py`). Powód i termin gasną przy wyjściu ze stanu.
+    hold_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    hold_review_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    hold_ended_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # 0617: „Jeszcze trwa” przy przypomnieniu o rekrutacji bez ruchu — licznik
     # 14/21/28 dni liczy od tej chwili (`services/job_idle.py`, 28.10.2026).
     idle_snoozed_at: Mapped[Optional[datetime]] = mapped_column(

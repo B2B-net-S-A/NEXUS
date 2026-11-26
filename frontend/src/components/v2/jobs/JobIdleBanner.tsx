@@ -9,6 +9,11 @@ export interface JobIdleBannerProps {
   onClose: () => void;
   onSnooze: () => void;
   snoozing?: boolean;
+  /**
+   * „Wstrzymana…” (26.11.2026): klient wstrzymał, ale nie zamknął — okno
+   * `JobHoldDialog`. Tylko dla tych, którzy mogą wstrzymać.
+   */
+  onHold?: () => void;
 }
 
 export function lastMoveText(idle: JobIdle): string {
@@ -21,10 +26,17 @@ export function lastMoveText(idle: JobIdle): string {
 
 /**
  * Pasek nad Tablicą rekrutacji bez ruchu (28.10.2026): od 14 dni nie poszło
- * CV do klienta ani nie wpisano odpowiedzi klienta. Dwa przyciski: „Zamknij…”
- * (dzisiejsze okno zamykania) i „Jeszcze trwa” (licznik od nowa).
+ * CV do klienta ani nie wpisano odpowiedzi klienta. Przyciski: „Wstrzymana…”
+ * (klient wstrzymał, 26.11.2026), „Zamknij…” (dzisiejsze okno zamykania)
+ * i „Jeszcze trwa” (licznik od nowa).
  */
-export function JobIdleBanner({ idle, onClose, onSnooze, snoozing = false }: JobIdleBannerProps) {
+export function JobIdleBanner({
+  idle,
+  onClose,
+  onSnooze,
+  snoozing = false,
+  onHold,
+}: JobIdleBannerProps) {
   if (!idle?.stage) return null;
   const closeOn = idle.close_on ? formatDayMonthPl(idle.close_on) : null;
   let after: string;
@@ -48,6 +60,11 @@ export function JobIdleBanner({ idle, onClose, onSnooze, snoozing = false }: Job
         </strong>{" "}
         Jeśli nic się nie zmieni, {after}
       </p>
+      {onHold ? (
+        <Button type="button" size="sm" variant="outline" onClick={onHold} data-testid="job-idle-hold">
+          Wstrzymana…
+        </Button>
+      ) : null}
       <Button type="button" size="sm" variant="outline" onClick={onClose}>
         Zamknij…
       </Button>

@@ -585,6 +585,11 @@ async def _close_open_recruitments(
         # Audyt 06.10.2026 (R6): zamknięta rekrutacja nie trzyma propozycji.
         await expire_open_for_job(db, job_id=job.id)
         if job.work_state != FINISHED:
+            if job.work_state == "on_hold":
+                # Lustro `set_work_state`: wyjście z „Wstrzymanej” gasi jej pola.
+                job.hold_reason = None
+                job.hold_review_on = None
+                job.hold_ended_at = now
             job.work_state = FINISHED
             job.work_state_changed_at = now
             job.work_state_changed_by = actor.id

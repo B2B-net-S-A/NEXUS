@@ -344,6 +344,13 @@ async def test_stale_jobs_skip_client_silent_and_finished_requests() -> None:
         stage_days_ago=None,
         work_state="finished",
     )
+    # „Wstrzymana” (26.11.2026) czeka na klienta tak samo jak „Klient milczy”.
+    held = await _job(
+        status=JobStatus.published,
+        opened_days_ago=60,
+        stage_days_ago=20,
+        work_state="on_hold",
+    )
 
     async with AsyncSessionLocal() as db:
         items = await stale_jobs(db, now=datetime.now(timezone.utc))
@@ -351,6 +358,7 @@ async def test_stale_jobs_skip_client_silent_and_finished_requests() -> None:
 
     assert searching in ids
     assert silent not in ids
+    assert held not in ids
     assert finished not in ids
 
 

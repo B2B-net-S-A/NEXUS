@@ -4,11 +4,16 @@
 //
 // „Mamy championa" nie jest wartością kolumny: to `champion_found_at` przy
 // stanie „Szukamy kandydatów".
+//
+// „Wstrzymana” (`on_hold`, decyzja Artura 26.11.2026) to osobny stan obok
+// „Klient milczy”: klient wstrzymał projekt, DL podał powód i termin
+// sprawdzenia. Jak „Klient milczy” wypada z automatów i daily.
 
 export const WORK_STATES = [
   "to_review",
   "searching",
   "client_silent",
+  "on_hold",
   "finished",
 ] as const
 export type WorkState = (typeof WORK_STATES)[number]
@@ -18,6 +23,7 @@ export const VISIBLE_STATES = [
   "searching",
   "champion",
   "client_silent",
+  "on_hold",
   "finished",
 ] as const
 export type VisibleState = (typeof VISIBLE_STATES)[number]
@@ -27,6 +33,7 @@ export const STATE_LABEL: Record<VisibleState, string> = {
   searching: "Szukamy kandydatów",
   champion: "Mamy championa",
   client_silent: "Klient milczy",
+  on_hold: "Wstrzymana",
   finished: "Zakończony",
 }
 
@@ -41,6 +48,7 @@ export const ROW_STATE_LABEL: Record<VisibleState, string> = {
   searching: "Praca: w toku",
   champion: "Praca: mamy championa",
   client_silent: "Praca: klient milczy",
+  on_hold: "Praca: wstrzymana",
   finished: "Praca: zakończona",
 }
 
@@ -53,6 +61,8 @@ export const STATE_HINT: Record<VisibleState, string> = {
     "DL wskazał championów. Nie szukamy dalej, ludzie są zwolnieni. Gdy odpadnie ostatni champion, request sam wraca do „Szukamy”.",
   client_silent:
     "Request jest otwarty, ale klient nie odpowiada i nikt nad nim nie pracuje. Wraca sam, gdy klient przyśle termin albo feedback.",
+  on_hold:
+    "Klient wstrzymał projekt. Nie proponujemy go kandydatom i nie umawiamy weryfikacji, dopóki DL go nie wznowi.",
   finished:
     "Klient zrezygnował albo obsadziliśmy stanowisko. Znika z list, historia zostaje.",
 }

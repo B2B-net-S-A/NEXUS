@@ -11,7 +11,10 @@
  * - brak debriefu → okno rozmowy z kandydatem, po zapisie TEN SAM ruch;
  * - bramka „Zweryfikowany” i QC CV → komunikat + wołający otwiera arkusz / QC;
  * - konflikt wersji → komunikat i odświeżenie tablicy, bez ponowienia;
- * - po udanym ruchu odświeżenie tablicy i „Cofnij wysyłkę” maila odrzucenia.
+ * - po udanym ruchu odświeżenie tablicy i „Cofnij wysyłkę” maila odrzucenia;
+ * - rekrutacja „Wstrzymana” (26.11.2026) → PRZED żądaniem pytanie „Przesuń
+ *   mimo to” / „Nie przesuwaj” przy każdym ruchu poza odrzuceniem
+ *   i rezygnacją. Ostrzega, nie blokuje; stan z cache'u `GET …/hold`.
  *
  * `send` czeka na decyzję w oknie: wynik to ruch zapisany albo odmowa.
  */
@@ -21,6 +24,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { stageLabel } from "@/lib/cv-generator";
+import { holdMoveWarning, holdViewOf, isHoldExemptMove, type HoldView } from "@/lib/job-hold";
+import { fetchJobHold, JOB_HOLD_STALE_MS, jobHoldKey } from "@/lib/job-hold-api";
 import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
 import { TwinSkipDialog } from "@/components/v2/jobs/twins/TwinSkipDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
@@ -59,7 +66,12 @@ export interface MoveSendHandlers {
    * czy ruch się zapisał” po swojemu.
    */
   rethrowOther?: boolean;
+  /** Pytanie „Ta rekrutacja jest wstrzymana” już padło (ruch zbiorczy pyta raz). */
+  holdAcknowledged?: boolean;
 }
+
+/** Odpowiedź „Nie przesuwaj” w oknie wstrzymanej rekrutacji. */
+export const HOLD_DECLINED_MESSAGE = "Nie przesunięto — rekrutacja jest wstrzymana.";
 
 export interface PipelineMoveCore {
   send: (payload: PipelineMovePayload, handlers?: MoveSendHandlers) => Promise<MoveSendOutcome>;
@@ -84,6 +96,24 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
     resolve: (skips: Record<string, string> | null) => void;
   } | null>(null);
   const sendRef = useRef<PipelineMoveCore["send"] | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
+
+  // Stan wstrzymania z cache'u strony rekrutacji (najwyżej minutę stary),
+  // a bez niego jedno `GET …/hold`. Błąd odczytu = bez pytania: ostrzeżenie
+  // nie może zatrzymać pracy, gdy trasa nie odpowiada.
+  const holdViewForMove = useCallback(async (): Promise<HoldView | null> => {
+    if (!jobId) return null;
+    try {
+      const hold = await queryClient.fetchQuery({
+        queryKey: jobHoldKey(jobId),
+        queryFn: () => fetchJobHold(jobId),
+        staleTime: JOB_HOLD_STALE_MS,
+      });
+      return holdViewOf(hold);
+    } catch {
+      return null;
+    }
+  }, [jobId, queryClient]);
 
   // Ta sama lista co Tablica (`lib/pipeline-move-invalidation`): oba klucze
   // tablicy, follow-up osoby, „Czeka na Ciebie”, wymagania ruchu.
@@ -93,7 +123,31 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
   );
 
   const send = useCallback<PipelineMoveCore["send"]>(
-    async (payload, handlers = {}) => {
+    async (payload, initialHandlers = {}) => {
+      if (
+        !initialHandlers.silent &&
+        !initialHandlers.holdAcknowledged &&
+        !isHoldExemptMove(payload)
+      ) {
+        const hold = await holdViewForMove();
+        if (hold) {
+          const warning = holdMoveWarning(hold, {
+            candidateName: initialHandlers.candidateName,
+            targetLabel: payload.stage ? stageLabel(payload.stage) : null,
+          });
+          const moveAnyway = await askConfirm({
+            ...warning,
+            confirmLabel: "Przesuń mimo to",
+            cancelLabel: "Nie przesuwaj",
+          });
+          if (!moveAnyway) {
+            syncBoard(payload.candidate_id);
+            return { ok: false, refusal: { kind: "hold_declined", message: HOLD_DECLINED_MESSAGE } };
+          }
+        }
+      }
+      // Ponowienia niżej (ostrzeżenie, debrief, bliźniak) nie pytają drugi raz.
+      const handlers: MoveSendHandlers = { ...initialHandlers, holdAcknowledged: true };
       try {
         const res = await postPipelineMove(payload);
         syncBoard(payload.candidate_id);
@@ -175,12 +229,23 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
         return { ok: false, refusal };
       }
     },
-    [interceptEligibility, jobId, queryClient, showActionToast, showError, showSuccess, syncBoard],
+    [
+      askConfirm,
+      holdViewForMove,
+      interceptEligibility,
+      jobId,
+      queryClient,
+      showActionToast,
+      showError,
+      showSuccess,
+      syncBoard,
+    ],
   );
   sendRef.current = send;
 
   const dialogs = (
     <>
+      {confirmDialog}
       {eligibilityDialog}
       {twinRefusal ? (
         <TwinSkipDialog

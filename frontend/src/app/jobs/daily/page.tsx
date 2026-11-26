@@ -5,6 +5,9 @@ import { Suspense } from "react"
 
 import { PageHeader } from "@/components/ds/PageHeader"
 import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel"
+import { HoldChecksPanel } from "@/components/v2/jobs/hold/HoldChecksPanel"
+import { holdChecksAudience } from "@/lib/job-hold-audience"
+import { useAuthStore } from "@/store/auth"
 import { RequestBoard } from "@/components/v2/request-board/RequestBoard"
 
 /**
@@ -14,6 +17,7 @@ import { RequestBoard } from "@/components/v2/request-board/RequestBoard"
  * `/jobs` (Pipeline); dane — `GET /api/request-board`.
  */
 export default function JobsDailyPage() {
+  const user = useAuthStore((s) => s.user)
   return (
     <div className="space-y-5 p-4 md:p-6">
       <Link href="/dashboard" className="text-sm font-medium text-primary hover:underline">
@@ -25,6 +29,8 @@ export default function JobsDailyPage() {
       />
       {/* P0 — ultrapilne teraz (27.10.2026): najpierw o nich na spotkaniu. */}
       <P0NowPanel />
+      {/* „Czy te rekrutacje nadal trwają?” (26.11.2026) — przed kategoriami. */}
+      <HoldChecksPanel {...holdChecksAudience(user)} />
       {/* `RequestBoard` czyta adres (`useSearchParams`). */}
       <Suspense
         fallback={
