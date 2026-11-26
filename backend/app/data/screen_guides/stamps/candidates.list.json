@@ -3,7 +3,7 @@
   "guide": "candidates.list",
   "sources": {
     "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "72d107daa81bc535113b69437e27ae0de738d8fcf45e01733b0dc625996cb75a",
-    "frontend/src/components/v2/candidates/CandidateSearchFields.tsx": "deda5c0d59903012bff2e129d835c40396fef301299ab6ae45b1e7a3757f9063",
-    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "7fa206607fe135cc2116313e617eaf607835f6a75bfdbe7c1325f9834deb0223"
+    "frontend/src/components/v2/candidates/CandidateSearchFields.tsx": "f13288975e5520a7f3733f7e162a3c5896c5b2893bd788d63edbfa5ced8199bf",
+    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "b3bd71c9382edbb83cfa79eab7d517f7839bfc4edf51b58b16c7e442600864cc"
   }
 }
