@@ -210,6 +210,11 @@
    "GET /api/pre-contracts/pair?candidate_id=990110&job_id=990001",
    "GET /api/reports/clients/990501/trend?months=6",
    "GET /api/reports/clients?min_closed=0&period=year",
+   "GET /api/review-batch/me",
+   "GET /api/review-batch/me/focus",
+   "GET /api/review-batch/me/focus/990001",
+   "GET /api/review-batch/me/focus/990002",
+   "GET /api/review-batch/me/queue?limit=20",
    "GET /api/start-documents/clients/990501",
    "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
    "POST /api/finance/payments/plan",
@@ -23058,6 +23063,549 @@
   },
   "GET /api/legal/tasks?contract_id=990522": {
    "items": []
+  },
+  "GET /api/review-batch/me": {
+   "enabled": true,
+   "applies": true,
+   "minimum": 10,
+   "done_today": 0,
+   "pending": 4,
+   "required": 4,
+   "remaining": 4,
+   "met": false,
+   "blocks": false,
+   "open_screenings": 3,
+   "open_today_screenings": [
+    {
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990105,
+     "name": "Helena Wrzosek",
+     "overdue": false,
+     "parked": false,
+     "attempts": 0,
+     "last_attempt_at": null
+    },
+    {
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990106,
+     "name": "Bartosz Brzozowski",
+     "overdue": false,
+     "parked": false,
+     "attempts": 0,
+     "last_attempt_at": null
+    },
+    {
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990107,
+     "name": "Aleksandra Kalinowska",
+     "overdue": false,
+     "parked": false,
+     "attempts": 0,
+     "last_attempt_at": null
+    }
+   ],
+   "overdue_screenings": 0,
+   "jobs": [
+    {
+     "job_id": 990001,
+     "title": "Senior Project Manager (bankowość)",
+     "pending": 4,
+     "p0": false,
+     "group": "p1",
+     "via": "owner",
+     "p0_until": null
+    }
+   ],
+   "team_jobs": [
+    {
+     "job_id": 990002,
+     "title": "Analityk ryzyka kredytowego (bankowość)",
+     "pending": 0,
+     "p0": true,
+     "group": "p0",
+     "via": "owner",
+     "p0_until": "@reld:5"
+    },
+    {
+     "job_id": 990001,
+     "title": "Senior Project Manager (bankowość)",
+     "pending": 4,
+     "p0": false,
+     "group": "p1",
+     "via": "owner",
+     "p0_until": null
+    }
+   ],
+   "more_cards": 20,
+   "sources": {
+    "p0": 0,
+    "rest": 4,
+    "level_next": 20,
+    "level_cap": 50,
+    "urgent": 4,
+    "other": 0,
+    "other_seats": 8,
+    "stale": 0
+   },
+   "focus": null
+  },
+  "GET /api/review-batch/me/queue?limit=20": {
+   "items": [
+    {
+     "process_id": 990301,
+     "stage_id": 1,
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990101,
+     "name": "Zofia Jodłowska",
+     "city": "Gdańsk",
+     "years": 9,
+     "position": "Project Manager",
+     "score": 82,
+     "matched_must": [
+      "requirements",
+      "strategy",
+      "reporting",
+      "risk mgmt.",
+      "data sourcing"
+     ],
+     "missing_must": [
+      "governance"
+     ],
+     "rate_from_hourly": 110,
+     "rate_currency": "PLN",
+     "availability_status": "actively_looking",
+     "cautions": [],
+     "budget_hourly": 105,
+     "known": null,
+     "order_active": false,
+     "order_in_budget": false,
+     "sent_before": null,
+     "why": {
+      "source": "p1",
+      "via": "owner",
+      "p0_until": null,
+      "chosen": false
+     },
+     "client_recent": {
+      "days": 1,
+      "job_id": 990002,
+      "job_title": "Analityk ryzyka kredytowego (bankowość)"
+     },
+     "stale": false,
+     "opened_on": "@reld:0",
+     "key_facts": {
+      "critical": [
+       {
+        "label": "requirements",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       },
+       {
+        "label": "strategy",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       },
+       {
+        "label": "business area",
+        "state": "mention",
+        "detail": "Tylko wzmianka w CV"
+       }
+      ],
+      "polish": {
+       "state": "native",
+       "detail": "Polski ojczysty"
+      }
+     },
+     "requirements": {
+      "critical_missing": 0,
+      "must_met": 3,
+      "must_total": 5,
+      "nice_met": 0,
+      "nice_total": 0,
+      "must": [
+       {
+        "label": "reporting",
+        "state": "experience"
+       },
+       {
+        "label": "risk mgmt.",
+        "state": "experience"
+       },
+       {
+        "label": "escalations",
+        "state": "mention"
+       },
+       {
+        "label": "governance",
+        "state": "none"
+       },
+       {
+        "label": "data sourcing",
+        "state": "experience"
+       }
+      ],
+      "nice": []
+     }
+    },
+    {
+     "process_id": 990302,
+     "stage_id": 1,
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990102,
+     "name": "Tomasz Leszczyński",
+     "city": "Warszawa",
+     "years": 12,
+     "position": "Delivery Manager",
+     "score": 76,
+     "matched_must": [
+      "requirements",
+      "business area",
+      "reporting",
+      "escalations",
+      "governance"
+     ],
+     "missing_must": [
+      "risk mgmt.",
+      "data sourcing"
+     ],
+     "rate_from_hourly": 120,
+     "rate_currency": "PLN",
+     "availability_status": "unknown",
+     "cautions": [],
+     "budget_hourly": 105,
+     "known": null,
+     "order_active": false,
+     "order_in_budget": false,
+     "sent_before": null,
+     "why": {
+      "source": "p1",
+      "via": "owner",
+      "p0_until": null,
+      "chosen": false
+     },
+     "client_recent": null,
+     "stale": false,
+     "opened_on": "@reld:0",
+     "key_facts": {
+      "critical": [
+       {
+        "label": "requirements",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       },
+       {
+        "label": "strategy",
+        "state": "mention",
+        "detail": "Tylko wzmianka w CV"
+       },
+       {
+        "label": "business area",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       }
+      ],
+      "polish": {
+       "state": "native",
+       "detail": "Polski ojczysty"
+      }
+     },
+     "requirements": {
+      "critical_missing": 0,
+      "must_met": 3,
+      "must_total": 5,
+      "nice_met": 0,
+      "nice_total": 0,
+      "must": [
+       {
+        "label": "reporting",
+        "state": "experience"
+       },
+       {
+        "label": "risk mgmt.",
+        "state": "none"
+       },
+       {
+        "label": "escalations",
+        "state": "experience"
+       },
+       {
+        "label": "governance",
+        "state": "experience"
+       },
+       {
+        "label": "data sourcing",
+        "state": "none"
+       }
+      ],
+      "nice": []
+     }
+    },
+    {
+     "process_id": 990303,
+     "stage_id": 1,
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990103,
+     "name": "Natalia Topolska",
+     "city": "Poznań",
+     "years": 6,
+     "position": "IT Project Manager",
+     "score": 71,
+     "matched_must": [
+      "requirements",
+      "strategy",
+      "risk mgmt."
+     ],
+     "missing_must": [
+      "business area",
+      "escalations",
+      "data sourcing"
+     ],
+     "rate_from_hourly": 95,
+     "rate_currency": "PLN",
+     "availability_status": "unknown",
+     "cautions": [],
+     "budget_hourly": 105,
+     "known": null,
+     "order_active": false,
+     "order_in_budget": true,
+     "sent_before": null,
+     "why": {
+      "source": "p1",
+      "via": "owner",
+      "p0_until": null,
+      "chosen": false
+     },
+     "client_recent": null,
+     "stale": false,
+     "opened_on": "@reld:0",
+     "key_facts": {
+      "critical": [
+       {
+        "label": "requirements",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       },
+       {
+        "label": "strategy",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       },
+       {
+        "label": "business area",
+        "state": "none",
+        "detail": "Brak w CV"
+       }
+      ],
+      "polish": {
+       "state": "native",
+       "detail": "Polski ojczysty"
+      }
+     },
+     "requirements": {
+      "critical_missing": 1,
+      "must_met": 1,
+      "must_total": 5,
+      "nice_met": 0,
+      "nice_total": 0,
+      "must": [
+       {
+        "label": "reporting",
+        "state": "mention"
+       },
+       {
+        "label": "risk mgmt.",
+        "state": "experience"
+       },
+       {
+        "label": "escalations",
+        "state": "none"
+       },
+       {
+        "label": "governance",
+        "state": "mention"
+       },
+       {
+        "label": "data sourcing",
+        "state": "none"
+       }
+      ],
+      "nice": []
+     }
+    },
+    {
+     "process_id": 990304,
+     "stage_id": 1,
+     "job_id": 990001,
+     "job_title": "Senior Project Manager (bankowość)",
+     "candidate_id": 990104,
+     "name": "Igor Sosnowski",
+     "city": "Wrocław",
+     "years": 5,
+     "position": "Scrum Master",
+     "score": 64,
+     "matched_must": [
+      "strategy",
+      "reporting"
+     ],
+     "missing_must": [
+      "business area",
+      "risk mgmt.",
+      "escalations",
+      "data sourcing"
+     ],
+     "rate_from_hourly": 90,
+     "rate_currency": "PLN",
+     "availability_status": "actively_looking",
+     "cautions": [],
+     "budget_hourly": 105,
+     "known": null,
+     "order_active": false,
+     "order_in_budget": true,
+     "sent_before": null,
+     "why": {
+      "source": "p1",
+      "via": "owner",
+      "p0_until": null,
+      "chosen": false
+     },
+     "client_recent": null,
+     "stale": false,
+     "opened_on": "@reld:0",
+     "key_facts": {
+      "critical": [
+       {
+        "label": "requirements",
+        "state": "mention",
+        "detail": "Tylko wzmianka w CV"
+       },
+       {
+        "label": "strategy",
+        "state": "experience",
+        "detail": "W stanowiskach z CV"
+       },
+       {
+        "label": "business area",
+        "state": "none",
+        "detail": "Brak w CV"
+       }
+      ],
+      "polish": {
+       "state": "native",
+       "detail": "Polski ojczysty"
+      }
+     },
+     "requirements": {
+      "critical_missing": 1,
+      "must_met": 1,
+      "must_total": 5,
+      "nice_met": 0,
+      "nice_total": 0,
+      "must": [
+       {
+        "label": "reporting",
+        "state": "experience"
+       },
+       {
+        "label": "risk mgmt.",
+        "state": "none"
+       },
+       {
+        "label": "escalations",
+        "state": "none"
+       },
+       {
+        "label": "governance",
+        "state": "mention"
+       },
+       {
+        "label": "data sourcing",
+        "state": "none"
+       }
+      ],
+      "nice": []
+     }
+    }
+   ],
+   "job_rules": {},
+   "job_profiles": {
+    "990001": {
+     "job_id": 990001,
+     "role": "Project Manager",
+     "specialty": "bankowość",
+     "technology": null,
+     "level": "lider",
+     "saved": true,
+     "excluded": [
+      {
+       "label": "Business Analyst",
+       "count": 3,
+       "source": "rejections"
+      }
+     ],
+     "learning": [
+      {
+       "label": "Product Owner",
+       "count": 1,
+       "dismissed": false
+      }
+     ],
+     "exclude_min": 3,
+     "can_edit": true
+    }
+   },
+   "runs": [
+    {
+     "job_id": 990001,
+     "count": 4
+    }
+   ],
+   "stale": null
+  },
+  "GET /api/review-batch/me/focus": {
+   "items": [
+    {
+     "job_id": 990001,
+     "title": "Senior Project Manager (bankowość)",
+     "pending": 4,
+     "p0": false,
+     "group": "p1",
+     "via": "owner",
+     "p0_until": null,
+     "team_size": 3,
+     "picked_by": []
+    },
+    {
+     "job_id": 990002,
+     "title": "Analityk ryzyka kredytowego (bankowość)",
+     "pending": 0,
+     "p0": true,
+     "group": "p0",
+     "via": "owner",
+     "p0_until": "@reld:5",
+     "team_size": 2,
+     "picked_by": []
+    }
+   ],
+   "focus": null,
+   "seats": 10
+  },
+  "GET /api/review-batch/me/focus/990001": {
+   "job_id": 990001,
+   "available": 4,
+   "take": 4,
+   "release": 0
+  },
+  "GET /api/review-batch/me/focus/990002": {
+   "job_id": 990002,
+   "available": 0,
+   "take": 0,
+   "release": 0
   }
  }
 }

@@ -300,28 +300,28 @@ async def test_list_metadata_counts_active_contracts_with_future_start(
     assert body["future_start_total"] == 1
 
 
-async def test_list_metadata_deduplicates_duplicate_piotr_profiles(
+async def test_list_metadata_deduplicates_duplicate_oskar_profiles(
     app_client, app_auth_headers
 ):
-    marker = f"CntPiotr{uuid.uuid4().hex[:6]}"
-    piotr_a = await _seed_candidate(
+    marker = f"CntOskar{uuid.uuid4().hex[:6]}"
+    oskar_a = await _seed_candidate(
         marker,
         email=f"first-{marker.lower()}@example.com",
-        first_name=" Piotr ",
-        last_name="Klimczak",
+        first_name=" Oskar ",
+        last_name="Testowy",
     )
-    piotr_b = await _seed_candidate(
+    oskar_b = await _seed_candidate(
         marker,
         email=f"second-{marker.lower()}@example.com",
         # Exercises the SQL identity path's special-character transliteration
-        # (the Python helper uses the same Piøtr -> piotr rule).
-        first_name="PIØTR",
-        last_name="Klim-czak",
+        # (the Python helper uses the same Øskar -> oskar rule).
+        first_name="ØSKAR",
+        last_name="Test-owy",
     )
     client_a = await _seed_client(f"A {marker}")
     client_b = await _seed_client(f"B {marker}")
-    await _seed_contract(piotr_a, client_a)
-    await _seed_contract(piotr_b, client_b)
+    await _seed_contract(oskar_a, client_a)
+    await _seed_contract(oskar_b, client_b)
 
     response = await app_client.get(
         "/api/contracts",

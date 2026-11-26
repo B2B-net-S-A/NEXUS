@@ -66,3 +66,8 @@ proponowana odpowiedź.
 - **Poprawka w Bazie pytań** zmienia źródło na `manual`; wyczyszczona
   odpowiedź wraca do `null` (nie `none`), bo pusta odpowiedź nie robi
   z pytania nagłówka.
+- **Wskazówka mówi do kandydata w 2. osobie** („Opisz…”, „Podaj…”), nie
+  „Kandydat powinien…” (decyzja Artura z 26.11.2026, prompt F55 w wersji 2).
+  Po pierwszej nocy co czwarta wskazówka była w 3. osobie, bo prompt kazał
+  napisać, „co kandydat powinien pokryć”. Wskazówki zapisane przed wersją 2
+  zostają, jak są; model zostaje Sonnet 5.5 (koszt nocy ok. 0,25 centa za pytanie).

@@ -47,6 +47,8 @@ export interface MoveRequirementAction {
 
 export interface MoveRequirementItem {
   key: string;
+  /** Kolumna drogi, której dotyczy wymaganie (ruch przez kilka kolumn). */
+  column?: BoardColumnKey | null;
   label: string;
   detail?: string | null;
   status: MoveRequirementStatus;
