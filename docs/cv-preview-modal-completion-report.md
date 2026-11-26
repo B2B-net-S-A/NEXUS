@@ -44,7 +44,7 @@ Wspólne helpery `fetchDocumentBlob` / `downloadDocumentBlob` (DRY: modal + Plik
 ## Weryfikacja (Chrome MCP, prod)
 
 - ✅ Pliki → „Podgląd" DOCX (`cv2025pl.docx`) → renderuje treść CV (nie pobiera).
-- ✅ Pliki → „Podgląd" PDF (`Daniel_Klimczak…pdf`) → natywny viewer, 3 strony.
+- ✅ Pliki → „Podgląd" PDF (`CV_kandydata…pdf`) → natywny viewer, 3 strony.
 - ✅ Profil → CV „Otwórz" (DOCX primary) → ten sam modal, renderuje.
 - ✅ Modal wycentrowany również przy najechaniu kursorem (po fixie kids-mode).
 - ✅ `/api/health` healthy, deploye zielone (smoke-test version-match).

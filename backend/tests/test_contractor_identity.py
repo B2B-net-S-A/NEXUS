@@ -35,8 +35,8 @@ def _candidate(
 
 def test_regular_contractor_key_folds_case_whitespace_punctuation_and_diacritics():
     variants = [
-        _candidate(1, "  PIOTR ", "Klimczak", "first@example.com"),
-        _candidate(2, "Piotr", "  Klim-czak ", "other@example.com"),
+        _candidate(1, "  OSKAR ", "Testowy", "first@example.com"),
+        _candidate(2, "Oskar", "  Test-owy ", "other@example.com"),
     ]
 
     assert count_unique_contractors(variants) == 1
@@ -85,10 +85,10 @@ def test_placeholder_names_fall_back_to_candidate_id_instead_of_collapsing():
 
 
 def test_headcount_keeps_person_and_contract_totals_separate():
-    piotr = _candidate(20, "Piotr", "Klimczak", "piotr@example.com")
-    duplicate_profile = _candidate(21, " piotr ", "KLIMCZAK", "duplicate@example.com")
+    oskar = _candidate(20, "Oskar", "Testowy", "oskar@example.com")
+    duplicate_profile = _candidate(21, " oskar ", "TESTOWY", "duplicate@example.com")
     contracts = [
-        SimpleNamespace(candidate=piotr),
+        SimpleNamespace(candidate=oskar),
         SimpleNamespace(candidate=duplicate_profile),
         SimpleNamespace(candidate=None),
     ]
@@ -109,8 +109,8 @@ def test_raw_key_normalizes_exception_email_case_and_space():
 async def test_finance_summary_exposes_one_person_and_two_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    first_profile = _candidate(30, "Piotr", "Klimczak", "first@example.com")
-    duplicate_profile = _candidate(31, " PIOTR ", "klimczak", "duplicate@example.com")
+    first_profile = _candidate(30, "Oskar", "Testowy", "first@example.com")
+    duplicate_profile = _candidate(31, " OSKAR ", "testowy", "duplicate@example.com")
     contracts = [
         SimpleNamespace(
             candidate=first_profile,
@@ -195,8 +195,8 @@ class _SequentialDb:
 
 @pytest.mark.asyncio
 async def test_contractor_stats_deduplicates_active_people_but_keeps_contract_count():
-    first_profile = _candidate(40, "Piotr", "Klimczak", "one@example.com")
-    duplicate_profile = _candidate(41, "piotr", "KLIMCZAK", "two@example.com")
+    first_profile = _candidate(40, "Oskar", "Testowy", "one@example.com")
+    duplicate_profile = _candidate(41, "oskar", "TESTOWY", "two@example.com")
     far_end = business_today() + timedelta(days=90)
     contracts = [
         SimpleNamespace(
@@ -242,10 +242,10 @@ async def test_utilization_deduplicates_denominator_and_bench_gap_per_identity()
         return SimpleNamespace(**vars(candidate), end_date=end_date, status=status)
 
     population_rows = [
-        # Piotr Klimczak — dwa profile, jeden pracuje (kontrakt bez daty końca).
-        _row(_candidate(50, "Piotr", "Klimczak", "one@example.com"), None),
+        # Oskar Testowy — dwa profile, jeden pracuje (kontrakt bez daty końca).
+        _row(_candidate(50, "Oskar", "Testowy", "one@example.com"), None),
         _row(
-            _candidate(51, "PIOTR", "Klim-czak", "two@example.com"),
+            _candidate(51, "OSKAR", "Test-owy", "two@example.com"),
             today - timedelta(days=5),
         ),
         # Anna Nowak — dwa profile, oba zakończone: jedna osoba na ławce.
@@ -316,12 +316,12 @@ async def test_role_client_mix_global_person_total_is_not_sum_of_cells():
 async def test_location_distribution_uses_lowest_profile_once_per_identity():
     rows = [
         SimpleNamespace(
-            **vars(_candidate(60, "Piotr", "Klimczak", "one@example.com")),
+            **vars(_candidate(60, "Oskar", "Testowy", "one@example.com")),
             hub_city="Warszawa",
             region="Mazowieckie",
         ),
         SimpleNamespace(
-            **vars(_candidate(61, "PIOTR", "Klim-czak", "two@example.com")),
+            **vars(_candidate(61, "OSKAR", "Test-owy", "two@example.com")),
             hub_city="Kraków",
             region="Małopolskie",
         ),
