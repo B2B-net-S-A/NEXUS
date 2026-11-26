@@ -59,7 +59,9 @@ def title_row(ctx: Ctx) -> str:
     """Stanowisko, pod nim imię i nazwisko (bez myślnika); po prawej w jednym rzędzie
     języki od B1 i miasto kandydata. CV blind: samo stanowisko, bez miasta."""
     doc = ctx.doc
-    pills = []
+    # Jeden język = jedna pastylka z wyższym poziomem (decyzja Artura 26.11.2026:
+    # „English (reading) - C1” i „English (speaking) - B1” dawały „EN C1” i „EN B1”).
+    best: dict[str, tuple[int, str]] = {}
     for entry in doc.languages:
         name, level = lang_parts(entry)
         if not name:
@@ -67,9 +69,14 @@ def title_row(ctx: Ctx) -> str:
         label = shown_language(level, ctx.lang)
         if label is None:
             continue
-        pills.append(
-            f"<span class='pill'><b>{esc(lang_code(name))}</b>{(' ' + esc(label)) if label else ''}</span>"
-        )
+        code = lang_code(name)
+        degree = lang_level(level, ctx.lang)[0] or 0
+        if code not in best or degree > best[code][0]:
+            best[code] = (degree, label)
+    pills = [
+        f"<span class='pill'><b>{esc(code)}</b>{(' ' + esc(label)) if label else ''}</span>"
+        for code, (_, label) in best.items()
+    ]
     where = city(doc.location)
     if where and not doc.blind:
         pills.append(f"<span class='pill loc'>{PIN}{esc(where)}</span>")
