@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from app.services.cv_layout import compose_page1_why
 from app.services.cv_new_layout.highlight import choice_from_extras
 from app.services.cv_new_content import cv_json_from_editor_html
+from app.services.cv_page1_highlight_checks import rechecked_highlight
 from app.services.cv_page1_result_checks import rechecked_extras
 
 MSG_RENDER_FAILED = (
@@ -188,6 +189,8 @@ def _document(
     facts = facts or CvFacts()
     # Wynik sprawdzony na innej treści CV — kontrola jeszcze raz na bieżących rolach.
     extras = rechecked_extras(extras, content_html, content.cv_json, blind=blind)
+    # Przyjęty wyróżnik AI, którego cytatu nie ma już w CV, ustępuje automatowi.
+    extras = rechecked_highlight(extras, content.cv_json, blind=blind)
     document = NewCvDocument.from_cv_json(
         {
             **content.cv_json,

@@ -31,6 +31,7 @@
   "back_office"
  ],
  "routes": {
+  "POST /api/candidates/stages/{stage_id}/cv/page1/highlight": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/cv/page1/results": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

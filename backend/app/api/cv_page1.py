@@ -10,7 +10,11 @@ generatora — `cv_layout.compose_page1_why`).
 
 Wyróżnik kandydata (25.11.2026): `highlight` = „auto” (praca u klienta
 rekrutacji, z dat stanowisk), „custom” (etykieta, znak w wieńcu, zdanie
-rekrutera) albo „off”.
+rekrutera) albo „off”. Od 26.11.2026 także „ai” z `proposal` = numer
+sprawdzonej propozycji z `highlight_proposals` (przyjęcie rekrutera: kod
+sprawdza jeszcze raz cytat na bieżącym szkicu), a `highlight_reject` = numer
+propozycji, którą rekruter odrzuca (znika i nie wraca przy kolejnym biegu).
+Bez przyjęcia propozycja nie trafia do CV — render czyta tylko `highlight`.
 
 Trzeci punkt strony 1 to dodatek CV (`candidate_stage_cvs.page1_extras`), nie
 treść edytora: zdanie wpisane przez rekrutera (`result_text`) albo wybrany
@@ -25,7 +29,7 @@ szkic — edytor zakłada go wcześniej (`ensureDraft`), tak jak przy każdej
 innej poprawce. Wpis w Historii zdarzeń bez treści zdania.
 """
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -37,6 +41,8 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.schemas.candidate_stage_cv import CVBrandedResponse
 from app.services import cv_layout as layout_service
+from app.services import cv_page1_highlight_checks as highlight_checks
+from app.services.cv_new_content import cv_json_from_editor_html
 from app.services.cv_new_layout.highlight import LABEL_MAX, TEXT_MAX, TOKEN_MAX
 
 router = APIRouter()
@@ -52,15 +58,19 @@ MSG_BAD_INDEX = "Tego wyniku nie ma na liście sprawdzonych wyników."
 
 
 MSG_HIGHLIGHT_EMPTY = "Wyróżnik potrzebuje etykiety i zdania."
+MSG_BAD_PROPOSAL = "Tej propozycji wyróżnika nie ma na liście sprawdzonych propozycji."
+MSG_PROPOSAL_STALE = "Tego fragmentu nie ma już w CV — poszukaj propozycji od nowa albo wpisz własny wyróżnik."
 
 
 class HighlightUpdate(BaseModel):
-    """Wyróżnik pod nazwiskiem: „auto” = praca u klienta rekrutacji, „custom” = wpis rekrutera."""
+    """Wyróżnik pod nazwiskiem: „auto” = praca u klienta rekrutacji, „ai” =
+    przyjęta propozycja AI (`proposal`), „custom” = wpis rekrutera."""
 
-    mode: Literal["auto", "custom", "off"]
+    mode: Literal["auto", "ai", "custom", "off"]
     label: Optional[str] = Field(default=None, max_length=LABEL_MAX)
     token: Optional[str] = Field(default=None, max_length=TOKEN_MAX)
     text: Optional[str] = Field(default=None, max_length=TEXT_MAX)
+    proposal: Optional[int] = Field(default=None, ge=0)
 
 
 # Długość po złączeniu spacji sprawdza `_why` (422 z polskim zdaniem); tu tylko
@@ -75,6 +85,8 @@ class Page1Update(BaseModel):
     result_index: Optional[int] = Field(default=None, ge=0)
     result_text: Optional[str] = Field(default=None, max_length=RESULT_TEXT_MAX * 2)
     highlight: Optional[HighlightUpdate] = None
+    # Numer propozycji wyróżnika AI, którą rekruter odrzuca.
+    highlight_reject: Optional[int] = Field(default=None, ge=0)
     # Zdania 1–3 strony 1: `null` = slot bez zmiany, "" = z generatora.
     why: Optional[list[Optional[WhySlot]]] = Field(default=None, max_length=3)
 
@@ -103,9 +115,49 @@ def _verified_results(extras: dict) -> list:
     return results if isinstance(results, list) else []
 
 
-def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
-    """Nowe dodatki strony 1; nieznane pola (np. `why`, `results`) zostają."""
+def _proposal(extras: dict, index: Optional[int]) -> dict:
+    items = highlight_checks.proposals(extras)
+    if index is None or index >= len(items) or items[index].get("verified") is not True:
+        raise HTTPException(422, MSG_BAD_PROPOSAL)
+    return items[index]
+
+
+def _key(proposal: dict) -> str:
+    return proposal.get("key") or highlight_checks.proposal_key(proposal)
+
+
+def _rejected(merged: dict, key: str) -> dict:
+    """Dodatki po odrzuceniu propozycji: znika z listy, jej odcisk idzie na listę
+    odrzuconych (nie wraca przy kolejnym biegu); odrzucenie przyjętej wraca do
+    automatu."""
+    out = dict(merged)
+    out["highlight_proposals"] = [
+        p for p in highlight_checks.proposals(out) if _key(p) != key
+    ]
+    out["highlight_rejected"] = [
+        *[k for k in highlight_checks.rejected_keys(out) if k != key],
+        key,
+    ]
+    current = out.get("highlight")
+    if (
+        isinstance(current, dict)
+        and current.get("mode") == "ai"
+        and current.get("key") == key
+    ):
+        out.pop("highlight")
+    return out
+
+
+def _merged(
+    extras: Optional[dict],
+    payload: Page1Update,
+    stands_in_cv: Callable[[dict], bool] = lambda highlight: True,
+) -> dict:
+    """Nowe dodatki strony 1; nieznane pola (np. `why`, `results`) zostają.
+
+    ``stands_in_cv`` sprawdza przyjmowaną propozycję AI na bieżącym szkicu."""
     merged = dict(extras) if isinstance(extras, dict) else {}
+    original = dict(merged)
     sent = payload.model_fields_set
     if "result_index" in sent:
         index = payload.result_index
@@ -136,6 +188,13 @@ def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
             merged.pop("highlight", None)
         elif choice.mode == "off":
             merged["highlight"] = {"mode": "off"}
+        elif choice.mode == "ai":
+            accepted = highlight_checks.accepted_highlight(
+                _proposal(original, choice.proposal)
+            )
+            if not stands_in_cv(accepted):
+                raise HTTPException(422, MSG_PROPOSAL_STALE)
+            merged["highlight"] = accepted
         else:
             fields = {
                 key: " ".join((getattr(choice, key) or "").split())
@@ -144,6 +203,11 @@ def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
             if not (fields["label"] and fields["text"]):
                 raise HTTPException(422, MSG_HIGHLIGHT_EMPTY)
             merged["highlight"] = {"mode": "custom", **fields}
+    if "highlight_reject" in sent and payload.highlight_reject is not None:
+        items = highlight_checks.proposals(original)
+        if payload.highlight_reject >= len(items):
+            raise HTTPException(422, MSG_BAD_PROPOSAL)
+        merged = _rejected(merged, _key(items[payload.highlight_reject]))
     if "why" in sent and payload.why is not None:
         merged["why"] = _why(merged, payload.why)
     return merged
@@ -168,6 +232,7 @@ async def update_stage_cv_page1(
         "result_index",
         "result_text",
         "highlight",
+        "highlight_reject",
         "why",
     }:
         raise HTTPException(422, MSG_EMPTY)
@@ -179,7 +244,17 @@ async def update_stage_cv_page1(
     if csv.branded_status != "draft":
         raise HTTPException(409, MSG_FINALIZED)
     before = csv.page1_extras if isinstance(csv.page1_extras, dict) else {}
-    merged = _merged(before, payload)
+    blind = csv.branded_template == "blind"
+
+    def stands_in_cv(highlight: dict) -> bool:
+        cv_json = cv_json_from_editor_html(
+            csv.branded_draft_html or "",
+            language="en" if csv.branded_language == "en" else "pl",
+            blind=blind,
+        ).cv_json
+        return highlight_checks.stands_in_cv(highlight, cv_json, blind=blind)
+
+    merged = _merged(before, payload, stands_in_cv)
     if merged != before:
         csv.page1_extras = merged
         db.add(

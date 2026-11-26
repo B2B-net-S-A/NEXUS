@@ -12,6 +12,8 @@
  * - „Wyróżnik” (25.11.2026) to dodatek `page1_extras.highlight`: jedna rzecz
  *   dająca kandydatowi przewagę, na stronie 1 pod nazwiskiem w wieńcu
  *   laurowym. „Automatycznie” = wcześniejsza praca u klienta rekrutacji.
+ *   Od 26.11.2026 obok stoi propozycja AI z CV (`CvNewLayoutHighlightAi`):
+ *   trafia do CV dopiero po „Przyjmij” rekrutera (tryb „Propozycja AI”).
  * - Pozostałe części strony 1 to zwinięte wiersze z podsumowaniem; klik
  *   prowadzi do „Stanowisk” albo do „Cały tekst” na tej sekcji.
  */
@@ -51,6 +53,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { DocTextarea, dispatchCv, useEditorDoc } from "./cv-new-layout-fields";
+import { HighlightAi, pendingProposals } from "./CvNewLayoutHighlightAi";
 
 /** Ile czeka zapis zdania strony 1 (i pól wyróżnika) po ostatnim znaku. */
 export const RESULT_SAVE_DELAY_MS = 1200;
@@ -97,6 +100,8 @@ export interface CvNewLayoutPage1Props {
    * (ta sama trasa co dawne „Policz wyniki od nowa”); brak = bez przycisku.
    */
   onRecalcResults?: () => Promise<void>;
+  /** „Poszukaj w CV” — propozycje AI wyróżnika (ta sama trasa co bieg w tle); brak = bez przycisku. */
+  onFindHighlight?: () => Promise<void>;
   onOpenPositions: () => void;
   onOpenText: (section: CvSectionKey) => void;
 }
@@ -107,6 +112,7 @@ export function CvNewLayoutPage1({
   disabled,
   onSaveResult,
   onRecalcResults,
+  onFindHighlight,
   onOpenPositions,
   onOpenText,
 }: CvNewLayoutPage1Props) {
@@ -128,7 +134,9 @@ export function CvNewLayoutPage1({
         <h2 className="text-base font-semibold text-foreground">Strona 1</h2>
         <p className="text-xs text-muted-foreground">podgląd odświeża się kilka sekund po zmianie</p>
       </div>
-      {onSaveResult ? <HighlightChoice extras={extras} disabled={disabled} onSave={onSaveResult} /> : null}
+      {onSaveResult ? (
+        <HighlightChoice extras={extras} disabled={disabled} onSave={onSaveResult} onFind={onFindHighlight} />
+      ) : null}
       <section aria-labelledby="cv-new-why" className="space-y-3" data-tour="cv-editor.page1.why">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <h3 id="cv-new-why" className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
@@ -469,11 +477,19 @@ function RefreshWhy({
 /** Limity jak w `PATCH …/cv/page1`. */
 export const HIGHLIGHT_LIMITS = { label: 60, token: 8, text: 160 } as const;
 
-const HIGHLIGHT_OPTIONS: { value: CvHighlightMode; label: string }[] = [
-  { value: "auto", label: "Automatycznie" },
-  { value: "custom", label: "Własny" },
-  { value: "off", label: "Bez wyróżnika" },
-];
+function highlightOptions(canPickAi: boolean): { value: CvHighlightMode; label: string; disabled?: boolean; title?: string }[] {
+  return [
+    { value: "auto", label: "Automatycznie" },
+    {
+      value: "ai",
+      label: "Propozycja AI",
+      disabled: !canPickAi,
+      title: canPickAi ? undefined : "Brak propozycji z CV do przyjęcia",
+    },
+    { value: "custom", label: "Własny" },
+    { value: "off", label: "Bez wyróżnika" },
+  ];
+}
 
 interface HighlightDraft {
   label: string;
@@ -497,10 +513,12 @@ function HighlightChoice({
   extras,
   disabled,
   onSave,
+  onFind,
 }: {
   extras: CvPage1Extras | null | undefined;
   disabled: boolean;
   onSave: (patch: CvPage1Update) => Promise<void>;
+  onFind?: () => Promise<void>;
 }) {
   const saved = extras?.highlight ?? null;
   const savedMode: CvHighlightMode = saved?.mode ?? "auto";
@@ -534,12 +552,12 @@ function HighlightChoice({
     [],
   );
 
-  /** `sent` = szkic „Własnego”, który poszedł; `null` = sam wybór trybu. */
-  const save = async (highlight: CvPage1Highlight, sent: HighlightDraft | null) => {
+  /** `sent` = szkic „Własnego”, który poszedł; `null` = sam wybór trybu (albo propozycji). */
+  const save = async (patch: CvPage1Update, sent: HighlightDraft | null) => {
     setSaving(true);
     setError(null);
     try {
-      await onSave({ highlight });
+      await onSave(patch);
       // Rekruter mógł pisać dalej w trakcie zapisu — wtedy pola zostają „brudne”.
       if (sent === null || draftRef.current === sent) setDirty(false);
     } catch (reason) {
@@ -563,23 +581,55 @@ function HighlightChoice({
       setDirty(false);
       return;
     }
-    void save(highlight, current);
+    void save({ highlight }, current);
   };
   const stopTimer = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
+  const pending = pendingProposals(extras);
+  /** „Przyjmij”: propozycja AI na stronę 1 (serwer sprawdza cytat jeszcze raz). */
+  const accept = (index: number) => {
+    stopTimer();
+    setMode("ai");
+    void save({ highlight: { mode: "ai", proposal: index } }, null);
+  };
+  /** „Odrzuć”: znika i nie wraca; odrzucona przyjęta wraca do automatu (tryb idzie za zapisem). */
+  const reject = (index: number) => {
+    stopTimer();
+    void save({ highlight_reject: index }, null);
+  };
+  /** „Popraw jako własny”: słowa propozycji w polach „Własnego”, zapis od razu. */
+  const editAsCustom = (proposal: { label?: string | null; token?: string | null; text?: string | null }) => {
+    stopTimer();
+    const next = {
+      label: (proposal.label ?? "").slice(0, HIGHLIGHT_LIMITS.label),
+      token: (proposal.token ?? "").slice(0, HIGHLIGHT_LIMITS.token),
+      text: plainText(proposal.text).slice(0, HIGHLIGHT_LIMITS.text),
+    };
+    draftRef.current = next;
+    setDraft(next);
+    setDirty(true);
+    setMode("custom");
+    setError(null);
+    saveCustom();
+  };
   const pick = (next: CvHighlightMode) => {
     if (next === mode) return;
     stopTimer();
-    setMode(next);
     setError(null);
+    if (next === "ai") {
+      // Wybór trybu = przyjęcie pierwszej propozycji z listy niżej.
+      if (pending.length) accept(pending[0].index);
+      return;
+    }
+    setMode(next);
     if (next === "custom") {
       saveCustom();
       return;
     }
     if (next === savedRef.current.mode) return;
-    void save({ mode: next }, null);
+    void save({ highlight: { mode: next } }, null);
   };
   const change = (field: keyof HighlightDraft) => (value: string) => {
     const clean = field === "text" ? value.replace(/\s*[\r\n]+\s*/g, " ") : value;
@@ -613,8 +663,8 @@ function HighlightChoice({
           size="sm"
           value={mode}
           onChange={pick}
-          options={HIGHLIGHT_OPTIONS}
-          disabled={disabled}
+          options={highlightOptions(mode === "ai" || pending.length > 0)}
+          disabled={disabled || saving}
         />
         {saving ? (
           <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -630,6 +680,11 @@ function HighlightChoice({
       ) : null}
       {mode === "off" ? (
         <p className="text-xs text-muted-foreground">Strona 1 nie pokaże wyróżnika pod nazwiskiem.</p>
+      ) : null}
+      {mode === "ai" ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Strona 1 pokaże przyjętą propozycję z CV. Gdy rekruter usunie z CV jej fragment, strona 1 wróci do automatu.
+        </p>
       ) : null}
       {mode === "custom" ? (
         <div className="space-y-2">
@@ -682,6 +737,15 @@ function HighlightChoice({
           {error}
         </p>
       ) : null}
+      <HighlightAi
+        extras={extras}
+        disabled={disabled}
+        saving={saving}
+        onAccept={accept}
+        onReject={reject}
+        onEdit={editAsCustom}
+        onFind={onFind}
+      />
     </section>
   );
 }

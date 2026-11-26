@@ -7136,6 +7136,35 @@ export interface CvPage1Extras {
   why?: string[] | null;
   /** Ostatni wynik generatora zdań 1–3 po sprawdzeniu kodem (do „Przywróć z generatora”). */
   why_generated?: CvPage1WhyGenerated[] | null;
+  /**
+   * Propozycje AI wyróżnika (26.11.2026): nagroda, wyróżnienie albo certyfikat
+   * z MUST z cytatem z CV sprawdzonym kodem. Nie trafiają na stronę 1, dopóki
+   * rekruter nie przyjmie jednej (`highlight.mode = "ai"`). Brak listy = jeszcze
+   * nie szukano; pusta lista = w CV nie ma czego zaproponować.
+   */
+  highlight_proposals?: CvHighlightProposal[] | null;
+  /** Odcisk wejścia ostatniego szukania propozycji (HTML, MUST, wersja promptu). */
+  highlight_source_sha?: string | null;
+  /** Odciski propozycji odrzuconych przez rekrutera — nie wracają przy kolejnym szukaniu. */
+  highlight_rejected?: string[] | null;
+}
+
+/** Propozycja AI wyróżnika pod nazwiskiem; do przyjęcia tylko `verified`. */
+export interface CvHighlightProposal {
+  kind: "award" | "certificate";
+  label: string;
+  token: string;
+  /** `**…**` = pogrubienie na stronie 1. */
+  text: string;
+  /** Dosłowny fragment CV, na którym stoi propozycja. */
+  quote: string;
+  key: string;
+  verified: boolean;
+  /** Skąd cytat: punkt albo nazwa stanowiska, certyfikat, wykształcenie. */
+  source?: "role" | "certification" | "education" | null;
+  company?: string | null;
+  /** Powód odrzucenia przez kod, np. `quote_not_in_cv`, `not_must`. */
+  issue?: string | null;
 }
 
 /** Jedno zdanie generatora strony 1; na stronę trafia tylko sprawdzone (`verified`). */
@@ -7155,9 +7184,10 @@ export interface CvPage1WhyGenerated {
 
 /**
  * Wyróżnik strony 1: „auto” = wcześniejsza praca u klienta rekrutacji (gdy była),
- * „custom” = etykieta, znak w wieńcu i zdanie rekrutera, „off” = bez wyróżnika.
+ * „ai” = propozycja AI przyjęta przez rekrutera (26.11.2026), „custom” = etykieta,
+ * znak w wieńcu i zdanie rekrutera, „off” = bez wyróżnika.
  */
-export type CvHighlightMode = "auto" | "custom" | "off";
+export type CvHighlightMode = "auto" | "ai" | "custom" | "off";
 
 /** Limity jak w `PATCH …/cv/page1`: etykieta ≤ 60, znak ≤ 8, zdanie ≤ 160 znaków. */
 export interface CvPage1Highlight {
@@ -7165,14 +7195,22 @@ export interface CvPage1Highlight {
   label?: string | null;
   token?: string | null;
   text?: string | null;
+  /** Zapis: numer przyjmowanej propozycji w `highlight_proposals` (tylko `mode: "ai"`). */
+  proposal?: number | null;
+  /** Odczyt przyjętej propozycji: cytat z CV i odcisk propozycji. */
+  quote?: string | null;
+  key?: string | null;
+  kind?: CvHighlightProposal["kind"] | null;
 }
 
 /** Strona 1: wynik z listy (`result_index`), zdanie rekrutera albo wyróżnik. */
 export interface CvPage1Update {
   result_index?: number | null;
   result_text?: string | null;
-  /** `mode: "custom"` wymaga etykiety i zdania (inaczej 422). */
+  /** `mode: "custom"` wymaga etykiety i zdania, `mode: "ai"` numeru sprawdzonej propozycji (inaczej 422). */
   highlight?: CvPage1Highlight;
+  /** Numer propozycji wyróżnika, którą rekruter odrzuca. */
+  highlight_reject?: number;
   /** Zdania 1–3: `null` = slot bez zmiany, `""` = „Przywróć z generatora”. */
   why?: (string | null)[];
 }
@@ -7402,6 +7440,14 @@ export const candidateStageCvApi = {
      */
     refreshPage1Results: (stageId: number) =>
       api.post<CvPage1Extras>(`/api/candidates/stages/${stageId}/cv/page1/results`, undefined, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }),
+    /**
+     * Propozycje AI wyróżnika z zapisanego szkicu (model, kilka sekund; „Poszukaj w CV”).
+     * Oddaje nowe dodatki strony 1; awaria modelu 503, limit żądań 429.
+     */
+    refreshPage1Highlight: (stageId: number) =>
+      api.post<CvPage1Extras>(`/api/candidates/stages/${stageId}/cv/page1/highlight`, undefined, {
         timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       }),
     rename: (stageId: number, filename: string) =>

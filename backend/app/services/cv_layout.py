@@ -164,20 +164,25 @@ _RESULT_KEYS = (
     "why",
     "why_generated",
     "why_source_sha",
+    # Propozycje wyróżnika AI (26.11.2026) cytują poprzednie CV. Lista
+    # odrzuconych (`highlight_rejected`) zostaje — to decyzja rekrutera.
+    "highlight_proposals",
+    "highlight_source_sha",
 )
 
 
 def forget_page1_result(extras: Optional[dict]) -> Optional[dict]:
     """Dodatki strony 1 po wczytaniu innej generacji (przegląd 25.11.2026):
     bez najmocniejszego wyniku (listy, wyboru, zdania rekrutera), bez zdań 1–3
-    (`why`, `why_generated`) i bez własnego wyróżnika (`highlight.mode ==
-    "custom"`) — opisują poprzednie CV. Wyłączony wyróżnik i stary wpis `wreath`
-    zostają. ``None`` = nic nie zostało."""
+    (`why`, `why_generated`), bez propozycji wyróżnika AI i bez wyróżnika
+    rekrutera (`highlight.mode` „custom” albo przyjęta propozycja „ai”) —
+    opisują poprzednie CV. Wyłączony wyróżnik i stary wpis `wreath` zostają.
+    ``None`` = nic nie zostało."""
     if not isinstance(extras, dict):
         return extras
     kept = {k: v for k, v in extras.items() if k not in _RESULT_KEYS}
     highlight = kept.get("highlight")
-    if isinstance(highlight, dict) and highlight.get("mode") == "custom":
+    if isinstance(highlight, dict) and highlight.get("mode") in ("ai", "custom"):
         kept.pop("highlight")
     return kept or None
 
