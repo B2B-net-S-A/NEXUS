@@ -87,6 +87,11 @@
         "q": "Gdzie są odrzuceni i ci, którzy zrezygnowali?",
         "a": "W wąskiej kolumnie „Zamknięci” po prawej stronie tablicy: przez nas, przez DL, przez klienta, zrezygnował. Kliknij pozycję, żeby zobaczyć tylko te osoby („Pokaż wszystkich” rozwija wszystkich); kartę możesz też na pozycję upuścić — system zapyta o powód. Karta pokazuje powód; komentarz i kto odrzucił — w dymku i w ramce na górze panelu osoby.",
         "anchor": "jobs.board.closed"
+      },
+      {
+        "q": "Gdzie są osoby, które miałem w Screeningu?",
+        "a": "Karta bez śladu przez 2 pełne dni robocze (notatka, „Nie odebrał”, umówiony telefon, arkusz, ruch) wraca w nocy do „Nowych” dla wszystkich. Twoje wrócone osoby stoją na górze „Nowych” w grupie „Wróciły od Ciebie” przez 5 dni roboczych; „Weź z powrotem” pod kartą bierze ją i przesuwa do „Screeningu”. Dzień wcześniej pod kartą stoi „Wraca do „Nowych” jutro”, nad kolumną pasek z liczbą osób, a przycisk „Nie odebrał” zatrzymuje kartę.",
+        "anchor": "jobs.board.columns"
       }
     ],
     "pitfalls": [

@@ -54,6 +54,8 @@ type QueueItem = {
   candidate_id: number;
   entry_source?: string | null;
   claim_user_id?: number | null;
+  /** Karta wróciła ze „Screeningu” (26.11.2026, `lib/screening-returned.ts`). */
+  returned_from_screening?: { at: string; holder_user_id?: number | null } | null;
   /** Wynik „Sprawdź w CV” / przeglądu AI — „pasuje” wyciąga z grupy zwiniętej. */
   entry_ai_screening?: { verdict?: string | null } | null;
   entry_autofill?: {
@@ -109,7 +111,7 @@ export function knownFactLabels(known: KnownFacts | null | undefined): string[] 
   return labels;
 }
 
-export type NewColumnSection = "applied" | "team" | "call_first" | "rest" | "applied_gap";
+export type NewColumnSection = "returned_mine" | "applied" | "team" | "call_first" | "rest" | "applied_gap";
 
 /** Osoba sama się zgłosiła (strona kariery, formularz portalu). */
 export function isApplication(item: QueueItem): boolean {
@@ -159,8 +161,9 @@ function withFreshSlots<T extends QueueItem>(sorted: readonly T[], start = 0): {
 }
 
 export function orderNewColumn<T extends QueueItem>(
-  items: readonly T[],
+  allItems: readonly T[],
   criticalGaps?: ReadonlyMap<number, string[]>,
+  viewerId?: number | null,
 ): {
   items: T[];
   ranks: Map<number, number>;
@@ -169,7 +172,20 @@ export function orderNewColumn<T extends QueueItem>(
   freshSlots: Set<number>;
   sections: Map<number, NewColumnSection>;
   appliedGapIds: Set<number>;
+  returnedMine: number;
 } {
+  // „Wróciły od Ciebie” (26.11.2026): karty, które automat oddał ze Screeningu
+  // osobie, która patrzy — na samej górze, najświeższy powrót pierwszy.
+  const isMine = (item: T) =>
+    viewerId != null && item.returned_from_screening?.holder_user_id === viewerId;
+  const returnedMine = allItems
+    .filter(isMine)
+    .sort(
+      (a, b) =>
+        (b.returned_from_screening?.at ?? "").localeCompare(a.returned_from_screening?.at ?? "") ||
+        a.candidate_id - b.candidate_id,
+    );
+  const items = allItems.filter((item) => !isMine(item));
   // „AI: pasuje” (przegląd albo „Sprawdź w CV”) wygrywa z brakiem słowa w CV.
   const hasGap = (item: T) =>
     Boolean(criticalGaps?.get(item.candidate_id)?.length) && item.entry_ai_screening?.verdict !== "fits";
@@ -194,18 +210,20 @@ export function orderNewColumn<T extends QueueItem>(
   const ranks = new Map<number, number>();
   ordered.forEach((item, index) => ranks.set(item.id, index + 1));
   const sections = new Map<number, NewColumnSection>();
+  returnedMine.forEach((item) => sections.set(item.id, "returned_mine"));
   applied.forEach((item) => sections.set(item.id, "applied"));
   team.forEach((item) => sections.set(item.id, "team"));
   ordered.forEach((item, index) => sections.set(item.id, newColumnSection(index + 1)));
   appliedGap.forEach((item) => sections.set(item.id, "applied_gap"));
   return {
-    items: [...applied, ...team, ...ordered, ...appliedGap],
+    items: [...returnedMine, ...applied, ...team, ...ordered, ...appliedGap],
     ranks,
     total: ordered.length,
     freshFirst: first.length > 0,
     freshSlots: clean.slots,
     sections,
     appliedGapIds: new Set(appliedGap.map((item) => item.id)),
+    returnedMine: returnedMine.length,
   };
 }
 

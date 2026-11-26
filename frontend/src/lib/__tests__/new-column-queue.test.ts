@@ -293,3 +293,39 @@ describe("orderNewColumn — „Sprawdź w CV” (07.11.2026)", () => {
     expect(orderNewColumn([checked], gaps).sections.get(1)).toBe("applied_gap");
   });
 });
+
+describe("„Wróciły od Ciebie” (26.11.2026)", () => {
+  const returned = (id: number, holder: number, at: string, extra: object = {}) =>
+    system(id, 70, { returned_from_screening: { at, holder_user_id: holder }, ...extra });
+
+  it("karty, które wróciły od patrzącego, stoją na samej górze, najświeższy powrót pierwszy", () => {
+    const { items, sections, returnedMine, ranks, total } = orderNewColumn(
+      [applied(1), returned(2, 7, "2026-11-24T05:00:00Z"), system(3, 90), returned(4, 7, "2026-11-26T00:06:00Z")],
+      undefined,
+      7,
+    );
+    expect(items.map((item) => item.id)).toEqual([4, 2, 1, 3]);
+    expect(sections.get(4)).toBe("returned_mine");
+    expect(sections.get(2)).toBe("returned_mine");
+    expect(returnedMine).toBe(2);
+    // Nie zajmują miejsc w kolejce „Zadzwoń najpierw”.
+    expect(ranks.has(4)).toBe(false);
+    expect(total).toBe(1);
+  });
+
+  it("u innej osoby karta stoi w zwykłej kolejce", () => {
+    const { items, sections, returnedMine } = orderNewColumn(
+      [system(3, 90), returned(2, 7, "2026-11-26T00:06:00Z")],
+      undefined,
+      8,
+    );
+    expect(items.map((item) => item.id)).toEqual([3, 2]);
+    expect(sections.get(2)).toBe("call_first");
+    expect(returnedMine).toBe(0);
+  });
+
+  it("bez zalogowanej osoby nikt nie ma grupy", () => {
+    const { returnedMine } = orderNewColumn([returned(2, 7, "2026-11-26T00:06:00Z")]);
+    expect(returnedMine).toBe(0);
+  });
+});

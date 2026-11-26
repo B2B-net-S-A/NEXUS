@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { ReturnedFromScreening } from "@/lib/screening-returned";
 import type { QcStateView } from "@/lib/cv-qc";
 import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
@@ -413,6 +414,9 @@ export interface KanbanItem {
   *  a w „Nowych” straci „Biorę”, jeśli nie będzie śladu pracy (23.11.2026,
   *  `services/screening_stale.py`). `null`/brak = reguła karty nie dotyczy. */
  returns_to_new_on?: string | null;
+ /** Karta, którą automat oddał ze „Screeningu” w ostatnich 5 dniach roboczych
+  *  i której nikt jeszcze nie ruszył (26.11.2026, `lib/screening-returned.ts`). */
+ returned_from_screening?: ReturnedFromScreening | null;
 }
 
 /** Rodzaje odznaki terminarza — lustro `compute_badge`

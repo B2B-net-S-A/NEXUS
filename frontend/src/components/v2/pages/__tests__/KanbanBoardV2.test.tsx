@@ -531,6 +531,87 @@ describe("KanbanBoardV2 — kolejka w „Nowych” (02.11.2026)", () => {
   });
 });
 
+// Karty, które automat oddał ze „Screeningu” (26.11.2026): grupa „Wróciły od
+// Ciebie” u osoby, która je trzymała, napis u pozostałych, pasek i „Nie
+// odebrał” nad kartami, którym został 1 dzień roboczy.
+function returnedColumns() {
+  const base = (id: number, stage: string, extra: object) => ({
+    id,
+    candidate_id: id,
+    name: `Osoba${id}`,
+    lastname: "Test",
+    stage,
+    days_in_stage: 1,
+    entry_source: "added_manual",
+    ...extra,
+  });
+  return [
+    {
+      stage: "new",
+      name: "Nowi",
+      category: "new",
+      stage_def_id: null,
+      count: 3,
+      items: [
+        base(1, "new", {}),
+        base(2, "new", {
+          returned_from_screening: {
+            at: "2026-11-25T23:06:41Z",
+            holder_user_id: 7,
+            holder_name: "Barbara I.",
+            screening_since: "2026-11-23T09:00:00Z",
+          },
+        }),
+        base(3, "new", {
+          returned_from_screening: { at: "2026-11-25T23:06:41Z", holder_user_id: 9, holder_name: "Kolega K." },
+        }),
+      ],
+    },
+    {
+      stage: "screening",
+      name: "Screening",
+      category: "screening",
+      stage_def_id: null,
+      count: 2,
+      items: [
+        base(4, "screening", { returns_to_new_on: "2000-01-01" }),
+        base(5, "screening", { returns_to_new_on: "2999-01-01" }),
+      ],
+    },
+  ] as never;
+}
+
+describe("KanbanBoardV2 — karty, które wróciły ze Screeningu (26.11.2026)", () => {
+  it("osoba, od której wróciły, widzi je na górze z „Weź z powrotem”, inni widzą od kogo", async () => {
+    useAuthStore.setState({
+      user: { id: 7, role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    const { container } = renderBoard(returnedColumns());
+
+    const header = await screen.findByTestId("new-column-section-returned_mine");
+    expect(header.textContent).toContain("Wróciły od Ciebie · 1");
+    const order = [...container.querySelectorAll("[data-candidate-id]")].map((el) =>
+      el.getAttribute("data-candidate-id"),
+    );
+    expect(order.slice(0, 3)).toEqual(["2", "1", "3"]);
+    const lines = screen.getAllByTestId("card-returned-line").map((el) => el.textContent);
+    expect(lines[0]).toContain("Wróciła od Ciebie");
+    expect(lines[1]).toBe("Wróciła ze Screeningu od: Kolega K.");
+    expect(screen.getAllByTestId("card-take-back")).toHaveLength(1);
+  });
+
+  it("pasek nad „Screeningiem” liczy karty, które wrócą, i daje im „Nie odebrał”", async () => {
+    useAuthStore.setState({
+      user: { id: 7, role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    renderBoard(returnedColumns());
+
+    const banner = await screen.findByTestId("screening-return-warning");
+    expect(banner.textContent).toContain("Wraca do „Nowych” dziś: 1 osoba");
+    expect(screen.getAllByTestId("card-no-answer")).toHaveLength(1);
+  });
+});
+
 // Okno < 800 px (decyzja Artura 23.11.2026): karta w dwóch liniach przez
 // wariant `low-screen:` (media query). jsdom nie liczy CSS, więc oba układy
 // są w DOM naraz, a test rozróżnia je po klasach.

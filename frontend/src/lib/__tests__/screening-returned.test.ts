@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+
+import { people, returnedLine, returnedToViewer, screeningWarning } from "@/lib/screening-returned";
+
+const card = (holder: number | null, extra: object = {}) => ({
+  returned_from_screening: {
+    at: "2026-11-25T23:06:41Z",
+    holder_user_id: holder,
+    holder_name: "Barbara I.",
+    screening_since: "2026-11-23T09:15:00Z",
+    ...extra,
+  },
+});
+
+describe("napis pod kartą, która wróciła ze Screeningu", () => {
+  it("osobie, od której wróciła: kiedy wróciła i od kiedy stała w Screeningu", () => {
+    expect(returnedToViewer(card(261), 261)).toBe(true);
+    expect(returnedLine(card(261), 261)).toBe("Wróciła od Ciebie czw., 26.11 · w Screeningu od pon., 23.11");
+  });
+
+  it("pozostałym: od kogo wróciła", () => {
+    expect(returnedToViewer(card(261), 5)).toBe(false);
+    expect(returnedLine(card(261), 5)).toBe("Wróciła ze Screeningu od: Barbara I.");
+    expect(returnedLine(card(null, { holder_name: null }), 5)).toBe("Wróciła ze Screeningu");
+  });
+
+  it("karta bez powrotu nie ma napisu", () => {
+    expect(returnedLine({}, 261)).toBeNull();
+    expect(returnedLine({ returned_from_screening: null }, 261)).toBeNull();
+  });
+
+  it("zły termin nie psuje napisu", () => {
+    expect(returnedLine(card(261, { at: "x", screening_since: null }), 261)).toBe("Wróciła od Ciebie");
+  });
+});
+
+describe("pasek nad Screeningiem", () => {
+  it("liczy karty z napisem i bierze dzień z napisu, gdy jest jeden", () => {
+    expect(screeningWarning([null, "Wraca do „Nowych” jutro", "Wraca do „Nowych” jutro"])).toBe(
+      "Wraca do „Nowych” jutro: 2 osoby",
+    );
+  });
+
+  it("różne dni dają „Wkrótce”", () => {
+    expect(screeningWarning(["Wraca do „Nowych” dziś", "Wraca do „Nowych” jutro"])).toBe(
+      "Wkrótce wraca do „Nowych”: 2 osoby",
+    );
+  });
+
+  it("bez napisów nie ma paska", () => {
+    expect(screeningWarning([null, null])).toBeNull();
+  });
+
+  it("odmienia osoby", () => {
+    expect([1, 2, 5, 12, 22, 25].map(people)).toEqual([
+      "1 osoba",
+      "2 osoby",
+      "5 osób",
+      "12 osób",
+      "22 osoby",
+      "25 osób",
+    ]);
+  });
+});
