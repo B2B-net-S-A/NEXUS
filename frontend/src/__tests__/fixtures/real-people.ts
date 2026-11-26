@@ -1,13 +1,14 @@
 /**
  * Prawdziwe osoby (konsultanci, pracownicy, zgłaszający), których nazwiska
  * trafiły kiedyś do publicznego repo — harnessy `/preview/*` (audyt rundy 10,
- * 27.09.2026) i testy (14.10.2026). Repo i logi Actions są publiczne, więc
- * dane fikcyjne pisz wprost jako fikcyjne (Anna Przykładowa, Jan Testowy).
+ * 27.09.2026), testy (14.10.2026) i dokumenty w `docs/` (26.11.2026). Repo i
+ * logi Actions są publiczne, więc dane fikcyjne pisz wprost jako fikcyjne
+ * (Anna Przykładowa, Jan Testowy).
  *
  * Nazwiska stoją tu jako skróty SHA-256 (16 znaków) formy bez polskich znaków
  * i małymi literami — strażnicy pilnują, żeby nie wróciły, i sami ich nie
  * publikują. Czytają je `app/preview/__tests__/harness-fictional-data.test.ts`
- * i `__tests__/fictional-people-in-tests.test.ts`.
+ * i `__tests__/fictional-people-in-tests.test.ts` (testy i `docs/`).
  */
 import { createHash } from "node:crypto";
 
@@ -41,6 +42,17 @@ export const REAL_PEOPLE_DIGESTS: ReadonlySet<string> = new Set([
   "e94377b8986faa54", "e9473e62ee12993e", "f24761c59db45b25", "fbfb45eea394478a",
   // Delivery Lead z testu listy rekrutacji (14.10.2026).
   "0b52a7c4fc7a6ede", "8adf95bd406bbcac",
+  // Raporty w `docs/` i opisy układów PDF w czytnikach zamówień (26.11.2026):
+  // osoby, które stały tam przy stawce albo kwocie. Pełne imię i nazwisko,
+  // kilka rzadkich nazwisk także samych (w raportach stały bez imienia).
+  "8ccc3f82f0693a33", "5c9eee8ab0afeef7", "16bd7dd17ccbd015", "128ad5b2ae3e103a",
+  "ac1a1e9e5bcff0bd", "c12f563ad017bbdd", "325aa589f100cb0d", "21b4193456be6557",
+  "0285615eae584942", "6dfe59220e8bf292", "9cf9c664484570f6", "af634fde963d7d25",
+  "8f8f88121b17081b", "a9710796a7548ced", "b023b0fb7105f591", "4bd3552534c1dbb8",
+  "ec737767c9a36e33", "49a8c450231906bb", "dcce910b0bbea7e8", "3fcd98b25ae79dbc",
+  "ad77d99a2dc6638d", "479fe12595385178", "4158be8608cbd23f", "793fc6ce767d588f",
+  "3f938c405fb77453", "0709d2088b1d3f3d", "48d42f7b02f1b02a", "cddd4ed764a8f691",
+  "48c4605185721ad6", "089180f0ec48350b", "931d8ce1383c1193",
   // Makiety „Szczegółów administracyjnych” na stagingu (26.10.2026) — pełne
   // imiona i nazwiska, bo same nazwiska są pospolite.
   "0c553569a5f63b0e", "9b0e7f611a6e171b",

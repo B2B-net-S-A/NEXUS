@@ -8,9 +8,9 @@ uzupełnienia)", a Polkomtel przestaje dostawać automatyczne zamówienie po
 
 ## Hotfix (wykonany na prodzie od ręki, przed wdrożeniem kodu)
 
-Artur Bogusiak / Contract 570 — klient 58 „BNP PARIBAS S.A ODDZIAŁ W POLSCE"
+Contract 570 — klient 58 „BNP PARIBAS S.A ODDZIAŁ W POLSCE"
 (widok standardowy; to NIE jest wielo-konsultantowy rekord 12). Zamówienie 96
-miało komplet 4 pól (numer 20260101, start 2026-01-01, 1550/1260 dziennie)
+miało komplet 4 pól (numer 20260101, start 2026-01-01, obie stawki dzienne)
 i wisiało w Draft wyłącznie przez brak daty końcowej. Przełączone jawnym
 `PATCH {"status":"active"}` (2026-08-24), zweryfikowane w UI: pigułka
 „Aktywni (1)", Draft (0).
@@ -66,19 +66,18 @@ i wisiało w Draft wyłącznie przez brak daty końcowej. Przełączone jawnym
   z `created_at >= 2026-08-24` (`_DRAFT_ORDERS_TAB_SINCE` — stała w kodzie,
   data wdrożenia to fakt historyczny, nie pokrętło). Istniejące niekompletne
   szkice BIK/BNP pozostają niewidoczne (jak dotąd — żyją w alertach DL):
-  BNP(12): 7 szt. (Zieleń, Płonka, Krawczyk, Brunka, Dynek, Trzeszczyński,
-  Wójcik), BIK: 2 szt. niekompletne (Łuszczyński 143, Koc 149).
+  BNP(12): 7 szt., BIK: 2 szt. niekompletne (zamówienia 143 i 149).
 
 ## Lista kandydatów do retro-migracji — DO AKCEPTACJI (nic nie wykonano)
 
 Kompletne wg NOWEJ definicji (bez wymogu daty końcowej), wciąż w Draft:
 
-| Klient | Kandydat | Order | Numer | Okres | Stawki (przych./koszt.) | Rekomendacja |
-|---|---|---|---|---|---|---|
-| Nordea (11) | Patryk Tatarek | 45 | 285668 | 2026-10-19 → 2026-12-31 | 157 / 95 | aktywować |
-| Nordea (11) | Dawid Krzysztoń | 92 | 285787 | 2026-09-01 → 2026-12-31 | 213 / 170 | aktywować |
-| BIK (18) | Daniel Madejski | 94 | „brak" | 2025-08-01 → bezterm. | 1400 / 1200 | **NIE aktywować** — Madejski ma już aktywną linię w grupie 4500030751 z tymi samymi stawkami (1400/1200), a aktywacja zmaterializowałaby grupę o numerze „brak"; prawdopodobny duplikat do usunięcia |
-| BIK (18) | Maciej Koc | 95 | 4500030222 | 2026-06-01 → 2026-09-10 | 1700 / 1280 | **NIE aktywować** — duplikat aktywnej linii 148 w istniejącej grupie 4500030222 (identyczny okres); do usunięcia |
+| Klient | Order | Numer | Okres | Rekomendacja |
+|---|---|---|---|---|
+| Nordea (11) | 45 | 285668 | 2026-10-19 → 2026-12-31 | aktywować |
+| Nordea (11) | 92 | 285787 | 2026-09-01 → 2026-12-31 | aktywować |
+| BIK (18) | 94 | „brak" | 2025-08-01 → bezterm. | **NIE aktywować** — ta osoba ma już aktywną linię w grupie 4500030751 z tymi samymi stawkami, a aktywacja zmaterializowałaby grupę o numerze „brak"; prawdopodobny duplikat do usunięcia |
+| BIK (18) | 95 | 4500030222 | 2026-06-01 → 2026-09-10 | **NIE aktywować** — duplikat aktywnej linii 148 w istniejącej grupie 4500030222 (identyczny okres); do usunięcia |
 
 Migracja = ręczny `PATCH {"status":"active"}` per zamówienie (Nordea) po
 akceptacji; pozycje 3-4 wymagają wcześniejszej decyzji/porządków.
@@ -110,4 +109,4 @@ widgetów inline), `components/client-profile/orders/DraftOrdersSection.tsx`
   inaczej niewidzialne szkice wracałyby drugą ścieżką.
 * Szkic z tytułem-nazwiskiem (auto) da się aktywować dopiero po wpisaniu
   numeru — ale bramka nie odróżnia numeru „prawdziwego" od dowolnego tekstu
-  (jak w widoku standardowym; patrz Madejski „brak" powyżej).
+  (jak w widoku standardowym; patrz zamówienie 94 z numerem „brak" powyżej).

@@ -38,7 +38,7 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 | 6 | React Frontend Developer | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 7 | Scrum Master / Agile Coach | 4 | 200 | 0.40 | 0.50 | 1.00 | 0.26 |
 | 13 | Data Engineer | 3 | 200 | 0.40 | 0.67 | 1.00 | 0.59 |
-| 1391 | PEP4917_Solution Delivery_Senior Analyst_Replacement of Alek | 61 | 200 | 0.20 | 0.02 | 0.20 | 0.04 |
+| 1391 | PEP4917_Solution Delivery_Senior Analyst_Replacement of [osoba] | 61 | 200 | 0.20 | 0.02 | 0.20 | 0.04 |
 | 1392 | Bank Pocztowy: Kierownik Projektu | 11 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1393 | Analityk Biznesowo Systemowy x2 CZII Zamówienie 43 | 6 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1394 | Senior UX/UI Designer (ITVM-6228) | 36 | 200 | 0.20 | 0.08 | 0.33 | 0.07 |
@@ -48,7 +48,7 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 | 1398 | Tester manualny (ZOB-2627) | 15 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
 | 1399 | Analityk biznesowo - systemowy (RFQ_41-2026) | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 1400 | Nordea: PL_IT Developer (Senior) for Data Quality (Platform  | 33 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
-| 1401 | Tester manualny - zastępstwo za: Krzysztof Suwała | 7 | 200 | 0.00 | 0.00 | 0.02 | 0.00 |
+| 1401 | Tester manualny - zastępstwo za: [osoba] | 7 | 200 | 0.00 | 0.00 | 0.02 | 0.00 |
 | 1402 | 1 X Senior Power Platform Developer (41788) | 23 | 200 | 0.40 | 0.22 | 0.33 | 0.20 |
 | 1403 | 1 X Data engineer to support building our Metadata Dataprodu | 41 | 200 | 0.00 | 0.02 | 0.07 | 0.00 |
 | 1404 | Java developers for new project called STP for loan system ( | 23 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
@@ -59,7 +59,7 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 | 1410 | Nordea: Senior Test Automation Engineer D&A Hub (41806) | 33 | 200 | 0.00 | 0.03 | 0.07 | 0.00 |
 | 1411 | Nordea: PL - Senior SME – ICT Risk, Resilience & DORA Implem | 7 | 200 | 0.20 | 0.14 | 1.00 | 0.30 |
 | 1412 | Orch, SA:FCP SA: IIS Poland Operations specialist WAW/GDA/GD | 45 | 200 | 0.00 | 0.00 | 0.01 | 0.00 |
-| 1413 | UX/UI Designer - zastępstwo za: Kosma Ostrowski | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 1413 | UX/UI Designer - zastępstwo za: [osoba] | 3 | 200 | 0.00 | 0.00 | 0.00 | 0.00 |
 
 ## Error analysis (worst Recall@20, default profile)
 
@@ -72,7 +72,7 @@ Weights: semantic=40.0, skills=30.0, salary=15.0, location=10.0, availability=5.
 - **Job 1398 — Tester manualny (ZOB-2627)** — GT=15, R@20=0.00, missed=[3168, 13058, 36420, 33862, 67398] ...
 - **Job 1399 — Analityk biznesowo - systemowy (RFQ_41-2026)** — GT=3, R@20=0.00, missed=[25923, 26211, 66884]
 - **Job 1400 — Nordea: PL_IT Developer (Senior) for Data Quality (Platform Engineering) - Replacement (41296)** — GT=33, R@20=0.00, missed=[64512, 19597, 6547, 5908, 71324] ...
-- **Job 1401 — Tester manualny - zastępstwo za: Krzysztof Suwała** — GT=7, R@20=0.00, missed=[13058, 20166, 20235, 23987, 13269] ...
+- **Job 1401 — Tester manualny - zastępstwo za: [osoba]** — GT=7, R@20=0.00, missed=[13058, 20166, 20235, 23987, 13269] ...
 
 ## Reproduce
 

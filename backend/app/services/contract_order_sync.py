@@ -1,9 +1,9 @@
 """Dwukierunkowa synchronizacja kontraktu z zamówieniami tej osoby (09.2026).
 
-Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" ze stawką
-kosztową 120 zł/h, bez stawki przychodowej i bez okresu zamówienia, choć jego
+Zgłoszenie: kontrakt konsultanta Aliora stał jako „Szkic" z samą stawką
+kosztową, bez stawki przychodowej i bez okresu zamówienia, choć jego
 zamówienie OIT/0189/2026/ITVM miało już okres 15.09–31.12.2026 i stawkę
-1340 PLN/MD. Kontrakt i zamówienia żyły obok siebie: zmiana w jednym miejscu
+przychodową. Kontrakt i zamówienia żyły obok siebie: zmiana w jednym miejscu
 nie przechodziła do drugiego.
 
 Podział odpowiedzialności — każda strona jest źródłem prawdy dla SWOICH pól:

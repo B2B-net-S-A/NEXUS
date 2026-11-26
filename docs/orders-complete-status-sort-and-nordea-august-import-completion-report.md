@@ -59,8 +59,9 @@ czwarty dopiero z produkcji. Wszystkie wprowadził ten PR.
 3. **Sort (LOW).** `consultant_display_name` zwraca `„—"` dla linii bez kandydata;
    myślnik wypada przed każdą literą.
 4. **Sort, znaleziony NA PRODUKCJI (#1250).** Listę otwierał wiersz
-   `{ } Wojciech Łazowski`. To nie był nowy defekt danych, tylko **rozjazd
-   warstw**: `normalize_person_name_part` (backend) sprowadza nazwisko do
+   z klamrami `{ }` przed imieniem. To nie był nowy defekt danych, tylko
+   **rozjazd warstw**: `normalize_person_name_part` (backend) sprowadza
+   nazwisko do
    `[a-z0-9]`, więc import ten wiersz dopasował bez problemu — sortowanie było
    jedynym miejscem czytającym nazwisko dosłownie.
 
@@ -84,26 +85,26 @@ BYŁO w Nexusie**, tylko inaczej zapisanych, co widać dopiero po zestawieniu
 
 | W pliku | W Nexusie | Kto miał rację |
 |---|---|---|
-| Mariusz Szewczyk | `[acive/ Mariusz Szewczyk` | **Nexus zepsuty** — marker statusu w imieniu |
-| Wiktoria Typer-Dentko | Wiktoria Typer | Nexus nieaktualny |
-| Łukasz Domżał - Drzewicki | Łukasz Domżał | Nexus nieaktualny |
-| Dawid **K** Wróbel | Dawid Wróbel | **plik** dokłada inicjał |
-| Tomasz Styp | Tomasz Styp**-Rekowski** | **plik** ucina człon |
+| imię i nazwisko | marker statusu `[acive/` doklejony przed imieniem | **Nexus zepsuty** — marker statusu w imieniu |
+| nazwisko dwuczłonowe z łącznikiem | tylko pierwszy człon | Nexus nieaktualny |
+| nazwisko dwuczłonowe ze spacjami wokół łącznika | tylko pierwszy człon | Nexus nieaktualny |
+| imię, **inicjał**, nazwisko | imię i nazwisko | **plik** dokłada inicjał |
+| pierwszy człon nazwiska | nazwisko dwuczłonowe | **plik** ucina człon |
 
 Dlatego korekta poszła **w obie strony**: trzy nazwiska poprawione w Nexusie
 (32303, 12538, 26203), dwa w kopii pliku. Przemianowanie całej piątki „zgodnie
-z arkuszem Finansów" skasowałoby Tomaszowi człon nazwiska.
+z arkuszem Finansów" skasowałoby jednej osobie człon nazwiska.
 
 ### Co zostało poza importem i dlaczego
 
 | Kogo | Ile wierszy | Powód |
 |---|---|---|
 | Zamówienie **274607** | 13 | Nikt z nich nie miał kontraktu u Nordei. **Domknięte w drugim przebiegu** — patrz niżej |
-| Filip Jabłoński | 2 | **Trzy** rekordy kandydata (kontrakty 344/346/348) — trafienie w zły podmienia numer, okres i stawkę żywemu zamówieniu, bezpowrotnie |
-| Kamil Kowalczyk | (w 274607) | **Sześć** identycznych rekordów kandydata |
+| Konsultant z trzema rekordami | 2 | **Trzy** rekordy kandydata (kontrakty 344/346/348) — trafienie w zły podmienia numer, okres i stawkę żywemu zamówieniu, bezpowrotnie |
+| Konsultant z sześcioma rekordami | (w 274607) | **Sześć** identycznych rekordów kandydata |
 
-Mateusz Śladewski dostał kontrakt (**#578**, 283965, 20.08–31.12.2026, 187/h) —
-jego zaangażowanie biegnie do końca roku, więc ma realną wartość operacyjną.
+Dla zamówienia 283965 powstał kontrakt (**#578**, 20.08–31.12.2026) —
+zaangażowanie biegnie do końca roku, więc ma realną wartość operacyjną.
 
 ### Wynik zastosowanego importu
 
@@ -129,22 +130,20 @@ Pigułki po imporcie: **Aktywni 302 → 321**, **Kończące się 30d 0 → 26**,
 
 ### Osoby w Nexusie spoza pliku (18)
 
-Arkadiusz Stępień · Artur Królak · Błażej Kanczkowski · Rajan Chellappa ·
-Piotr Ciszek · Dominik Czesuła · Dawid Krzysztoń · Michał Dyzma ·
-Piotr Dziubiński · Filip Jabłoński · Łukasz Grądzki · Igor Taras ·
-Jarosław Pastuszak · Sergey Karelin · Marcin Orecki · Mateusz Polanski ·
-Sebastian Nowak · Patryk Tatarek
+Lista imienna usunięta z raportu (repo jest publiczne) — to wiersze
+`nexus_only`, których sierpniowy plik nie wymienia.
 
 ## Drugi przebieg: domknięcie 274607 (tego samego dnia)
 
 Zamówienie **nie było wygasłe** — kończy się 31.08.2026, czyli 7 dni po imporcie,
 więc dane wciąż miały wartość operacyjną. Decyzja właściciela: założyć kontrakty,
-przyjmując **stawkę kosztową = ramowa 56,47** (świadome założenie: plik nie niesie
-kosztowej, a ramowa jest baseline'em, nie tym, co płacimy — stąd marża −0,07/h).
+przyjmując **stawkę kosztową = ramowa** (świadome założenie: plik nie niesie
+kosztowej, a ramowa jest baseline'em, nie tym, co płacimy — stąd lekko ujemna
+marża).
 
-Założono **12 kontraktów** (579–590), wszystkie `hourly`, 160 h/mc, koszt 56,47,
-przychód 56,4, okres 2025-09-01 → 2026-08-31 (Burdalski i Błaszczak od 2025-09-18).
-**Kamil Kowalczyk pominięty** — sześć identycznych rekordów kandydata, a trafienie
+Założono **12 kontraktów** (579–590), wszystkie `hourly`, 160 h/mc, stawki z
+umowy ramowej i zamówienia, okres 2025-09-01 → 2026-08-31 (dwa od 2025-09-18).
+**Jedna osoba pominięta** — sześć identycznych rekordów kandydata, a trafienie
 w zły przypisałoby pieniądze niewłaściwej osobie.
 
 Import wierszy 274607 (12 wierszy, `sha256 90284439…`): **12/12 dopasowanych**,
@@ -160,8 +159,9 @@ zamówienia nie zakłada — te importer dołożył.
 - **Formularz zakłada Contract + Order, API tylko Contract.** Stąd „7 utworzonych,
   5 bez zmian" — nie rozjazd, tylko dwa różne źródła.
 - **`Return` w tym formularzu wysyła go od razu**, zanim zdąży się przestawić
-  „Jednostkę stawki". Pierwszy kontrakt (578) powstał przez to z 187/**mc** zamiast
-  187/h i wymagał poprawki. Jednostkę ustawiaj `form_input`-em, nigdy klawiszem.
+  „Jednostkę stawki". Pierwszy kontrakt (578) powstał przez to ze stawką
+  miesięczną zamiast godzinowej i wymagał poprawki. Jednostkę ustawiaj
+  `form_input`-em, nigdy klawiszem.
 - **Picker kandydatów renderuje BŁĄD jak pustkę.** „Brak wyników dla …" pojawiło się
   dla osoby, którą `/api/candidates` zwraca bez problemu — to była chwilowa awaria
   zapytania, nie brak rekordu. Ta sama klasa defektu co `failure-must-not-render-as-empty`,
@@ -179,17 +179,17 @@ zamówienia nie zakłada — te importer dołożył.
   w Draft — kryterium #2.
 - `<select>` sortowania ma „Konsultant — A→Z" i „Z→A" — kryterium #3.
 - Wiersze niosą numery, okresy i stawki przychodowe z pliku przy **nietkniętej**
-  stawce kosztowej (np. Adam Formela: 284498, przychód 158/h, koszt 118/h).
+  stawce kosztowej (sprawdzone np. na zamówieniu 284498).
 
 ## Do decyzji właściciela danych
 
-1. **`{ } Wojciech Łazowski`** (kontrakty 514, 533) — kod jest już odporny (#1250),
-   ale sam wiersz nadal niesie klamry.
-2. **Stawka kosztowa 56,47 na kontraktach 274607 to ZAŁOŻENIE**, nie liczba z pliku
-   (kolumna G to stawka ramowa). Do potwierdzenia z Finansami — dziś daje marżę
-   −0,07/h na dwunastu kontraktach.
-3. **Duplikaty kandydatów** — Filip Jabłoński (3 rekordy), Kamil Kowalczyk (6).
-   Dopóki istnieją, import będzie ich świadomie pomijał; ich wiersze nadal czekają.
+1. **Wiersz z klamrami `{ }` przed imieniem** (kontrakty 514, 533) — kod jest już
+   odporny (#1250), ale sam wiersz nadal niesie klamry.
+2. **Stawka kosztowa na kontraktach 274607 to ZAŁOŻENIE**, nie liczba z pliku
+   (kolumna G to stawka ramowa). Do potwierdzenia z Finansami — dziś daje lekko
+   ujemną marżę na dwunastu kontraktach.
+3. **Duplikaty kandydatów** — dwie osoby (3 i 6 rekordów). Dopóki istnieją,
+   import będzie ich świadomie pomijał; ich wiersze nadal czekają.
 4. ~~**`NewContractorOrderDialog` pokazuje awarię zapytania jako „Brak wyników"**~~ —
    naprawione w [#1252](https://github.com/artur-t-96/Nexus/pull/1252): osobna gałąź
    `isError` z przyciskiem „Ponów". Pusty wynik dalej mówi „Brak wyników", czego

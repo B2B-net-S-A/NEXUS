@@ -18,10 +18,10 @@ a w NASTĘPNEJ linii, samotnie, numer Call-Off. Bierzemy więc pierwszą linię
 złożoną z samych 5–7 cyfr po linii z tokenem ramowym.
 
 Okres: „Initial Term ⏎ Start date End date ⏎ 2026-02-02 2026-11-30".
-Osoby: „Łukasz Urbanowicz IT Operations - Senior Poland - 1 728 Hours 175,00 PLN
-302 400,00 PLN". Quantity jest limitem, nie ilością do planu. Stawka jest
+Osoby: „Jan Testowy IT Operations - Senior Poland - 1 000 Hours 100,00 PLN
+100 000,00 PLN". Quantity jest limitem, nie ilością do planu. Stawka jest
 zawsze netto za godzinę; nie uzgadniamy jej z Quantity ani Subtotal.
-Kwota bywa też z kropką dziesiętną („175.00 PLN   300 000.00 PLN", COA 3.17
+Kwota bywa też z kropką dziesiętną („100.00 PLN   100 000.00 PLN", COA 3.17
 z DocuSign, 11.2026), a komórka osoby zawija się do linii pod wierszem
 („Anna Testowa-" ⏎ „Nowakowska Warsaw").
 """

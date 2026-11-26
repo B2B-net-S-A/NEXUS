@@ -14,9 +14,9 @@ Ustalone odczytem żywego API (nie z założeń):
 |---|---|
 | Bank Pocztowy S.A. | `client_id=16`, **`multi_consultant_orders_enabled=false`** → widok `OrdersAndContractsTab` |
 | BIK | `client_id=18`, multi=true → `MultiConsultantOrdersTab` |
-| BP: kontraktorzy | 15 sztuk, **14 `active`**, wyłącznie kontrakt **#600** (Wojciech Sokolnicki) `draft` |
-| Michał Leśniak | grupa **55** = `4500030067` (`active`, linia 150 `completed`, MD **13,75 z 13,75**), grupa **56** = `4500029903` (`active`, **`predecessor_group_id=55`**) |
-| Maciej Koc (wzorzec poprawny) | grupa **53** z zagnieżdżoną **54** w statusie **`scheduled`** |
+| BP: kontraktorzy | 15 sztuk, **14 `active`**, wyłącznie kontrakt **#600** `draft` |
+| Konsultant BIK (grupy 55/56) | grupa **55** = `4500030067` (`active`, linia 150 `completed`, MD **13,75 z 13,75**), grupa **56** = `4500029903` (`active`, **`predecessor_group_id=55`**) |
+| Wzorzec poprawny (inna osoba) | grupa **53** z zagnieżdżoną **54** w statusie **`scheduled`** |
 | Umowa B2B `1476/2026` | `signed_both`, `client_name='Bank Pocztowy S.A.'`, ale `client_id=41`, `job_id=115931`, `contract_id=560` — **wszystko wskazuje Energę** |
 
 ## T1 — przycisk „Zakończ" (Bank Pocztowy)
@@ -55,12 +55,12 @@ kontraktu, ręcznym zamknięciem grupy albo zamianą kontraktora **zawsze niosą
 `end_date` w przeszłości**.
 
 **Brakujące ogniwo ze zgłoszenia:** `reopen_order_group` przywracał grupę, ale
-**nie ruszał linii** — dokładnie stan Leśniaka (grupa `active`, linia `completed`).
+**nie ruszał linii** — dokładnie stan z grupy 55 (grupa `active`, linia `completed`).
 Teraz reopen wskrzesza linie z pozostałym budżetem.
 
 ## T3 — struktura obecne/przyszłe, podział MD, historia
 
-**Ticket zakładał**, że para Leśniaka to „dwa niezależne, rozłączone zamówienia"
+**Ticket zakładał**, że para zamówień 55/56 to „dwa niezależne, rozłączone zamówienia"
 i że trzeba je połączyć. **W bazie powiązanie ISTNIAŁO** (`predecessor_group_id=55`).
 Zepsuty był wyłącznie **status**: grupa 56 stała jako `active`, a warunek
 zagnieżdżenia wymaga `scheduled`.

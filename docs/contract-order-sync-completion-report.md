@@ -67,5 +67,5 @@ Znalezione i naprawione przed commitem: aktywacja szkiców z minioną datą koń
 ## Po wdrożeniu
 
 1. Log startu: `contract-order sync repair: {...}` (liczba szkiców, wierszy raportu).
-2. Kontrakt Bartosza Czapelki: Aktywny, okres zamówienia 15.09–31.12.2026, 1340 PLN/MD.
+2. Kontrakt ze zgłoszenia: Aktywny, okres zamówienia 15.09–31.12.2026, stawka przychodowa z zamówienia.
 3. Pobranie raportu: `GET /api/contracts/order-sync-report` (konto admina).
