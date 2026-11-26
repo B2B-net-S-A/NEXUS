@@ -2751,6 +2751,7 @@
     "title": "Nowe CV: wyróżnik i trzy zdania strony 1",
     "novelties": [
       "nowe-cv-wyroznik",
+      "nowe-cv-wyroznik-propozycja-ai",
       "nowe-cv-zdania-strony-1"
     ],
     "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
@@ -2760,6 +2761,16 @@
       "anchor": "cv-editor.page1.refresh"
     },
     "questions": [
+      {
+        "q": "AI zaproponowało wyróżnik z CV, a Ty go nie przyjąłeś. Co z tą propozycją?",
+        "options": [
+          "Nie trafi do CV — strona 1 zostaje bez zmian",
+          "Po chwili sama stanie pod nazwiskiem",
+          "Trafi do CV z dopiskiem „propozycja AI”"
+        ],
+        "answer": 0,
+        "explain": "Propozycja czeka w edytorze, dopóki nie klikniesz „Przyjmij”. Bez tego nie trafia do CV, a odrzucona przy kolejnym szukaniu już nie wraca."
+      },
       {
         "q": "Zdanie 2 strony 1 wymienia wymagania klienta. Które wymagania NEXUS w nim stawia?",
         "options": [
@@ -2779,16 +2790,6 @@
         ],
         "answer": 0,
         "explain": "Poprawione zdanie zostaje. Do zdania z generatora wracasz przyciskiem „Przywróć z generatora” pod polem."
-      },
-      {
-        "q": "Zdanie z generatora nie przeszło sprawdzenia z CV, bo ma liczbę spoza CV. Co stoi na stronie 1?",
-        "options": [
-          "Punkt z treści CV, tak jak dotąd",
-          "Zdanie z generatora z ostrzeżeniem dla klienta",
-          "Puste miejsce do uzupełnienia"
-        ],
-        "answer": 0,
-        "explain": "Niesprawdzone zdanie nie idzie do klienta. Strona 1 bierze wtedy punkt „Dlaczego nasz kandydat” z treści CV, a pod polem stoi, dlaczego."
       },
       {
         "q": "Kiedy wyróżnik „Automatycznie” pokaże coś pod nazwiskiem kandydata?",
