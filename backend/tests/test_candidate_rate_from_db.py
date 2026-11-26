@@ -327,3 +327,49 @@ async def test_note_api_recomputes_rate_from_right_away(
     )
     assert resp.status_code == 204, resp.text
     assert (await _row(candidate_id)).rate_from_hourly == Decimal("140.00")
+
+
+async def _row_version(candidate_id: int) -> str:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            text("SELECT xmin::text FROM candidates WHERE id = :c"), {"c": candidate_id}
+        )
+
+
+@pytest.mark.asyncio
+async def test_recompute_without_change_does_not_rewrite_the_candidate_row(
+    app_client: AsyncClient,
+):
+    """Przeliczenie z tym samym wynikiem nie zapisuje wiersza (26.11.2026).
+
+    UPDATE kandydata nie jest HOT (stawka ma indeksy), więc każdy zapis
+    dokłada wpisy do 42 indeksów, w tym trygramów CV: na produkcji ok. 120 ms
+    i 2,9 MB WAL na wiersz, 14 947 zapisów w 19 h. Wyzwalacze notatek,
+    etapów i umów kolejkują szerzej, niż zmienia się wynik.
+    """
+    candidate_id, job_id = await _seed("140.00")
+    await _drain()
+    first = await _row(candidate_id)
+    version = await _row_version(candidate_id)
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("SELECT candidate_rate_from_enqueue(:c)"), {"c": candidate_id}
+        )
+        await db.commit()
+    assert await _queued(candidate_id)
+    await _drain()
+
+    assert not await _queued(candidate_id)
+    assert await _row_version(candidate_id) == version
+    assert (
+        await _row(candidate_id)
+    ).rate_from_computed_at == first.rate_from_computed_at
+
+    # Zmiana wyniku nadal zapisuje.
+    await _card(candidate_id, job_id, 80.0)
+    await _drain()
+    after = await _row(candidate_id)
+    assert after.rate_from_hourly == Decimal("80.00")
+    assert after.rate_observation_count == 2
+    assert await _row_version(candidate_id) != version

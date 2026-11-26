@@ -512,6 +512,11 @@ def active_exclusions(
     return out
 
 
+# Zapis tylko przy zmianie wyniku (26.11.2026). UPDATE kandydata nie jest HOT
+# (stawka ma indeksy), więc każdy zapis dokłada wpisy do wszystkich 42
+# indeksów, także trygramów CV: na produkcji ok. 120 ms i 2,9 MB WAL na
+# wiersz, 14 947 zapisów w 19 h. Wyzwalacze notatek, etapów i umów kolejkują
+# szerzej, niż zmienia się wynik. `rate_from_computed_at` = ostatnia zmiana.
 _UPDATE_SQL = text(
     "UPDATE candidates SET rate_from_hourly = :amount, rate_from_at = :at, "
     "rate_from_source = :source, "
@@ -519,7 +524,11 @@ _UPDATE_SQL = text(
     "rate_from_stale = :stale, rate_from_computed_at = now(), "
     "rate_latest_hourly = :latest, rate_latest_at = :latest_at, "
     "rate_observation_count = :count "
-    "WHERE id = :id"
+    "WHERE id = :id AND (rate_from_computed_at IS NULL OR ("
+    "rate_from_hourly, rate_from_at, rate_from_source, rate_from_job_id, "
+    "rate_from_stale, rate_latest_hourly, rate_latest_at, rate_observation_count"
+    ") IS DISTINCT FROM (:amount, :at, :source, "
+    "(SELECT id FROM jobs WHERE id = :job_id), :stale, :latest, :latest_at, :count))"
 )
 
 
