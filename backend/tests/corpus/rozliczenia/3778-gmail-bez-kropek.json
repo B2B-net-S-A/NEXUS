@@ -1,0 +1,52 @@
+[
+ {
+  "id": "rozl-3778-gmail-bez-kropek",
+  "poprawka": "cc854f311 #3778",
+  "opis": "Raport z Gmaila bez kropek (jannowak@) trafia do osoby z kontraktem jan.nowak@",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@gmail.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "jankorpusowy@gmail.com",
+    "temat": "Raport godzin wrzesień 2026",
+    "odebrano": "2026-10-02T08:00:00Z",
+    "pliki": [{"nazwa": "Raport godzin 09.2026.pdf", "tekst": "%PDF-1.4 raport fikcyjny"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "Raport godzin 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ },
+ {
+  "id": "rozl-3778-skrzynka-konsultanta-erste-pl",
+  "poprawka": "cc854f311 #3778",
+  "opis": "Konsultant ERSTE pisze ze skrzynki u klienta w domenie erste.pl (dawny Santander), kontrakt bez adresu: raport czekał bez osoby",
+  "dzis": "2026-10-05",
+  "klienci": {"K1": {"nazwa": "Erste Bank Polska", "nip": "8960005673"}},
+  "osoby": {"A": {"imie": "Marian", "nazwisko": "Matyszczak", "klient": "K1"}},
+  "maile": [
+   {
+    "od": "marian.matyszczak@erste.pl",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Time Sheet wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "Time Sheet 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny time sheet"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "Time Sheet 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ },
+ {
+  "id": "rozl-3778-kcp-okres-mm-spacja-rrrr",
+  "poprawka": "cc854f311 #3778",
+  "opis": "Karta pracy „KCP Nazwisko Imię 09 2026.pdf” (spacja między miesiącem a rokiem) szła bez okresu, z maila z końca października na październik",
+  "dzis": "2026-10-27",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Pocztowy Przykładowy"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Prośba",
+    "odebrano": "2026-10-27T08:00:00Z",
+    "pliki": [{"nazwa": "KCP Korpusowy Jan 09 2026.pdf", "tekst": "%PDF-1.4 fikcyjna karta KCP"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "KCP Korpusowy Jan 09 2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ }
+]

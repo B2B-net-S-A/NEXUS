@@ -1,0 +1,160 @@
+[
+ {
+  "id": "rozl-3876-plik-osoby-nierozpoznanej-nie-dziedziczy",
+  "poprawka": "9371d812f #3876",
+  "opis": "Koordynator wysyła protokoły dwóch osób; plik ze starym nazwiskiem drugiej osoby dziedziczył osobę rozpoznaną z maila i trafiał do cudzego kontraktu",
+  "dzis": "2026-10-05",
+  "osoby": {
+   "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Paliwa Przykładowe"},
+   "B": {"imie": "Kornelia", "nazwisko": "Nowa", "email_kontraktu": "kornelia.nowa@example.com", "klient": "Paliwa Przykładowe"}
+  },
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "TS_Stara_wrzesień",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {"nazwa": "PROTOKÓŁ_ Jan Korpusowy_WRZESIEŃ 2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 1"},
+     {"nazwa": "PROTOKÓŁ_ Kornelia Stara_WRZESIEŃ 2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 2"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "PROTOKÓŁ_ Jan Korpusowy_WRZESIEŃ 2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "PROTOKÓŁ_ Kornelia Stara_WRZESIEŃ 2026.pdf", "rodzaj": "report", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-3876-nazwisko-po-zmianie",
+  "poprawka": "9371d812f #3876",
+  "opis": "Kartoteka po zmianie nazwiska „Nowa (Stara)”: plik ze starym nazwiskiem i adres firmowy ze starym nazwiskiem nie wskazywały osoby",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Kornelia", "nazwisko": "Nowa (Stara)", "email_kontraktu": "kornelia.prywatna@example.com", "klient": "Paliwa Przykładowe"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "protokoły",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "PROTOKÓŁ_ Kornelia Stara_WRZESIEŃ 2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol"}]
+   },
+   {
+    "id": "m2",
+    "od": "kornelia.stara@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura 09/2026",
+    "odebrano": "2026-10-05T09:00:00Z",
+    "pliki": [{"nazwa": "FV 5_09_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura"}]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "PROTOKÓŁ_ Kornelia Stara_WRZESIEŃ 2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "FV 5_09_2026.pdf", "rodzaj": "invoice", "osoba": "A", "okres": "2026-09"}
+  ]
+ },
+ {
+  "id": "rozl-3876-literowka-w-imieniu-u-klienta-dl",
+  "poprawka": "9371d812f #3876",
+  "opis": "Protokół z literówką w imieniu („Tomsz”) od DL-a albo do DL-a: osoba wśród klientów z portfela DL-a z wątku; bez DL-a w wątku plik czeka",
+  "dzis": "2026-10-05",
+  "uzytkownicy": {"DL": {"email": "dl.korpus@firma.example.com", "rola": "delivery_lead"}},
+  "klienci": {"K1": {"nazwa": "Paliwa Przykładowe", "dl": "DL"}},
+  "osoby": {"A": {"imie": "Tomasz", "nazwisko": "Testowski", "email_kontraktu": "tomasz.testowski@example.com", "klient": "K1"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "dl.korpus@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "TS_Testowski_wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "PROTOKÓŁ_ Tomsz Testowski_WRZESIEŃ 2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol"}]
+   },
+   {
+    "id": "m2",
+    "od": "podpis@firma.example.com",
+    "do": ["dl.korpus@firma.example.com"],
+    "temat": "ODP: TS_Testowski",
+    "odebrano": "2026-10-05T09:00:00Z",
+    "pliki": [{"nazwa": "PROTOKÓŁ_ Tomsz Testowski_WRZESIEŃ 2026-sig.pdf", "tekst": "%PDF-1.4 fikcyjny podpisany"}]
+   },
+   {
+    "id": "m3",
+    "od": "ktos@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "TS_Testowski_wrzesień 2026",
+    "odebrano": "2026-10-05T10:00:00Z",
+    "pliki": [{"nazwa": "PROTOKÓŁ_ Tomsz Testowski_X.pdf", "tekst": "%PDF-1.4 fikcyjny obcy"}]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "PROTOKÓŁ_ Tomsz Testowski_WRZESIEŃ 2026.pdf", "osoba": "A", "okres": "2026-09"},
+   {"plik": "PROTOKÓŁ_ Tomsz Testowski_WRZESIEŃ 2026-sig.pdf", "osoba": "A", "okres": "2026-09"},
+   {"plik": "PROTOKÓŁ_ Tomsz Testowski_X.pdf", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-3876-skrzynka-external-w-poddomenie-klienta",
+  "poprawka": "9371d812f #3876",
+  "opis": "Konsultant Boscha pisze ze skrzynki external.imie.nazwisko@de.bosch.com; domena klienta z poddomeną kraju nie była w rejestrze, Time Sheet czekał bez osoby",
+  "dzis": "2026-10-05",
+  "klienci": {"K1": {"nazwa": "Bosch", "nip": "5261027992"}},
+  "osoby": {"A": {"imie": "Ola", "nazwisko": "Testowa", "klient": "K1"}},
+  "maile": [
+   {
+    "od": "external.ola.testowa@de.bosch.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Time Sheet 09.2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "TS 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny time sheet"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "TS 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ },
+ {
+  "id": "rozl-3876-numer-umowy-wykonawczej",
+  "poprawka": "9371d812f #3876",
+  "opis": "Protokół CeZ z numerem umowy wykonawczej w nazwie pliku albo temacie, a w temacie inne imię niż w kartotece: plik czekał bez osoby; umowa dwóch osób nie wskazuje nikogo",
+  "dzis": "2026-11-03",
+  "osoby": {
+   "A": {"imie": "Bartłomiej", "nazwisko": "Korpusowy", "email_kontraktu": "bartlomiej.korpusowy@example.com", "klient": "Centrum Przykładowe"},
+   "B": {"imie": "Anna", "nazwisko": "Przykładowa", "email_kontraktu": "anna.przykladowa@example.com", "klient": "Centrum Przykładowe"}
+  },
+  "zamowienia": [
+   {"numer": "ABCD/17/2026", "klient": "Centrum Przykładowe", "osoby": ["A"]},
+   {"numer": "ABCD/18/2026", "klient": "Centrum Przykładowe", "osoby": ["A", "B"]}
+  ],
+  "maile": [
+   {
+    "id": "m1",
+    "od": "pm@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "FW: Protokół odbioru Bartek",
+    "odebrano": "2026-11-03T08:00:00Z",
+    "pliki": [{"nazwa": "Protokół Odbioru 10_2026 do ABCD_17_2026-sig.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 1"}]
+   },
+   {
+    "id": "m2",
+    "od": "pm@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Protokół odbioru za 10/2026 do umowy ABCD/17/2026",
+    "odebrano": "2026-11-03T09:00:00Z",
+    "pliki": [{"nazwa": "Protokół odbioru.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 2"}]
+   },
+   {
+    "id": "m3",
+    "od": "pm@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Protokół do umowy ABCD/18/2026",
+    "odebrano": "2026-11-03T10:00:00Z",
+    "pliki": [{"nazwa": "Protokół odbioru X.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 3"}]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Protokół Odbioru 10_2026 do ABCD_17_2026-sig.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-10"},
+   {"plik": "Protokół odbioru.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-10"},
+   {"plik": "Protokół odbioru X.pdf", "osoba": null}
+  ]
+ }
+]

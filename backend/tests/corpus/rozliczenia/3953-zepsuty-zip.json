@@ -1,0 +1,19 @@
+[
+ {
+  "id": "rozl-3953-zip-z-zepsutym-plikiem",
+  "poprawka": "6b3fe814f #3953",
+  "opis": "ZIP z jednym plikiem o zepsutym strumieniu deflate: zlib.error wychodził z rozpakowania i czytnik stawał na mailu, dobry protokół z tego ZIP-a przepadał",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Dokumenty za wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "Dokumenty.zip", "plik": "pliki/3953-dokumenty-zepsuty-deflate.zip"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "Protokol odbioru 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}],
+  "liczba_dokumentow": 1
+ }
+]

@@ -1,0 +1,151 @@
+Received: from relay0.poczta.example.com (relay0.poczta.example.com [192.0.2.0])
+ by mx0.poczta.example.com with ESMTPS id abcdefghijklmnop0000
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:00:00 +0200
+Received: from relay1.poczta.example.com (relay1.poczta.example.com [192.0.2.1])
+ by mx1.poczta.example.com with ESMTPS id abcdefghijklmnop0001
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:01:00 +0200
+Received: from relay2.poczta.example.com (relay2.poczta.example.com [192.0.2.2])
+ by mx2.poczta.example.com with ESMTPS id abcdefghijklmnop0002
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:02:00 +0200
+Received: from relay3.poczta.example.com (relay3.poczta.example.com [192.0.2.3])
+ by mx3.poczta.example.com with ESMTPS id abcdefghijklmnop0003
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:03:00 +0200
+Received: from relay4.poczta.example.com (relay4.poczta.example.com [192.0.2.4])
+ by mx4.poczta.example.com with ESMTPS id abcdefghijklmnop0004
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:04:00 +0200
+Received: from relay5.poczta.example.com (relay5.poczta.example.com [192.0.2.5])
+ by mx5.poczta.example.com with ESMTPS id abcdefghijklmnop0005
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:05:00 +0200
+Received: from relay6.poczta.example.com (relay6.poczta.example.com [192.0.2.6])
+ by mx6.poczta.example.com with ESMTPS id abcdefghijklmnop0006
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:06:00 +0200
+Received: from relay7.poczta.example.com (relay7.poczta.example.com [192.0.2.7])
+ by mx7.poczta.example.com with ESMTPS id abcdefghijklmnop0007
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:07:00 +0200
+Received: from relay8.poczta.example.com (relay8.poczta.example.com [192.0.2.8])
+ by mx8.poczta.example.com with ESMTPS id abcdefghijklmnop0008
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:08:00 +0200
+Received: from relay9.poczta.example.com (relay9.poczta.example.com [192.0.2.9])
+ by mx9.poczta.example.com with ESMTPS id abcdefghijklmnop0009
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:09:00 +0200
+Received: from relay10.poczta.example.com (relay10.poczta.example.com [192.0.2.10])
+ by mx10.poczta.example.com with ESMTPS id abcdefghijklmnop0010
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:10:00 +0200
+Received: from relay11.poczta.example.com (relay11.poczta.example.com [192.0.2.11])
+ by mx11.poczta.example.com with ESMTPS id abcdefghijklmnop0011
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:11:00 +0200
+Received: from relay12.poczta.example.com (relay12.poczta.example.com [192.0.2.12])
+ by mx12.poczta.example.com with ESMTPS id abcdefghijklmnop0012
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:12:00 +0200
+Received: from relay13.poczta.example.com (relay13.poczta.example.com [192.0.2.13])
+ by mx13.poczta.example.com with ESMTPS id abcdefghijklmnop0013
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:13:00 +0200
+Received: from relay14.poczta.example.com (relay14.poczta.example.com [192.0.2.14])
+ by mx14.poczta.example.com with ESMTPS id abcdefghijklmnop0014
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:14:00 +0200
+Received: from relay15.poczta.example.com (relay15.poczta.example.com [192.0.2.15])
+ by mx15.poczta.example.com with ESMTPS id abcdefghijklmnop0015
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:15:00 +0200
+Received: from relay16.poczta.example.com (relay16.poczta.example.com [192.0.2.16])
+ by mx16.poczta.example.com with ESMTPS id abcdefghijklmnop0016
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:16:00 +0200
+Received: from relay17.poczta.example.com (relay17.poczta.example.com [192.0.2.17])
+ by mx17.poczta.example.com with ESMTPS id abcdefghijklmnop0017
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:17:00 +0200
+Received: from relay18.poczta.example.com (relay18.poczta.example.com [192.0.2.18])
+ by mx18.poczta.example.com with ESMTPS id abcdefghijklmnop0018
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:18:00 +0200
+Received: from relay19.poczta.example.com (relay19.poczta.example.com [192.0.2.19])
+ by mx19.poczta.example.com with ESMTPS id abcdefghijklmnop0019
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:19:00 +0200
+Received: from relay20.poczta.example.com (relay20.poczta.example.com [192.0.2.20])
+ by mx20.poczta.example.com with ESMTPS id abcdefghijklmnop0020
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:20:00 +0200
+Received: from relay21.poczta.example.com (relay21.poczta.example.com [192.0.2.21])
+ by mx21.poczta.example.com with ESMTPS id abcdefghijklmnop0021
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:21:00 +0200
+Received: from relay22.poczta.example.com (relay22.poczta.example.com [192.0.2.22])
+ by mx22.poczta.example.com with ESMTPS id abcdefghijklmnop0022
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:22:00 +0200
+Received: from relay23.poczta.example.com (relay23.poczta.example.com [192.0.2.23])
+ by mx23.poczta.example.com with ESMTPS id abcdefghijklmnop0023
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:23:00 +0200
+Received: from relay24.poczta.example.com (relay24.poczta.example.com [192.0.2.24])
+ by mx24.poczta.example.com with ESMTPS id abcdefghijklmnop0024
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:24:00 +0200
+Received: from relay25.poczta.example.com (relay25.poczta.example.com [192.0.2.25])
+ by mx25.poczta.example.com with ESMTPS id abcdefghijklmnop0025
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:25:00 +0200
+Received: from relay26.poczta.example.com (relay26.poczta.example.com [192.0.2.26])
+ by mx26.poczta.example.com with ESMTPS id abcdefghijklmnop0026
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:26:00 +0200
+Received: from relay27.poczta.example.com (relay27.poczta.example.com [192.0.2.27])
+ by mx27.poczta.example.com with ESMTPS id abcdefghijklmnop0027
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:27:00 +0200
+Received: from relay28.poczta.example.com (relay28.poczta.example.com [192.0.2.28])
+ by mx28.poczta.example.com with ESMTPS id abcdefghijklmnop0028
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:28:00 +0200
+Received: from relay29.poczta.example.com (relay29.poczta.example.com [192.0.2.29])
+ by mx29.poczta.example.com with ESMTPS id abcdefghijklmnop0029
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:29:00 +0200
+Received: from relay30.poczta.example.com (relay30.poczta.example.com [192.0.2.30])
+ by mx30.poczta.example.com with ESMTPS id abcdefghijklmnop0030
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:30:00 +0200
+Received: from relay31.poczta.example.com (relay31.poczta.example.com [192.0.2.31])
+ by mx31.poczta.example.com with ESMTPS id abcdefghijklmnop0031
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:31:00 +0200
+Received: from relay32.poczta.example.com (relay32.poczta.example.com [192.0.2.32])
+ by mx32.poczta.example.com with ESMTPS id abcdefghijklmnop0032
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:32:00 +0200
+Received: from relay33.poczta.example.com (relay33.poczta.example.com [192.0.2.33])
+ by mx33.poczta.example.com with ESMTPS id abcdefghijklmnop0033
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:33:00 +0200
+Received: from relay34.poczta.example.com (relay34.poczta.example.com [192.0.2.34])
+ by mx34.poczta.example.com with ESMTPS id abcdefghijklmnop0034
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:34:00 +0200
+Received: from relay35.poczta.example.com (relay35.poczta.example.com [192.0.2.35])
+ by mx35.poczta.example.com with ESMTPS id abcdefghijklmnop0035
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:35:00 +0200
+Received: from relay36.poczta.example.com (relay36.poczta.example.com [192.0.2.36])
+ by mx36.poczta.example.com with ESMTPS id abcdefghijklmnop0036
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:36:00 +0200
+Received: from relay37.poczta.example.com (relay37.poczta.example.com [192.0.2.37])
+ by mx37.poczta.example.com with ESMTPS id abcdefghijklmnop0037
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:37:00 +0200
+Received: from relay38.poczta.example.com (relay38.poczta.example.com [192.0.2.38])
+ by mx38.poczta.example.com with ESMTPS id abcdefghijklmnop0038
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:38:00 +0200
+Received: from relay39.poczta.example.com (relay39.poczta.example.com [192.0.2.39])
+ by mx39.poczta.example.com with ESMTPS id abcdefghijklmnop0039
+ for <rozliczenia@firma.example.com>; Mon, 05 Oct 2026 10:39:00 +0200
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector; d=poczta.example.com; cv=none;
+ b=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ x
+From: Kierownik Przykładowy <kierownik@klient.example.com>
+To: rozliczenia@firma.example.com
+Subject: RE: Akceptacja godzin wrzesień 2026 - Jan Korpusowy
+Date: Mon, 05 Oct 2026 10:00:00 +0200
+Message-ID: <korpus-3747@poczta.example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Akceptuję 168 godzin za wrzesień 2026.

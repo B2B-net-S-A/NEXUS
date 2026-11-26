@@ -1,0 +1,37 @@
+[
+ {
+  "id": "rozl-3924-raport-po-zmianie-klienta",
+  "poprawka": "c36b43fe2 #3924",
+  "opis": "Osoba przeszła do innego klienta; zakończony kontrakt działa jeszcze 60 dni, więc adres firmowy wskazywał dwa kontrakty i raport za IX czekał bez osoby",
+  "dzis": "2026-10-05",
+  "osoby": {
+   "A": {
+    "imie": "Marta",
+    "nazwisko": "Zmienna",
+    "email_kontraktu": "marta.prywatna@example.com",
+    "kontrakty": [
+     {"klient": "Bank Pocztowy Przykładowy", "status": "ended", "od": "2025-01-01", "do": "2026-08-31"},
+     {"klient": "Bank Przykładowy", "od": "2026-09-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "marta.zmienna@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Raport",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {"nazwa": "TS_09_2026.pdf", "tekst": "%PDF-1.4 fikcyjny raport 2026-09"},
+     {"nazwa": "TS_08_2026.pdf", "tekst": "%PDF-1.4 fikcyjny raport 2026-08"},
+     {"nazwa": "Faktura_FV3_10_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "TS_09_2026.pdf", "rodzaj": "report", "osoba": "A#2", "okres": "2026-09"},
+   {"plik": "TS_08_2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-08"},
+   {"plik": "Faktura_FV3_10_2026.pdf", "rodzaj": "invoice", "osoba": null}
+  ]
+ }
+]
