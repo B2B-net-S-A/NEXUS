@@ -848,6 +848,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_request'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS "
     "'candidate_claim_request_answer'",
+    # 0793: karty bez śladu — wróciły do „Nowych” i wrócą jutro.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'screening_cards_returned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'screening_cards_return_soon'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
     # 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",

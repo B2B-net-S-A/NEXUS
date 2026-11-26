@@ -1,6 +1,8 @@
 """Pętla kart bez śladu — co 15 minut, tylko w dzień roboczy.
 
-Reguła i przebieg: ``services/screening_stale.py``. Karta wraca w dniu
+Reguła i przebieg: ``services/screening_stale.py``. W dzień roboczy od 8:00
+raz dziennie także ostrzeżenie o kartach, które wrócą następnego dnia
+roboczego (26.11.2026). Karta wraca w dniu
 powrotu przy pierwszym przebiegu po północy (przed blokadą porcji o 7:00),
 a dedup dobowy dzwonka sprawia, że restart przy deployu nie dzwoni drugi raz.
 Na stagingu zatrzymana (kopia produkcji, wspólna baza sesji): ręcznie
@@ -11,10 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.services import loop_heartbeat
-from app.services.screening_stale import run_once_safely
+from app.core.scheduling import business_date
+from app.services.screening_stale import run_once_safely, warn_due, warn_once_safely
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +30,18 @@ async def screening_stale_loop() -> None:
     beat = loop_heartbeat.register(
         "screening_stale", max_silence_seconds=4 * _INTERVAL_SECONDS
     )
+    # Poranne ostrzeżenie (26.11.2026) raz dziennie od 8:00; po restarcie
+    # drugi raz nie dzwoni (dzisiejszy dzwonek się tylko aktualizuje).
+    warned_on = None
     while True:
         beat.tick()
         if settings.SCREENING_STALE_RETURN_ENABLED:
             try:
                 await run_once_safely()
+                now = datetime.now(timezone.utc)
+                if warned_on != business_date(now) and warn_due(now):
+                    if await warn_once_safely(now) is not None:
+                        warned_on = business_date(now)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

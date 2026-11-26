@@ -119,10 +119,15 @@ def test_decision_clock_restarts_when_the_card_comes_back() -> None:
     assert back == 0
 
 
-def test_bell_text_names_three_people_and_counts_the_rest() -> None:
-    assert svc.bell_text(1, ["Anna Nowak"]).startswith("Anna Nowak: 2 dni robocze")
-    text = svc.bell_text(5, ["A", "B", "C", "D", "E"])
-    assert text.startswith("A, B, C i 2 więcej")
+def test_bell_lists_every_person_per_recruitment_biggest_first() -> None:
+    """26.11.2026: dzwonek wymieniał trzy nazwiska i „i N więcej” — rekruter
+    nie wiedział, kto mu wrócił. Teraz pełna lista, po rekrutacjach."""
+    lines = svc._job_lines(
+        {10: [1], 20: [2, 3, 4, 5]},
+        {10: "Java", 20: "DBA"},
+        {1: "Anna N.", 2: "B", 3: "C", 4: "D", 5: "E"},
+    )
+    assert lines == ["DBA (4): B, C, D, E", "Java (1): Anna N."]
 
 
 def test_people_in_polish() -> None:
@@ -135,4 +140,25 @@ def test_people_in_polish() -> None:
         "22 osoby",
         "25 osób",
     ]
-    assert svc.bell_title(3, "Java") == "3 osoby znów dla wszystkich · Java"
+    assert svc.returned_bell_title(3, 1) == "Wróciło do „Nowych”: 3 osoby"
+    assert svc.returned_bell_title(0, 2) == "„Biorę” wygasło: 2 osoby"
+
+
+def test_soon_bell_says_tomorrow_or_the_weekday() -> None:
+    # Środa → czwartek: „Jutro”; piątek → poniedziałek: „W poniedziałek”.
+    assert (
+        svc.soon_bell_title(2, date(2026, 11, 18), date(2026, 11, 19))
+        == "Jutro wrócą do „Nowych”: 2 osoby"
+    )
+    assert (
+        svc.soon_bell_title(5, date(2026, 11, 20), date(2026, 11, 23))
+        == "W poniedziałek wrócą do „Nowych”: 5 osób"
+    )
+    assert svc.next_workday(date(2026, 11, 20)) == date(2026, 11, 23)
+
+
+def test_warning_only_on_workdays_between_8_and_20() -> None:
+    assert svc.warn_due(_at("2026-11-18", 8))
+    assert not svc.warn_due(_at("2026-11-18", 7))
+    assert not svc.warn_due(_at("2026-11-18", 20))
+    assert not svc.warn_due(_at("2026-11-21", 10))  # sobota

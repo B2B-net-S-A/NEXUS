@@ -235,6 +235,14 @@ class NotificationType(str, enum.Enum):
     candidate_claim_handover = "candidate_claim_handover"
     candidate_claim_request = "candidate_claim_request"
     candidate_claim_request_answer = "candidate_claim_request_answer"
+    # 0793: karty bez śladu (`services/screening_stale.py`, 26.11.2026). Jeden
+    # dzwonek dziennie na osobę ze wszystkimi kartami, które jej wróciły ze
+    # „Screeningu” (aktualizowany po każdym przebiegu), i poranne ostrzeżenie
+    # o kartach, które wrócą następnego dnia roboczego —
+    # related_entity=("user", id odbiorcy). Własne typy, bo wspólny
+    # `candidate_claim_taken` blokował się z „przejął(a) osobę” w dedupie.
+    screening_cards_returned = "screening_cards_returned"
+    screening_cards_return_soon = "screening_cards_return_soon"
     # 0352: podpis umowy przeniósł osobę na „Zatrudniony", a zamówienia od
     # klienta jeszcze nie ma — do Finansów; related_entity=(contract, id).
     hired_order_missing = "hired_order_missing"

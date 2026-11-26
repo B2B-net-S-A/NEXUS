@@ -240,10 +240,9 @@ async def _bells(user_id: int, job_id: int) -> list[Notification]:
                 await db.scalars(
                     select(Notification).where(
                         Notification.user_id == user_id,
-                        Notification.related_entity_type == "job",
-                        Notification.related_entity_id == job_id,
+                        Notification.link == f"/jobs/{job_id}",
                         Notification.notification_type
-                        == NotificationType.candidate_claim_taken,
+                        == NotificationType.screening_cards_returned,
                     )
                 )
             ).all()
@@ -300,7 +299,9 @@ async def test_silent_screening_card_returns_to_new_for_everyone() -> None:
             ).all()
             assert {"stage_changed", svc.ACTION_RETURNED} <= set(acts)
         (bell,) = await _bells(rec, world["job_id"])
-        assert bell.title.startswith("1 osoba znów dla wszystkich")
+        assert bell.title == "Wróciło do „Nowych”: 1 osoba"
+        assert bell.related_entity_type == "user" and bell.related_entity_id == rec
+        assert "Wróciły od Ciebie" in bell.message
         assert await _bells(other, world["job_id"]) == []
         # Drugi przebieg nic nie powtarza.
         again = await _sweep(world, THURSDAY_MORNING + timedelta(minutes=15))
@@ -587,5 +588,135 @@ async def test_board_says_when_the_card_returns() -> None:
         async with AsyncSessionLocal() as db:
             days = await svc.return_days_for_jobs(db, [world["job_id"]])
         assert days[world["job_id"]][world["candidate_id"]].isoformat() == "2026-11-19"
+    finally:
+        await _cleanup(world)
+
+
+async def _returned_bells(user_id: int) -> list[Notification]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.user_id == user_id,
+                        Notification.notification_type
+                        == NotificationType.screening_cards_returned,
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_one_bell_a_day_lists_cards_from_every_run() -> None:
+    """26.11.2026: przebiegi po 200 kart dawały osobne dzwonki, a dzienny dedup
+    puszczał tylko pierwszy. Teraz drugi przebieg dopisuje karty do tego samego
+    dzwonka i zostawia go nieprzeczytanym."""
+    rec = await _user()
+    first, second = await _world(), await _world()
+    try:
+        await _in_screening(first, rec)
+        await _in_screening(second, rec)
+        await _sweep(first, THURSDAY_MORNING)
+        (bell,) = await _returned_bells(rec)
+        assert bell.title == "Wróciło do „Nowych”: 1 osoba"
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Notification, bell.id)
+            row.is_read = True
+            await db.commit()
+
+        await _sweep(second, THURSDAY_MORNING + timedelta(minutes=15))
+        (bell,) = await _returned_bells(rec)
+        assert bell.title == "Wróciło do „Nowych”: 2 osoby"
+        assert bell.is_read is False
+        async with AsyncSessionLocal() as db:
+            for world in (first, second):
+                cand = await db.get(Candidate, world["candidate_id"])
+                assert cand.lastname in bell.message
+    finally:
+        await _cleanup(first)
+        await _cleanup(second)
+
+
+async def test_claim_taken_bell_the_same_day_does_not_block_the_return_bell() -> None:
+    from app.services.notification_triggers import emit
+
+    rec = await _user()
+    world = await _world()
+    try:
+        await _in_screening(world, rec)
+        async with AsyncSessionLocal() as db:
+            await emit(
+                db,
+                user_id=rec,
+                title="Ktoś przejął osobę",
+                message="…",
+                ntype=NotificationType.candidate_claim_taken,
+                related_entity_type="job",
+                related_entity_id=world["job_id"],
+            )
+            await db.commit()
+        await _sweep(world, THURSDAY_MORNING)
+        assert len(await _returned_bells(rec)) == 1
+    finally:
+        await _cleanup(world)
+
+
+async def _soon_bells(user_id: int) -> list[Notification]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.user_id == user_id,
+                        Notification.notification_type
+                        == NotificationType.screening_cards_return_soon,
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_morning_warning_the_day_before_the_return() -> None:
+    rec = await _user()
+    world = await _world()
+    try:
+        await _in_screening(world, rec)  # ślad w poniedziałek → wraca w czwartek
+        wednesday = datetime(2026, 11, 18, 9, tzinfo=WAW).astimezone(timezone.utc)
+        tuesday = datetime(2026, 11, 17, 9, tzinfo=WAW).astimezone(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            assert (
+                await svc.send_soon_bells(db, now=tuesday, job_ids=[world["job_id"]])
+                == 0
+            )
+            sent = await svc.send_soon_bells(
+                db, now=wednesday, job_ids=[world["job_id"]]
+            )
+            await db.commit()
+        assert sent == 1
+        (bell,) = await _soon_bells(rec)
+        assert bell.title == "Jutro wrócą do „Nowych”: 1 osoba"
+        assert bell.link == f"/jobs/{world['job_id']}"
+        assert "Nie odebrał" in bell.message
+    finally:
+        await _cleanup(world)
+
+
+async def test_friday_warning_names_monday_and_weekend_sends_nothing() -> None:
+    rec = await _user()
+    world = await _world()
+    try:
+        # Ślad w środę 18.11 → wraca w poniedziałek 23.11.
+        await _in_screening(world, rec, at=datetime(2026, 11, 18, 10, tzinfo=WAW))
+        friday = datetime(2026, 11, 20, 9, tzinfo=WAW).astimezone(timezone.utc)
+        saturday = SATURDAY.astimezone(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            assert (
+                await svc.send_soon_bells(db, now=saturday, job_ids=[world["job_id"]])
+                == 0
+            )
+            await svc.send_soon_bells(db, now=friday, job_ids=[world["job_id"]])
+            await db.commit()
+        (bell,) = await _soon_bells(rec)
+        assert bell.title == "W poniedziałek wrócą do „Nowych”: 1 osoba"
     finally:
         await _cleanup(world)

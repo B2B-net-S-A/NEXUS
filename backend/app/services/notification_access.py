@@ -204,6 +204,9 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.candidate_claim_handover: ProductSection.pipeline,
     NotificationType.candidate_claim_request: ProductSection.pipeline,
     NotificationType.candidate_claim_request_answer: ProductSection.pipeline,
+    # 0793: karty bez śladu — link prowadzi na Tablicę rekrutacji.
+    NotificationType.screening_cards_returned: ProductSection.pipeline,
+    NotificationType.screening_cards_return_soon: ProductSection.pipeline,
     # 0645: Finanse i Back office; „Dodaj zamówienie” prowadzi do Delivery.
     NotificationType.hired_order_missing: ProductSection.delivery,
     NotificationType.consultant_in_other_recruitment: ProductSection.delivery,

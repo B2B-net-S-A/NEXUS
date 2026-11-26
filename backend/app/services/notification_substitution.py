@@ -46,6 +46,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.candidate_claim_handover,
         T.candidate_claim_request,
         T.candidate_claim_request_answer,
+        T.screening_cards_returned,
+        T.screening_cards_return_soon,
         T.candidate_feedback_1h,
         T.candidate_followup_signal,
         T.candidate_rate_change,

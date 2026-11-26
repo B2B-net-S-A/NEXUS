@@ -37,10 +37,21 @@ w 137 rekrutacjach, 33 osoby z dzwonkiem.
 - **Gdzie działa:** opublikowane rekrutacje. Zamknięta i szkic zostają, jak
   były (zamknięcie zostawia osoby tam, gdzie stały).
 - **Dzwonek** dostaje osoba z „Biorę”, a w Screeningu bez niej osoba, która
-  kartę tam przesunęła. Jeden na osobę i rekrutację, typ
-  `candidate_claim_taken` (kategoria przekazań, jak „przejął(a) osobę”), więc
-  bez migracji enuma. Dedup dobowy `emit` po rekrutacji: restart nie dzwoni
-  drugi raz.
+  kartę tam przesunęła. Od 26.11.2026 jeden dzwonek **dziennie na osobę**
+  (typ `screening_cards_returned`, kategoria „Wzmianki”, temat „Rekrutacje”,
+  encja `("user", id)`), liczony ze wszystkich dzisiejszych wpisów
+  `stale_card_returned` tej osoby, z pełną listą nazwisk po rekrutacjach.
+  Kolejny przebieg tego dnia aktualizuje treść i oznacza dzwonek jako
+  nieprzeczytany (`_upsert_daily`). Dotąd dzwonek szedł typem
+  `candidate_claim_taken` po każdym przebiegu (najwyżej 200 kart), a dzienny
+  dedup przepuszczał tylko pierwszy: 24.11 na produkcji 593 z 1 632 kart nie
+  trafiło do żadnego dzwonka, a „przejął(a) osobę” blokował powrót.
+- **Ostrzeżenie dzień wcześniej:** w dzień roboczy od 8:00 do 20:00 raz
+  dziennie (`warn_due`, `warn_once_safely` w pętli) osoba dostaje „Jutro wrócą
+  do „Nowych”: N osób” (w piątek „W poniedziałek…”) z nazwiskami i zdaniem,
+  co zatrzymuje kartę. Typ `screening_cards_return_soon`, kategoria
+  „Zaległości i przypomnienia” (do wyciszenia). Na stagingu:
+  `python -m scripts.screening_stale_return --warn --as-of <moment> [--apply]`.
 - **„Prowadzi” zostaje.** Przypisanie admina i HoR (`prowadzi-przypisanie-osoby.md`)
   to decyzja przełożonego, automat go nie zdejmuje. Karta z „Prowadzi” wraca
   do „Nowych” jak każda.
