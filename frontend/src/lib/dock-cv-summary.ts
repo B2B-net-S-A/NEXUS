@@ -29,6 +29,7 @@ export interface DockSnapshotInput {
    * `client_cv_repair` = jednorazowa naprawa 15.10.2026: kopia trzymała CV do
    * klienta („B2B_…”), wróciła do CV kandydata z profilu,
    * `contract_repair` = jednorazowa naprawa 30.10.2026: to samo dla kopii umowy.
+   * `certificate_restore` = wróciło CV osoby, bo wgrany „CV” był certyfikatem (26.11.2026).
    */
   original_snapshot_source?: string | null;
   /** Suma pliku w kopii etapu; stare kopie mogą jej nie mieć. */
@@ -115,6 +116,10 @@ export function originalCvSentence(state: DockOriginalCv): string {
       if (state.source === "quarantine_restore") {
         // Bramka tożsamości: wgrane CV nie pasowało do osoby, kopia wróciła do jej CV.
         return `Oryginał CV: poprzednie CV${state.filename ? ` · ${state.filename}` : ""} — wgrane nie pasowało do tej osoby`;
+      }
+      if (state.source === "certificate_restore") {
+        // 26.11.2026: wgrany „CV” był certyfikatem, kopia wróciła do CV osoby.
+        return `Oryginał CV: poprzednie CV${state.filename ? ` · ${state.filename}` : ""} — wgrany plik to certyfikat`;
       }
       return `Oryginał CV: dołączony do zgłoszenia${when}`;
     }

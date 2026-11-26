@@ -7789,6 +7789,58 @@ async def _apply_batch_document_read(
             raise
 
 
+async def _set_aside_certificate(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    document: CandidateDocument,
+    replaced_primary: Optional[ReplacedPrimaryCv],
+    actor_user_id: Optional[int],
+) -> None:
+    """Wgrany „CV” to certyfikat: rodzaj „certyfikat”, główne CV wraca.
+
+    Profil zostaje bez zmian, kopie CV etapu wracają do bieżącego CV osoby
+    (wgranie z rekrutacji robi z pliku od razu kopię etapu). Commituje sam.
+    """
+    from app.services.candidate_identity_quarantine import restore_previous_primary
+    from app.services.candidate_stage_cv_service import (
+        restore_stage_copies_after_quarantine,
+    )
+
+    candidate = await _relock_candidate(db, candidate_id)
+    if candidate is None:
+        return
+    was_primary = document.is_primary
+    document.document_kind = CandidateDocumentKind.certificate
+    document.is_primary = False
+    if was_primary and replaced_primary is not None:
+        await restore_previous_primary(
+            db, candidate=candidate, rejected=document, replaced=replaced_primary
+        )
+    await restore_stage_copies_after_quarantine(
+        db,
+        candidate=candidate,
+        quarantined_sha256=document.content_sha256,
+        source="certificate_restore",
+        action="snapshot_certificate_restored",
+    )
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="cv_upload_is_certificate",
+            user_id=actor_user_id,
+            details={"document_id": document.id, "filename": document.filename},
+        )
+    )
+    await db.commit()
+    logger.info(
+        "[cv_enrich] certyfikat zamiast CV candidate=%s document=%s",
+        candidate_id,
+        document.id,
+    )
+
+
 async def _enrich_candidate_from_document_task(
     candidate_id: int,
     document_id: int,
@@ -7798,8 +7850,13 @@ async def _enrich_candidate_from_document_task(
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
     force_read: bool = False,
     defer_to_batch: bool = False,
+    certificate_check: bool = False,
 ) -> Optional[bool]:
     """Extract and enrich from the still-current primary CV version.
+
+    `certificate_check` (26.11.2026) = nowo wgrany plik: certyfikat nie
+    zostaje głównym CV (`_set_aside_certificate`). Ręczny wybór głównego CV
+    i ponowny odczyt tego nie sprawdzają.
 
     Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
     ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
@@ -7817,6 +7874,7 @@ async def _enrich_candidate_from_document_task(
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_parse_batch, cv_text_extractor
+    from app.services.cv_certificate import looks_like_certificate_text
     from app.services.cv_parser import parse_cv
     from app.services.cv_source import quarantined_copy_document_ids
     from app.services.cv_upload_dedup import profile_holds_read_of_file
@@ -7890,6 +7948,15 @@ async def _enrich_candidate_from_document_task(
                 document.filename,
             )
             if not raw_text:
+                return
+            if certificate_check and looks_like_certificate_text(raw_text):
+                await _set_aside_certificate(
+                    db,
+                    candidate_id=candidate_id,
+                    document=document,
+                    replaced_primary=replaced_primary,
+                    actor_user_id=actor_user_id,
+                )
                 return
             if defer_to_batch and await cv_parse_batch.enqueue(
                 db,
@@ -8990,10 +9057,13 @@ async def _after_cv_commit(
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
     defer_to_batch: bool = False,
+    certificate_check: bool = True,
 ) -> None:
     """Schedule identity-gated extraction/enrichment once the row is durable.
 
     `defer_to_batch` — CV z integracji idzie do odczytu wsadem (22.11.2026).
+    `certificate_check` — nowo wgrany plik; `False` przy pliku z profilu
+    wybranym świadomie (26.11.2026, `cv_certificate`).
     """
     candidate_id = candidate.id
     # The task reads the immutable document bytes, extracts identity first and
@@ -9006,6 +9076,7 @@ async def _after_cv_commit(
         actor_user_id=actor_user_id,
         replaced_primary=replaced_primary,
         defer_to_batch=defer_to_batch,
+        certificate_check=certificate_check,
     )
 
 

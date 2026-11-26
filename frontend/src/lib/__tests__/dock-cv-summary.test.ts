@@ -192,6 +192,10 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
     expect(originalCvSentence(snapshot("2026-10-13T13:12:00Z", "quarantine_restore", "wlasne.pdf"))).toBe(
       "Oryginał CV: poprzednie CV · wlasne.pdf — wgrane nie pasowało do tej osoby",
     );
+    // 26.11.2026: wgrany „CV” był certyfikatem, kopia wróciła do CV osoby.
+    expect(originalCvSentence(snapshot("2026-11-26T13:12:00Z", "certificate_restore", "wlasne.pdf"))).toBe(
+      "Oryginał CV: poprzednie CV · wlasne.pdf — wgrany plik to certyfikat",
+    );
   });
 
   it("nowsze CV w profilu: główne CV młodsze od kopii o co najmniej minutę", () => {
