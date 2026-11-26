@@ -54,6 +54,7 @@ type QueueItem = {
   candidate_id: number;
   entry_source?: string | null;
   claim_user_id?: number | null;
+  claim_until?: string | null;
   /** Karta wróciła ze „Screeningu” (26.11.2026, `lib/screening-returned.ts`). */
   returned_from_screening?: { at: string; holder_user_id?: number | null } | null;
   /** Wynik „Sprawdź w CV” / przeglądu AI — „pasuje” wyciąga z grupy zwiniętej. */
@@ -176,8 +177,11 @@ export function orderNewColumn<T extends QueueItem>(
 } {
   // „Wróciły od Ciebie” (26.11.2026): karty, które automat oddał ze Screeningu
   // osobie, która patrzy — na samej górze, najświeższy powrót pierwszy.
+  // Karta, którą wziął już ktoś inny („Biorę”), nie jest już do wzięcia z powrotem.
   const isMine = (item: T) =>
-    viewerId != null && item.returned_from_screening?.holder_user_id === viewerId;
+    viewerId != null &&
+    item.returned_from_screening?.holder_user_id === viewerId &&
+    !(item.claim_user_id != null && item.claim_user_id !== viewerId && Boolean(item.claim_until));
   const returnedMine = allItems
     .filter(isMine)
     .sort(

@@ -329,3 +329,16 @@ describe("„Wróciły od Ciebie” (26.11.2026)", () => {
     expect(returnedMine).toBe(0);
   });
 });
+
+describe("„Wróciły od Ciebie” a cudze „Biorę” (przegląd 26.11)", () => {
+  it("karta wzięta przez kogoś innego nie stoi w mojej grupie", () => {
+    const taken = system(2, 70, {
+      returned_from_screening: { at: "2026-11-26T00:06:00Z", holder_user_id: 7 },
+      claim_user_id: 9,
+      claim_until: "2999-01-01T00:00:00Z",
+    });
+    const { returnedMine, sections } = orderNewColumn([taken], undefined, 7);
+    expect(returnedMine).toBe(0);
+    expect(sections.get(2)).not.toBe("returned_mine");
+  });
+});

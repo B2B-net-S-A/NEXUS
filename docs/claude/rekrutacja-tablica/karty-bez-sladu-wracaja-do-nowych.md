@@ -138,6 +138,9 @@ https://claude.ai/artifact/FqzXsyeZdmoVACwzrHibUg
   i „Weź z powrotem” = `POST /api/pipeline/claim`, potem ruch strzałką „→”
   (ta sama droga, `deferMove` albo „Przesuń dalej”). Pozostali widzą pod kartą
   „Wróciła ze Screeningu od: <osoba>”. Karta dalej jest dla wszystkich.
+  Gdy kartę wziął już ktoś inny („Biorę” innej osoby z terminem), nie stoi
+  w grupie i nie ma napisu. Gdy „Biorę” jest już patrzącego (np. po „Cofnij”),
+  „Weź z powrotem” robi sam ruch, bo własnej blokady nie da się przedłużyć (409).
 - **„Screening”:** pasek nad kolumną liczy karty z napisem „Wraca do „Nowych”
   …” (`screeningWarning`), a pod taką kartą stoi „Nie odebrał”
   (`useNoAnswerNote`, ta sama notatka-próba co w doku), który zatrzymuje kartę.

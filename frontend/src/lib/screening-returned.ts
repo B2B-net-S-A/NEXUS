@@ -20,6 +20,15 @@ export interface ReturnedFromScreening {
 
 interface ReturnedItem {
   returned_from_screening?: ReturnedFromScreening | null;
+  claim_user_id?: number | null;
+  claim_until?: string | null;
+}
+
+/** Ktoś inny niż `userId` trzyma kartę „Biorę” (ta sama miara co
+ *  `claimAction`: osoba i termin blokady). Wtedy powrót przestaje być
+ *  sprawą osoby, od której karta wróciła. */
+export function claimedByOther(item: ReturnedItem, userId: number | null | undefined): boolean {
+  return item.claim_user_id != null && item.claim_user_id !== userId && Boolean(item.claim_until);
 }
 
 const DAY = new Intl.DateTimeFormat("pl-PL", {
@@ -37,13 +46,15 @@ function dayLabel(iso: string | null | undefined): string | null {
 /** Karta wróciła od osoby, która patrzy na Tablicę. */
 export function returnedToViewer(item: ReturnedItem, viewerId: number | null | undefined): boolean {
   const holder = item.returned_from_screening?.holder_user_id;
-  return viewerId != null && holder != null && holder === viewerId;
+  return viewerId != null && holder != null && holder === viewerId && !claimedByOther(item, viewerId);
 }
 
 /** Napis pod kartą w „Nowych”; `null` = karta nie wróciła ze Screeningu. */
 export function returnedLine(item: ReturnedItem, viewerId: number | null | undefined): string | null {
   const returned = item.returned_from_screening;
   if (!returned) return null;
+  // Kartę wziął już ktoś inny niż osoba, od której wróciła — napis by mylił.
+  if (claimedByOther(item, returned.holder_user_id)) return null;
   const when = dayLabel(returned.at);
   if (returnedToViewer(item, viewerId)) {
     // Grupa nad kartą mówi już „Wróciły od Ciebie” — tu sam dzień, żeby

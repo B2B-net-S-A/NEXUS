@@ -2826,9 +2826,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // „Weź z powrotem” (26.11.2026): karta, która wróciła od patrzącego ze
  // „Screeningu” — „Biorę”, a potem ruch do „Screeningu” tą samą drogą co
  // strzałka „→” (10 s na „Cofnij” albo okno „Przesuń dalej”). Gdy „Biorę”
- // się nie uda (ktoś był szybszy), karta zostaje w „Nowych”.
+ // się nie uda (ktoś był szybszy), karta zostaje w „Nowych”. Własne „Biorę”
+ // już jest (np. po „Cofnij”) — sam ruch, bo blokady nie da się przedłużyć (409).
  const takeBack = useCallback(
  async (item: KanbanItem) => {
+ if (item.claim_user_id != null && item.claim_user_id === authUser?.id && item.claim_until) {
+ onArrowAdvance(item);
+ return;
+ }
  setTakingIds((prev) => new Set(prev).add(item.id));
  try {
  await api.post("/api/pipeline/claim", {
@@ -2847,7 +2852,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  }
  onArrowAdvance(item);
  },
- [jobId, showError, onArrowAdvance]
+ [jobId, showError, onArrowAdvance, authUser?.id]
  );
  // `openDock` powstaje niżej (zależy od kolumn i warsztatu) — kontekst karty
  // woła go przez ref, żeby „Screening razem” z okienka karty otwierał panel.

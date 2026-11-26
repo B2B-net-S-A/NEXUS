@@ -64,3 +64,18 @@ describe("pasek nad Screeningiem", () => {
     ]);
   });
 });
+
+describe("wrócona karta, którą ktoś już wziął „Biorę” (przegląd 26.11)", () => {
+  it("cudza aktywna blokada: nie moja grupa i bez napisu „od: …”", () => {
+    const taken = { ...card(261), claim_user_id: 5, claim_until: "2999-01-01T00:00:00Z" };
+    expect(returnedToViewer(taken, 261)).toBe(false);
+    expect(returnedLine(taken, 261)).toBeNull();
+    expect(returnedLine(taken, 9)).toBeNull();
+  });
+
+  it("własne „Biorę” po „Cofnij”: karta dalej w mojej grupie", () => {
+    const mine = { ...card(261), claim_user_id: 261, claim_until: "2999-01-01T00:00:00Z" };
+    expect(returnedToViewer(mine, 261)).toBe(true);
+    expect(returnedLine(mine, 261)).toBe("Wróciła 26.11");
+  });
+});

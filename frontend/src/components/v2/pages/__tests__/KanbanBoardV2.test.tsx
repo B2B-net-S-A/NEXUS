@@ -600,6 +600,25 @@ describe("KanbanBoardV2 — karty, które wróciły ze Screeningu (26.11.2026)",
     expect(screen.getAllByTestId("card-take-back")).toHaveLength(1);
   });
 
+  it("„Weź z powrotem” przy własnym „Biorę” nie prosi o blokadę drugi raz, cudza karta nie ma przycisku", async () => {
+    useAuthStore.setState({
+      user: { id: 7, role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    post.mockClear();
+    const cols = returnedColumns() as unknown as { items: Record<string, unknown>[] }[];
+    // Karta 2 wróciła od patrzącego i ma już jego „Biorę” (np. po „Cofnij”).
+    Object.assign(cols[0].items[1], { claim_user_id: 7, claim_until: "2999-01-01T00:00:00Z" });
+    // Karta 3 wróciła od osoby 9, a teraz trzyma ją ktoś trzeci (11).
+    Object.assign(cols[0].items[2], { claim_user_id: 11, claim_until: "2999-01-01T00:00:00Z" });
+    renderBoard(cols as never);
+
+    const button = await screen.findByTestId("card-take-back");
+    expect(screen.getAllByTestId("card-take-back")).toHaveLength(1);
+    expect(screen.getAllByTestId("card-returned-line")).toHaveLength(1);
+    fireEvent.click(button);
+    expect(post).not.toHaveBeenCalledWith("/api/pipeline/claim", expect.anything());
+  });
+
   it("pasek nad „Screeningiem” liczy karty, które wrócą, i daje im „Nie odebrał”", async () => {
     useAuthStore.setState({
       user: { id: 7, role: "recruiter", roles: ["recruiter"] } as never,
