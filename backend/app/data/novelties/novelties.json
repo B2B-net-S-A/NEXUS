@@ -5227,6 +5227,50 @@
     ]
   },
   {
+    "id": "nowe-cv-wyroznik-propozycja-ai",
+    "pr": 4058,
+    "title": "Nowe CV: wyróżnik z propozycji AI — do CV dopiero po „Przyjmij”",
+    "why": "AI szuka w CV nagrody albo certyfikatu z wymagań MUST i pokazuje go z cytatem z CV. Do CV trafia dopiero po „Przyjmij”; odrzucony nie wraca, a „Popraw jako własny” daje jego słowa do poprawy.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → Edytuj CV → Strona 1 → Wyróżnik",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990108",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.page1.highlight",
+    "steps": [
+      {
+        "anchor": "person.cv.edit",
+        "text": "Kliknij „Edytuj CV”.",
+        "hint": "Edytor Nowego CV otwiera się na zakładce „Strona 1”. Sekcja „Wyróżnik” ma pod trybami część „Propozycja AI”. Na Poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "cv-editor.page1.highlight-find",
+        "text": "W „Propozycji AI” kliknij „Poszukaj w CV”.",
+        "hint": "AI szuka w CV nagrody, wyróżnienia albo certyfikatu z wymagań MUST. Bez cytatu z CV, który sprawdza NEXUS, propozycji nie ma."
+      },
+      {
+        "anchor": "cv-editor.page1.highlight-proposal",
+        "text": "Propozycja: rodzaj, zdanie pod nazwisko i cytat z CV.",
+        "hint": "Sama propozycja nie zmienia CV. „Odrzuć” usuwa ją na stałe, „Popraw jako własny” przenosi jej słowa do „Własnego”.",
+        "ack": true
+      },
+      {
+        "anchor": "cv-editor.page1.highlight-accept",
+        "text": "Kliknij „Przyjmij”.",
+        "hint": "Dopiero teraz wyróżnik staje pod nazwiskiem na stronie 1. Gdy z CV zniknie cytowany fragment, strona 1 wróci do automatu."
+      }
+    ]
+  },
+  {
     "id": "nowe-cv-zdania-strony-1",
     "pr": 3972,
     "title": "Nowe CV: trzy zdania strony 1 sprawdzone z CV",
