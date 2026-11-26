@@ -60,6 +60,32 @@ describe("MoveRequirementList", () => {
     const onAction = vi.fn();
     render(<MoveRequirementList items={[DEAL_BREAKER]} askedDuringMove onAction={onAction} />);
     screen.getByRole("button", { name: "Odrzuć z powodem" }).click();
-    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ kind: "reject", note: "Odpada, gdy: brak Javy" }));
+    // Drugi argument to wiersz — dok rozróżnia po nim formularz od tabeli (26.11.2026).
+    expect(onAction).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "reject", note: "Odpada, gdy: brak Javy" }),
+      DEAL_BREAKER,
+    );
+  });
+
+  it("akcja w toku: kręciołek, wyłączony przycisk i zdanie zamiast opisu braku", () => {
+    const item: MoveRequirementItem = {
+      key: "client_form",
+      label: "Formularz CV klienta",
+      status: "missing",
+      blocking: false,
+      detail: "jeszcze nie wypełniony",
+      action: { kind: "open_client_form", label: "Wypełnij formularz", stage_id: 5 },
+    };
+    render(
+      <MoveRequirementList
+        items={[item]}
+        askedDuringMove
+        onAction={vi.fn()}
+        actionBusy={() => ({ label: "Wypełniam…", note: "zwykle do minuty" })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Wypełniam…/ })).toBeDisabled();
+    expect(screen.getByText("zwykle do minuty")).toBeInTheDocument();
+    expect(screen.queryByText("jeszcze nie wypełniony")).toBeNull();
   });
 });

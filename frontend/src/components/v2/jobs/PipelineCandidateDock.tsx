@@ -135,7 +135,9 @@ import {
   MOVE_REQUIREMENTS_PREFIX,
   useMoveRequirements,
   type MoveRequirementAction,
+  type MoveRequirementItem,
 } from "@/lib/api/moveRequirements";
+import { useClientForm } from "@/lib/api/clientForms";
 import { recommendationCardQueryKey } from "@/lib/api/recommendationCards";
 import { screeningFormQueryKey, useScreeningFormState } from "@/lib/api/screeningForm";
 import { screeningSectionSummary } from "@/lib/screening-summary";
@@ -199,6 +201,8 @@ import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { DockCvFreshness, profileReadPending } from "@/components/v2/jobs/DockCvFreshness";
 import { CompanyCvStaleNotice } from "@/components/v2/recruitment/CompanyCvStaleNotice";
 import { ClientFormCard } from "@/components/v2/recruitment/client-form/ClientFormCard";
+import { useClientFormFill } from "@/components/v2/recruitment/client-form/useClientFormFill";
+import type { ActionBusy } from "@/components/v2/recruitment/MoveRequirementList";
 import {
   ClientQuestionsNoteHint,
   DockClientInterviewQuestions,
@@ -964,6 +968,13 @@ export function PipelineCandidateDock({
   const [openGenerator, setOpenGenerator] = useState(false);
   // 0521: okno braków formularza CV klienta („Uzupełnij formularz” z wymagań).
   const [clientFormOpen, setClientFormOpen] = useState(false);
+  const [clientScoreOpen, setClientScoreOpen] = useState(false);
+  // „Wypełnij formularz / tabelę” w ramce „Następny etap” (26.11.2026): to samo
+  // wypełnienie i ta sama pamięć co karty w sekcji CV.
+  const clientFormQuery = useClientForm(item.id, Boolean(item.client_form), "form");
+  const clientScoreQuery = useClientForm(item.id, Boolean(item.client_form), "score");
+  const clientFormFill = useClientFormFill(item.id, "form");
+  const clientScoreFill = useClientFormFill(item.id, "score");
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
   const [openBlacklist, setOpenBlacklist] = useState(false);
@@ -1370,7 +1381,38 @@ export function PipelineCandidateDock({
         return false;
     }
   };
-  const handleRequirementAction = (action: MoveRequirementAction) => {
+  const openClientDocument = async (requirement: MoveRequirementItem | undefined) => {
+    const score = requirement?.key === "client_score";
+    const query = score ? clientScoreQuery : clientFormQuery;
+    const view = query.data ?? (await query.refetch()).data;
+    const setOpen = score ? setClientScoreOpen : setClientFormOpen;
+    // Okno formularza istnieje tylko przy wypełnionym — niewypełniony najpierw
+    // wypełnia model, a okno otwiera się, gdy zostały braki do uzupełnienia.
+    if (view?.status === "filled") {
+      setOpenSections((prev) => new Set(prev).add("cv"));
+      setOpen(true);
+      return;
+    }
+    const filled = await (score ? clientScoreFill : clientFormFill).fill();
+    if (filled?.status === "filled" && filled.missing.length > 0) {
+      setOpenSections((prev) => new Set(prev).add("cv"));
+      setOpen(true);
+    }
+  };
+  const requirementBusy = (
+    action: MoveRequirementAction,
+    requirement: MoveRequirementItem,
+  ): ActionBusy | null => {
+    if (action.kind !== "open_client_form") return null;
+    const fill = requirement.key === "client_score" ? clientScoreFill : clientFormFill;
+    return fill.filling
+      ? {
+          label: "Wypełniam…",
+          note: "NEXUS wpisuje dane z CV, screeningu i notatek — zwykle do minuty. Potem otworzy się okno z brakami.",
+        }
+      : null;
+  };
+  const handleRequirementAction = (action: MoveRequirementAction, requirement?: MoveRequirementItem) => {
     const stageId = action.stage_id ?? item.id;
     switch (action.kind) {
       case "open_screening":
@@ -1383,8 +1425,7 @@ export function PipelineCandidateDock({
         setOpenGenerator(true);
         return;
       case "open_client_form":
-        setOpenSections((prev) => new Set(prev).add("cv"));
-        setClientFormOpen(true);
+        void openClientDocument(requirement);
         return;
       case "set_candidate_rate":
         // Stawkę kandydata zapisuje ruch na „Zweryfikowany” (okno stawki).
@@ -1669,6 +1710,7 @@ export function PipelineCandidateDock({
       onMoveToStageDef={onMoveToStageDef}
       onAction={handleRequirementAction}
       canAct={canActOnRequirement}
+      actionBusy={requirementBusy}
       refreshToken={item}
       item={item}
     />
@@ -2514,6 +2556,8 @@ export function PipelineCandidateDock({
                 stageId={item.id}
                 candidateName={fullName}
                 readOnly={readOnly}
+                openDialog={clientScoreOpen}
+                onOpenDialogChange={setClientScoreOpen}
               />
             ) : null}
             {/* Dwa dokumenty, dwa zdania, a pod każdym jego akcje (D1, 14.10.2026):

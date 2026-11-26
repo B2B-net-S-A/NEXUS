@@ -115,6 +115,9 @@ export const SEGMENT_LABELS: Record<string, string> = {
   marketplace: "Targ / Dostępni",
   "bulk-import": "Masowy import CV",
   "generated-cvs": "Moje wygenerowane CV",
+  // 25.11.2026: raporty kompetencji ze strony i lista ich opiekunów.
+  "website-reports": "Raporty ze strony",
+  "opiekunowie-raportow": "Opiekunowie raportów",
   search: "Wyszukiwanie",
   "contact-queue": "Do przedzwonienia",
   prep: "Przygotowanie do rozmowy",

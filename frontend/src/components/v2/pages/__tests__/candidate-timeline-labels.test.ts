@@ -63,6 +63,25 @@ describe("fileTypeLabel", () => {
   });
 });
 
+describe("raport kompetencji w 24 h", () => {
+  it("ma polską etykietę każdego wpisu z backendu", () => {
+    const labels = {
+      applied_via_website: "Zgłoszenie ze strony WWW",
+      candidate_terms_answered: "Kandydat podał warunki współpracy",
+      candidate_work_mode_changed: "Zmieniono tryb pracy",
+      competence_report_sent: "Wysłano raport kompetencji",
+      competence_report_opted_out: "Kandydat wypisał się z raportów kompetencji",
+      competence_report_held: "Wstrzymano raport kompetencji",
+      competence_report_released: "Zwolniono wstrzymany raport kompetencji",
+      competence_report_conditions_changed: "Poprawiono warunki w raporcie kompetencji",
+      competence_report_owner_changed: "Zmieniono opiekuna raportu kompetencji",
+    };
+    for (const [action, label] of Object.entries(labels)) {
+      expect(activityActionLabel(action)).toBe(label);
+    }
+  });
+});
+
 describe("wpis o adresie trwale usuniętego profilu", () => {
   it("ma polską etykietę, nie surowy slug", () => {
     expect(activityActionLabel("recreated_after_erasure")).toBe(

@@ -424,6 +424,11 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/public/candidate-terms/{token}"),
     ("POST", "/api/public/candidate-terms/{token}"),
     ("POST", "/api/public/candidate-terms/{token}/opt-out"),
+    # Raport kompetencji (0785): zmiana warunków i wypis z linku w mailu,
+    # token SHA-256, 60 dni; wypis jednym kliknięciem (RFC 8058) bez sesji.
+    ("GET", "/api/public/competence-report/{token}"),
+    ("POST", "/api/public/competence-report/{token}/conditions"),
+    ("POST", "/api/public/competence-report/{token}/opt-out"),
     # Szkolenia (0694): odtwarzanie pliku z biletem HMAC jednego pliku, ważnym 6 h
     # (``services/trainings/media.py``) — ``<video>`` nie dołoży nagłówka sesji.
     ("GET", "/api/public/training-media/{file_id}"),

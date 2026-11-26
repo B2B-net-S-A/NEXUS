@@ -40,6 +40,11 @@ export function isAskedDuringMove(item: MoveRequirementItem, askedDuringMove: bo
   );
 }
 
+export interface ActionBusy {
+  label: string;
+  note?: string;
+}
+
 export interface MoveRequirementListProps {
   items: readonly MoveRequirementItem[];
   /** `primary.kind === "move"` — okno stawki otworzy się przy samym ruchu. */
@@ -50,8 +55,13 @@ export interface MoveRequirementListProps {
    * nie umie obsłużyć (np. dok bez warsztatu CV) — lepiej brak przycisku niż
    * przycisk, który nic nie robi.
    */
-  onAction: (action: MoveRequirementAction) => void;
+  onAction: (action: MoveRequirementAction, item: MoveRequirementItem) => void;
   canAct?: (action: MoveRequirementAction) => boolean;
+  /**
+   * Akcja w toku (np. wypełnianie formularza klienta, do minuty): przycisk
+   * z kręciołkiem i `label`, a `note` zamiast opisu braku.
+   */
+  actionBusy?: (action: MoveRequirementAction, item: MoveRequirementItem) => ActionBusy | null;
   compact?: boolean;
   className?: string;
 }
@@ -62,6 +72,7 @@ export function MoveRequirementList({
   readOnly = false,
   onAction,
   canAct = () => true,
+  actionBusy,
   compact = false,
   className,
 }: MoveRequirementListProps) {
@@ -78,6 +89,8 @@ export function MoveRequirementList({
         // „Odpada, gdy…” nie blokuje ruchu, ale nie jest zwykłym przypomnieniem:
         // odpowiedź kandydata wyklucza go z tej rekrutacji.
         const warning = isDealBreakerWarning(req) || isPreContractWarning(req);
+        const busy = showAction && actionBusy ? actionBusy(action, req) : null;
+        const detail = busy?.note ?? req.detail;
         return (
           <li
             // Klucz z kolumną: ten sam brak bywa w dwóch kolumnach drogi
@@ -123,9 +136,9 @@ export function MoveRequirementList({
                   </span>
                 )}
               </p>
-              {req.detail && (
+              {detail && (
                 <p className={cn("text-xs", warning ? "text-warning-muted-foreground" : "text-muted-foreground")}>
-                  {req.detail}
+                  {detail}
                 </p>
               )}
               {askedLater && (
@@ -137,9 +150,11 @@ export function MoveRequirementList({
                 size="sm"
                 variant="outline"
                 className="shrink-0"
-                onClick={() => onAction(action)}
+                loading={busy != null}
+                disabled={busy != null}
+                onClick={() => onAction(action, req)}
               >
-                {action.label ?? "Uzupełnij"}
+                {busy?.label ?? action.label ?? "Uzupełnij"}
               </Button>
             )}
           </li>

@@ -976,3 +976,6 @@ from app.models import cv_preview_read as _cv_preview_read_models  # noqa: F401,
 
 # 0750: kolejka odczytów CV wsadem (Message Batches API, scrapery).
 from app.models import cv_parse_batch as _cv_parse_batch_models  # noqa: F401,E402
+
+# 0785: raporty kompetencji w 24 godziny i lista opiekunów.
+from app.models import competence_report as _competence_report_models  # noqa: F401,E402
