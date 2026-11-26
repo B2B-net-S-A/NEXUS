@@ -108,7 +108,7 @@ async def test_kazde_slowo_sprawdza_sama_rownosc(token: str) -> None:
     [
         (["Jo", "Li"], []),
         (["Jan", "Li"], ["%jan%"]),
-        (["Łukasz", "Grądzki"], ["%lukasz%", "%gradzki%"]),
+        (["Łucja", "Przykładowa"], ["%lucja%", "%przykladowa%"]),
         # Myślnik dzieli słowa trygramów tak samo jak spacja.
         (["Al-Ba"], []),
     ],
