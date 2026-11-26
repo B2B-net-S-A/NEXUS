@@ -3,7 +3,9 @@
  * być pod ręką: po 2 dniach roboczych znów blokują wyszukiwanie.
  */
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewBatchScreen } from "@/components/v2/review-batch/ReviewBatchScreen";
@@ -589,5 +591,37 @@ describe("ReviewBatchScreen: rekrutacja wybrana na dziś (zgłoszenie rekruteró
     expect(screen.getByTestId("review-why").textContent).toMatch(/Twój wybór na dziś \(przypisanie\)/);
     fireEvent.click(screen.getByRole("tab", { name: /Rekrutacje/ }));
     expect(screen.getByText("wybrana na dziś")).toBeTruthy();
+  });
+});
+
+describe("ReviewBatchScreen — hydratacja", () => {
+  it("status porcji pobrany przez przycisk w pasku nie rozjeżdża hydratacji (React #418, 26.11.2026)", async () => {
+    // Serwer renderuje z pustym cache'em („Ładowanie porcji…”), a
+    // `ReviewBatchTopbarButton` w powłoce pobiera ten sam klucz, zanim React
+    // dojdzie do treści strony. Na Poligonie CI dawało to błąd strony w lekcjach
+    // „Porcja” (bieg 45841774851, `lekcja-porcja-schodki`).
+    api.status = { isPending: true, isError: false, data: undefined };
+    api.queue = { data: undefined, isLoading: true, isError: false, isSuccess: false };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    container.innerHTML = renderToString(<ReviewBatchScreen />);
+    given({});
+
+    const recoverable: unknown[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let root: ReturnType<typeof hydrateRoot> | null = null;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <ReviewBatchScreen />, {
+          onRecoverableError: (error) => recoverable.push(error),
+        });
+      });
+      expect(recoverable).toEqual([]);
+      expect(await within(container).findByRole("tab", { name: /Do domknięcia/ })).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+      act(() => (root as ReturnType<typeof hydrateRoot> | null)?.unmount());
+      container.remove();
+    }
   });
 });

@@ -32,6 +32,7 @@ import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import { callWhen } from "@/lib/screening-call";
 import { cn } from "@/lib/utils";
 import { isNoveltyPractice } from "@/lib/poligon/mode";
+import { useHydrated } from "@/hooks/useHydrated";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
@@ -127,9 +128,14 @@ export function ReviewBatchScreen() {
     invalidateReviewBatch(queryClient);
   }, [queryClient]);
 
+  const hydrated = useHydrated();
+
   // `isPending`, nie `isLoading`: na serwerze zapytanie jest wyłączone (konto
   // nieznane), więc oba renderowania muszą pokazać to samo — ładowanie.
-  if (status.isPending) {
+  // `hydrated`: ten sam klucz pobiera `ReviewBatchTopbarButton` w powłoce, często
+  // zanim React dojdzie do treści strony — bez bramki render hydratacji miał już
+  // dane, a serwer ładowanie (React #418 na Poligonie CI, 26.11.2026).
+  if (!hydrated || status.isPending) {
     return <div className="p-6 text-sm text-muted-foreground">Ładowanie porcji…</div>;
   }
   if (status.isError || !status.data) {
