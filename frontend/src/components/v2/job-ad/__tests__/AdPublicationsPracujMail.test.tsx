@@ -19,7 +19,7 @@ import type { JobAdState, PracujMailSuggestion } from "@/lib/api/jobAd";
 import { AdPublications, type AdPublicationsApi } from "../AdPublications";
 import { adState, CLIENT_FINDING, publication } from "./job-ad-fixtures";
 
-const PUBLIC_URL = "https://www.pracuj.pl/praca?groupId=0f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b";
+const PUBLIC_URL = "https://www.pracuj.pl/praca?groupId=00000000-0000-4000-8000-000000000001";
 
 const MAIL: PracujMailSuggestion = {
   email_id: 41,

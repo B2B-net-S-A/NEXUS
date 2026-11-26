@@ -109,7 +109,7 @@ def test_publications_come_in_portal_order():
 
 # Link z panelu pracodawcy Pracuj.pl (26.11.2026): 47 z 96 zapisanych linków
 # otwierał tylko ktoś zalogowany na konto firmy.
-_GID = "0f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b"
+_GID = "00000000-0000-4000-8000-000000000001"
 
 
 @pytest.mark.parametrize(

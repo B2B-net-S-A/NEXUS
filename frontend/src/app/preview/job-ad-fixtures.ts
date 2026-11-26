@@ -300,7 +300,7 @@ const PRACUJ_MAIL: PracujMailSuggestion = {
   email_id: 9001,
   subject: "Publikacja ogłoszenia na Senior Java Developer (k/m/x)",
   received_at: "2026-11-20T14:59:00Z",
-  url: "https://www.pracuj.pl/praca?groupId=0f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b",
+  url: "https://www.pracuj.pl/praca?groupId=00000000-0000-4000-8000-000000000001",
 };
 
 const PRACUJ_LINK = "https://www.pracuj.pl/praca/senior-java-developer-warszawa,oferta,1000000001";

@@ -7,7 +7,7 @@ import pytest
 from app.services.job_ad import pracuj_inbox
 from app.services.job_ad.pracuj_inbox import Candidate, decide, title_key
 
-_GID = "0f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b"
+_GID = "00000000-0000-4000-8000-000000000001"
 
 
 def test_the_group_id_comes_from_the_offer_link_in_the_mail():
@@ -28,7 +28,7 @@ def test_the_group_id_comes_from_the_offer_link_in_the_mail():
         "",
         '<a href="https://www.pracuj.pl/">Pracuj.pl</a>',
         # Dwa różne ogłoszenia w jednym mailu — nie zgadujemy, które.
-        f"groupId={_GID} groupId=1f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b",
+        f"groupId={_GID} groupId=00000000-0000-4000-8000-000000000002",
         # Ucięty identyfikator nie jest identyfikatorem.
         f"groupId={_GID}0",
     ],
