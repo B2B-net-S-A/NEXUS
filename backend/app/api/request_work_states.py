@@ -245,12 +245,28 @@ async def change_request_work_states(
             f"Najpierw otwórz rekrutację „{display_title(closed[0])}” — zamknięta "
             "rekrutacja może mieć tylko stan „Zakończony”.",
         )
+    from app.services import job_hold  # noqa: PLC0415
+
     changed = []
+    resumed: list[tuple[Job, list[dict]]] = []
     try:
         for job in jobs:
+            # Wyjście ze wstrzymania do pracy to wznowienie: ten sam dzwonek co
+            # „Wznów rekrutację” (adresaci liczeni przed zmianą stanu).
+            recipients = (
+                await job_hold.hold_recipients(db, job, exclude_user_id=current_user.id)
+                if job_hold.resumes_work(job.work_state, wanted[job.id])
+                else None
+            )
             if await set_work_state(db, job, wanted[job.id], actor_id=current_user.id):
                 changed.append(job.id)
+                if recipients is not None:
+                    resumed.append((job, recipients))
     except WorkStateError as exc:
         raise HTTPException(422, str(exc)) from exc
+    for job, recipients in resumed:
+        await job_hold.notify_resumed(
+            db, job, recipients=recipients, actor_id=current_user.id
+        )
     await db.commit()
     return {"changed": changed, "unchanged": len(jobs) - len(changed)}

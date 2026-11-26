@@ -28,7 +28,9 @@ ustawiono 3 razy, a zamknięcie z powodem „wstrzymana” 6 razy. W 15 rekrutac
   admin). Wstrzymanie wymaga powodu. „Sprawdzę z klientem” to data
   w kalendarzu firmy (domyślnie +14 dni, najdalej 120). Batch na
   `/jobs/review-states` nie ustawia `on_hold`, bo nie ma tam powodu, ale może
-  z niego wyjść.
+  z niego wyjść. Wyjście batchem do „Szukamy” albo „Do przejrzenia” wysyła
+  ten sam dzwonek „Rekrutacja wznowiona” co „Wznów rekrutację”
+  (`job_hold.resumes_work`). Przejście do „Klient milczy” takiego dzwonka nie wysyła.
 - **Gdzie widać:** pigułka w nagłówku w paski, pas nad Tablicą (kto, od kiedy,
   powód, „nie proponuj kandydatom tego projektu”, termin), pigułka „Wstrzymana
   od DD.MM” i filtr „Wstrzymane” na liście, zakładka na stronie przeglądu stanów.

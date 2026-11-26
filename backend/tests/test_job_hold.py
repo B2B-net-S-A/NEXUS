@@ -25,6 +25,7 @@ from app.services.job_hold import (
     held_notice_text,
     long_hold_days,
     parked_still_working,
+    resumes_work,
     open_reports,
     resumed_notice_text,
     review_due,
@@ -227,6 +228,16 @@ def test_parked_signal_needs_real_work_this_week() -> None:
     assert parked_still_working(moves_after_park=4, moves_7d=0) is False
     assert parked_still_working(moves_after_park=4, moves_7d=2) is False
     assert parked_still_working(moves_after_park=3, moves_7d=3) is True
+
+
+def test_leaving_hold_into_work_is_a_resume() -> None:
+    # Przegląd 26.11: batch na /jobs/review-states zdejmował wstrzymanie bez
+    # dzwonka „Rekrutacja wznowiona”. Wznowienie = wyjście z on_hold do pracy.
+    assert resumes_work("on_hold", "searching") is True
+    assert resumes_work("on_hold", "to_review") is True
+    assert resumes_work("on_hold", "client_silent") is False
+    assert resumes_work("on_hold", "finished") is False
+    assert resumes_work("searching", "to_review") is False
 
 
 def test_review_and_30_days_rules() -> None:
@@ -644,6 +655,35 @@ async def test_batch_refuses_on_hold_but_lets_a_held_job_out(
     assert job.work_state == "client_silent"
     assert (job.hold_reason, job.hold_review_on) == (None, None)
     assert job.hold_ended_at is not None
+    # „Klient milczy” to nie wznowienie pracy — bez dzwonka „wznowiona”.
+    assert not [
+        t
+        for t, _m in await _bells(seed["rec_id"], "job_hold_changed")
+        if t.startswith("Rekrutacja wznowiona")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batch_back_to_searching_tells_the_team_it_resumed(
+    app_client: AsyncClient,
+) -> None:
+    seed = await _seed()
+    job_id = seed["job_id"]
+    lead = await _headers(app_client, seed["lead_email"])
+    held = await app_client.put(
+        f"/api/jobs/{job_id}/hold",
+        json={"reason": "Klient wstrzymał budżet", "review_on": _future(7)},
+        headers=lead,
+    )
+    assert held.status_code == 200, held.text
+    out = await app_client.patch(
+        "/api/request-work-states",
+        json={"changes": [{"job_id": job_id, "state": "searching"}]},
+        headers=lead,
+    )
+    assert out.status_code == 200, out.text
+    titles = [t for t, _m in await _bells(seed["rec_id"], "job_hold_changed")]
+    assert any(t.startswith("Rekrutacja wznowiona") for t in titles), titles
 
 
 @pytest.mark.asyncio

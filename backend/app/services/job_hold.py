@@ -44,7 +44,7 @@ from app.models.note import Note
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.services.request_work_state import ON_HOLD, set_work_state
+from app.services.request_work_state import IN_WORK_STATES, ON_HOLD, set_work_state
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,11 @@ def open_reports(
         if last_answer_at is None or _aware(report.at) > _aware(last_answer_at)
     ]
     return sorted(out, key=lambda report: report.at)
+
+
+def resumes_work(previous: Optional[str], state: str) -> bool:
+    """Wyjście ze wstrzymania do pracy („Szukamy”, „Do przejrzenia”) = wznowienie."""
+    return previous == ON_HOLD and state in IN_WORK_STATES
 
 
 def parked_still_working(*, moves_after_park: int, moves_7d: int) -> bool:
@@ -599,6 +604,16 @@ async def end_hold(db: AsyncSession, job: Job, *, actor_id: int) -> list[int]:
         raise HoldError(409, "job_not_on_hold", "Ta rekrutacja nie jest wstrzymana.")
     recipients = await hold_recipients(db, job, exclude_user_id=actor_id)
     await set_work_state(db, job, RESUME_STATE, actor_id=actor_id, reason="hold_ended")
+    return await notify_resumed(db, job, recipients=recipients, actor_id=actor_id)
+
+
+async def notify_resumed(
+    db: AsyncSession, job: Job, *, recipients: Sequence[dict], actor_id: Optional[int]
+) -> list[int]:
+    """Dzwonek „Rekrutacja wznowiona” — przy „Wznów” i przy wyjściu batchem.
+
+    Adresatów liczy wołający PRZED zmianą stanu (``hold_recipients``).
+    """
     if not recipients:
         return []
     title_text, client_name, actor_name = await _names(db, job, actor_id)
