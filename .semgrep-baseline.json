@@ -1330,6 +1330,22 @@
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/market_rates.py",
+      "line": 396,
+      "fingerprint": "4c1cf7f04e896d20",
+      "status": "zweryfikowane",
+      "reason": "market_rates: w SQL wklejane są tylko stałe z kodu (aliasy miast z _CITIES, wiersze ról z placeholderami :rkN/:rpN/:rxN, nazwy kolumn z indeksów kroków, warunki grup z placeholderami :loN/:hiN/:cityN); rola, lata, miasto i lista umiejętności idą wyłącznie przez bind."
+    },
+    {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/market_rates.py",
+      "line": 459,
+      "fingerprint": "4c1cf7f04e896d20",
+      "status": "zweryfikowane",
+      "reason": "market_rates: w SQL wklejane są tylko stałe z kodu (aliasy miast z _CITIES, wiersze ról z placeholderami :rkN/:rpN/:rxN, nazwy kolumn z indeksów kroków, warunki grup z placeholderami :loN/:hiN/:cityN); rola, lata, miasto i lista umiejętności idą wyłącznie przez bind."
+    },
+    {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/must_text_evidence.py",
       "line": 854,
       "fingerprint": "06fcfff8f2198f8a",

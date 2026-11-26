@@ -70,7 +70,7 @@ def full_snapshot(**overrides) -> ReportSnapshot:
         ),
         levers=(
             Lever(
-                key="office_days_plus1",
+                key="office_days_plus1",  # gitleaks:allow
                 label="3 dni w biurze zamiast 2",
                 hint="większość projektów w Krakowie chce 3 dni",
                 gain=5,
