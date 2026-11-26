@@ -109,9 +109,12 @@ gałąź <sha> · baza <nazwa> · backend <BACKEND_PORT> · front <FRONT_PORT> �
 | Jarvis — `rate_from · backend/app/services/jarvis/tools.py` | ✓ zmienione |
 | eksport — `rate_from · backend/app/api/import_export.py` | — nie: eksport ma osobną kolumnę stawki |
 
-Nie sprawdzone na stagingu: <krok> (<powód: poczta wyłączona, KSeF, pętla>)
 Bramki lekcji przed ścieżką: <klucz=wartość, …> (przywrócone)
 Strażnik: <plik testu, np. frontend/src/__tests__/cvQcPreview.test.tsx> / nie dotyczy
+
+## Nie sprawdzone na stagingu
+
+- <krok> (<powód: poczta wyłączona, KSeF, pętla>); na produkcji ma być widać: <co>
 ```
 
 **Strażnik:** błąd znaleziony na ścieżce, który może wrócić w innym miejscu, dostaje
@@ -122,6 +125,7 @@ nie znalazła błędu albo błąd był jednorazowy (np. literówka w tekście).
 Bramka blokuje paragon bez sekcji „Wpływ na inne miejsca” albo z miejscem z `impact_map` bez decyzji
 (pustą albo `?`) i bez linii `Strażnik:`. Kolumna „Rola” = nazwa z mapy ról. Każda rola z mapy musi mieć co najmniej jeden wiersz z `.png`.
 Do opisu PR-a idzie sekcja `## Ścieżka na stagingu`: tabela rola · kroki · wynik, bez nazwisk,
-id i zrzutów, porty, linia `Strażnik: …` oraz lista „Nie sprawdzone na stagingu”, którą sesja
-wieczorna sprawdza po wdrożeniu.
+id i zrzutów, porty i linia `Strażnik: …`. Osobno sekcja `## Nie sprawdzone na stagingu`, jeden
+punkt na linię z tym, co ma być widać na produkcji; po wdrożeniu sprawdza ją rutyna „Kontrola po
+wdrożeniu” (plik reguły, §6).
 Na koniec: przywróć bramki lekcji, `docker stop nexus-staging-backend-branch-$BACKEND_PORT`, zatrzymaj front.
