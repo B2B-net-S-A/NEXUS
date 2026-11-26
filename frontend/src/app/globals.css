@@ -433,6 +433,28 @@
     --radius: 0.75rem;
   }
 
+  /* „Klocki + ciemne menu” (decyzja Artura 26.11.2026, docs/claude/ui/
+     wyrazny-bez-motywu-klocki-i-ciemne-menu.md). Tylko bez świata i bez Gry:
+     światy i Gra mają własne tokeny. `--edge` to twardy spód pod kartą
+     i przyciskiem (jak w Grze), `--edge-soft` — lżejszy, dla kart w karcie. */
+  html[data-soft="true"]:not(.dark):not([data-kids="true"]):not([data-world]) {
+    --background: 226 32% 92%;         /* płótno wyraźnie ciemniejsze od białej karty */
+    --border: 224 16% 76%;
+    --input: 224 16% 78%;
+    --edge: 224 18% 79%;
+    --edge-soft: 224 18% 85%;
+    --sidebar: 228 34% 14%;            /* granatowe menu oddziela nawigację od pracy */
+    --sidebar-foreground: 220 30% 94%;
+    --sidebar-muted: 222 16% 72%;
+    --sidebar-border: 228 26% 21%;
+    --sidebar-accent: 228 28% 22%;
+    --sidebar-accent-foreground: 220 30% 94%;
+  }
+  html.dark[data-soft="true"]:not([data-kids="true"]):not([data-world]) {
+    --edge: 222 30% 3%;
+    --edge-soft: 222 26% 5%;
+  }
+
   /* ===================================================================
      KIDS / GAME WORLD — opt-in third visual mode via [data-kids="true"].
      Unlike palettes, this DELIBERATELY repaints the whole chrome: colorful
@@ -649,16 +671,80 @@
 /* Raised section cards: visible hairline border + layered soft shadow.
    :not([data-kids]) makes this layer fully inert under Kids mode (which has
    its own candy borders/shadows), regardless of specificity or order. */
-[data-soft="true"]:not([data-kids="true"]):not([data-world]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th)) {
+/* „Klocki” (26.11.2026): to, co oddziela elementy w Grze — gruba krawędź
+   i twardy spód — w kolorach firmy. Grubość krawędzi robi wewnętrzny cień,
+   nie `border-width`, więc żaden element nie zmienia rozmiaru. Okna
+   dialogowe zostają przy własnym cieniu (`shadow-xl`). */
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th):not([role="dialog"]):not([role="alertdialog"])) {
   border-width: 1px;
+  border-color: hsl(var(--border));
   box-shadow:
-    0 1px 2px 0 hsl(222 30% 12% / 0.05),
-    0 8px 24px -16px hsl(222 30% 12% / 0.16);
+    inset 0 0 0 1px hsl(var(--border)),
+    0 4px 0 0 hsl(var(--edge)),
+    0 16px 28px -16px hsl(var(--primary) / 0.35);
 }
-.dark[data-soft="true"]:not([data-kids="true"]):not([data-world]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th)) {
+.dark[data-soft="true"]:not([data-kids="true"]):not([data-world]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th):not([role="dialog"]):not([role="alertdialog"])) {
   box-shadow:
-    0 1px 2px 0 hsl(0 0% 0% / 0.35),
-    0 10px 28px -18px hsl(0 0% 0% / 0.6);
+    inset 0 0 0 1px hsl(var(--border)),
+    0 4px 0 0 hsl(var(--edge)),
+    0 14px 28px -16px hsl(0 0% 0% / 0.6);
+}
+/* Karta w karcie: lżejszy spód, bez poświaty — inaczej sekcja „puchnie”. */
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .bg-card .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th):not([role="dialog"]):not([role="alertdialog"])) {
+  box-shadow: inset 0 0 0 0.5px hsl(var(--border)), 0 3px 0 0 hsl(var(--edge-soft));
+}
+/* Ramki w karcie (lista osób na pulpicie, wiersz telefonu) — też klocki. */
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .bg-card :is(.border.rounded-lg, .border.rounded-xl):not(input, textarea, select, button, a, .border-dashed) {
+  box-shadow: 0 3px 0 0 hsl(var(--edge-soft));
+}
+
+/* Przyciski: wypełniony ma ciemniejszy spód i wciska się; obramowany dostaje
+   spód i białe tło (na kolorowym płótnie przezroczysty przycisk znikał). */
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) :is(button, a).bg-primary {
+  box-shadow: 0 3px 0 0 color-mix(in oklab, hsl(var(--primary)) 60%, black);
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .app-shell-root :is(button, a).border:not(.bg-primary):not(.border-dashed):not(.border-0) {
+  box-shadow: 0 2px 0 0 hsl(var(--edge));
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .app-shell-root :is(button, a).border.bg-transparent {
+  background-color: hsl(var(--card));
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .app-shell-root :is(button, a).border.bg-transparent:hover {
+  background-color: hsl(var(--muted));
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) :is(button, a):is(.bg-primary, .border):not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 hsl(var(--edge));
+}
+
+/* Górny pasek i menu: biały pasek z twardą krawędzią, aktywna pozycja menu
+   wypełniona kolorem (granatowe menu z tokenów `--sidebar` wyżej). */
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) [data-app-topbar] {
+  background-color: hsl(var(--card));
+  box-shadow: 0 3px 0 0 hsl(var(--edge-soft));
+  position: relative;
+  z-index: 5;
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) [data-app-sidebar] a[aria-current="page"] {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.16), 0 3px 0 0 hsl(228 40% 6%);
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) [data-app-sidebar] a[aria-current="page"]::before { display: none; }
+/* „Twoje imię” w stopce menu ma `hover:text-foreground` — ciemny na granacie. */
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) [data-app-sidebar] a:hover { color: hsl(var(--sidebar-foreground)); }
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) [data-app-sidebar] a[aria-current="page"]:hover { color: hsl(var(--primary-foreground)); }
+
+/* Płótno z drobnymi kropkami (jak w Grze, ale w szarościach), nagłówki tabel
+   na pasku, żeby kolumny nie zlewały się z wierszami. */
+html[data-soft="true"]:not(.dark):not([data-kids="true"]):not([data-world]) .app-shell-root {
+  background-image:
+    radial-gradient(hsl(226 40% 45% / 0.14) 1.2px, transparent 1.3px),
+    linear-gradient(150deg, hsl(222 40% 94%) 0%, hsl(240 45% 93%) 100%);
+  background-size: 20px 20px, auto;
+}
+[data-soft="true"]:not([data-kids="true"]):not([data-world]) .app-shell-root thead th {
+  background-color: hsl(var(--muted));
 }
 
 /* The fixed-radius corner classes don't follow --radius — bump the common
@@ -666,8 +752,6 @@
 [data-soft="true"]:not([data-kids="true"]):not([data-world]) .rounded-xl  { border-radius: 1rem; }
 [data-soft="true"]:not([data-kids="true"]):not([data-world]) .rounded-2xl { border-radius: 1.25rem; }
 
-/* Gentle tactile press on buttons — far subtler than the Kids squish. */
-[data-soft="true"]:not([data-kids="true"]):not([data-world]) button:active { transform: translateY(0.5px); }
 
 /* ====================================================================
    KIDS / GAME WORLD — decorative layer (unlayered on purpose, so these
