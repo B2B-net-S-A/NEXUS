@@ -666,7 +666,7 @@ async def report(db: AsyncSession, job: Job, *, actor_id: int, note: str) -> lis
         raise HoldError(
             409,
             "already_reported",
-            f"Zgłosiłeś to już {_ddmm(mine[-1].at)} — czekamy na odpowiedź DL.",
+            f"Zgłoszenie z {_ddmm(mine[-1].at)} czeka na odpowiedź DL.",
         )
     db.add(
         Activity(
