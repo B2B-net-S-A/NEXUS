@@ -771,10 +771,10 @@ async def _upsert_daily(
     title: str,
     message: str,
     link: str,
-    now: datetime,
 ) -> bool:
     """Jeden dzwonek dziennie na osobę: dzisiejszy aktualizuje treść i wraca
-    jako nieprzeczytany, a gdy go nie ma — ``emit`` (bramka odbiorcy, dedup)."""
+    jako nieprzeczytany, a gdy go nie ma — ``emit`` (bramka odbiorcy, dedup).
+    „Dziś” z zegara, nie z ``--as-of``: dzwonek ma czas zapisu."""
     from app.models.notification import Notification
     from app.services.notification_triggers import emit
 
@@ -785,7 +785,7 @@ async def _upsert_daily(
             Notification.notification_type == ntype,
             Notification.related_entity_type == "user",
             Notification.related_entity_id == user_id,
-            Notification.created_at >= _day_start(now),
+            Notification.created_at >= _day_start(datetime.now(timezone.utc)),
         )
         .order_by(Notification.id.desc())
         .limit(1)
@@ -811,20 +811,19 @@ async def _upsert_daily(
     return notification is not None
 
 
-async def send_bells(
-    db: AsyncSession, result: SweepResult, *, now: Optional[datetime] = None
-) -> int:
+async def send_bells(db: AsyncSession, result: SweepResult) -> int:
     """Dzwonek „wróciło do Nowych” (26.11.2026): jeden na osobę dziennie, liczony
     ze WSZYSTKICH dzisiejszych powrotów (wpisy ``stale_card_returned``), a nie
     z jednego przebiegu. Przebieg oddaje najwyżej 200 kart, więc pierwsza fala
     szła w kilku przebiegach, a dzienny dedup puszczał tylko dzwonek z pierwszego
-    (24.11: 593 z 1 632 kart bez dzwonka). Nigdy nie rzuca."""
+    (24.11: 593 z 1 632 kart bez dzwonka). „Dziś” z zegara, bo wpisy powrotu
+    mają czas zapisu (także przy ``--as-of`` na stagingu). Nigdy nie rzuca."""
     from app.models.notification import NotificationType
 
     holders = sorted({user_id for user_id, _job in result.bells})
     if not holders:
         return 0
-    moment = now or datetime.now(timezone.utc)
+    moment = datetime.now(timezone.utc)
     sent = 0
     try:
         rows = (
@@ -902,7 +901,6 @@ async def send_bells(
                     title=returned_bell_title(n_returned, n_released),
                     message="\n".join(parts),
                     link=f"/jobs/{top_job}",
-                    now=moment,
                 )
             if changed:
                 sent += 1
@@ -963,7 +961,6 @@ async def send_soon_bells(
                     title=soon_bell_title(len(cards), today, day),
                     message="\n".join([STOP_HINT, *_job_lines(by_job, titles, names)]),
                     link=f"/jobs/{top_job}",
-                    now=now,
                 )
             if changed:
                 sent += 1
@@ -1005,7 +1002,7 @@ async def run_once_safely(now: Optional[datetime] = None) -> Optional[dict[str, 
             result = await run_sweep(db, now=now)
             await db.commit()
             if result.bells:
-                await send_bells(db, result, now=now)
+                await send_bells(db, result)
                 await db.commit()
             for job_id in sorted(result.jobs):
                 await broadcast_pipeline_changed(db, job_id, None)

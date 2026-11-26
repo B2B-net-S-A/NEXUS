@@ -69,9 +69,7 @@ async def main() -> None:
                 db, now=now, limit=args.limit, job_ids=args.jobs
             )
             await db.commit()
-            summary["bells_sent"] = await screening_stale.send_bells(
-                db, result, now=now
-            )
+            summary["bells_sent"] = await screening_stale.send_bells(db, result)
             await db.commit()
             summary["applied"] = result.as_dict()
         else:
