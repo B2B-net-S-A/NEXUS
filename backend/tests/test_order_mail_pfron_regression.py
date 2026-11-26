@@ -19,7 +19,7 @@ from app.services.order_pdf_parser import (
 from tests.conftest import db_without_client_merges
 
 
-def extraction(name="Konrada Korcza", rate="100.08", **kwargs):
+def extraction(name="Konrada Forcza", rate="100.08", **kwargs):
     return OrderExtraction(
         title="ZAP/2031/42",
         start_date="2031-04-01",
@@ -69,7 +69,7 @@ def test_each_person_rate_is_checked_separately():
         )
     )
     text = (
-        "Konrada Korcza: stawka 100,08 zł brutto za godzinę świadczenia usług.\n"
+        "Konrada Forcza: stawka 100,08 zł brutto za godzinę świadczenia usług.\n"
         "Anna Nowak: stawka 200,00 zł netto za godzinę świadczenia usług."
     )
     apply_document_rate_kind(result, text)
@@ -150,7 +150,7 @@ async def test_full_current_roster_and_net_rate_reach_plan():
                 (
                     7,
                     "Konrad",
-                    "Korcz",
+                    "Forcz",
                     70,
                     "ended",
                     date(2020, 1, 1),

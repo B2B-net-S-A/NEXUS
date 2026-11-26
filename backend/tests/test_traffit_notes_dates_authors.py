@@ -46,9 +46,9 @@ async def db():
 
 def test_rewrite_mentions_uses_the_map_and_marks_unknown_accounts() -> None:
     out = rewrite_traffit_mentions(
-        "Dzwonił $$user_40$$, CC $$user_99$$", {"40": "Klaudia Uliasz"}
+        "Dzwonił $$user_40$$, CC $$user_99$$", {"40": "Klaudia Wzoriasz"}
     )
-    assert out == f"Dzwonił @Klaudia Uliasz, CC @{STORED_UNKNOWN_LABEL}"
+    assert out == f"Dzwonił @Klaudia Wzoriasz, CC @{STORED_UNKNOWN_LABEL}"
 
 
 def test_rewrite_mentions_without_user_list_changes_nothing() -> None:

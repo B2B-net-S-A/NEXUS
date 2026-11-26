@@ -41,7 +41,7 @@ const LINE: OrderLineRead = {
   group_id: 10,
   contract_id: 100,
   candidate_id: 5,
-  consultant_name: "Tomasz Płonka",
+  consultant_name: "Tomasz Testonka",
   job_id: null,
   job_title: null,
   status: "completed",
@@ -242,7 +242,7 @@ const RECIPIENT: OrderLineRead = {
 const KAMILA = {
   contract_id: 645,
   candidate_id: 32903,
-  candidate_name: "Kamila Gniewek",
+  candidate_name: "Kamila Testek",
   contract_status: "active",
   rate_candidate: 85,
   rate_unit: "hourly",

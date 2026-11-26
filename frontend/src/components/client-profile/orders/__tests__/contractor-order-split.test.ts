@@ -43,7 +43,7 @@ function makeOrder(partial: Partial<ClientOrderRead> & { id: number; title: stri
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     candidate_id: 99,
-    candidate_name: "Tomasz Sadowski",
+    candidate_name: "Tomasz Testowski",
     contract_status: "active",
     job_title: null,
     monthly_margin: null,

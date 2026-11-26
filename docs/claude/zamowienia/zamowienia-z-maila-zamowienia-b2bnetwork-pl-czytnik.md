@@ -2,7 +2,7 @@
 
 `zamowienia@b2bnetwork.pl` NIE jest skrzynką na hostingu, tylko **listą
 dystrybucyjną w Exchange Online** (właścicielka i jedyna osoba: Marta
-Kozarzewska; nadawcy zewnętrzni dozwoleni). Kopię zamówień robi więc sama
+Wzorzewska; nadawcy zewnętrzni dozwoleni). Kopię zamówień robi więc sama
 lista: jej członkiem jest skrzynka współdzielona **`nexus-zamowienia@b2bnetwork.pl`**
 (bez licencji, bez logowania, zero kont z hasłem). Hosting `hosting.b2bnetwork.pl`
 nie ma żadnej reguły do utrzymania.

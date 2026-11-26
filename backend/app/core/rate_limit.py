@@ -13,7 +13,7 @@ allow-lista uvicorna to ``127.0.0.1``, więc przy peerze z sieci dockerowej
 adresem TRAEFIKA — identycznym dla wszystkich. Efekt: cały ruch świata dzielił
 JEDEN kubełek, więc ``/api/auth/microsoft/authorize`` miał 10 zapytań na minutę
 łącznie dla całej firmy. Ludzie dostawali 429 przy logowaniu przez sam fakt, że
-ktoś inny logował się w tej samej minucie (zgłoszenie: Wiktoria Denka). Był to
+ktoś inny logował się w tej samej minucie (zgłoszenie rekruterki). Był to
 też darmowy DoS — dowolny anonim mógł zablokować logowanie wszystkim, paląc
 limit z jednego hosta.
 

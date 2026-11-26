@@ -14,7 +14,12 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { ogJobTiles } from "@/components/career/ogCard";
+import type { OgOfferMap } from "@/components/career/ogMapCard";
+import { offerFocusSvg, remoteSvg } from "@/lib/career/mapSvg";
+import { offerOgLine, offerOgSub } from "@/lib/career/ogText";
+import { officeNote, offerMapMode } from "@/lib/career/polandMap";
+import { jobCities } from "@/lib/career/site";
+import { useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +66,7 @@ import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
-import { useBoardWord } from "./useBoardWord";
+import { useBoardPreview } from "./useBoardWord";
 import {
   EXPIRY_OPTIONS,
   FINDING_CATEGORIES,
@@ -440,8 +445,28 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     defaultTitle,
     profile?.preview?.title ?? jobTitle,
   );
-  // Wielkie słowo grafiki posta — to samo co w grafice OG strony kariery.
-  const boardWord = useBoardWord(profile?.preview?.slug, previewTitle);
+  // Plakietki i miasta grafiki posta — te same co w grafice OG strony kariery.
+  const board = useBoardPreview(profile?.preview?.slug, previewTitle);
+  const ownerFirstName = useAuthStore((st) => st.user?.name ?? "").trim().split(/\s+/)[0] ?? "";
+  const ogOffer = useMemo(() => {
+    const preview = profile?.preview;
+    // Parametry ukryte przełącznikiem „pokaż” nie trafiają do grafiki (jak w OG).
+    const params = preview && preview.show.params !== false ? preview.params : null;
+    const mode = offerMapMode("open", params, (city) => jobCities({ city }));
+    let map: OgOfferMap = { kind: "none" };
+    if (mode.kind === "remote") map = { kind: "remote", map: remoteSvg() };
+    else if (mode.kind === "focus") {
+      const focus = offerFocusSvg(board.facets, mode.cities);
+      map = { kind: "focus", map: focus, lit: focus.lit, cities: mode.cities.join(", "), note: officeNote(params) };
+    }
+    return {
+      tags: board.tags,
+      title: previewTitle,
+      line: offerOgLine(params),
+      sub: offerOgSub(params, ownerFirstName),
+      map,
+    };
+  }, [profile?.preview, board.facets, board.tags, previewTitle, ownerFirstName]);
 
   return (
     <>
@@ -743,14 +768,11 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
               <div className="space-y-1.5">
                 <span className="text-sm font-medium text-foreground">Podgląd posta na LinkedInie</span>
                 <LinkedInPreviewCard
-                  status={{ label: "Rekrutacja otwarta" }}
-                  kicker="Rekrutacja IT"
                   headline={previewTitle}
-                  facts={ogJobTiles(profile?.preview?.params)}
-                  foot="Wyślij CV →"
+                  foot=""
                   cardTitle={previewTitle}
                   host={host}
-                  word={boardWord}
+                  offer={ogOffer}
                 />
               </div>
 

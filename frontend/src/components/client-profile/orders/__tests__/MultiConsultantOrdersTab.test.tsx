@@ -1832,14 +1832,14 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
 
     renderTab();
     const pill = await screen.findByRole("button", { name: "Wymaga decyzji (1)" });
-    expect(screen.getByText("Robert Łuszczyński")).toBeInTheDocument();
+    expect(screen.getByText("Robert Testczyński")).toBeInTheDocument();
 
     await user.click(pill);
     expect(pill).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Zamówienie nr DECYZJA-11")).toBeInTheDocument();
     expect(screen.queryByText("Zamówienie nr SPOKOJNE-10")).not.toBeInTheDocument();
     // Kontraktorzy okresowi nie mają decyzji po zakończeniu — odpadają.
-    expect(screen.queryByText("Robert Łuszczyński")).not.toBeInTheDocument();
+    expect(screen.queryByText("Robert Testczyński")).not.toBeInTheDocument();
   });
 
   it("niepełne rozliczenie faktury jest nazwane kwotą, nie samym ostrzeżeniem", async () => {
@@ -1944,7 +1944,7 @@ function contractor(
   return {
     contract_id: 100,
     candidate_id: 50,
-    candidate_name: "Robert Łuszczyński",
+    candidate_name: "Robert Testczyński",
     contract_status: "active",
     contract_start_date: "2026-08-21",
     contract_end_date: null,
@@ -2296,7 +2296,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
       name: /^Draft \(1\)$/,
     });
     await user.click(draftPill);
-    expect(screen.getByText("Robert Łuszczyński")).toBeInTheDocument();
+    expect(screen.getByText("Robert Testczyński")).toBeInTheDocument();
   });
 
   it("nie dubluje pustego shellu kontraktora z linii grupy ani future_orders", async () => {
@@ -2340,7 +2340,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     await showAll();
 
     expect(await screen.findByText("Draft bez grupy")).toBeInTheDocument();
-    expect(screen.queryByText("Robert Łuszczyński")).not.toBeInTheDocument();
+    expect(screen.queryByText("Robert Testczyński")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Wszystkie \(2\)/ }),
     ).toBeInTheDocument();
@@ -2666,7 +2666,7 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
     expect(contractorParams.get("contract")).toBe("100");
     expect(contractorParams.get("order")).toBeNull();
     expect(screen.getByTestId("contractor-order-panel")).toHaveTextContent(
-      "Robert Łuszczyński",
+      "Robert Testczyński",
     );
   });
 
@@ -2678,7 +2678,7 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
     expect(link).toHaveAttribute("href", "/contracts/100");
     expect(
       within(await row("contractor-row-100")).getByRole("link", {
-        name: "Robert Łuszczyński",
+        name: "Robert Testczyński",
       }),
     ).toHaveAttribute("href", "/contracts/100");
     fireEvent.click(link);
@@ -2772,7 +2772,7 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
   it("?contract= otwiera panel kontraktora", async () => {
     renderTab({ focusContractId: 100 });
     expect(await screen.findByTestId("contractor-order-panel")).toHaveTextContent(
-      "Robert Łuszczyński",
+      "Robert Testczyński",
     );
   });
 
@@ -2788,7 +2788,7 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
               line({
                 id: 899,
                 contract_id: 100,
-                consultant_name: "Robert Łuszczyński",
+                consultant_name: "Robert Testczyński",
                 start_date: "2026-11-02",
                 end_date: "2027-03-31",
               }),

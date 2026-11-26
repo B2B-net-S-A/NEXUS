@@ -162,3 +162,12 @@ def test_warning_only_on_workdays_between_8_and_20() -> None:
     assert not svc.warn_due(_at("2026-11-18", 7))
     assert not svc.warn_due(_at("2026-11-18", 20))
     assert not svc.warn_due(_at("2026-11-21", 10))  # sobota
+
+
+def test_returned_window_counts_five_workdays_back_with_today() -> None:
+    """Powrót z wtorku 24.11 widać do poniedziałku 30.11 włącznie."""
+    waw = ZoneInfo("Europe/Warsaw")
+    monday = datetime(2026, 11, 30, 9, tzinfo=waw)
+    tuesday = datetime(2026, 12, 1, 9, tzinfo=waw)
+    assert svc.returned_window_start(monday) == date(2026, 11, 24)
+    assert svc.returned_window_start(tuesday) == date(2026, 11, 25)

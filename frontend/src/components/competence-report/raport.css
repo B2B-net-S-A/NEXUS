@@ -1,0 +1,95 @@
+/*
+ * „Twoje warunki” pod linkiem z maila z raportem kompetencji (`/raport/<token>`,
+ * 25.11.2026). Wygląd bierze z `/warunki/<token>` (`candidate-terms/warunki.css`:
+ * karta, nagłówek z czerwoną kropką, ciemny przycisk, kolory i ciemny tryb),
+ * tu tylko to, czego tamten formularz nie ma: pola tekstowe na całą szerokość
+ * telefonu i cele dotyku co najmniej 44 px. Wszystko pod `.rk-root`.
+ */
+
+.rk-root .wr-seg button,
+.rk-root .wr-chip,
+.rk-root .wr-btn,
+.rk-root .wr-lang {
+  min-height: 44px;
+}
+
+.rk-root .wr-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 15px;
+}
+
+.rk-root .wr-chip-other {
+  border-style: dashed;
+  background: transparent;
+}
+
+.rk-root .wr-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rk-root .wr-q {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rk-label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.rk-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rk-field .wr-input {
+  width: 140px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rk-unit {
+  font-size: 15px;
+  color: var(--wr-ink-soft);
+}
+
+.rk-optional {
+  font-weight: 500;
+  color: var(--wr-ink-soft);
+}
+
+/* Dni w biurze 0–5: sześć równych pól na całą szerokość, jak na stronie. */
+.rk-days {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  max-width: 360px;
+}
+
+.rk-days button {
+  width: auto;
+  min-height: 44px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rk-other {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rk-other .wr-input {
+  flex: 1;
+}
+
+.rk-root .wr-btn[type="submit"] {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .rk-root .wr-btn[type="submit"] {
+    width: auto;
+  }
+}

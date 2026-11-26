@@ -60,6 +60,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 RETURN_WORKDAYS = 2
+# Ile dni roboczych Tablica pokazuje powrót („Wróciły od Ciebie”, 26.11.2026).
+# Pięć dni obejmuje też pierwszą falę z 24.11.2026 przez tydzień po wdrożeniu.
+RETURNED_VISIBLE_WORKDAYS = 5
 KIND_SCREENING = "screening"
 KIND_CLAIM = "claim"
 SOURCE = "screening_stale_return"
@@ -442,6 +445,104 @@ async def return_days_for_jobs(
     traces = await last_traces(db, cards)
     for card in cards:
         out[card.job_id][card.candidate_id] = return_day(traces[card.pair])
+    return out
+
+
+@dataclass(frozen=True)
+class ReturnedCard:
+    """Karta, którą automat oddał ze „Screeningu” i która dalej stoi w „Nowych”
+    (26.11.2026): grupa „Wróciły od Ciebie” u osoby, która ją trzymała, i
+    znacznik „wróciła ze Screeningu” u pozostałych."""
+
+    returned_at: datetime
+    holder_id: Optional[int]
+    # Wejście do „Screeningu” przed powrotem (poprzedni wiersz etapu pary).
+    screening_since: Optional[datetime]
+
+
+def returned_window_start(now: datetime) -> date:
+    """Pierwszy dzień, z którego powroty jeszcze widać: ``RETURNED_VISIBLE_WORKDAYS``
+    dni roboczych wstecz od dziś (dziś się liczy)."""
+    day = business_date(_aware(now))
+    left = RETURNED_VISIBLE_WORKDAYS - 1
+    while left:
+        day -= timedelta(days=1)
+        if _is_workday(day):
+            left -= 1
+    return day
+
+
+async def returned_cards_for_jobs(
+    db: AsyncSession, job_ids: Iterable[int], *, now: Optional[datetime] = None
+) -> dict[int, dict[int, ReturnedCard]]:
+    """Powroty ze „Screeningu” z ostatnich dni roboczych, których nikt jeszcze
+    nie ruszył: wpis ``stale_card_returned`` wskazuje wiersz etapu, który jest
+    dziś ostatnim wierszem pary. ``{job_id: {candidate_id: ReturnedCard}}``."""
+    ids = sorted({int(j) for j in job_ids})
+    out: dict[int, dict[int, ReturnedCard]] = {j: {} for j in ids}
+    if not ids:
+        return out
+    moment = now or datetime.now(timezone.utc)
+    start = returned_window_start(moment)
+    since = datetime.combine(start, time(0), tzinfo=ZoneInfo(DEFAULT_TZ))
+    latest = latest_stage_ids(job_ids=ids)
+    rows = (
+        await db.execute(
+            select(Activity.entity_id, Activity.details, Activity.created_at)
+            .where(
+                Activity.entity_type == "pipeline",
+                Activity.action == ACTION_RETURNED,
+                Activity.created_at >= since,
+                Activity.entity_id.in_(select(latest.c.latest_id)),
+            )
+            .order_by(Activity.created_at)
+        )
+    ).all()
+    found: dict[tuple[int, int], tuple[int, Optional[int], datetime]] = {}
+    for stage_id, details, created_at in rows:
+        details = details or {}
+        if details.get("kind") != KIND_SCREENING:
+            continue
+        try:
+            pair = (int(details["job_id"]), int(details["candidate_id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pair[0] not in out:
+            continue
+        holder = details.get("holder_user_id")
+        found[pair] = (
+            int(stage_id),
+            int(holder) if holder is not None else None,
+            _aware(created_at),
+        )
+    if not found:
+        return out
+    # Wejście do „Screeningu”: ostatni wcześniejszy wiersz etapu pary.
+    before: dict[tuple[int, int], datetime] = {}
+    for job_id, cid, sid, moved_at in (
+        await db.execute(
+            select(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                CandidateStage.id,
+                CandidateStage.moved_at,
+            ).where(
+                CandidateStage.job_id.in_(sorted({j for j, _ in found})),
+                CandidateStage.candidate_id.in_(sorted({c for _, c in found})),
+            )
+        )
+    ).all():
+        pair = (int(job_id), int(cid))
+        hit = found.get(pair)
+        if hit is None or sid == hit[0] or moved_at is None:
+            continue
+        moved = _aware(moved_at)
+        if moved < hit[2] and (pair not in before or moved > before[pair]):
+            before[pair] = moved
+    for pair, (_sid, holder, at) in found.items():
+        out[pair[0]][pair[1]] = ReturnedCard(
+            returned_at=at, holder_id=holder, screening_since=before.get(pair)
+        )
     return out
 
 

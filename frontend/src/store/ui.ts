@@ -20,6 +20,14 @@ interface UiStoreState {
   columnPreferences: Record<string, string[]>;
   /** Liczba wierszy na stronę listy kandydatów (20 / 50 / 100, domyślnie 50). */
   candidatesPageSize: CandidatesPageSize;
+  /**
+   * Lista kandydatów (26.11.2026): wyszukiwanie zwinięte do jednej linii
+   * (zwija się samo po „Szukaj”) i fragmenty CV pod osobą (domyślnie ukryte).
+   */
+  candidatesSearchCollapsed: boolean;
+  candidatesSnippetsVisible: boolean;
+  setCandidatesSearchCollapsed: (v: boolean) => void;
+  setCandidatesSnippetsVisible: (v: boolean) => void;
   /** Ukryj postać „Moi ludzie" w rogu — wejście zostaje w topbarze. */
   hideMyPeopleBuddy: boolean;
   setHideMyPeopleBuddy: (v: boolean) => void;
@@ -39,6 +47,10 @@ export const useUiStore = create<UiStoreState>()(
       columnPreferences: {},
       candidatesPageSize: 50,
       hideMyPeopleBuddy: false,
+      candidatesSearchCollapsed: false,
+      candidatesSnippetsVisible: false,
+      setCandidatesSearchCollapsed: (candidatesSearchCollapsed) => set({ candidatesSearchCollapsed }),
+      setCandidatesSnippetsVisible: (candidatesSnippetsVisible) => set({ candidatesSnippetsVisible }),
       setHideMyPeopleBuddy: (hideMyPeopleBuddy) => set({ hideMyPeopleBuddy }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),

@@ -98,6 +98,15 @@ CATALOG = (
         recipient_rule="Kandydat. Link do formularza warunków tylko przy brakach w profilu i najwyżej raz na 30 dni; "
         "bez maila: czarna lista, osoba z żywą umową, brak adresu.",
     ),
+    dict(
+        id="competence_report",
+        label="Raport kompetencji",
+        module="Kandydaci",
+        trigger="Kandydat wysłał ze strony b2bnetwork.ai CV z warunkami; raport wychodzi w ciągu 24 h "
+        "(po przeglądzie rekrutera albo sam przed upływem doby).",
+        recipient_rule="Kandydat — adres z formularza; bez maila po wypisie z raportów. W próbie tylko "
+        "adresy z COMPETENCE_REPORT_TEST_RECIPIENTS.",
+    ),
     # Maile natychmiast (07.10.2026) — kolejka `tasks/notification_email_outbox.py`
     # bierze powiadomienia z dzwonka typów z `notification_kind`.
     dict(
@@ -404,7 +413,9 @@ REPORT_KINDS = frozenset(
 )
 ROUTINE_KINDS = frozenset(item["id"] for item in CATALOG)
 #: Maile do kandydatów (bez dzwonka; nadawca może być inną skrzynką niż zespołowa).
-CANDIDATE_KINDS = frozenset({"application_confirmation", "candidate_terms"})
+CANDIDATE_KINDS = frozenset(
+    {"application_confirmation", "candidate_terms", "competence_report"}
+)
 SECURITY_CATALOG = (
     dict(
         id="password_reset",
@@ -559,6 +570,8 @@ ADMIN_DECIDES: dict[str, str] = {
     "application_confirmation": "Mail do kandydata — bez maili do kandydatów (decyzja Artura).",
     "candidate_terms": "Mail do kandydata (decyzja Artura 17.11.2026): włącza admin dopiero po próbnych "
     "skrzynkach i pilocie, bo idzie z nowej skrzynki do tysięcy osób.",
+    "competence_report": "Raport kompetencji do kandydata ze strony (decyzja Artura 25.11.2026): "
+    "włącza admin po próbie na adresach wewnętrznych.",
     "daily_digest": "Poranny skrót zbiera resztę dzwonka; admin decyduje o całej firmie.",
     "kpi_weekly_report": "Raport okresowy, nie sprawa, na którą ktoś czeka.",
     "board_monthly_report": "Raport dla Rady z przychodem i marżą — włącza admin.",
@@ -1266,7 +1279,7 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 if use_delegated
                 else (
                     settings.CANDIDATE_MAIL_SENDER_UPN or provider["sender"]
-                    if kind == "candidate_terms"
+                    if kind in {"candidate_terms", "competence_report"}
                     else provider["sender"]
                 ),
                 provider_kind="graph_delegated" if use_delegated else provider["kind"],

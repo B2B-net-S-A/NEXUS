@@ -149,7 +149,7 @@ describe("FinanceResultsTab — stany", () => {
           {
             id: 5,
             row_number: 2,
-            consultant_name: "Adrian Kruk",
+            consultant_name: "Adrian Testuk",
             client_name: "BNP Paribas",
             cost_rate_md: 950,
             md_count: 22.375,
@@ -176,7 +176,7 @@ describe("FinanceResultsTab — stany", () => {
 
     renderTab();
 
-    expect(await screen.findByText("Adrian Kruk")).toBeInTheDocument();
+    expect(await screen.findByText("Adrian Testuk")).toBeInTheDocument();
     expect(screen.getByText("22,375")).toBeInTheDocument();
     // Komórka niesie samą kwotę — jednostka stoi raz, w nagłówku kolumny.
     expect(screen.getByText(/^20.*900,125$/)).toBeInTheDocument();

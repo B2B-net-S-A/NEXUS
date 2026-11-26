@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.core.upload_filename import fit_filename_column
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract
@@ -722,13 +723,27 @@ async def mark_paid(
 
 
 async def assign_contract(
-    db: AsyncSession, document_id: int, *, contract_id: int, now: datetime
+    db: AsyncSession,
+    document_id: int,
+    *,
+    contract_id: int,
+    now: datetime,
+    period: Optional[tuple[int, int]] = None,
 ) -> CpDocument:
-    """Plik z nieznanego adresu trafia do kontraktu ręką Finansów."""
+    """Plik bez kontraktu trafia do kontraktu ręką Finansów.
+
+    ``period`` (rok, miesiąc) poprawia miesiąc dokumentu (decyzje Artura
+    z 26.11.2026): numer faktury niesie miesiąc wystawienia, a raport bez okresu
+    w nazwie dostaje miesiąc zgadnięty z daty maila. Miesiąc taki jak dotąd niczego
+    nie zmienia, także flagi „zgadnięty”."""
 
     document = await _for_decision(db, document_id)
     if document.contract_id is not None:
         raise PortalError("Dokument ma już kontrakt.", status=409, code="matched")
+    if period == (document.period_year, document.period_month):
+        period = None
+    if period is not None and not valid_period(*period, today=business_today()):
+        raise PortalError(BAD_PERIOD)
     if await db.get(Contract, contract_id) is None:
         raise PortalError("Nie ma takiego kontraktu.", status=404, code="no_contract")
     duplicate = await _same_file(
@@ -743,6 +758,12 @@ async def assign_contract(
             "Ten plik jest już w dokumentach kontraktu.", status=409, code="duplicate"
         )
     document.contract_id = contract_id
+    if period is not None:
+        document.period_year, document.period_month = period
+        # Raport: wybrany ręcznie miesiąc nie udaje miesiąca z nazwy pliku, który
+        # kontrole rozliczenia biorą za dowód (``settlements._named_month``, „RCP
+        # za inny miesiąc”), więc liczy się jak okres nie z nazwy.
+        document.period_guessed = document.kind == "report"
     document.updated_at = now
     # KEŚU albo RCP przypisane ręcznie liczy się tak samo jak przypisane przez czytnik.
     await _refresh_settlement(db, document)

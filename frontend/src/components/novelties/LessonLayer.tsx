@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { sendLessonEvent } from "@/lib/novelties/api";
 import {
   afterWrongAnswer,
+  backFromSolo,
+  BROKEN_PROMINENT_AFTER,
   goToStage,
   judgeClick,
   judgeMove,
@@ -87,7 +89,7 @@ export function LessonLayer() {
   const backToShow = useCallback(
     async (current: LessonRun, event: "solo_failed" | "restart") => {
       await sendLessonEvent(current.lesson.id, event);
-      goToStage(restartShow(current));
+      goToStage(event === "solo_failed" ? backFromSolo(current) : restartShow(current));
     },
     [],
   );
@@ -259,6 +261,7 @@ export function LessonLayer() {
   }
 
   if (run.stage === "solo") {
+    const stuck = !run.review && (run.soloTries ?? 0) >= BROKEN_PROMINENT_AFTER;
     return (
       <section ref={keepDialogsOpen} className={`${CARD} border-primary/30`} aria-label="Zadanie lekcji" data-testid="lesson-solo">
         {header}
@@ -277,7 +280,7 @@ export function LessonLayer() {
           {run.review ? null : (
             <Button
               size="sm"
-              variant={outcome.kind === "solo_wrong" ? "primary" : "outline"}
+              variant={outcome.kind === "solo_wrong" && !stuck ? "primary" : "outline"}
               onClick={() => void backToShow(run, "solo_failed")}
             >
               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
@@ -318,7 +321,7 @@ export function LessonLayer() {
             Nie wychodzi — oddaj powtórkę
           </button>
         ) : null}
-        <BrokenButton run={run} />
+        <BrokenButton run={run} prominent={stuck} />
       </section>
     );
   }
@@ -379,23 +382,41 @@ export function LessonLayer() {
 }
 
 /**
- * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): zawsze widoczne wyjście
- * z lekcji, w której coś jest zepsute. Serwer zalicza ją od razu i zapisuje ślad.
+ * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): wyjście z lekcji,
+ * w której coś jest zepsute. Serwer zalicza ją od razu i zapisuje ślad. Stoi
+ * w zadaniu „sam” i w pytaniu, nie w pokazie (26.11.2026: od pierwszego kroku
+ * pokazu służyło do pomijania całych porcji).
  */
-export function BrokenButton({ run }: { run: LessonRun }) {
+interface BrokenButtonProps {
+  run: LessonRun;
+  /** Osoba wraca do pokazu kolejny raz: furtka staje się przyciskiem głównym. */
+  prominent?: boolean;
+}
+
+export function BrokenButton({ run, prominent = false }: BrokenButtonProps) {
   const [sending, setSending] = useState(false);
+  const skip = () => {
+    setSending(true);
+    void skipBrokenLesson(run);
+  };
+  if (prominent) {
+    // 26.11.2026: szary napis pod przyciskami przeoczył Delivery Lead, który
+    // sześć razy wracał do pokazu i nie mógł pracować.
+    return (
+      <div className="mt-3 rounded-lg bg-muted px-3 py-2" data-testid="lesson-broken-prominent">
+        <p className="text-xs text-muted-foreground">
+          Po pokazie dalej nie wychodzi? Zalicz lekcję i wróć do pracy — zapiszemy, że coś tu nie działa.
+        </p>
+        <Button size="sm" className="mt-2 w-full" loading={sending} onClick={skip}>
+          Coś nie działa — zalicz i dalej
+        </Button>
+      </div>
+    );
+  }
   return (
-    <button
-      type="button"
-      disabled={sending}
-      onClick={() => {
-        setSending(true);
-        void skipBrokenLesson(run);
-      }}
-      className="mt-2 block text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
-    >
+    <Button size="sm" variant="tertiary" className="mt-1 h-auto px-0 py-1" loading={sending} onClick={skip}>
       Coś nie działa — zalicz i dalej
-    </button>
+    </Button>
   );
 }
 

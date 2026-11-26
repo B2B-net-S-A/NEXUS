@@ -354,7 +354,7 @@ async def test_refresh_uses_order_rows_and_restores_raw_net_amount(
 # supplied by the user, not looked up from unrelated production records.
 JAKUB = (
     ORDER.replace("277157", "286471")
-    .replace("Jan Testowy", "Jakub Górecki")
+    .replace("Jan Testowy", "Jakub Próbecki")
     .replace("2031-04-01", "2026-09-09")
     .replace("2031-11-30", "2026-11-26")
     .replace("175,00", "160,00")
@@ -424,7 +424,7 @@ async def test_nordea_create_fill_extend_use_the_same_all_rows_parser_as_mail(
     )
     rows = nordea.extract_rows(text)
     assert [(r.consultant_name, r.rate_client) for r in rows] == [
-        ("Jakub Górecki", Decimal("160")),
+        ("Jakub Próbecki", Decimal("160")),
         ("Anna Druga", Decimal("234")),
     ]
     model = AsyncMock(
@@ -445,7 +445,7 @@ async def test_nordea_create_fill_extend_use_the_same_all_rows_parser_as_mail(
     mail, _ = apply_policies(
         deepcopy(mail), PolicyContext(document_text=text), POLICIES
     )
-    for target in (None, "Jakub Górecki", "Anna Druga"):
+    for target in (None, "Jakub Próbecki", "Anna Druga"):
         parsed = await client_orders._extract_with_plan(
             projected,
             plan=parse_plan(POLICIES),
@@ -467,7 +467,7 @@ async def test_nordea_create_fill_extend_use_the_same_all_rows_parser_as_mail(
         assert (
             parsed.rate_client
             == {
-                "Jakub Górecki": Decimal("160"),
+                "Jakub Próbecki": Decimal("160"),
                 "Anna Druga": Decimal("234"),
                 None: None,
             }[target]

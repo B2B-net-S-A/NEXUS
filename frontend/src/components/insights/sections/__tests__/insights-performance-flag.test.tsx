@@ -57,7 +57,7 @@ describe("InsightsPerformanceFlags", () => {
   });
 
   it("pokazuje obie plakietki naraz, a wspólny komentarz tylko raz", () => {
-    // DynaReporter: Zuzanna Gruszczyńska ma „Słabe wyniki” I „Procedury”,
+    // DynaReporter: Zuzanna Wzorczyńska ma „Słabe wyniki” I „Procedury”,
     // a pod nimi JEDNO zdanie. Powtórzone brzmi jak dwa różne zarzuty.
     render(
       <InsightsPerformanceFlags

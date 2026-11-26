@@ -77,6 +77,13 @@ function useAnchorRect(anchor: string | null, active: boolean): DOMRect | null {
 
 type Phase = { kind: "task"; feedback?: string } | { kind: "done" };
 
+/**
+ * Po tylu ms na ćwiczeniu pojawia się „Coś nie działa — zalicz i dalej”
+ * (Artur, 26.11.2026): przycisk od pierwszej sekundy służył do pomijania
+ * całych porcji, a ma ratować tylko z zepsutego ćwiczenia.
+ */
+export const BROKEN_AFTER_MS = 30_000;
+
 export function PoligonLayer() {
   const pathname = usePathname() ?? "";
   const router = useRouter();
@@ -107,6 +114,14 @@ export function PoligonLayer() {
   const exercise: Exercise | null = useMemo(() => path.find((e) => e.id === currentId) ?? null, [path, currentId]);
   const index = exercise ? path.indexOf(exercise) : path.length;
   const onScreen = exercise ? pathname === pathOf(exercise.href) || pathname.startsWith(`${pathOf(exercise.href)}/`) : false;
+  const [brokenReady, setBrokenReady] = useState(false);
+  const exerciseId = exercise?.id ?? null;
+  useEffect(() => {
+    setBrokenReady(false);
+    if (!exerciseId) return;
+    const id = window.setTimeout(() => setBrokenReady(true), BROKEN_AFTER_MS);
+    return () => window.clearTimeout(id);
+  }, [exerciseId]);
 
   const complete = useCallback(
     (ex: Exercise, opts: { broken?: boolean } = {}) => {
@@ -279,14 +294,17 @@ export function PoligonLayer() {
               <span className="text-xs text-muted-foreground">{showMe && !rect && onScreen ? exercise.hint : "Zaliczy się samo"}</span>
             </div>
             {/* Zepsute ćwiczenie nikogo nie zatrzymuje (Artur, 25.11.2026): zalicza się
-                mimo to, a serwer zapisuje ślad, które ćwiczenie trzeba naprawić. */}
-            <button
-              type="button"
-              onClick={() => complete(exercise, { broken: true })}
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Coś nie działa — zalicz i dalej
-            </button>
+                mimo to, a serwer zapisuje ślad, które ćwiczenie trzeba naprawić.
+                Dopiero po `BROKEN_AFTER_MS` na ćwiczeniu (26.11.2026). */}
+            {brokenReady ? (
+              <button
+                type="button"
+                onClick={() => complete(exercise, { broken: true })}
+                className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Coś nie działa — zalicz i dalej
+              </button>
+            ) : null}
           </div>
         )}
       </section>

@@ -320,7 +320,11 @@ def build(
             "skills": skills,
             "minimum_months": minimum_months,
             # Wiersz „ponad minimum” bez znanego minimum nie dostaje całego stażu.
-            "minimum_unknown": over_minimum and minimum_months is None,
+            # Punkty nie potrzebują minimum: progi z zasad mówią o całym stażu
+            # („1 pkt - więcej niż 3 lata”, tabela „Testera ePP” CEZ, 26.11.2026).
+            "minimum_unknown": over_minimum
+            and kind == KIND_COMPETENCY
+            and minimum_months is None,
             "thresholds": thresholds,
             "max_points": max_points,
             "question": question(field.get("row_label") or field.get("label") or ""),

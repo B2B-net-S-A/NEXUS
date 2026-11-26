@@ -97,5 +97,5 @@ Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kol
 ## Start (dopisek do runbooka)
 
 Po wdrożeniu, przed pracą zespołu: skład w „Zespół” (Artur podał 19.11: Sandra, Ania, Kinga,
-Patryk, Błażej, Michał Stankiewicz), uprawnienie „Sprawy” dla każdego z nich (nadaje Artur
+Patryk, Błażej, Michał Wzorkiewicz), uprawnienie „Sprawy” dla każdego z nich (nadaje Artur
 w „Osoby i role”), potem „Oddaj do kolejki” dla spraw osób spoza zespołu (decyzja 19.11).

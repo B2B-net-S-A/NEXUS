@@ -463,11 +463,11 @@ describe("client order list filters", () => {
   });
 
   it("nie daje się wynieść na szczyt A→Z śmieciowi przyklejonemu do nazwiska", () => {
-    // Realny wiersz z produkcji Nordei: „{ } Wojciech Łazowski". Backend keyuje
+    // Realny wiersz z produkcji Nordei: „{ } Wojciech Wzorazowski". Backend keyuje
     // nazwiska po [a-z0-9], więc import go dopasowuje bez problemu — rozjazd był
     // wyłącznie w sortowaniu, gdzie `{` wypada przed każdą literą.
     const groups = [
-      group(3, "C", { lines: [line(3, "{ } Wojciech Łazowski")] }),
+      group(3, "C", { lines: [line(3, "{ } Wojciech Wzorazowski")] }),
       group(1, "A", { lines: [line(1, "Adam Kowalski")] }),
       group(2, "B", { lines: [line(2, "Zofia Nowak")] }),
     ];
@@ -493,7 +493,7 @@ describe("client order list filters", () => {
     // jej kontrakt — razem z zakończonymi i jeszcze nierozpoczętymi.
     const today = "2026-09-01";
     const rows = [
-      contractor(1, "Jarosław Suchanek", {
+      contractor(1, "Jarosław Testanek", {
         orders: [
           clientOrder(10, "periodic", {
             title: "PRZESZLE",
@@ -566,12 +566,12 @@ describe("client order list filters", () => {
     // sprzątnięciu duplikatu (migracja 0262) osoba ma być na liście RAZ,
     // jako linia zamówienia MD.
     const md = group(1, "MD", {
-      lines: [line(11, "Jarosław Suchanek", { contract_id: 11 })],
+      lines: [line(11, "Jarosław Testanek", { contract_id: 11 })],
     });
 
     const result = filterMaterializedContractorShells(
       [
-        contractor(11, "Jarosław Suchanek", {
+        contractor(11, "Jarosław Testanek", {
           orders: [
             clientOrder(900, "periodic", {
               title: "ZAM_1453_2026",
@@ -931,7 +931,7 @@ describe("reguła zakładki Kończące się", () => {
     });
 
   it("zamówienie z dodanym przyszłym zamówieniem nie trafia do zakładki", () => {
-    const person = contractor(145, "Marek Urbański", {
+    const person = contractor(145, "Marek Testański", {
       orders: [next(), current()],
       days_to_latest_end: 69,
     });
@@ -940,14 +940,14 @@ describe("reguła zakładki Kończące się", () => {
   });
 
   it("szkic przyszłego zamówienia też jest zaplanowaną kontynuacją", () => {
-    const person = contractor(145, "Marek Urbański", {
+    const person = contractor(145, "Marek Testański", {
       orders: [next({ status: "draft" }), current()],
     });
     expect(contractorMatchesPill(person, "ending_30d", TODAY)).toBe(false);
   });
 
   it("zamówienie bez kontynuacji nadal jest w zakładce", () => {
-    const person = contractor(145, "Marek Urbański", { orders: [current()] });
+    const person = contractor(145, "Marek Testański", { orders: [current()] });
     expect(endingOrderWithoutSuccessor(person.orders, 30, TODAY)?.title).toBe(
       "282129",
     );
@@ -956,7 +956,7 @@ describe("reguła zakładki Kończące się", () => {
 
   it("przyszłe zamówienie, które samo zbliża się do końca, trafia do zakładki", () => {
     // Stan produkcji z 22.09: 286699 kończy się 14.10, czyli za 22 dni.
-    const person = contractor(145, "Marek Urbański", {
+    const person = contractor(145, "Marek Testański", {
       orders: [next({ end_date: "2026-10-14" }), current()],
     });
     const ending = endingOrderWithoutSuccessor(person.orders, 30, TODAY);

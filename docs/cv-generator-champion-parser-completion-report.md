@@ -2,7 +2,7 @@
 
 **Data:** 2026-07-20
 **Branch:** `claude/cv-generator-champion-profile-d3c6b6`
-**Punkt wyjścia:** zgłoszenie Piotra Chmielewskiego — „jak wsadzam profil championa, generator nie generuje CV; bez championa generuje".
+**Punkt wyjścia:** zgłoszenie Piotra Testelewskiego — „jak wsadzam profil championa, generator nie generuje CV; bez championa generuje".
 
 ## 1. Co się okazało
 

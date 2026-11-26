@@ -2,12 +2,28 @@ import type { Metadata } from "next";
 
 import { CareerBoard } from "@/components/career/site/CareerBoard";
 import { SiteFrame } from "@/components/career/site/SiteFrame";
-import { careerHref } from "@/lib/career/host";
+import { careerHref, primaryCareerHost } from "@/lib/career/host";
+import { LIST_DESCRIPTION, OG_SITE_NAME, listOgTitle } from "@/lib/career/ogText";
 import { fetchCareerBoard } from "@/lib/career/server";
 
 import { careerRequestContext } from "./_context";
 
-export const metadata: Metadata = { title: "Kariera" };
+/**
+ * Podgląd linku do listy (język A, tabela z makiety OG-w-portalach,
+ * 26.11.2026): liczba otwartych rekrutacji w tytule, zdanie o projektach,
+ * nazwa serwisu, adres i język jak na ofertach.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const board = await fetchCareerBoard();
+  const title = listOgTitle(board.ok ? board.data.jobs.length : null);
+  const url = `https://${primaryCareerHost()}/`;
+  return {
+    title: { absolute: title },
+    description: LIST_DESCRIPTION,
+    openGraph: { title, description: LIST_DESCRIPTION, url, siteName: OG_SITE_NAME, type: "website", locale: "pl_PL" },
+    twitter: { card: "summary_large_image", title, description: LIST_DESCRIPTION },
+  };
+}
 
 export const dynamic = "force-dynamic";
 

@@ -18,7 +18,7 @@ from app.services.order_policies.nordea import non_order_reason, apply_rate_rule
 from tests.test_order_mail_gate_and_planner import _gate_input
 
 PFRON = """ZLECENIE NA USŁUGI OUTSOURCING SPECJALISTÓW IT
-Imię i nazwisko: Konrad Kozłowski – Administrator Itunes
+Imię i nazwisko: Konrad Testłowski – Administrator Itunes
 Stawka za jedną Roboczogodzinę (zgodna z Ofertą Wykonawcy): 172,20 zł brutto
 Data rozpoczęcia wykonywania Prac przez Specjalistę: 01.09.2026 r.
 Okres realizacji Prac przez Specjalistę: do 160 RBH miesięcznie (z możliwością zmiany)
@@ -36,7 +36,7 @@ Call Off Agreement number: 286380
 Initial Term
 Start date End date
 2026-10-08 2027-01-31
-Maciej Sobczyk Data Analyst Poland - 1 728 Hours 130,00 PLN
+Maciej Wzorczyk Data Analyst Poland - 1 728 Hours 130,00 PLN
 """
 
 
@@ -50,7 +50,7 @@ def test_pfron_22_source_fields_override_old_model_and_are_idempotent():
         source="claude",
         consultant_rows=[
             ConsultantOrderRow(
-                consultant_name="Konrad Kozłowski – Administrator Itunes"
+                consultant_name="Konrad Testłowski – Administrator Itunes"
             )
         ],
         uncertain=True,
@@ -60,7 +60,7 @@ def test_pfron_22_source_fields_override_old_model_and_are_idempotent():
     )
     for _ in range(2):
         result = apply_pfron_order_policy(
-            old, PFRON, filename="Zlecenie nr 22 Konrad Kozłowski pk-sig.pdf"
+            old, PFRON, filename="Zlecenie nr 22 Konrad Testłowski pk-sig.pdf"
         )
         assert result.title == "Zlecenie nr 22"
         assert (result.start_date, result.end_date) == ("2026-09-01", "2026-11-30")
@@ -69,7 +69,7 @@ def test_pfron_22_source_fields_override_old_model_and_are_idempotent():
         assert result.md_total is None
         assert not result.uncertain, result.uncertain_reasons
         row = result.consultant_rows[0]
-        assert row.consultant_name == "Konrad Kozłowski"
+        assert row.consultant_name == "Konrad Testłowski"
         assert row.start_date == "2026-09-01" and row.end_date == "2026-11-30"
         assert row.rate_client == Decimal("140.00") and not row.uncertain
 
@@ -115,7 +115,7 @@ def test_286380_optional_quantity_remark_is_not_a_review_reason():
     assert result.uncertain_reasons == ["Sprzeczne daty okresu zamówienia"]
 
 
-def plan(statuses, orders, name="Bartłomiej Okraszewski"):
+def plan(statuses, orders, name="Bartłomiej Szablonewski"):
     row = ConsultantOrderRow(
         consultant_name=name,
         rate_client=Decimal("163"),
@@ -136,7 +136,7 @@ def plan(statuses, orders, name="Bartłomiej Okraszewski"):
             RosterPerson(
                 10,
                 "Bartłomiej",
-                "Okraszewski",
+                "Szablonewski",
                 tuple(
                     RosterContract(cid, status, date(2026, 1, 1), date(2026, 8, 15))
                     for cid, status in statuses
@@ -175,7 +175,7 @@ def test_286506_fills_named_recruitment_draft_with_start_date():
                 ExistingOrder(
                     611,
                     "draft",
-                    "Bartłomiej Okraszewski — Nordea: PL - MDM",
+                    "Bartłomiej Szablonewski — Nordea: PL - MDM",
                     date(2026, 9, 16),
                     None,
                 )

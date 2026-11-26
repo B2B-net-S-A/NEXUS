@@ -786,3 +786,64 @@ async def test_second_warning_the_same_day_leaves_the_morning_bell_alone() -> No
         assert bell.is_read is True
     finally:
         await _cleanup(world)
+
+
+async def test_returned_card_stays_visible_to_the_holder_until_someone_moves_it() -> (
+    None
+):
+    """26.11.2026: grupa „Wróciły od Ciebie” — kto trzymał kartę, od kiedy
+    stała w „Screeningu”; po ponownym ruchu karta znika z grupy."""
+    rec = await _user()
+    world = await _world()
+    try:
+        await _in_screening(world, rec)
+        await _sweep(world, THURSDAY_MORNING)
+        async with AsyncSessionLocal() as db:
+            cards = await svc.returned_cards_for_jobs(db, [world["job_id"]])
+        card = cards[world["job_id"]][world["candidate_id"]]
+        assert card.holder_id == rec
+        assert card.screening_since == MONDAY.astimezone(timezone.utc)
+
+        # Ktoś bierze ją z powrotem do „Screeningu” — już nie „wróciła”.
+        await _move(world, "screening", actor=rec, at=datetime.now(timezone.utc))
+        async with AsyncSessionLocal() as db:
+            cards = await svc.returned_cards_for_jobs(db, [world["job_id"]])
+        assert cards[world["job_id"]] == {}
+    finally:
+        await _cleanup(world)
+
+
+async def test_returned_card_leaves_the_group_after_five_workdays() -> None:
+    rec = await _user()
+    world = await _world()
+    try:
+        await _in_screening(world, rec)
+        await _sweep(world, THURSDAY_MORNING)
+        # Wpis powrotu ma czas zapisu; trzy tygodnie później okno już minęło.
+        later = datetime.now(timezone.utc) + timedelta(days=21)
+        async with AsyncSessionLocal() as db:
+            cards = await svc.returned_cards_for_jobs(db, [world["job_id"]], now=later)
+        assert cards[world["job_id"]] == {}
+    finally:
+        await _cleanup(world)
+
+
+async def test_expired_claim_in_new_is_not_a_return_from_screening() -> None:
+    rec = await _user()
+    world = await _world()
+    try:
+        stage_id = await _move(
+            world,
+            "new",
+            actor=rec,
+            at=MONDAY - timedelta(hours=1),
+            entry_source=candidate_claim.ENTRY_SYSTEM,
+        )
+        await _claim(world, rec, stage_id, MONDAY)
+        result = await _sweep(world, THURSDAY_MORNING)
+        assert result.released == 1
+        async with AsyncSessionLocal() as db:
+            cards = await svc.returned_cards_for_jobs(db, [world["job_id"]])
+        assert cards[world["job_id"]] == {}
+    finally:
+        await _cleanup(world)

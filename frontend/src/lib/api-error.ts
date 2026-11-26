@@ -93,7 +93,7 @@ export function messageFromApiResponse(
   // 429 = limit zapytań. slowapi odpowiada ciałem {"error": "Rate limit
   // exceeded: N per 1 minute"} — BEZ klucza `detail`, więc bez tej gałęzi
   // wołający spadał na surowe `error.message` i użytkownik dostawał
-  // „Request failed with status code 429" (zgłoszenie: Wiktoria Denka).
+  // „Request failed with status code 429" (zgłoszenie rekruterki).
   if (status === 429) {
     console.error("[api] rate limited:", data);
     return "Zbyt wiele prób w krótkim czasie — odczekaj minutę i spróbuj ponownie.";

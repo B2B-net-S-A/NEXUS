@@ -125,7 +125,7 @@ const PROFILE: ClientProfileResponse = {
       contract_id: 529,
       candidate: {
         id: 1,
-        name: "Tomasz Sadowski",
+        name: "Tomasz Testowski",
         avatar_url: null,
         competence_category: null,
         linkedin: null,
@@ -338,14 +338,14 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
   it("zostawia sekcję Konsultantów — to kontrakty, nie rekrutacje", async () => {
     renderTab();
 
-    expect(await screen.findByText("Tomasz Sadowski")).toBeInTheDocument();
+    expect(await screen.findByText("Tomasz Testowski")).toBeInTheDocument();
   });
 });
 
 describe("ProfileTab — tabela konsultantów", () => {
   it("Obecni konsultanci mają komplet kolumn BEZ daty zakończenia", async () => {
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
 
     const headers = Array.from(document.querySelectorAll("th")).map((th) =>
       (th.textContent ?? "").trim(),
@@ -370,9 +370,9 @@ describe("ProfileTab — tabela konsultantów", () => {
 
   it("pokazuje stawki godzinowe i miesięczną marżę w osobnych kolumnach", async () => {
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
 
-    const row = screen.getByText("Tomasz Sadowski").closest("tr");
+    const row = screen.getByText("Tomasz Testowski").closest("tr");
     // Intl wstawia twardą spację przed „zł" — normalizujemy, liczy się kwota.
     const cells = Array.from(row?.querySelectorAll("td") ?? []).map((td) =>
       (td.textContent ?? "").replace(/\s/g, " ").trim(),
@@ -419,7 +419,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     // w jednej kolumnie byłoby przemilczeniem, nie uproszczeniem.
     const user = userEvent.setup({ delay: null });
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     // Wiersz z rekrutacją własną kontraktu — bez znacznika.
     expect(screen.queryByText("· z zamówienia")).toBeNull();
 
@@ -431,7 +431,7 @@ describe("ProfileTab — tabela konsultantów", () => {
   it("Archiwum dokłada kolumnę End date", async () => {
     const user = userEvent.setup({ delay: null });
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
 
     await user.click(screen.getByRole("tab", { name: /^Zakończeni/ }));
     await screen.findByText("Marek Archiwalny");
@@ -457,7 +457,7 @@ describe("ProfileTab — tabela konsultantów", () => {
   it("planowani konsultanci mają własny filtr i nie siedzą w „Pracują teraz”", async () => {
     const user = userEvent.setup({ delay: null });
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
 
     // Obecni: osoby z kontraktem, który JUŻ obowiązuje — bez przyszłego startu.
     expect(screen.queryByText("Piotr Planowany")).toBeNull();
@@ -469,7 +469,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     await user.click(plannedTab);
     expect(await screen.findByText("Piotr Planowany")).toBeInTheDocument();
     expect(screen.getByText(/19\.10\.2099/)).toBeInTheDocument();
-    expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
+    expect(screen.queryByText("Tomasz Testowski")).toBeNull();
     expect(screen.getByText(/nie wchodzą do „Pracują teraz”/i)).toBeInTheDocument();
   });
 
@@ -574,7 +574,7 @@ function renderEzdrowie() {
 describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () => {
   it("u klienta spoza e-Zdrowia nie ma sekcji struktury ani filtra", async () => {
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.queryByText("Struktura umów")).toBeNull();
     expect(screen.queryByRole("group", { name: "Filtr umów wykonawczych" })).toBeNull();
     expect(mocks.ecStructure).not.toHaveBeenCalled();
@@ -618,18 +618,18 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
     ).toHaveTextContent("(zakończona)");
 
     await user.click(within(filter).getByRole("button", { name: "CeZ/145/2025/UW-1" }));
-    expect(screen.getByText("Tomasz Sadowski")).toBeInTheDocument();
+    expect(screen.getByText("Tomasz Testowski")).toBeInTheDocument();
     expect(screen.queryByText("Anna Bez Rekrutacji", { selector: "a" })).toBeNull();
     expect(screen.getByRole("tab", { name: /^Pracują teraz/ })).toHaveTextContent("1");
 
     await user.click(within(filter).getByRole("button", { name: "Nieprzypisani (1)" }));
-    expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
+    expect(screen.queryByText("Tomasz Testowski")).toBeNull();
     expect(screen.getByRole("link", { name: "Anna Bez Rekrutacji" })).toBeInTheDocument();
   });
 
   it("badge w tabeli pokazuje NUMER umowy wykonawczej, legacy — samą część", async () => {
     renderEzdrowie();
-    const assigned = (await screen.findByText("Tomasz Sadowski")).closest("tr");
+    const assigned = (await screen.findByText("Tomasz Testowski")).closest("tr");
     expect(within(assigned as HTMLElement).getByText("CeZ/145/2025/UW-1")).toHaveAttribute(
       "title",
       "E-zdrowie cz.2",
@@ -729,7 +729,7 @@ describe("ProfileTab — audyt 24.09.2026", () => {
       ...PROFILE,
       historical: { ...PROFILE.historical, placements_total: 250 },
     });
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     const archiveTab = screen.getByRole("tab", { name: /^Zakończeni/ });
     expect(archiveTab).toHaveTextContent("250");
     await user.click(archiveTab);
@@ -746,7 +746,7 @@ describe("ProfileTab — audyt 24.09.2026", () => {
         { ...PROFILE.active_consultants[1], contract_status: "active" },
       ],
     });
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.getAllByRole("button", { name: /Przedłuż/ })).toHaveLength(1);
   });
 
@@ -755,7 +755,7 @@ describe("ProfileTab — audyt 24.09.2026", () => {
       ...PROFILE,
       summary: { ...PROFILE.summary, active_consultants: 1 },
     });
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.getByText(/2 kontrakty · 1 osoba/)).toBeInTheDocument();
   });
 
@@ -801,7 +801,7 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
   it("„Wymaga uwagi” zbiera osoby ze znacznikami serwera i mówi dlaczego", async () => {
     const user = userEvent.setup({ delay: null });
     renderTab(42, WITH_STATE);
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
 
     const attentionTab = screen.getByRole("tab", { name: /^Wymaga uwagi/ });
     expect(attentionTab).toHaveTextContent("2");
@@ -817,7 +817,7 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
 
   it("kolumny Projekt i Prolongata pojawiają się tylko u klienta, który je wypełnia", async () => {
     renderTab(42, WITH_STATE);
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     const headers = Array.from(document.querySelectorAll("th")).map((th) =>
       (th.textContent ?? "").trim(),
     );
@@ -830,7 +830,7 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
   it("„Szkice” są osobną podzakładką tylko wtedy, gdy szkic istnieje", async () => {
     const user = userEvent.setup({ delay: null });
     renderTab(42, WITH_STATE);
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.queryByText("Szymon Szkicowy")).toBeNull();
 
     await user.click(screen.getByRole("tab", { name: /^Szkice/ }));
@@ -839,7 +839,7 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
 
   it("bez szkiców nie ma podzakładki „Szkice”, a bez pól rejestru — ich kolumn", async () => {
     renderTab();
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.queryByRole("tab", { name: /^Szkice/ })).toBeNull();
     const headers = Array.from(document.querySelectorAll("th")).map((th) =>
       (th.textContent ?? "").trim(),
@@ -850,12 +850,12 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
 
   it("admin dostaje akcje dawnego rejestru: Nowy kontrakt i edycję pól rejestru", async () => {
     renderTab(42, WITH_STATE);
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.getByRole("button", { name: /Nowy kontrakt/ })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Edytuj pola rejestru: Tomasz Sadowski" }),
+      screen.getByRole("button", { name: "Edytuj pola rejestru: Tomasz Testowski" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Otwórz kontrakt: Tomasz Sadowski" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Otwórz kontrakt: Tomasz Testowski" })).toHaveAttribute(
       "href",
       "/contracts/529",
     );
@@ -873,7 +873,7 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
       hydrated: true,
     });
     renderTab(42, WITH_STATE);
-    await screen.findByText("Tomasz Sadowski");
+    await screen.findByText("Tomasz Testowski");
     expect(screen.queryByRole("button", { name: /Nowy kontrakt/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Edytuj pola rejestru/ })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Prolongata" })).toBeNull();

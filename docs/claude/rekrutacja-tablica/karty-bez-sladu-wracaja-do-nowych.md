@@ -1,5 +1,5 @@
 # Karty bez śladu wracają do „Nowych” po 2 dniach roboczych (23.11.2026)
-<!-- indeks: `services/screening_stale.py`, pętla `screening_stale`, `SCREENING_STALE_RETURN_ENABLED`, `returns_to_new_on`, `entry_meta.returned_to_pool_at`, grupy „Do telefonu” / „Nie odebrał” / „Po rozmowie” w „Screeningu”, `scripts.screening_stale_return` -->
+<!-- indeks: `services/screening_stale.py`, pętla `screening_stale`, `SCREENING_STALE_RETURN_ENABLED`, `returns_to_new_on`, `entry_meta.returned_to_pool_at`, grupy „Do telefonu” / „Nie odebrał” / „Po rozmowie” w „Screeningu”, `scripts.screening_stale_return`, `returned_from_screening`, grupa „Wróciły od Ciebie”, „Weź z powrotem” -->
 
 Decyzja Artura z 23.11.2026, rekomendacja 1 z analizy „Dzień rekrutera A–Z”
 (https://claude.ai/artifact/Bf7wiygZoxpTPq9G8oHgiL, sekcja „1 · Screening bez
@@ -127,3 +127,42 @@ godzinie, notatka z innej rekrutacji, umówiony telefon w przyszłości, cudza
 karta, zamknięta rekrutacja, „Biorę” w „Nowych”, ręczne dodanie, porcja),
 `test_screening_stale_unit.py` (kalendarz, święto, znacznik),
 `frontend/src/lib/__tests__/screening-column-groups.test.ts`.
+
+## Ślad po powrocie: „Wróciły od Ciebie” (26.11.2026)
+
+Rekruter zgłosił 26.11, że osoby „zniknęły” ze Screeningu i nie pamięta,
+które to były. Pomiar z produkcji tego dnia: od 24.11 wróciło 1 651 kart
+u 33 osób, a z pierwszej fali (1 490) ktoś wziął z powrotem tylko 53. Wrócone
+karty stały w „Nowych” wśród kilkudziesięciu innych bez żadnego oznaczenia,
+a dzwonek wymieniał trzy nazwiska. Decyzja Artura: reguła 2 dni roboczych
+zostaje, Tablica pokazuje ślad. Analiza z makietami:
+https://claude.ai/artifact/FqzXsyeZdmoVACwzrHibUg
+
+- **Serwer:** `returned_from_screening` na karcie
+  (`screening_stale.returned_cards_for_jobs`): `{at, holder_user_id,
+  holder_name, screening_since}` dla kart, którym wpis `stale_card_returned`
+  rodzaju `screening` wskazuje dzisiejszy ostatni wiersz etapu pary (nikt ich
+  nie ruszył), z ostatnich `RETURNED_VISIBLE_WORKDAYS = 5` dni roboczych
+  (dziś się liczy). Pięć dni pokazuje też pierwszą falę z 24.11 do 30.11.
+  Wygasłe „Biorę” w „Nowych” (rodzaj `claim`) tu nie trafia: ta karta nigdzie
+  nie zniknęła.
+- **„Nowi”:** osobie z `holder_user_id` karty stoją na samej górze w grupie
+  „Wróciły od Ciebie · N” (`orderNewColumn(…, viewerId)`, sekcja
+  `returned_mine`), najświeższy powrót pierwszy, poza kolejką „Zadzwoń
+  najpierw”. Pod kartą: „Wróciła <dzień>” (w podpowiedzi: od kiedy stała w Screeningu)
+  i „Weź z powrotem” = `POST /api/pipeline/claim`, potem ruch strzałką „→”
+  (ta sama droga, `deferMove` albo „Przesuń dalej”). Pozostali widzą pod kartą
+  „Wróciła ze Screeningu od: <osoba>”. Karta dalej jest dla wszystkich.
+  Gdy kartę wziął już ktoś inny („Biorę” innej osoby z terminem), nie stoi
+  w grupie i nie ma napisu. Gdy „Biorę” jest już patrzącego (np. po „Cofnij”),
+  „Weź z powrotem” robi sam ruch, bo własnej blokady nie da się przedłużyć (409).
+- **„Screening”:** pasek nad kolumną liczy karty z napisem „Wraca do „Nowych”
+  …” (`screeningWarning`), a pod taką kartą stoi „Nie odebrał”
+  (`useNoAnswerNote`, ta sama notatka-próba co w doku), który zatrzymuje kartę.
+- **Dzwonki** (gubienie kart przy limicie 200 na przebieg i dziennym dedupie,
+  poranne ostrzeżenie dzień wcześniej) robi osobny PR z migracją typów
+  powiadomień.
+
+Testy: `test_screening_stale.py` (grupa po powrocie, okno 5 dni, wygasłe
+„Biorę”), `test_screening_stale_unit.py` (okno), front:
+`lib/__tests__/screening-returned.test.ts`, `new-column-queue.test.ts`.

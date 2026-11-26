@@ -97,7 +97,7 @@ Korekty danych produkcyjnych idą osobno — lista na końcu.
   ERSTE 614, wiersz importu MD 546, zamówienia 6/13/15/199, kontrakt 668 →
   klient 115, grupa-sierota 67, duplikaty klientów 51/88, 5124/32, 5244/5249.
 - Ticket OIT/0569: usunięcie zamówienia 653 (01.01.2027 → 31.12.2026) —
-  ręcznie w UI (Alior → Zamówienia → Marta Goceł).
+  ręcznie w UI (Alior → Zamówienia → Marta Testeł).
 - Ticket 1460/2026: kliknięcie „Powiąż z kontraktem” (#341) po wdrożeniu.
 - Ticket 4500030067: zamknie się samo przy pierwszym odczycie listy zamówień
   klienta albo w nocnym skanie po wdrożeniu.

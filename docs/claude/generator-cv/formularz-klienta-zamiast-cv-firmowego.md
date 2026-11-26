@@ -385,3 +385,37 @@ Zostały prawdziwe luki: wydział, rok studiów, data i wystawca certyfikatu.
 - **Staging nie ma pliku wzoru 789225** (uploady sprzed 18.11). „Wypełnij”
   przez API kończy się tam 404 „Pliku nie ma już w magazynie”. Pomiar szedł
   skryptem na strukturze z bazy, bez zapisu.
+
+## Zasady oceny z legendy tabeli punktowej (26.11.2026)
+
+DL CEZ 26.11.2026: „NEXUS nadal wypełnia tylko 50% CV do CEZ”. Pomiar na
+stagingu (kopia z 26.11, 5 rekrutacji CEZ, 21 formularzy i 14 tabel): w tabelach
+punktowych „Testera ePP” i „Testera Automatycznego” puste zostawały wszystkie
+pola punktów (8 i 7), a w formularzu Word pole „ponad minimalne wymagania”
+nie miało minimum. Przyczyna: w żadnej z 5 rekrutacji nie ma osobnego PDF-a
+ani Worda z zasadami — „Szczegółowy opis oceny” to sam Excel oznaczony jako
+wzór tabeli, z zasadami w kolumnie „Legenda (punktacja)”. `scoring_rules_text`
+pomijał oznaczone wzory, więc zasady były puste, prompt F36 nie dostawał pól
+punktów, a kod odrzucał każdą liczbę.
+
+- **Bez osobnego pliku tabela punktowa bierze zasady z legendy swojego wzoru**
+  (`client_score_structure.rules_text`, `job_files.scoring_rules_text(...,
+  score_legend=True)`): wiersz „<oceniany element>: <legenda>” z kolumn,
+  których nagłówek ma „legend”, „punktacj”, „zasad” albo „sposób oceny”.
+  Osobny plik z zasadami dalej wygrywa. Wzór bez legendy daje pusty tekst —
+  same nazwy wierszy nie są zasadami i nie odblokują punktów. Pomiar: tabela
+  „Testera ePP” 43 % → 86 %, „Testera Automatycznego” 50 % → 93 %.
+- **Punkty w wierszu „ponad minimalne wymagania” nie czekają na minimum**
+  (`client_form_years.build`, ścieżka na stagingu 26.11.2026). Progi z legendy
+  mówią o całym stażu („1 pkt - więcej niż 3 lata”), a kod ustawiał
+  „minimum nieznane” każdemu polu z „ponad minim” w nazwie wiersza, także
+  polu punktów. Minimum odejmuje się dalej tylko w polu lat formularza Word.
+- **Formularz Word legendy nie dostaje.** Z nią wypełniał się gorzej (para
+  z „Testera ePP”, 6 biegów: średnio 70 % bez legendy, 62 % z nią — model
+  pomijał więcej lat i opisów), a zyskiwał tylko minimum w jednym wierszu
+  „ponad minimalne wymagania”. To pole zostaje puste z „minimum nieznane”.
+- **Reszta braków to w większości brak danych w źródłach**, nie błąd modelu:
+  lata kompetencji bez roli, która ją opisuje (Xray, rejestry publiczne,
+  służba zdrowia), wiersz „Test sprawdzający wiedzę” (wypełnia klient po
+  teście), data i wystawca certyfikatu. U jednej osoby z 789225 „CV” w
+  profilu to certyfikat PRINCE2 — z niego formularz nic nie wyczyta.

@@ -159,7 +159,7 @@ function mockQueue(queue: Record<string, unknown>) {
     if (url === "/api/candidate-followups/candidates/21")
       return Promise.resolve({ data: { candidate_id: 21, followup: followupRow(), history: [] } });
     if (url === "/api/board-tasks/cpro/sender")
-      return Promise.resolve({ data: { user_id: 5, user_name: "Kinga Sordyl", until: null } });
+      return Promise.resolve({ data: { user_id: 5, user_name: "Kinga Testyl", until: null } });
     return Promise.resolve({ data: [] });
   });
 }
@@ -242,7 +242,7 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     mockQueue({ can_set_cpro_sender: true });
     renderPanel();
     const bar = await screen.findByRole("region", { name: "Osoba od Cpro" });
-    expect(await within(bar).findByText("Do Cpro wrzuca: Kinga Sordyl")).toBeTruthy();
+    expect(await within(bar).findByText("Do Cpro wrzuca: Kinga Testyl")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
   });
 
@@ -322,7 +322,7 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(within(section).getByText("5")).toBeTruthy();
     expect(within(section).getByRole("button", { name: "Java Developer · 4 osoby" })).toBeTruthy();
     expect(within(section).getByRole("button", { name: "QA Engineer · 1 osoba" })).toBeTruthy();
-    expect(await within(section).findByText("Do Cpro wrzuca: Kinga Sordyl")).toBeTruthy();
+    expect(await within(section).findByText("Do Cpro wrzuca: Kinga Testyl")).toBeTruthy();
     expect(get).toHaveBeenCalledWith("/api/board-tasks/cpro/sender");
 
     await userEvent.click(within(section).getByRole("button", { name: "Wrzucaj po kolei" }));
@@ -1281,7 +1281,7 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     });
     renderPanel({ dlSendBand: true });
     const bar = await screen.findByRole("region", { name: "Osoba od Cpro" });
-    expect(await within(bar).findByText("Do Cpro wrzuca: Kinga Sordyl")).toBeTruthy();
+    expect(await within(bar).findByText("Do Cpro wrzuca: Kinga Testyl")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Rekrutacje do dokończenia albo zamknięcia" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Twoje CV w drodze" })).toBeTruthy();
     expect(screen.queryByText("Nic na Ciebie teraz nie czeka.")).toBeNull();
@@ -1477,7 +1477,7 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
       waiting_days: 3,
     };
     const flow = emptyFlow({
-      autofill_decisions: [decision, { ...decision, candidate_id: 62, candidate_name: "Marek Wysocki", waiting_days: 2 }],
+      autofill_decisions: [decision, { ...decision, candidate_id: 62, candidate_name: "Marek Testocki", waiting_days: 2 }],
       autofill_decisions_total: 2,
     });
     expect(flowWorkCount(flow as never, null)).toBe(2);

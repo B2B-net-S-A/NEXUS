@@ -330,8 +330,8 @@ async def test_return_on_terminated_contract_stays_draft_and_never_revives_it():
 async def test_single_global_namesake_needs_a_human_and_diacritics_fold(monkeypatch):
     """Osoba bez umowy u klienta, a w bazie jedna osoba o tym nazwisku (A4).
 
-    Prefiltr zwija polskie znaki po obu stronach: „Lukasz Gradzki" z PDF-a
-    znajduje „Łukasz Grądzki" z bazy — wcześniej writer zakładał po cichu
+    Prefiltr zwija polskie znaki po obu stronach: „Lukasz Testadzki" z PDF-a
+    znajduje „Łukasz Testądzki" z bazy — wcześniej writer zakładał po cichu
     drugą kartę tej osoby. Automat (bez aktora) nie dopina cudzej karty po
     samym nazwisku: dokument wraca do weryfikacji. Człowiek dopina istniejącą
     osobę i nie powstaje nowy kandydat.
@@ -344,7 +344,7 @@ async def test_single_global_namesake_needs_a_human_and_diacritics_fold(monkeypa
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Namesake mail {suffix}")
-        person = Candidate(name="Łukasz", lastname=f"Grądzki{suffix}")
+        person = Candidate(name="Łukasz", lastname=f"Testądzki{suffix}")
         reviewer = User(
             email=f"namesake-{suffix}@example.test",
             password_hash=hash_password(f"P4ss_{suffix}!"),
@@ -356,7 +356,7 @@ async def test_single_global_namesake_needs_a_human_and_diacritics_fold(monkeypa
         )
         db.add_all([client, person, reviewer])
         await db.flush()
-        doc = document(client.id, f"Lukasz Gradzki{suffix}", "Namesake order")
+        doc = document(client.id, f"Lukasz Testadzki{suffix}", "Namesake order")
         db.add(doc)
         await db.flush()
 

@@ -886,6 +886,11 @@ async def _client_names(db: AsyncSession, client_id: Optional[int]) -> list[str]
     return names
 
 
+async def client_names(db: AsyncSession, client_id: Optional[int]) -> list[str]:
+    """Nazwa i aliasy klienta (te same co kontrola strony kariery) — dla innych modułów."""
+    return await _client_names(db, client_id)
+
+
 async def client_lint_names(db: AsyncSession, client_id: Optional[int]) -> list[str]:
     """Nazwy klienta dla kontroli OGŁOSZENIA NA PORTALE: nazwa, aliasy, nazwa
     wyświetlana i prawna.

@@ -45,6 +45,8 @@
   --shadow-red-soft: rgba(70, 8, 14, 0.34);
   --shadow-ink: rgba(31, 17, 21, 0.08);
   --line-on-red: rgba(255, 255, 255, 0.45);
+  /* Tekst drugiego planu na czerwieni (język A, 26.11.2026): 5,1:1 na #C42329. */
+  --on-red-soft: #ffe3da;
 
   --display: "Montserrat", system-ui, sans-serif;
   --text: "Source Sans 3", system-ui, sans-serif;
@@ -128,7 +130,7 @@
 /* Pierwszy ekran w gradiencie wariantu 5, poziomo jak nagłówek, więc oba
    łączą się w jeden pas (strona główna: `bg-red-tech`). Dalsze rozdziały
    czerwone zostają w jednolitej czerwieni. */
-.chRed:is(.hero, .s1, .sent1, .rec1, .notice) {
+.chRed:is(.hero, .rec1, .notice) {
   background-image: var(--red-tech);
 }
 .chSnow {
@@ -477,204 +479,12 @@
 .heroBody {
   margin-top: 4px;
 }
-.deck {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 20px;
-}
-.card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 138px;
-  padding: 14px 14px 12px;
-  border-radius: 14px;
-  text-align: left;
-  box-shadow: 0 18px 30px var(--shadow-red-soft);
-  transition: translate 0.25s ease;
-}
-.card b {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 54px;
-  letter-spacing: -0.06em;
-  line-height: 0.9;
-}
-.card > span {
-  margin-top: 8px;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 1.12;
-  letter-spacing: -0.02em;
-}
-.card i {
-  margin-top: auto;
-  padding-top: 4px;
-  font-style: normal;
-  font-weight: 700;
-}
-.card:hover,
-.card[aria-pressed="true"] {
-  translate: 0 -10px;
-}
-.card:focus-visible {
-  outline-color: var(--white);
-  outline-offset: 3px;
-}
-/* Pozostałe karty bledną w czerwień rozdziału, ale zostają nieprzezroczyste. */
-.card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--red);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease;
-}
-.dim::after {
-  opacity: 0.5;
-}
-.dim:hover::after {
-  opacity: 0.2;
-}
-.d0 {
-  background: var(--ink);
-  color: var(--snow);
-  rotate: -1.2deg;
-}
-.d1 {
-  background: var(--white);
-  color: var(--ink);
-  rotate: 0.8deg;
-}
-.d1 b {
-  color: var(--red-text);
-}
-.d2 {
-  background: var(--snow);
-  color: var(--ink);
-  rotate: 0.8deg;
-}
-.d3 {
-  background: var(--lime);
-  color: var(--ink);
-  rotate: -0.8deg;
-}
-
-/* Wiersz pozostałych miast pod szukajką */
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: var(--white);
-  box-shadow: inset 0 0 0 1px var(--rule);
-  font-weight: 600;
-  font-size: 15px;
-}
-.chip b {
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--ink-mid);
-}
-.chip:hover,
-.chip[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--white);
-}
-.chip[aria-pressed="true"] b,
-.chip:hover b {
-  color: var(--white);
-}
 
 .list {
   z-index: 1;
   padding: 18px 0 26px;
 }
-.bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.search {
-  /* W kolumnie (telefon) `flex: 1` zerowałby wysokość pola. */
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 52px;
-  padding: 0 14px;
-  border-radius: 10px;
-  background: var(--white);
-  box-shadow: inset 0 0 0 1.5px var(--ink);
-}
-.search:focus-within {
-  box-shadow: inset 0 0 0 2.5px var(--ink);
-}
-.search input {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  font-size: 17px;
-  background: transparent;
-  outline: 0;
-}
-.site .search input:focus-visible {
-  outline: none;
-}
-.search input::placeholder {
-  color: var(--placeholder);
-}
-.search input::-webkit-search-cancel-button {
-  display: none;
-}
-.count {
-  font-size: 13px;
-  white-space: nowrap;
-}
-.clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin-right: -6px;
-  font-size: 22px;
-  line-height: 1;
-}
-.pills {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-.pill {
-  height: 44px;
-  padding: 0 8px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 15px;
-  box-shadow: inset 0 0 0 1.5px var(--ink);
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-.pill:hover,
-.pill[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--white);
-}
+
 .grid {
   display: grid;
   gap: 12px;
@@ -897,77 +707,9 @@
   margin-top: 8px;
 }
 
-/* ───────────── Oferta (OfertaA / OfertaManager) ───────────── */
-.s1 {
-  z-index: 3;
-  padding: 14px 0 32px;
-  container-type: inline-size;
-}
 /* Wielkie słowa liczą rozmiar od szerokości treści (bez marginesów), nie sekcji. */
-.s1 > .wrap,
-.sent1 > .wrap,
 .rodo1 > .wrap {
   container-type: inline-size;
-}
-.word {
-  /* `--em` = szerokość słowa w em (`wordEm`): duże słowo zawsze mieści się w szerokości. */
-  /* Najwyżej 96 px na telefonie i 180 px na laptopie: tytuł, fakty i „Wyślij CV”
-     muszą zostać na pierwszym ekranie (390 × 844 i 1280 × 720). */
-  font-size: min(96px, calc(100cqi / var(--em, 5)));
-  line-height: 0.9;
-}
-.row1 {
-  display: grid;
-  gap: 24px;
-  margin-top: 6px;
-  align-items: start;
-}
-.title {
-  font-family: var(--display);
-  font-weight: 600;
-  letter-spacing: -0.026em;
-  line-height: 1.16;
-  font-size: 28px;
-  overflow-wrap: anywhere;
-}
-.summary {
-  margin-top: 8px;
-  font-size: 18px;
-  line-height: 1.42;
-}
-.facts {
-  margin-top: 16px;
-  border-top: 1px solid var(--line-on-red);
-}
-.facts div {
-  display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 10px;
-  align-items: baseline;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line-on-red);
-}
-.facts dt {
-  font-size: 15px;
-}
-.facts dd {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 17px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
-}
-.ctas {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px 18px;
-  margin-top: 20px;
-}
-.ctas .btn {
-  min-height: 60px;
-  font-size: 19px;
 }
 
 /* Szybka aplikacja w nagłówku oferty: samo CV i „Wyślij CV” */
@@ -992,14 +734,7 @@
   font-size: 13px;
   opacity: 0.85;
 }
-.site .titleLong {
-  font-size: 22px;
-}
-.side {
-  display: grid;
-  gap: 18px;
-  min-width: 0;
-}
+
 .quick {
   padding: 16px;
   border-radius: 14px;
@@ -1085,75 +820,7 @@
   flex: none;
   margin-top: 3px;
 }
-.fullLink {
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 
-/* Prawa kolumna pod szybką aplikacją (zamiast „Co już masz?”) */
-.sideCard {
-  position: relative;
-  padding: 20px 18px;
-  border-radius: 16px;
-  background: var(--white);
-  color: var(--ink);
-  box-shadow: 0 22px 40px var(--shadow-red);
-}
-.sideTitle {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: -0.035em;
-  line-height: 1.05;
-}
-.sideSub {
-  margin-top: 14px;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--ink-mid);
-}
-.sideList {
-  margin-top: 8px;
-  border-top: 1.5px solid var(--ink);
-}
-.sideList li {
-  padding: 8px 0 8px 18px;
-  border-bottom: 1px solid var(--rule);
-  font-size: 16px;
-  line-height: 1.3;
-  position: relative;
-}
-.sideList li::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 15px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--red-text);
-}
-.sideNice li::before {
-  background: var(--ink-soft);
-}
-.sideList b {
-  font-weight: 700;
-}
-.sideList small {
-  font-size: max(13px, 0.85em);
-  color: var(--ink-soft);
-}
-.sideNote {
-  margin-top: 12px;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 15px;
-}
-.sideNote a {
-  color: var(--red-text);
-}
 /* Wielkie słowo nad tytułem wchodzi od dołu raz przy wczytaniu (żywe, ale spokojne). */
 @keyframes wordIn {
   from {
@@ -1164,134 +831,6 @@
     translate: 0 0;
     opacity: 1;
   }
-}
-.word {
-  /* Ogonki liter („Pega”) przy interlinii 0,9 nie wchodzą na tytuł. */
-  margin-bottom: 0.1em;
-  animation: wordIn 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .word {
-    animation: none;
-  }
-}
-
-/* Projekt */
-.s2 {
-  padding: 32px 0 36px;
-  container-type: inline-size;
-}
-.row2 > div:first-child {
-  /* Słowo „Projekt” liczy rozmiar od szerokości kolumny, nie całej sekcji. */
-  container-type: inline-size;
-}
-.row2 {
-  display: grid;
-  gap: 26px;
-  align-items: start;
-}
-.projectWord {
-  color: var(--red-text);
-  font-size: min(112px, calc(100cqi / var(--em, 5)));
-  line-height: 0.9;
-}
-.about {
-  margin-top: 14px;
-  font-size: 17px;
-  line-height: 1.42;
-  max-width: 620px;
-}
-.about + .about {
-  margin-top: 10px;
-}
-.tasks {
-  margin-top: 10px;
-  border-top: 1.5px solid var(--ink);
-}
-.tasks li {
-  display: grid;
-  grid-template-columns: 32px 1fr;
-  gap: 6px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--rule);
-  font-size: 16.5px;
-  line-height: 1.3;
-}
-.tasks li span {
-  padding-top: 2px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--red-text);
-}
-
-/* Proces: cztery kroki */
-.s3 {
-  padding: 32px 0 36px;
-}
-.s3Top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 14px 22px;
-}
-.s3Big {
-  font-size: 76px;
-  line-height: 0.78;
-}
-.s3Top .lead {
-  font-size: 24px;
-  padding-bottom: 4px;
-}
-.s3Top .who span:not(.av) {
-  color: var(--on-ink-soft);
-}
-.steps {
-  display: grid;
-  gap: 10px;
-  margin-top: 20px;
-}
-.st {
-  position: relative;
-  display: grid;
-  grid-template-columns: 60px 1fr;
-  align-items: center;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--graphite-raised);
-}
-.st .n {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 34px;
-  letter-spacing: -0.06em;
-  line-height: 0.9;
-}
-.st .t {
-  display: block;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 18px;
-  line-height: 1.14;
-  letter-spacing: -0.024em;
-}
-.st .d {
-  display: block;
-  margin-top: 2px;
-  font-size: 15.5px;
-  color: var(--on-ink-soft);
-}
-.st .stAv {
-  display: none;
-}
-.stLit {
-  background: var(--white);
-  color: var(--ink);
-}
-.stLit .n {
-  color: var(--red-text);
-}
-.stLit .d {
-  color: var(--ink-body);
 }
 
 /* Aplikacja */
@@ -1622,70 +1161,6 @@ input:focus-visible + .box {
   overflow: hidden;
 }
 
-/* ───────────── Po wysłaniu (AplikacjaWyslana) ───────────── */
-.sent1 {
-  z-index: 3;
-  padding: 10px 0 32px;
-  container-type: inline-size;
-}
-.sentWord {
-  font-size: min(136px, calc(100cqi / 4.6));
-  letter-spacing: -0.03em;
-  line-height: 0.9;
-}
-.sentRow {
-  display: grid;
-  gap: 24px;
-  /* Ogonki „y” i „ę” wielkiego słowa nie nachodzą na zdanie pod nim. */
-  margin-top: calc(min(250px, 100cqi / 4.6) * 0.18);
-  align-items: start;
-}
-.sent1 .body {
-  margin-top: 10px;
-}
-.sent1 .btn {
-  margin-top: 22px;
-}
-.rc {
-  position: relative;
-  padding: 22px 22px;
-  border-radius: 16px;
-  background: var(--white);
-  color: var(--ink);
-  box-shadow: 0 34px 60px var(--shadow-red);
-}
-.tick {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 12px;
-  border-radius: 50%;
-  background: var(--lime);
-  color: var(--ink);
-}
-.rc h2 {
-  margin-bottom: 12px;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-}
-.rc dl div {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 8px;
-  padding: 9px 0;
-  border-top: 1px solid var(--rule);
-  font-size: 16px;
-  line-height: 1.3;
-}
-.rc dd {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
 .others {
   padding: 32px 0 40px;
 }
@@ -1699,69 +1174,6 @@ input:focus-visible + .box {
 }
 .othersTop .ulink {
   font-size: 18px;
-}
-
-/* ───────────── Zamknięta rekrutacja (OfertaZakonczona) ───────────── */
-.closedWord {
-  font-size: min(136px, calc(100cqi / 6.4));
-  line-height: 0.9;
-}
-.ticket {
-  position: relative;
-  padding: 24px 22px 30px;
-  border-radius: 16px;
-  background: var(--white);
-  color: var(--ink);
-  box-shadow: 0 34px 60px var(--shadow-red);
-  overflow: hidden;
-}
-.ticket h2 {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: -0.03em;
-  line-height: 1.08;
-  overflow-wrap: anywhere;
-}
-.ticket p {
-  margin-top: 6px;
-  color: var(--ink-mid);
-}
-.stamp {
-  display: inline-block;
-  margin-top: 18px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 2.5px var(--red-text);
-  color: var(--red-text);
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
-  rotate: -6deg;
-}
-.bigN {
-  font-size: 76px;
-  line-height: 0.78;
-}
-.band {
-  padding: 28px 0;
-}
-.bandInner {
-  display: grid;
-  gap: 16px;
-}
-.band h2 {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 30px;
-  letter-spacing: -0.04em;
-  line-height: 1.02;
-}
-.band p {
-  margin-top: 6px;
-  font-size: 17px;
 }
 
 /* ───────────── RODO (KlauzulaRodo) ───────────── */
@@ -1828,21 +1240,6 @@ input:focus-visible + .box {
 
 /* ───────────── Tablet od 768 ───────────── */
 @media (min-width: 768px) {
-  .sideCard {
-    padding: 26px 28px;
-    border-radius: 18px;
-  }
-  .sideTitle {
-    font-size: 32px;
-  }
-  .sideList li {
-    font-size: 17px;
-  }
-  .reqBlock {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 40px;
-    margin-top: 56px;
-  }
   .quickRow {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -1867,52 +1264,11 @@ input:focus-visible + .box {
   .heroLead {
     margin-top: 22px;
   }
-  .deck {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
-    margin-top: 28px;
-  }
-  .card {
-    min-height: 220px;
-    padding: 20px 18px;
-    border-radius: 16px;
-  }
-  .card b {
-    font-size: 80px;
-  }
-  .card > span {
-    font-size: 19px;
-    margin-top: 12px;
-  }
-  .card i {
-    font-size: 24px;
-  }
+
   .list {
     padding: 40px 0 34px;
   }
-  .bar {
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-  }
-  .search {
-    flex: 1;
-    height: 56px;
-    padding: 0 18px;
-  }
-  .search input {
-    font-size: 18px;
-  }
-  .pills {
-    display: flex;
-    gap: 10px;
-  }
-  .pill {
-    height: 56px;
-    padding: 0 20px;
-    border-radius: 10px;
-    font-size: 17px;
-  }
+
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
@@ -1971,112 +1327,13 @@ input:focus-visible + .box {
   .dropMob {
     display: none;
   }
-  .title {
-    font-size: clamp(1.75rem, 3.1vw, 2.5rem);
-  }
-  .summary {
-    font-size: 20px;
-  }
-  .facts div {
-    grid-template-columns: 118px minmax(0, 1fr);
-    padding: 11px 0;
-  }
-  .facts dt {
-    font-size: 16px;
-  }
-  .facts dd {
-    font-size: 19px;
-  }
-  .s2 {
-    padding: 56px 0 64px;
-  }
-  .about {
-    font-size: 19px;
-  }
-  .tasks li {
-    grid-template-columns: 40px 1fr;
-    font-size: 18px;
-    padding: 11px 0;
-  }
-  .tasks li span {
-    font-size: 13px;
-    padding-top: 3px;
-  }
-  .s3 {
-    padding: 56px 0 64px;
-  }
-  .s3Big {
-    font-size: 120px;
-  }
-  .s3Top .lead {
-    font-size: 36px;
-  }
-  .steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    margin-top: 30px;
-  }
-  .st {
-    display: flex;
-    flex-direction: column;
-    min-height: 200px;
-    padding: 22px 22px 24px;
-    border-radius: 14px;
-  }
-  .st .n {
-    font-size: 76px;
-  }
-  .st > div {
-    margin-top: auto;
-    padding-top: 18px;
-  }
-  .st .t {
-    font-size: 23px;
-  }
-  .st .d {
-    margin-top: 4px;
-    font-size: 17px;
-  }
-  .st .stAv {
-    display: flex;
-    position: absolute;
-    top: 20px;
-    right: 20px;
-  }
+
   .s4,
-  .sent1,
   .others,
   .cvSection {
     padding-block: 56px 64px;
   }
-  .sentRow {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
-    gap: 40px;
-  }
-  .rc {
-    padding: 24px 26px;
-    rotate: 1.2deg;
-  }
-  .rc h2 {
-    font-size: 28px;
-  }
-  .bigN {
-    font-size: 120px;
-  }
-  .bandInner {
-    display: flex;
-    align-items: center;
-    gap: 40px;
-  }
-  .bandInner .btn {
-    margin-left: auto;
-  }
-  .band h2 {
-    font-size: 44px;
-  }
-  .band p {
-    font-size: 19px;
-  }
+
   .it {
     grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1.6fr);
     gap: 18px;
@@ -2113,24 +1370,12 @@ input:focus-visible + .box {
   .notice {
     padding: 40px 0 96px;
   }
-  .sideCard {
-    margin-bottom: -120px;
-    rotate: -1deg;
-    box-shadow: 0 34px 60px var(--shadow-red);
-  }
+
   .dock,
   .dock[hidden] {
     display: none;
   }
-  .site .titleLong {
-    font-size: 28px;
-  }
-  .word {
-    font-size: min(136px, calc(100cqi / var(--em, 5)));
-    /* Odstęp na ogonki liter jest potrzebny tylko na telefonie; tu zepchnąłby
-       „Wyślij CV” pod pierwszy ekran 1280 × 720. */
-    margin-bottom: 0;
-  }
+
   .wrap {
     padding-inline: 72px;
   }
@@ -2169,42 +1414,7 @@ input:focus-visible + .box {
   .site .headerCta {
     padding: 10px 18px;
   }
-  .row1 {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 560px);
-    gap: 40px;
-  }
-  .row1 > div:first-child {
-    padding-top: 24px;
-  }
-  .side {
-    gap: 22px;
-  }
-  .s1 {
-    padding-bottom: 64px;
-  }
-  .s2 {
-    padding: 64px 0 72px;
-  }
-  .s2Hang {
-    padding-top: 150px;
-  }
-  .row2 {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 560px);
-    gap: 40px;
-  }
-  .row2Solo {
-    grid-template-columns: minmax(0, 820px);
-  }
-  .steps {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .st {
-    min-height: 232px;
-  }
-  .s3Top .who {
-    margin-left: auto;
-    max-width: 420px;
-  }
+
   .row4 {
     grid-template-columns: 400px minmax(0, 1fr);
     gap: 48px;
@@ -2215,12 +1425,7 @@ input:focus-visible + .box {
   .none {
     grid-template-columns: minmax(0, 1fr) minmax(0, 400px);
   }
-  .cvRow {
-    display: grid;
-    grid-template-columns: 400px minmax(0, 1fr);
-    gap: 48px;
-    align-items: start;
-  }
+
   .rodo1Inner {
     display: flex;
     align-items: flex-end;
@@ -2276,9 +1481,7 @@ input:focus-visible + .box {
     height: 348px;
     padding: 14px 0 0;
   }
-  .heroHeading {
-    width: 450px;
-  }
+
   .heroNum {
     font-size: 136px;
     margin-left: -8px;
@@ -2287,58 +1490,9 @@ input:focus-visible + .box {
   .heroBody {
     white-space: nowrap;
   }
-  .deck {
-    display: block;
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    pointer-events: none;
-  }
-  .card {
-    position: absolute;
-    top: 4px;
-    width: 196px;
-    height: 326px;
-    pointer-events: auto;
-    box-shadow: 0 34px 60px var(--shadow-red);
-  }
-  .card b {
-    font-size: 96px;
-  }
-  .card > span {
-    font-size: 21px;
-    line-height: 1.14;
-  }
-  .d0 {
-    left: 536px;
-    rotate: -4deg;
-    z-index: 1;
-  }
-  .d1 {
-    left: 704px;
-    top: -2px;
-    rotate: -1.2deg;
-    z-index: 2;
-  }
-  .d2 {
-    left: 872px;
-    top: 2px;
-    rotate: 1.6deg;
-    z-index: 3;
-  }
-  .d3 {
-    left: 1036px;
-    top: 12px;
-    width: 188px;
-    rotate: 4.4deg;
-    z-index: 4;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card,
-  .card::after,
-  .pill,
   .btn,
   .submit {
     transition: none;

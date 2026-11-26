@@ -19,7 +19,50 @@ i `app/services/website_applications.py` (logika), testy w
   to wolny tekst („1 grudnia”), stawka może wypaść poza 1–10 000. Takie pole zostaje
   surowe w `raw_payload` i w opisie wpisu w kolejce.
 - Tryb pracy przychodzi jako etykieta strony („Zdalnie”, „Hybryda”, „Stacjonarnie”)
-  i jest mapowany na `remote` / `hybrid` / `onsite`.
+  i jest mapowany na `remote` / `hybrid` / `onsite`. Od 25.11.2026 pole może się
+  powtarzać i nieść wartości techniczne (`remote`, `hybrid`, `onsite`).
+
+## Raport kompetencji (`report=1`, decyzje Artura 25.11.2026)
+
+Nowy formularz `/dla-specjalistow#raport` wysyła na `source=baza` dodatkowe pola.
+Strona wybiera je z list, więc zła wartość to błąd strony i dostaje 422 z `loc`
+pola (wyjątek od zasady „pole opcjonalne nie blokuje”). `report=1` wymaga CV
+(sam LinkedIn nie wystarczy, bo bez CV nie policzymy technologii) i stawki 1–2000;
+przy `oferta` dostaje 422.
+
+| Pole | Wartość | W NEXUSIE |
+|---|---|---|
+| `report` | `1` | wiersz `competence_reports` (`waiting_cv`, termin `send_due_at` = zgłoszenie + 23 h, opiekun) |
+| `rate` | zł/h netto, 1–2000 | `expected_rate_hourly`: nowa osoba w konstruktorze; osoba w bazie dopiero po zapisie z linku raportu (`update_candidate_profile_rate`, `source = website`) |
+| `current_rate` | zł/h, 1–2000 | tylko `conditions` raportu i `raw_payload.current_rate_hourly`; writera obserwacji stawki „obecnej” nie ma, a `expected_rate_hourly` w zgłoszeniu czyta historia stawek |
+| `contract` | `b2b` \| `uop` \| `any` | `b2b_willingness` (`b2b` → `b2b`, `uop` → `employment_only`, `any` bez zmiany) i `preferences.contract_types` |
+| `work_mode` (powtarzane) | `remote` \| `hybrid` \| `onsite` | `set_profile_work_mode`; samo `remote` = 0 dni w biurze |
+| `office_days_max` | 0–5 | `max_onsite_days_per_week` (przy `hybrid`/`onsite`; bez trybu tryby wynikają z dni) |
+| `office_city` (powtarzane, najwyżej 10) | do 120 znaków | `preferences.office_cities` (przycięte, bez powtórek) |
+| `start` | `now` \| `1m` \| `2-3m` \| `browsing` | `now` = dziś (kalendarz firmy) i 0 dni wypowiedzenia; `1m`/`2-3m` = 1/2 miesiące wypowiedzenia; `browsing` = `availability_status = open_to_offers`, gdy było `unknown` |
+
+Zapis idzie przez `services/website_application_terms.py` (te same writery co
+`candidate_terms_apply`). Nowa osoba: wszystkie pola od razu (`details.terms`
+wpisu `applied_via_website`). **E-mail już w bazie** (decyzja Artura
+26.11.2026, zastępuje regułę z 25.11): osoba dostaje raport liczony z nowych
+warunków, ale profil przy zgłoszeniu się **nie zmienia**. Warunki leżą
+w zgłoszeniu (`raw_payload`) i w `competence_reports.conditions`. Do profilu
+trafiają dopiero, gdy osoba potwierdzi je na `/raport/<token>` („Zapisz
+w moim profilu”, `POST /api/public/competence-report/{token}/conditions`);
+wtedy pole, które człowiek zmienił w ostatnich 14 dniach
+(`profile_rate_changed`, `candidate_work_mode_changed` albo zwykła edycja
+profilu `updated`), zostaje. CV dalej czeka w zgłoszeniu. Bez `report=1` osoba
+w bazie zostaje bez zmian jak dotąd.
+
+Ponowne zgłoszenie tej samej osoby: wcześniejsze niewysłane raporty przechodzą
+w `skipped` (`last_error = superseded`), więc wychodzi tylko najnowszy. Raport
+wysłany tej osobie w ostatnich 24 h: nowy powstaje od razu jako `skipped`
+(`sent_recently`) — najwyżej jeden mail z raportem na dobę.
+
+Opiekun raportu: po kolei z `competence_report_owners` (lista admina; najdawniej
+przypisany, remis po `position`; konto wyłączone pomijane). Pusta lista = raport
+bez opiekuna. Kod: `services/competence_report_store.py`, DDL
+`services/competence_report_ddl.py` (migracja 0785 i siatka `entrypoint.sh`).
 
 ## Poświadczenie: sekret w env, świadomy wyjątek
 
@@ -48,14 +91,18 @@ Limit z `/apply` (5/min, 30/h) odrzucałby kandydatów przy zwykłym ruchu.
 - Nowy e-mail: kandydat ze źródłem `strona WWW`, `created_by` puste, CV jako główny
   dokument (`external_source = website`), odczyt CV w tle. Proces nie powstaje,
   bo oferty żyją na stronie, nie w `/jobs`.
-- E-mail już w bazie: kandydat **bez zmian** (P0-CAND-01). CV leży bezwładnie
-  przy `application_submissions`.
+- E-mail już w bazie: kandydat **bez zmian** (P0-CAND-01), także przy
+  `report=1` — warunki do profilu dopiero po potwierdzeniu z linku raportu
+  (sekcja wyżej). CV leży bezwładnie przy `application_submissions`.
 - W obu gałęziach powstaje wpis `pending_review` w „Zgłoszeniach” (`/applications`)
   z `matched_candidate_id` (decyzja Artura 24.11.2026). Zgłoszenie nie ma linku
   ani rekrutera, więc dzwonek nie ma adresata, a kolejka jest jedynym miejscem,
   w którym ktoś je zobaczy. Przy nowej osobie „Połącz” zamyka wpis (CV nie
   dubluje się, bo `_attach_cv_as_document` porównuje skrót).
 - NEXUS nie wysyła maila do kandydata, bo potwierdzenie wysyła strona.
+  **Wyjątek: raport kompetencji** (decyzja Artura 25.11.2026). Osoba, która
+  wysłała `report=1`, dostaje od NEXUSA raport w 24 godziny; potwierdzenie
+  zgłoszenia dalej wysyła strona.
 
 ## Zgody
 

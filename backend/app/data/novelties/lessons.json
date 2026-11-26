@@ -2073,8 +2073,8 @@
       "arkusz-rozmowy-na-lewej-polowie",
       "arkusz-rozmowy-obok-cv"
     ],
-    "task": "Na rekrutacji ćwiczebnej otwórz osobę ze „Screeningu”, rozwiń panel i włącz „Tryb rozmowy”. Kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
-    "solo_href": "/jobs/990001",
+    "task": "W panelu osoby ze „Screeningu” włącz „Tryb rozmowy” i kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
+    "solo_href": "/jobs/990001?candidate=990106&panel=screening",
     "check": {
       "kind": "click",
       "anchor": "screening.sheet.gaps"
@@ -2248,7 +2248,8 @@
     "id": "lekcja-karty-bez-sladu",
     "title": "Karta bez śladu wraca do „Nowych”",
     "novelties": [
-      "tablica-karty-bez-sladu-wracaja"
+      "tablica-karty-bez-sladu-wracaja",
+      "tablica-wrocily-od-ciebie"
     ],
     "task": "Na Tablicy ćwiczebnej przewiń do kolumny „Screening” i kliknij nagłówek pierwszej grupy, np. „Do telefonu”.",
     "solo_href": "/jobs/990001",
@@ -2276,6 +2277,16 @@
         ],
         "answer": 0,
         "explain": "Śladem jest notatka (także „Nie odebrał”), umówiony telefon, arkusz i ruch karty. Samo otwarcie śladem nie jest."
+      },
+      {
+        "q": "Rano nie widzisz osób, które wczoraj miałeś w „Screeningu”. Gdzie są?",
+        "options": [
+          "Na górze „Nowych” w grupie „Wróciły od Ciebie”, z „Weź z powrotem”",
+          "W kolumnie „Zamknięci” jako odrzuceni",
+          "Zniknęły z rekrutacji i trzeba je dodać od nowa"
+        ],
+        "answer": 0,
+        "explain": "Karta bez śladu wraca do „Nowych” dla wszystkich, ale przez 5 dni roboczych stoi u Ciebie na górze w grupie „Wróciły od Ciebie”. „Weź z powrotem” daje „Biorę” i przesuwa ją do „Screeningu”."
       }
     ]
   },
@@ -2754,8 +2765,8 @@
       "nowe-cv-wyroznik-propozycja-ai",
       "nowe-cv-zdania-strony-1"
     ],
-    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
-    "solo_href": "/jobs/990001?candidate=990109",
+    "task": "W panelu Jakuba otwórz edytor CV i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
+    "solo_href": "/jobs/990001?candidate=990108",
     "check": {
       "kind": "click",
       "anchor": "cv-editor.page1.refresh"
@@ -3005,6 +3016,36 @@
         ],
         "answer": 0,
         "explain": "Zgłoszenia z back office'u i z panelu konsultanta czekają na zatwierdzenie, a dodatek wpisany przez Finanse jest od razu zatwierdzony."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-zwijane-wyszukiwanie",
+    "title": "Więcej kandydatów na ekranie",
+    "novelties": ["kandydaci-zwijane-wyszukiwanie"],
+    "task": "Na liście kandydatów jest wyszukiwanie po „Java”. Kliknij „Szukaj”, a potem rozwiń wyszukiwanie, żeby je poprawić.",
+    "solo_href": "/candidates?q_any=Java",
+    "check": { "kind": "click", "anchor": "candidates.search-expand" },
+    "questions": [
+      {
+        "q": "Po „Szukaj” wyszukiwanie zwinęło się do jednej linii. Jak dopiszesz kolejne wymaganie?",
+        "options": [
+          "„Pokaż filtry” albo klik w tę linię, dopisuję i znowu „Szukaj”",
+          "Zaczynam od nowa przyciskiem „Wyczyść”",
+          "Wpisuję wymaganie w górne pole „Nazwisko, e-mail…”"
+        ],
+        "answer": 0,
+        "explain": "Zwinięta linia niczego nie kasuje. Rozwijasz ją, poprawiasz wymagania i klikasz „Szukaj” — po nim pasek znowu się zwinie."
+      },
+      {
+        "q": "Chcesz zobaczyć, w którym miejscu CV padło szukane słowo. Gdzie to włączysz?",
+        "options": [
+          "„Kolumny” → „Fragmenty CV pod osobą”",
+          "„Więcej filtrów” → „Szukaj w”",
+          "Nigdzie, widać to tylko w podglądzie CV"
+        ],
+        "answer": 0,
+        "explain": "Fragmenty CV są domyślnie schowane, żeby mieściło się więcej osób. Włączone zostają, dopóki ich nie wyłączysz w tej przeglądarce."
       }
     ]
   }

@@ -1284,11 +1284,11 @@ async def test_roster_includes_old_contract_and_refreshes_only_its_client(db_ses
     db_session.add_all([client, other])
     await db_session.flush()
     person = Candidate(
-        name="Konrad", lastname="Korcz", email=f"roster-{uuid.uuid4().hex}@example.test"
+        name="Konrad", lastname="Forcz", email=f"roster-{uuid.uuid4().hex}@example.test"
     )
     outsider = Candidate(
         name="Konrad",
-        lastname="Korcz",
+        lastname="Forcz",
         email=f"outsider-{uuid.uuid4().hex}@example.test",
     )
     db_session.add_all([person, outsider])
@@ -1314,7 +1314,7 @@ async def test_roster_includes_old_contract_and_refreshes_only_its_client(db_ses
     roster = await load_roster(db_session, client.id)
     assert [p.candidate_id for p in roster] == [person.id]
     resolved = resolve_rows(
-        [ConsultantOrderRow(consultant_name="Konrada Korcza")], roster
+        [ConsultantOrderRow(consultant_name="Konrada Forcza")], roster
     )
     assert resolved[0].candidate_id == person.id
     assert resolved[0].contract_id is not None
@@ -1360,7 +1360,7 @@ async def test_pfron_active_directory_record_controls_roster_and_plan(
     )
     person = Candidate(
         name="Michał",
-        lastname="Chwedorczuk",
+        lastname="Forczuk",
         email=f"pfron-{uuid.uuid4().hex}@example.test",
     )
     db_session.add_all([active_scope, inactive_scope, person])
