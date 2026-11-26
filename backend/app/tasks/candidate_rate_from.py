@@ -22,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 _INTERVAL_SECONDS = 30
 _PAUSE_SECONDS = 0.5
-_BATCH = 500
+# Paczka to jedna transakcja: `recompute` blokuje jej wiersze kandydatów
+# (FOR NO KEY UPDATE) do commitu, a UPDATE kandydata kosztuje ok. 120 ms
+# (wyzwalacz pełnotekstowy, 42 indeksy). Przy 500 osobach blokada trwała
+# 60–75 s i zapis kandydata z paczki (PATCH, tagi, lokalizacja: FOR UPDATE)
+# czekał do 60,7 s (pg_stat_statements produkcji, 26.11.2026). 25 osób ≈ 3 s.
+_BATCH = 25
 
 
 async def _drain() -> int:

@@ -53,6 +53,10 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
   Wyzwalacz przy konflikcie PODBIJA `queued_at` (`clock_timestamp()`), więc
   zmiana zapisana w trakcie przeliczenia zostaje w kolejce. Pętla blokuje
   kandydatów z `SKIP LOCKED` i nigdy nie czeka (bez zakleszczeń z żądaniami).
+  Za to żądanie czeka na pętlę: zapis kandydata (`FOR UPDATE` w PATCH, tagach,
+  lokalizacji) stoi do commitu paczki. Paczka ma więc 25 osób, ok. 3 s
+  (`_BATCH` w `tasks/candidate_rate_from.py`): przy 500 blokada trwała 60–75 s,
+  a PATCH czekał do 60,7 s (`pg_stat_statements` produkcji, 26.11.2026).
 - **Okno przesuwa się samo:** pętla raz dziennie kolejkuje kandydatów, których
   minimum wypadło z 18 miesięcy (`requeue_expiring`) — wyzwalacze reagują tylko
   na zmiany danych.
