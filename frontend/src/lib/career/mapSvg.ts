@@ -98,9 +98,10 @@ export function offerFocusSvg(facets: readonly Facet[], cities: readonly string[
 /** Praca zdalna: cała płyta świeci, czerwone punkty w całym kraju. */
 export function remoteSvg(): MapSvg {
   const dots = REMOTE_DOTS.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="4"/>`).join("");
+  // Okno szersze niż płyta, żeby rozmyta poświata nie ucięła się prostokątem.
   return wrap(
-    [0, 290, 600, 300],
-    `<ellipse cx="290" cy="450" rx="300" ry="120" fill="#FFD6C9" opacity="0.4" filter="url(#B)"/>` +
+    [-60, 270, 720, 360],
+    `<ellipse cx="290" cy="450" rx="280" ry="110" fill="#FFD6C9" opacity="0.4" filter="url(#B)"/>` +
       `<polygon points="${SLAB_PTS}" fill="#F3B9A8" stroke="#FFFFFF" stroke-opacity="0.5"/>` +
       `<polygon points="${OUTLINE}" fill="#FFF4F0" fill-opacity="0.92" stroke="#FFFFFF" stroke-width="1.5"/>` +
       `<g fill="#C42329">${dots}</g>`,

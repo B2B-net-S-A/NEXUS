@@ -59,8 +59,9 @@ export function offerOgDescription(job: Pick<CareerJob, "subtitle" | "params">):
   if (p?.remote_policy === "remote") tail = "Zdalnie z całej Polski.";
   else {
     const contract = p?.contract?.trim();
+    // Długi opis czasu („12 miesięcy z możliwością przedłużenia, Wymiar: 250 MD”) zostaje na stronie.
     const duration = p?.duration?.trim();
-    tail = sentence([contract, duration].filter(Boolean).join(", "));
+    tail = sentence([contract, duration && duration.length <= 40 ? duration : null].filter(Boolean).join(", "));
   }
   const out = [about, tail].filter(Boolean).join(" ");
   return out || null;

@@ -12,7 +12,7 @@ import { facetCounts } from "@/lib/career/site";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "Otwarte rekrutacje IT — B2B Network";
+export const alt = "Otwarte rekrutacje IT — B2Bnetwork";
 export const dynamic = "force-dynamic";
 
 /**

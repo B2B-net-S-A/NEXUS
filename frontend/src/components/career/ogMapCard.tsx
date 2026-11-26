@@ -165,14 +165,34 @@ export type OgOfferMap =
   | { kind: "closed"; map: MapSvg }
   | { kind: "none" };
 
-/** Rozmiar tytułu oferty od długości (najdłuższe w dwóch, trzech liniach). */
-export function ogOfferTitleSize(title: string): number {
-  const n = title.length;
-  if (n <= 14) return 96;
-  if (n <= 24) return 80;
-  if (n <= 40) return 64;
-  if (n <= 60) return 54;
-  return 46;
+const TITLE_SIZES = [96, 80, 64, 54, 46, 40] as const;
+
+/** Liczba linii tytułu po zawinięciu po słowach (szacunek szerokości Montserrat 800). */
+function titleLines(title: string, size: number, width: number): number {
+  const per = size * 0.62;
+  let lines = 1;
+  let used = 0;
+  for (const word of title.trim().split(/\s+/)) {
+    const w = word.length * per;
+    const add = used === 0 ? w : used + per * 0.3 + w;
+    if (add <= width || used === 0) used = add;
+    else {
+      lines += 1;
+      used = w;
+    }
+  }
+  return lines;
+}
+
+/**
+ * Największy rozmiar tytułu, przy którym mieści się w miejscu nad linią
+ * „{miasto} · {tryb} · B2B” — bez nachodzenia na adres w stopce kadru.
+ */
+export function ogOfferTitleSize(title: string, width = 590, height = 212): number {
+  for (const size of TITLE_SIZES) {
+    if (titleLines(title, size, width) * size * 0.98 <= height) return size;
+  }
+  return TITLE_SIZES[TITLE_SIZES.length - 1];
 }
 
 /** Oferta: technologie, stanowisko, „{miasto} · {tryb} · B2B”, mapa z miastem albo cała świecąca. */
@@ -198,7 +218,7 @@ export function OgOfferCard({
     map.kind === "focus"
       ? { map: map.map, left: 640, top: 96, width: 540 }
       : map.kind === "remote"
-        ? { map: map.map, left: 670, top: 200, width: 500 }
+        ? { map: map.map, left: 640, top: 160, width: 540 }
         : map.kind === "closed"
           ? { map: map.map, left: 680, top: 230, width: 480 }
           : null;
@@ -214,6 +234,9 @@ export function OgOfferCard({
         )
       : null;
   const head = first ? first.base - first.height : 0;
+  // Miejsce na tytuł: od y = 160 do 16 px nad adresem (y ≈ 554), minus plakietki
+  // (68), linia „miasto · tryb · B2B” (62) i druga linia (36), gdy są.
+  const titleSize = ogOfferTitleSize(title, textWidth, 212 + (sub ? 0 : 36) + (chips.length ? 0 : 68) + (line ? 0 : 62));
   return (
     <Frame host={host}>
       <div style={{ position: "absolute", left: 64, top: 160, width: textWidth, display: "flex", flexDirection: "column" }}>
@@ -241,7 +264,7 @@ export function OgOfferCard({
             display: "flex",
             fontFamily: "Montserrat",
             fontWeight: 800,
-            fontSize: ogOfferTitleSize(title),
+            fontSize: titleSize,
             lineHeight: 0.98,
             letterSpacing: -2.5,
           }}

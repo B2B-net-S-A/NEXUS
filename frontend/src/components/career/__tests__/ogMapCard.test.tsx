@@ -60,10 +60,11 @@ describe("grafika OG w języku A", () => {
     expect(screen.queryByText("Oracle")).toBeNull();
   });
 
-  it("tytuł maleje z długością", () => {
+  it("tytuł dobiera rozmiar do miejsca: tytuł nie schodzi na adres w stopce", () => {
     expect(ogOfferTitleSize("AI Engineer")).toBe(96);
-    expect(ogOfferTitleSize("Team Leasing – Oracle")).toBe(80);
-    expect(ogOfferTitleSize("Starszy Analityk Biznesowo-Systemowy")).toBe(64);
-    expect(ogOfferTitleSize("x".repeat(70))).toBe(46);
+    // „Power Platform” przy 80 px nie mieści się w 590 px — wychodziły trzy linie na adres.
+    expect(ogOfferTitleSize("Power Platform Developer")).toBe(64);
+    expect(ogOfferTitleSize("Starszy Analityk Biznesowo-Systemowy")).toBeLessThanOrEqual(64);
+    expect(ogOfferTitleSize("Senior Fullstack Developer Java Angular Spring Boot w sektorze bankowym")).toBeLessThanOrEqual(54);
   });
 });
