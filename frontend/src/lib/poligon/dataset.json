@@ -137,6 +137,7 @@
    "GET /api/client-reports/clients/990501",
    "GET /api/clients-lookup?delivery_scope=true",
    "GET /api/clients/990501",
+   "GET /api/clients/990501/bnp-report/availability",
    "GET /api/clients/990501/contacts",
    "GET /api/clients/990501/framework-contracts",
    "GET /api/clients/990501/framework-terms",
@@ -146,6 +147,7 @@
    "GET /api/clients/directory/clients?page=1&page_size=50&state=working",
    "GET /api/clients/order-documents/by-contract/990521",
    "GET /api/clients/order-documents/by-contract/990522",
+   "GET /api/conflicts?client_id=990501&limit=100&offset=0&state=active",
    "GET /api/consultant-panel/contracts/990521",
    "GET /api/consultant-panel/contracts/990521/settings",
    "GET /api/contractors/stats",
@@ -191,6 +193,13 @@
    "GET /api/hr/payroll/contracts/990521/admin-details",
    "GET /api/insights/lost-review/client-rules/990501",
    "GET /api/insights/lost-review?period=month&offset=0",
+   "GET /api/jobs?client_id=990501&open_only=true&page_size=100",
+   "GET /api/jobs?client_id=990501&outcome=lost&outcome_counts=true&page_size=100&status=closed",
+   "GET /api/jobs?client_id=990501&outcome=neutral&outcome_counts=true&page_size=100&status=closed",
+   "GET /api/jobs?client_id=990501&outcome=unreviewed&outcome_counts=true&page_size=100&status=closed",
+   "GET /api/jobs?client_id=990501&outcome=won&outcome_counts=true&page_size=100&status=closed",
+   "GET /api/jobs?client_id=990501&outcome_counts=true&page_size=100&status=closed",
+   "GET /api/jobs?client_id=990501&page_size=100",
    "GET /api/legal/tasks",
    "GET /api/legal/tasks?contract_id=990521",
    "GET /api/legal/tasks?contract_id=990522",
@@ -23606,6 +23615,549 @@
    "available": 0,
    "take": 0,
    "release": 0
+  },
+  "GET /api/jobs?client_id=990501&open_only=true&page_size=100": {
+   "items": [
+    {
+     "id": 990001,
+     "title": "Senior Project Manager (bankowość)",
+     "location": "Gdańsk",
+     "status": "published",
+     "client_id": 990501,
+     "client_reference": "BP/2026/052",
+     "candidate_count": 16,
+     "opened_effective_at": "@rel:-9",
+     "opened_at": null,
+     "created_at": "@rel:-9",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": null,
+     "hired_names": [],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 1,
+   "page": 1,
+   "page_size": 100
+  },
+  "GET /api/jobs?client_id=990501&page_size=100": {
+   "items": [
+    {
+     "id": 990001,
+     "title": "Senior Project Manager (bankowość)",
+     "location": "Gdańsk",
+     "status": "published",
+     "client_id": 990501,
+     "client_reference": "BP/2026/052",
+     "candidate_count": 16,
+     "opened_effective_at": "@rel:-9",
+     "opened_at": null,
+     "created_at": "@rel:-9",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": null,
+     "hired_names": [],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990611,
+     "title": "Analityk systemowy (płatności)",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/041",
+     "candidate_count": 22,
+     "opened_effective_at": "@rel:-40",
+     "opened_at": null,
+     "created_at": "@rel:-40",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "won",
+     "hired_names": [
+      "Filip Bukowiec"
+     ],
+     "close_reason": "filled_by_us",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990612,
+     "title": "Tester automatyzujący (Java)",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/037",
+     "candidate_count": 31,
+     "opened_effective_at": "@rel:-55",
+     "opened_at": null,
+     "created_at": "@rel:-55",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "unreviewed",
+     "hired_names": [],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990613,
+     "title": "Architekt rozwiązań chmurowych",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/033",
+     "candidate_count": 14,
+     "opened_effective_at": "@rel:-70",
+     "opened_at": null,
+     "created_at": "@rel:-70",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "neutral",
+     "hired_names": [],
+     "close_reason": "paused",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990614,
+     "title": "Kierownik projektu IT",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/029",
+     "candidate_count": 18,
+     "opened_effective_at": "@rel:-90",
+     "opened_at": null,
+     "created_at": "@rel:-90",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "lost",
+     "hired_names": [],
+     "close_reason": "competitor",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990615,
+     "title": "Programista .NET",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/021",
+     "candidate_count": 27,
+     "opened_effective_at": "@rel:-120",
+     "opened_at": null,
+     "created_at": "@rel:-120",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "won",
+     "hired_names": [
+      "Maja Wierzbicka"
+     ],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 6,
+   "page": 1,
+   "page_size": 100
+  },
+  "GET /api/jobs?client_id=990501&outcome_counts=true&page_size=100&status=closed": {
+   "items": [
+    {
+     "id": 990611,
+     "title": "Analityk systemowy (płatności)",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/041",
+     "candidate_count": 22,
+     "opened_effective_at": "@rel:-40",
+     "opened_at": null,
+     "created_at": "@rel:-40",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "won",
+     "hired_names": [
+      "Filip Bukowiec"
+     ],
+     "close_reason": "filled_by_us",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990612,
+     "title": "Tester automatyzujący (Java)",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/037",
+     "candidate_count": 31,
+     "opened_effective_at": "@rel:-55",
+     "opened_at": null,
+     "created_at": "@rel:-55",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "unreviewed",
+     "hired_names": [],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990613,
+     "title": "Architekt rozwiązań chmurowych",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/033",
+     "candidate_count": 14,
+     "opened_effective_at": "@rel:-70",
+     "opened_at": null,
+     "created_at": "@rel:-70",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "neutral",
+     "hired_names": [],
+     "close_reason": "paused",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990614,
+     "title": "Kierownik projektu IT",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/029",
+     "candidate_count": 18,
+     "opened_effective_at": "@rel:-90",
+     "opened_at": null,
+     "created_at": "@rel:-90",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "lost",
+     "hired_names": [],
+     "close_reason": "competitor",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990615,
+     "title": "Programista .NET",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/021",
+     "candidate_count": 27,
+     "opened_effective_at": "@rel:-120",
+     "opened_at": null,
+     "created_at": "@rel:-120",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "won",
+     "hired_names": [
+      "Maja Wierzbicka"
+     ],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 5,
+   "page": 1,
+   "page_size": 100,
+   "outcome_counts": {
+    "won": 2,
+    "lost": 1,
+    "neutral": 1,
+    "unreviewed": 1
+   }
+  },
+  "GET /api/conflicts?client_id=990501&limit=100&offset=0&state=active": {
+   "items": [],
+   "total": 0,
+   "limit": 100,
+   "offset": 0,
+   "type_labels": {}
+  },
+  "GET /api/clients/990501/bnp-report/availability": {
+   "available": false
+  },
+  "GET /api/jobs?client_id=990501&outcome=won&outcome_counts=true&page_size=100&status=closed": {
+   "items": [
+    {
+     "id": 990611,
+     "title": "Analityk systemowy (płatności)",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/041",
+     "candidate_count": 22,
+     "opened_effective_at": "@rel:-40",
+     "opened_at": null,
+     "created_at": "@rel:-40",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "won",
+     "hired_names": [
+      "Filip Bukowiec"
+     ],
+     "close_reason": "filled_by_us",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    },
+    {
+     "id": 990615,
+     "title": "Programista .NET",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/021",
+     "candidate_count": 27,
+     "opened_effective_at": "@rel:-120",
+     "opened_at": null,
+     "created_at": "@rel:-120",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "won",
+     "hired_names": [
+      "Maja Wierzbicka"
+     ],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 2,
+   "page": 1,
+   "page_size": 100,
+   "outcome_counts": {
+    "won": 2,
+    "lost": 1,
+    "neutral": 1,
+    "unreviewed": 1
+   }
+  },
+  "GET /api/jobs?client_id=990501&outcome=lost&outcome_counts=true&page_size=100&status=closed": {
+   "items": [
+    {
+     "id": 990614,
+     "title": "Kierownik projektu IT",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/029",
+     "candidate_count": 18,
+     "opened_effective_at": "@rel:-90",
+     "opened_at": null,
+     "created_at": "@rel:-90",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "lost",
+     "hired_names": [],
+     "close_reason": "competitor",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 1,
+   "page": 1,
+   "page_size": 100,
+   "outcome_counts": {
+    "won": 2,
+    "lost": 1,
+    "neutral": 1,
+    "unreviewed": 1
+   }
+  },
+  "GET /api/jobs?client_id=990501&outcome=neutral&outcome_counts=true&page_size=100&status=closed": {
+   "items": [
+    {
+     "id": 990613,
+     "title": "Architekt rozwiązań chmurowych",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/033",
+     "candidate_count": 14,
+     "opened_effective_at": "@rel:-70",
+     "opened_at": null,
+     "created_at": "@rel:-70",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "neutral",
+     "hired_names": [],
+     "close_reason": "paused",
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 1,
+   "page": 1,
+   "page_size": 100,
+   "outcome_counts": {
+    "won": 2,
+    "lost": 1,
+    "neutral": 1,
+    "unreviewed": 1
+   }
+  },
+  "GET /api/jobs?client_id=990501&outcome=unreviewed&outcome_counts=true&page_size=100&status=closed": {
+   "items": [
+    {
+     "id": 990612,
+     "title": "Tester automatyzujący (Java)",
+     "location": "Gdańsk",
+     "status": "closed",
+     "client_id": 990501,
+     "client_reference": "BP/2026/037",
+     "candidate_count": 31,
+     "opened_effective_at": "@rel:-55",
+     "opened_at": null,
+     "created_at": "@rel:-55",
+     "recruiters": [
+      {
+       "user_id": 990902,
+       "name": "Jakub Szkoleniowy",
+       "via": "owner",
+       "proposed": false,
+       "assigned_by_name": null
+      }
+     ],
+     "outcome": "unreviewed",
+     "hired_names": [],
+     "close_reason": null,
+     "close_notes": null,
+     "duplicate_of_job_id": null
+    }
+   ],
+   "total": 1,
+   "page": 1,
+   "page_size": 100,
+   "outcome_counts": {
+    "won": 2,
+    "lost": 1,
+    "neutral": 1,
+    "unreviewed": 1
+   }
   }
  }
 }

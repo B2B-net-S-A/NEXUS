@@ -5733,5 +5733,49 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "klient-wygrane-projekty",
+    "pr": 4108,
+    "title": "Wygrane projekty klienta na zielono",
+    "why": "Wygrane projekty klienta są na zielono, z osobą, którą zatrudniliśmy — liczone jak w Lidze DL. Chipy zawężają listę, a „Uzupełnij wynik” zapisuje, jak skończył się projekt bez powodu.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Klienci → klient → Rekrutacje → Zamknięte projekty",
+    "href": "/clients",
+    "practice_href": "/clients/990501?tab=projekty",
+    "section": "delivery",
+    "dot_anchor": "client-projects.closed",
+    "used_anchor": "client-projects.outcome-won",
+    "steps": [
+      {
+        "anchor": "client-projects.closed",
+        "text": "Kliknij „Zamknięte projekty”.",
+        "hint": "Tu są projekty klienta, które już się skończyły."
+      },
+      {
+        "anchor": "client-projects.won-row",
+        "text": "Zielony wiersz to wygrany projekt; pod plakietką widać, kogo zatrudniliśmy.",
+        "hint": "Wygrana liczy się jak w Lidze DL: ktoś od nas jest na „Zatrudniony”.",
+        "ack": true
+      },
+      {
+        "anchor": "client-projects.fill-outcome",
+        "text": "„Uzupełnij wynik” stoi przy projekcie, który nie ma powodu zamknięcia.",
+        "hint": "Wybierasz w nim, jak skończyła się rekrutacja. Bez tego projekt liczy się w hit ratio jak przegrany.",
+        "ack": true
+      },
+      {
+        "anchor": "client-projects.outcome-won",
+        "text": "Kliknij chip „Wygrane”.",
+        "hint": "Lista zawęża się do wygranych. „Bez wyniku” pokaże projekty do uzupełnienia."
+      }
+    ]
   }
 ]

@@ -1179,8 +1179,12 @@ def zero_counts(value):
     return value
 
 
-def fix_counts(dataset: dict) -> None:
-    """Liczniki listy rekrutacji liczą tylko rekrutację ćwiczebną, nie dzień nagrania."""
+def fix_counts(dataset: dict, skip: frozenset[str] = frozenset()) -> None:
+    """Liczniki listy rekrutacji liczą tylko rekrutację ćwiczebną, nie dzień nagrania.
+
+    `skip`: odpowiedzi klienta ćwiczebnego wymyślone w całości (zakładka
+    Projekty, 26.11.2026) — mają własne liczby przy każdej rekrutacji.
+    """
     board = dataset.get(f"GET /api/pipeline/kanban/{POLIGON_JOB}")
     if not board:
         return
@@ -1220,7 +1224,7 @@ def fix_counts(dataset: dict) -> None:
                 if isinstance(counts.get(k), dict) and "searching" in counts[k]:
                     counts[k]["searching"] = 1
             dataset[key] = counts
-        if key.startswith("GET /api/jobs?"):
+        if key.startswith("GET /api/jobs?") and key not in skip:
             for item in value.get("items", []):
                 item["stage_breakdown"] = {k: v for k, v in per_stage.items() if v}
                 for col in item.get("stage_columns", []):
@@ -1415,7 +1419,7 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     # była pusta, a zadanie każe przesunąć kartę właśnie stamtąd.
     terms, people = terms_practice(dataset, meta["people"])
     dataset.update(terms)
-    fix_counts(dataset)
+    fix_counts(dataset, skip=frozenset(practice))
     # „Czeka na Ciebie” z osobami ćwiczebnymi (lekcja „Pracuj po kolei”, 25.11.2026).
     board, board_fiction = board_tasks_practice(dataset)
     dataset.update(board)

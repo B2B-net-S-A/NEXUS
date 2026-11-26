@@ -3138,5 +3138,40 @@
         "explain": "Fragmenty CV są domyślnie schowane, żeby mieściło się więcej osób. Włączone zostają, dopóki ich nie wyłączysz w tej przeglądarce."
       }
     ]
+  },
+  {
+    "id": "lekcja-wygrane-projekty-klienta",
+    "title": "Wygrane projekty klienta na zielono",
+    "novelties": [
+      "klient-wygrane-projekty"
+    ],
+    "task": "U klienta ćwiczebnego otwórz zamknięte projekty i pokaż tylko te, które wygraliśmy.",
+    "solo_href": "/clients/990501?tab=projekty",
+    "check": {
+      "kind": "click",
+      "anchor": "client-projects.outcome-won"
+    },
+    "questions": [
+      {
+        "q": "Kiedy projekt w „Zamkniętych projektach” jest zielony?",
+        "options": [
+          "Ktoś od nas jest w nim na „Zatrudniony”",
+          "Ktoś zamknął go z powodem „Obsadzone przez nas”",
+          "Klient przysłał zamówienie na ten projekt"
+        ],
+        "answer": 0,
+        "explain": "Wygrana liczy się tak samo jak w Lidze DL: z zatrudnienia od nas. Sam powód „Obsadzone przez nas” bez osoby na „Zatrudniony” to w hit ratio przegrana."
+      },
+      {
+        "q": "Pod „Zamknięta” widzisz „Uzupełnij wynik”. Co to znaczy?",
+        "options": [
+          "Nikt nie zapisał, jak skończył się projekt, a w hit ratio liczy się on dziś jak przegrany",
+          "Projekt czeka na zatwierdzenie przez Head of Recruitment",
+          "Klient nie odpowiedział na ostatnie CV"
+        ],
+        "answer": 0,
+        "explain": "Projekt bez powodu zamknięcia trafia do „Bez wyniku”. Uzupełnienie wyniku poprawia hit ratio i statystyki klienta."
+      }
+    ]
   }
 ]

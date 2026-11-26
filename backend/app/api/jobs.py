@@ -1378,8 +1378,30 @@ async def list_jobs(
             "(podgląd na telefonie). Te same filtry, sortowanie i liczby."
         ),
     ),
+    outcome: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Wynik zamkniętej rekrutacji (26.11.2026, reguła hit ratio, "
+            "`services/job_outcome.py`): won · lost · neutral · unreviewed. "
+            "Powtarzalny, LUB. Rekrutacje niezamknięte nie mają wyniku, więc "
+            "filtr je pomija."
+        ),
+    ),
+    outcome_counts: bool = Query(
+        False,
+        description=(
+            "Dołącz `outcome_counts: {won, lost, neutral, unreviewed}` — liczby "
+            "zamkniętych rekrutacji po tych samych filtrach, ale bez filtra "
+            "`outcome` (liczniki chipów w „Zamkniętych projektach” klienta)."
+        ),
+    ),
 ):
     from app.models.recruitment_pipeline import CandidateStage
+    from app.services.job_outcome import (  # noqa: PLC0415
+        JOB_OUTCOMES,
+        hired_names_by_job,
+        job_outcome_expr,
+    )
 
     # The recruitment register is an organization-wide discovery surface.
     # Delivery Leads still have their exact client–TAC scope enforced on job
@@ -1572,6 +1594,23 @@ async def list_jobs(
             query = query.where(sent_n >= min_sent)
         if max_sent is not None:
             query = query.where(sent_n <= max_sent)
+    outcome_count_map: Optional[dict[str, int]] = None
+    if outcome_counts:
+        # Te same filtry co lista (bez `outcome`), jedna grupa po wyniku.
+        outcome_col = job_outcome_expr().label("outcome")
+        sub = query.with_only_columns(Job.id, outcome_col).subquery()
+        grouped_rows = await db.execute(
+            select(sub.c.outcome, func.count()).group_by(sub.c.outcome)
+        )
+        outcome_count_map = dict.fromkeys(JOB_OUTCOMES, 0)
+        for value, n in grouped_rows.all():
+            if value in outcome_count_map:
+                outcome_count_map[value] = int(n)
+    if outcome:
+        unknown = sorted(set(outcome) - set(JOB_OUTCOMES))
+        if unknown:
+            raise HTTPException(422, f"Nieznany wynik rekrutacji: {', '.join(unknown)}")
+        query = query.where(job_outcome_expr().in_(outcome))
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
@@ -1889,6 +1928,18 @@ async def list_jobs(
     from app.services import job_champions  # noqa: PLC0415
 
     champion_briefs = await job_champions.live_briefs(db, [j.id for j in jobs])
+    # Wynik zamkniętych (26.11.2026) — jedno zapytanie na stronę, imiona
+    # zatrudnionych tylko dla wygranych.
+    closed_ids = [j.id for j in jobs if j.status == JobStatus.closed]
+    outcome_by_job: dict[int, str] = {}
+    if closed_ids:
+        outcome_rows = await db.execute(
+            select(Job.id, job_outcome_expr()).where(Job.id.in_(closed_ids))
+        )
+        outcome_by_job = {int(i): o for i, o in outcome_rows.all()}
+    hired_names = await hired_names_by_job(
+        db, [i for i, o in outcome_by_job.items() if o == "won"]
+    )
     # 26.11.2026: „Wstrzymana od DD.MM” w wierszu (od kiedy i kto).
     from app.services.job_hold import hold_fields  # noqa: PLC0415
 
@@ -1963,6 +2014,8 @@ async def list_jobs(
         d.update(hold_by_job.get(j.id, {}))
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
+        d["outcome"] = outcome_by_job.get(j.id)
+        d["hired_names"] = hired_names.get(j.id, [])
         redact_job_for_viewer(d, current_user)
         _redact_delivery_lead_job_finance(d, current_user)
         _strip_champion_payload_from_list_row(d)
@@ -1982,9 +2035,13 @@ async def list_jobs(
             # Imiona championów to dane kandydatów rekrutacji, której ta osoba
             # nie otworzy — wiersz zostaje, osoby nie.
             d["champions"] = []
+            d["hired_names"] = []
         items.append({k: d[k] for k in _COMPACT_ROW_FIELDS if k in d} if compact else d)
 
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    payload = {"items": items, "total": total, "page": page, "page_size": page_size}
+    if outcome_count_map is not None:
+        payload["outcome_counts"] = outcome_count_map
+    return payload
 
 
 # Trasa MUSI stać przed ``GET /{job_id}`` — FastAPI dopasowuje w kolejności
