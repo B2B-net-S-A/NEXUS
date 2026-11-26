@@ -34,6 +34,7 @@ import { TabbedNav, TabbedNavItem } from"@/components/ds/TabbedNav";
 import { HelpMaterial } from"@/lib/api/help-materials";
 import { HelpMaterialsSection } from"@/components/v2/pages/HelpMaterialsSection";
 import { HelpClientPlaybooksSection } from "@/components/v2/pages/HelpClientPlaybooksSection";
+import { HelpGeneratorsNotice } from "@/components/v2/pages/HelpGeneratorsNotice";
 import { HelpMaterialEditorModal } from"@/components/v2/modals/HelpMaterialEditorModal";
 import {
  ProcedureHeading,
@@ -74,10 +75,20 @@ const HELP_TABS: TabbedNavItem[] = [
 ];
 
 /**
+ * Materiały tylko dla admina (decyzja Artura 26.11.2026): wzory Word zeszły
+ * z Pomocy na rzecz generatorów, formularze onboardingowe są na kartach
+ * klientów. Admin zostaje przy zakładce, bo tam edytuje treść zaproszenia na
+ * prep, które czyta okno „Zaproś na prep”, i widzi odpublikowane wzory.
+ */
+export function helpTabsFor(isAdmin: boolean): TabbedNavItem[] {
+ return isAdmin ? HELP_TABS : HELP_TABS.filter((tab) => tab.value !== "materials");
+}
+
+/**
  * Pomoc — wewnętrzna baza wiedzy dla zespołu, trzy zakładki:
  *  · Procedury (SOP) — treść trzymana i renderowana w NEXUSie,
  *  · Materiały — biblioteka LINKÓW do dokumentów w SharePoincie (NEXUS ich
- *    nie hostuje; tam są natywnie edytowalne w Word Online),
+ *    nie hostuje), od 26.11.2026 tylko dla admina (`helpTabsFor`),
  *  · Klienci — procedura per klient GENEROWANA z karty klienta (bez własnej
  *    treści; edycja w profilu klienta, tylko DL/admin). Zastępuje 14 wzorów
  *    Word per klient. `?tab=clients&client=<id>` to cel linku „Pełna karta
@@ -87,6 +98,7 @@ const HELP_TABS: TabbedNavItem[] = [
 export function HelpPageV2() {
  const { user } = useAuthStore();
  const isAdmin = hasRole(user, "admin");
+ const tabs = helpTabsFor(isAdmin);
  const queryClient = useQueryClient();
 
  const [rawQuery, setRawQuery] = useState("");
@@ -109,6 +121,10 @@ export function HelpPageV2() {
  useEffect(() => {
  if (isHelpTab(requestedTab)) setActiveTab(requestedTab);
  }, [requestedTab]);
+ // Stary link `?tab=materials` u osoby bez zakładki otwiera Procedury, nie pustkę.
+ const shownTab: HelpTab = tabs.some((tab) => tab.value === activeTab)
+ ? activeTab
+ : "procedures";
  const [materialEditorOpen, setMaterialEditorOpen] = useState(false);
  const [materialEditorTarget, setMaterialEditorTarget] = useState<HelpMaterial | null>(null);
  const [materialCategories, setMaterialCategories] = useState<string[]>([]);
@@ -226,15 +242,15 @@ export function HelpPageV2() {
  Pomoc
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Wewnętrzna baza wiedzy: procedury (SOP), checklisty, FAQ zespołowe
- oraz materiały firmowe.
+ Wewnętrzna baza wiedzy: procedury (SOP) i karty klientów z ich
+ dokumentami.
  </p>
  </div>
  {/* Trójstopniowo, nie binarnie: na „Klienci" nie ma czego dodawać
  (karty zakłada DL w profilu klienta), więc bez trzeciej gałęzi
  wyświetlałby się tu „Dodaj materiał". */}
  {isAdmin &&
- (activeTab ==="procedures" ? (
+ (shownTab ==="procedures" ? (
  <Button
  size="sm"
  variant="primary"
@@ -245,7 +261,7 @@ export function HelpPageV2() {
  >
  <Plus className="h-4 w-4" /> Dodaj procedurę
  </Button>
- ) : activeTab === "materials" ? (
+ ) : shownTab === "materials" ? (
  <Button
  size="sm"
  variant="primary"
@@ -256,9 +272,11 @@ export function HelpPageV2() {
  ) : null)}
  </div>
 
+ <HelpGeneratorsNotice />
+
  <TabbedNav
- tabs={HELP_TABS}
- value={activeTab}
+ tabs={tabs}
+ value={shownTab}
  onValueChange={(v) => setActiveTab(v as HelpTab)}
  ariaLabel="Sekcje pomocy"
  >
@@ -358,7 +376,12 @@ export function HelpPageV2() {
  </div>
  </TabsContent>
 
+ {isAdmin && (
  <TabsContent value="materials">
+ <p className="mb-3 text-xs text-muted-foreground">
+ Widoczne tylko dla admina. Rekruterzy mają formularze klientów na kartach
+ klientów, a wzory w generatorach.
+ </p>
  <HelpMaterialsSection
  isAdmin={isAdmin}
  onEdit={(material) => openMaterialEditor(material)}
@@ -367,6 +390,7 @@ export function HelpPageV2() {
  onCategoriesChange={handleMaterialCategories}
  />
  </TabsContent>
+ )}
 
  {/* Radix TabsContent bez `forceMount` odmontowuje nieaktywne panele —
  lista kart nie strzela, dopóki zakładka nie jest aktywna. */}

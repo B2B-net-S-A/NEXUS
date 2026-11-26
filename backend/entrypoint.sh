@@ -12351,6 +12351,41 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Pomoc bez wzorów Word (decyzja Artura 26.11.2026, wariant B z makiet):
+# formularze onboardingowe 9 klientów z Materiałów na „Dokumenty” karty klienta,
+# a wzory z generatorem w NEXUSIE (umowa B2B, przedwstępna, Profil Championa,
+# notatka po screeningu) odpublikowane. Zaproszenia na prep nie rusza. Nowa
+# wersja i wpis w historii karty. Marker w `app_settings` + advisory lock;
+# porażka nie zapisuje niczego — następny start ponawia. Log: id klientów i liczby.
+startup_phase "repair-help-onboarding-to-client-cards-2026-11"
+echo "Help: onboarding forms to client cards (one-shot)..."
+run_unless_marked "help_onboarding_to_client_cards_2026_11_26" <<'PY' || echo "help onboarding to client cards skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.help_onboarding_to_client_cards import (
+    run_help_onboarding_to_client_cards,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_help_onboarding_to_client_cards(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"help onboarding to client cards failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"help onboarding to client cards: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
