@@ -28,14 +28,16 @@ zajmuje 3 z 8 vCPU serwera.
   już tak miały).
 - **v1 zostaje bez zmian** dla alertów zapisanych wyszukiwań
   (`dwa-silniki-wyszukiwania-jedna-semantyka-filtrow.md`).
-- **`person_token_exists` i `_exact_person_prefilter` filtrują `search_doc_unaccented
-  ILIKE` tylko słowa z trygramem** (`_has_trigram`: trzy litery lub cyfry z rzędu).
-  Dla „zx” `ILIKE` bez indeksu rozpakowywał profil każdej osoby (kopia: 283 tys.
-  stron, od 8 s do ponad 120 s pod obciążeniem), a wynik i tak rozstrzyga równość
-  imienia i nazwiska: `search_doc` zaczyna się od `name || ' ' || lastname`.
-  Teraz 17 tys. stron samej tabeli, 0,1–0,15 s. Z tej funkcji korzysta
-  `interpret_text` (lista i wyszukiwarka w v2) i `/keywords/classify?context=top`
-  (słowa „go”, „c#” z górnego pola).
+- **`person_token_exists` sprawdza samą równość imienia i nazwiska**, bez
+  `search_doc_unaccented ILIKE '%słowo%'`. Ten warunek niczego nie odsiewał
+  (`search_doc` zaczyna się od `name || ' ' || lastname`), a bez trygramu („zx”)
+  albo przy częstym trygramie bez dokładnego trafienia („kow”, „mar”) rozpakowywał
+  profil każdej osoby: kopia 8 s, 5–31 s, 22–30 s. Sama równość: 17 tys. stron
+  tabeli, 0,1–0,17 s. Pyta o to `interpret_text` przy każdym słowie w palecie
+  i wybierakach (v2), na liście i w wyszukiwarce, oraz `/keywords/classify?context=top`.
+- **`_exact_person_prefilter`** (2–3 wyrazy, tylko `text_mode=auto`) zostawia
+  `ILIKE` wyłącznie dla wyrazów z trygramem (`_has_trigram`): przecięcie trygramów
+  kilku wyrazów zawęża dobrze, a wyraz bez trygramu („Jo”) czytałby całą tabelę.
 - **Gdy się powtórzy:** `pg_stat_statements` od razu po zgłoszeniu (`max_exec_time`,
   `calls`, `shared_blks_hit` dla zapytań z `ILIKE` po `search_doc` albo `raw_cv_text`).
   Wpis z jednym wywołaniem wypada przy `dealloc` (26.11: 692 razy w 19 h przy limicie

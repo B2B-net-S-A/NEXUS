@@ -9,14 +9,15 @@ w ``pg_stat_statements`` jedno takie zapytanie trwało 66,6 s (946 tys. stron
 z bufora, zero odczytów z dysku), na kopii produkcji „qa” 112 s, „c#” 74 s.
 Przez ten czas zajmowało 3 z 8 vCPU serwera, więc inne listy czekały 7–9 s.
 
-Paleta i wybieraki osób pytają odtąd w v2 z tekstem dosłownym (krótki tekst
-= całe słowo przez indeks, decyzja z 07.10.2026). W v2 tekst przechodzi też
-przez ``interpret_text``, a ``person_token_exists`` dla dwóch znaków robił to
-samo: ``search_doc_unaccented ILIKE '%qz%'`` bez indeksu, czyli rozpakowanie
-profilu każdej osoby (na kopii ponad 120 s, gdy nikt tak się nie nazywa).
+Paleta i wybieraki osób pytają odtąd w v2 z tekstem dosłownym, po trafności
+(krótki tekst = całe słowo przez indeks, decyzja z 07.10.2026). W v2 każde
+pojedyncze słowo przechodzi też przez ``interpret_text`` → ``person_token_exists``,
+który filtrował wstępnie ``search_doc_unaccented ILIKE '%słowo%'``: bez trygramu
+(„qz”) albo przy częstym trygramie bez dokładnego trafienia („kow”, „mar”) to
+rozpakowanie profilu każdej osoby (kopia: „zx” 8 s, „kow” 5–31 s, „mar” 22–30 s).
 Warunek ``ILIKE`` wynika z równości imienia albo nazwiska (``search_doc``
-zaczyna się od ``name || ' ' || lastname``), więc słowo bez trygramu sprawdza
-już tylko równość: ten sam wynik, krótkie kolumny bez TOAST-a.
+zaczyna się od ``name || ' ' || lastname``), więc zostaje sama równość: ten sam
+wynik, 0,1–0,15 s na krótkich kolumnach bez TOAST-a.
 
 Baza testowa jest wspólna i nieczyszczona — asercje dotyczą własnych wierszy.
 """
@@ -38,7 +39,7 @@ from app.services import keyword_corpus
 
 # Parametry, z którymi paleta ⌘K i wybieraki osób pytają listę
 # (`CANDIDATE_LOOKUP_PARAMS` w `frontend/src/lib/candidate-search-semantics.ts`).
-LOOKUP_PARAMS = {"semantics_version": 2, "text_mode": "literal"}
+LOOKUP_PARAMS = {"semantics_version": 2, "text_mode": "literal", "sort": "relevance"}
 
 # Podłańcuch po długich kolumnach (TOAST) — bez trygramu to skan całej tabeli.
 _WIDE_SUBSTRING = re.compile(
@@ -90,23 +91,16 @@ def _capture_sql():
 
 
 @pytest.mark.asyncio
-async def test_slowo_bez_trygramu_sprawdza_sama_rownosc() -> None:
+@pytest.mark.parametrize("token", ["Qz", "kow", "Kowalski"])
+async def test_kazde_slowo_sprawdza_sama_rownosc(token: str) -> None:
     p._person_token_cache.clear()
     db = _RecordingDb()
-    assert await p.person_token_exists(db, "Qz") is False
+    assert await p.person_token_exists(db, token) is False
     [statement] = db.statements
     sql = _sql(statement)
     assert "search_doc_unaccented" not in sql
+    assert "ILIKE" not in sql
     assert "candidates.lastname" in sql
-
-
-@pytest.mark.asyncio
-async def test_slowo_z_trygramem_dalej_idzie_przez_indeks() -> None:
-    p._person_token_cache.clear()
-    db = _RecordingDb()
-    await p.person_token_exists(db, "Kowal" + uuid.uuid4().hex[:4])
-    [statement] = db.statements
-    assert "search_doc_unaccented ILIKE" in _sql(statement)
 
 
 @pytest.mark.parametrize(
@@ -195,7 +189,7 @@ async def test_paleta_z_dwoma_znakami_nie_czyta_cv_ani_profili(
     with keyword_corpus.force_folded_search(True), _capture_sql() as seen:
         resp = await app_client.get(
             "/api/candidates",
-            params={"q": "qz", "page_size": 5, "sort": "relevance", **LOOKUP_PARAMS},
+            params={"q": "qz", "page_size": 5, **LOOKUP_PARAMS},
             headers=app_auth_headers,
         )
     assert resp.status_code == 200, resp.text

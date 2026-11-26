@@ -827,19 +827,20 @@ async def person_token_exists(db: Any, token: str) -> bool:
     nazwiska dwuczłonowego (rozdzielonego myślnikiem) to dokładnie ``token``
     (bez wielkości liter i polskich znaków).
 
-    Jedno zapytanie ``LIMIT 1``: indeks trigramowy na ``search_doc_unaccented``
-    (migracja 0159) zawęża wiersze, a równość sprawdzamy już tylko na nich —
-    bez skanu całej tabeli i bez nowego indeksu. Słowo bez trygramu sprawdza
-    samą równość na krótkich kolumnach: ``search_doc`` zaczyna się od imienia
-    i nazwiska, więc ``ILIKE`` niczego by nie odsiał, a czytałby CAŁĄ tabelę.
+    Jedno zapytanie ``LIMIT 1`` z samą równością na krótkich kolumnach imienia
+    i nazwiska. Dawny warunek wstępny ``search_doc_unaccented ILIKE '%słowo%'``
+    (indeks trygramowy) niczego nie odsiewał — ``search_doc`` zaczyna się od
+    imienia i nazwiska — a przy częstym albo krótkim słowie bez dokładnego
+    trafienia rozpakowywał profil każdej osoby. Kopia produkcji 26.11.2026:
+    „kow” 5–31 s, „mar” 22–30 s, „zx” 8 s; sama równość 0,1–0,15 s (17 tys.
+    stron tabeli bez TOAST-a). Pyta o to ``interpret_text`` przy każdym słowie
+    wpisywanym w paletę ⌘K i wybieraki osób (v2).
     """
     import time
 
     from app.services.advanced_candidate_search import (
         _POLISH_FOLD_DST,
         _POLISH_FOLD_SRC,
-        _SEARCH_DOC_UNACCENT,
-        _escape_like,
         fold_polish,
     )
 
@@ -856,20 +857,19 @@ async def person_token_exists(db: Any, token: str) -> bool:
             func.translate(func.coalesce(col, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
         )
 
-    conditions: list[ColumnElement] = [
-        or_(
-            _fold(Candidate.name) == folded,
-            _fold(Candidate.lastname) == folded,
-            # jeden człon nazwiska dwuczłonowego: „Kowalska" → „Nowak-Kowalska"
-            literal(folded)
-            == func.any(func.string_to_array(_fold(Candidate.lastname), "-")),
+    stmt = (
+        select(Candidate.id)
+        .where(
+            or_(
+                _fold(Candidate.name) == folded,
+                _fold(Candidate.lastname) == folded,
+                # jeden człon nazwiska dwuczłonowego: „Kowalska" → „Nowak-Kowalska"
+                literal(folded)
+                == func.any(func.string_to_array(_fold(Candidate.lastname), "-")),
+            )
         )
-    ]
-    if _has_trigram(folded):
-        conditions.insert(
-            0, _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(folded)}%", escape="\\")
-        )
-    stmt = select(Candidate.id).where(*conditions).limit(1)
+        .limit(1)
+    )
     exists = (await db.execute(stmt)).first() is not None
     if len(_person_token_cache) >= _PERSON_TOKEN_CACHE_MAX:
         _person_token_cache.clear()
