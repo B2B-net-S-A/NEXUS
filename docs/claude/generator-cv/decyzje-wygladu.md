@@ -123,6 +123,11 @@ WeasyPrint; bez bibliotek natywnych lokalnie są pomijane, jak `test_cv_new_layo
 - **W22** — CV bez bieżącej pracy: oś kończy się rokiem ostatniej pracy, bez „dziś”.
   20.11.2026, makieta (runda 29, wariant KV1).
   Test: `test_w22_without_current_job_the_axis_ends_with_the_last_year`.
+- **W35** — Bieżąca praca bez daty początku („obecnie”, bez innej bieżącej pracy
+  z datą) to czerwony odcinek na końcu paska do „dziś”, bez roku pod spodem — nie
+  kropka. 26.11.2026, Artur po porównaniu na prawdziwym CV ze stagingu (wariant A;
+  przypadek ma 1 z 823 CV z „obecnie”).
+  Test: `test_w35_current_job_without_start_is_a_red_segment_without_year`.
 
 ## Strona 1: umiejętności
 
@@ -157,6 +162,10 @@ WeasyPrint; bez bibliotek natywnych lokalnie są pomijane, jak `test_cv_new_layo
   liczą. 20.11.2026 (makieta, runda 29), 23.11.2026 i 25.11.2026, docs („Strona 1
   po warsztatach”), #3988.
   Test: `test_w29_most_relevant_certificates_and_client_must_first`.
+- **W34** — Stopień i rok przy szkole („Magister inżynier · 1995”) czerwone
+  (`BRAND_TEXT`), półgrube (600), pod kierunkiem; kierunek czarny, pogrubiony.
+  26.11.2026, Artur po porównaniu na prawdziwym CV ze stagingu (wariant A).
+  Test: `test_w34_school_degree_and_year_are_red_semibold`.
 
 ## Od strony 2 i Word
 
@@ -182,5 +191,9 @@ Te warianty Artur wybrał wcześniej, a potem zastąpił decyzjami wyżej:
 - pismo strony 1 do 10 pt (20.11) — zastąpione W14 (25.11);
 - stopień czerwoną etykietą nad kierunkiem (EH1) i certyfikat bez wystawcy na
   stronie 1 (CE1, 20.11) — zastąpione Edukacją z ikonami (W25, 25.11);
+- czarne pogrubione lata i stopień w Edukacji (runda 14, 20.11) — zastąpione W34
+  (26.11);
+- kropka na końcu paska dla bieżącej pracy bez daty początku (runda 20, 20.11) —
+  zastąpione W35 (26.11);
 - Word zawsze klasyczny (22.11) — zastąpione W33 (25.11), klasyczny Word zostaje jako
   „Word (klasyczne)”.
