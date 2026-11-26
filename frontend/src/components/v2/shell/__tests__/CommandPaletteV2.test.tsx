@@ -281,6 +281,30 @@ describe("CommandPaletteV2 — wyszukiwanie kandydatów", () => {
       sort: "relevance",
     });
   });
+
+  it("pyta w v2 z tekstem dosłownym, żeby dwa znaki nie czytały całej bazy (26.11.2026)", async () => {
+    const { getByPlaceholderText } = render(
+      <CommandPaletteV2 open onOpenChange={() => {}} />,
+    );
+
+    fireEvent.change(getByPlaceholderText(/Szukaj kandydatów/), {
+      target: { value: "qa" },
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    const candidateCall = apiGet.mock.calls.find(
+      ([url]) => url === "/api/candidates",
+    );
+    // Bez `semantics_version` lista szła ścieżką v1: podłańcuch po CV, profilu
+    // i notatkach bez indeksu — na produkcji 90 s i 3 z 8 vCPU serwera.
+    expect(candidateCall?.[1]?.params).toMatchObject({
+      q: "qa",
+      semantics_version: 2,
+      text_mode: "literal",
+    });
+  });
 });
 
 describe("CommandPaletteV2 — podpis kandydata", () => {

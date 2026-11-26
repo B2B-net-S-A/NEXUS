@@ -15,6 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, PenLine, Search, UserCheck } from "lucide-react";
 
 import { api, championApi } from "@/lib/api";
+import { CANDIDATE_LOOKUP_PARAMS } from "@/lib/candidate-search-semantics";
 import { foldText, matchRank } from "@/lib/contract-client-filter";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
@@ -71,7 +72,12 @@ export function ConsultantPicker({
         .get<{ items?: BaseSearchItem[] }>("/api/candidates", {
           // `relevance` jak w palecie poleceń: domyślne „najnowsi” przy
           // popularnym imieniu oddawało ostatnio dodanych, bez szukanej osoby.
-          params: { q: debouncedTerm, page_size: 8, sort: "relevance" },
+          params: {
+            q: debouncedTerm,
+            page_size: 8,
+            sort: "relevance",
+            ...CANDIDATE_LOOKUP_PARAMS,
+          },
         })
         .then((r) => r.data?.items ?? []),
     enabled: value === null && debouncedTerm.length >= MIN_BASE_QUERY,

@@ -31,6 +31,7 @@ import { orderPeriodError } from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import type { PeriodicOrderDraft } from "@/lib/order-type-switch";
+import { CANDIDATE_LOOKUP_PARAMS } from "@/lib/candidate-search-semantics";
 import {
   canManageCandidateFinance,
   useAuthStore,
@@ -360,7 +361,7 @@ export function NewContractorOrderDialog({
     queryFn: async () => {
       if (debouncedQuery.length < 2) return [];
       const r = await api.get("/api/candidates", {
-        params: { q: debouncedQuery, page_size: 15 },
+        params: { q: debouncedQuery, page_size: 15, ...CANDIDATE_LOOKUP_PARAMS },
       });
       const payload = r.data;
       return Array.isArray(payload) ? payload : payload?.items ?? [];

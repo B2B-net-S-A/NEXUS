@@ -810,6 +810,17 @@ _PERSON_TOKEN_TTL_SECONDS = 60.0
 _PERSON_TOKEN_CACHE_MAX = 2048
 _person_token_cache: dict[str, tuple[float, bool]] = {}
 
+# pg_trgm bierze trygramy z ciągów liter i cyfr. Słowo bez trzech takich znaków
+# z rzędu („qa”, „c#”, „al-ba”) nie zawęża indeksu GIN, a ``ILIKE`` po
+# ``search_doc_unaccented`` rozpakowuje wtedy profil każdej osoby: na kopii
+# produkcji 26.11.2026 ponad 120 s dla dwóch liter, których nikt nie nosi.
+_TRIGRAM_RUN = re.compile(r"[^\W_]{3}")
+
+
+def _has_trigram(word: str) -> bool:
+    """Czy ``ILIKE '%word%'`` może zawęzić wiersze indeksem trygramowym."""
+    return _TRIGRAM_RUN.search(word) is not None
+
 
 async def person_token_exists(db: Any, token: str) -> bool:
     """Czy w bazie jest kandydat, którego IMIĘ, NAZWISKO albo JEDEN CZŁON
@@ -818,7 +829,9 @@ async def person_token_exists(db: Any, token: str) -> bool:
 
     Jedno zapytanie ``LIMIT 1``: indeks trigramowy na ``search_doc_unaccented``
     (migracja 0159) zawęża wiersze, a równość sprawdzamy już tylko na nich —
-    bez skanu całej tabeli i bez nowego indeksu.
+    bez skanu całej tabeli i bez nowego indeksu. Słowo bez trygramu sprawdza
+    samą równość na krótkich kolumnach: ``search_doc`` zaczyna się od imienia
+    i nazwiska, więc ``ILIKE`` niczego by nie odsiał, a czytałby CAŁĄ tabelę.
     """
     import time
 
@@ -843,20 +856,20 @@ async def person_token_exists(db: Any, token: str) -> bool:
             func.translate(func.coalesce(col, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
         )
 
-    stmt = (
-        select(Candidate.id)
-        .where(
-            _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(folded)}%", escape="\\"),
-            or_(
-                _fold(Candidate.name) == folded,
-                _fold(Candidate.lastname) == folded,
-                # jeden człon nazwiska dwuczłonowego: „Kowalska" → „Nowak-Kowalska"
-                literal(folded)
-                == func.any(func.string_to_array(_fold(Candidate.lastname), "-")),
-            ),
+    conditions: list[ColumnElement] = [
+        or_(
+            _fold(Candidate.name) == folded,
+            _fold(Candidate.lastname) == folded,
+            # jeden człon nazwiska dwuczłonowego: „Kowalska" → „Nowak-Kowalska"
+            literal(folded)
+            == func.any(func.string_to_array(_fold(Candidate.lastname), "-")),
         )
-        .limit(1)
-    )
+    ]
+    if _has_trigram(folded):
+        conditions.insert(
+            0, _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(folded)}%", escape="\\")
+        )
+    stmt = select(Candidate.id).where(*conditions).limit(1)
     exists = (await db.execute(stmt)).first() is not None
     if len(_person_token_cache) >= _PERSON_TOKEN_CACHE_MAX:
         _person_token_cache.clear()
@@ -1010,11 +1023,13 @@ def exact_person_clause(tokens: Sequence[str]) -> Optional[ColumnElement]:
 
 
 def _exact_person_prefilter(tokens: Sequence[str]) -> list[ColumnElement]:
-    """``search_doc_unaccented ILIKE '%słowo%'`` dla każdego wyrazu.
+    """``search_doc_unaccented ILIKE '%słowo%'`` dla każdego wyrazu z trygramem.
 
     Ten warunek zawęża wiersze indeksem trigramowym
     ``ix_candidates_search_doc_unaccent_trgm`` (migracja 0159) — równość imienia
-    i nazwiska sprawdzamy już tylko na nich, bez skanu całej tabeli.
+    i nazwiska sprawdzamy już tylko na nich, bez skanu całej tabeli. Wyraz bez
+    trygramu („Jo”) indeksu nie zawęża, a ``ILIKE`` czytałby profil każdej
+    osoby; wynik i tak rozstrzyga równość (``exact_person_clause``).
     """
     from app.services.advanced_candidate_search import (
         _SEARCH_DOC_UNACCENT,
@@ -1024,6 +1039,7 @@ def _exact_person_prefilter(tokens: Sequence[str]) -> list[ColumnElement]:
     return [
         _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(word)}%", escape="\\")
         for word in _folded_name_tokens(tokens)
+        if _has_trigram(word)
     ]
 
 
