@@ -1,0 +1,76 @@
+[
+  {
+    "id": "cv-3984-stanowiska-bez-naglowka-nie-w-jezykach",
+    "poprawka": "4abf8d802 #3984",
+    "opis": "Bez nagłówka „EXPERIENCE” (usunięty w edytorze) akapity stanowiska szły do języków jako pastylki „Tasks:” i nazwa firmy, a doświadczenie było puste",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "en",
+      "generator": {"name": "Jan Korpusowy", "position": "QA"},
+      "html": "<h1>QA – Jan Korpusowy</h1><h2 data-cv-section=\"languages\">LANGUAGES</h2><p>Polish - native · English - C1</p><p data-cv-section=\"role\"><strong>Quality Engineer</strong> 03.2026 - Present</p><p data-cv-section=\"employer\">Firma Przykładowa</p><p data-cv-section=\"duties_label\">Tasks:</p><ul><li><p>Testing.</p></li></ul>"
+    },
+    "oczekiwane": {
+      "jezyki": [
+        {"jezyk": "Polish", "kod": "PL", "stopien": 6},
+        {"jezyk": "English", "kod": "EN", "poziom": "C1", "stopien": 5},
+        {"_brak": true, "jezyk": "Quality Engineer 03.2026"}
+      ],
+      "liczba_jezyki": 2,
+      "daty": [{"daty": "03.2026 - Present", "firma": "Firma Przykładowa", "stanowisko": "Quality Engineer"}],
+      "liczba_daty": 1
+    }
+  },
+  {
+    "id": "cv-3984-jezyki-bez-myslnika-i-kody",
+    "poprawka": "4abf8d802 #3984",
+    "opis": "„Angielski B2” i „English -B2” gubiły poziom, esperanto dostawało kod „ES” (hiszpański), perski i łacina dwie pierwsze litery, a dopisek w nawiasie zmieniał kod",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {
+        "name": "Anna Korpusowa",
+        "position": "Analityk",
+        "languages": ["Angielski B2", "English -B2", "English (reading/listening) - C1", "Esperanto – B2.", "Perski - B1", "Łacina - A2"]
+      }
+    },
+    "oczekiwane": {
+      "jezyki": [
+        {"jezyk": "Angielski", "kod": "EN", "poziom": "B2", "stopien": 4},
+        {"jezyk": "English", "kod": "EN", "poziom": "B2", "stopien": 4},
+        {"jezyk": "English (reading/listening)", "kod": "EN", "poziom": "C1", "stopien": 5},
+        {"jezyk": "Esperanto", "kod": "EO", "poziom": "B2", "stopien": 4},
+        {"jezyk": "Perski", "kod": "FA", "poziom": "B1", "stopien": 3},
+        {"jezyk": "Łacina", "kod": "LA", "poziom": "A2", "stopien": 2}
+      ],
+      "liczba_jezyki": 6
+    }
+  },
+  {
+    "id": "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji",
+    "poprawka": "4abf8d802 #3984",
+    "opis": "Tytuł „Stanowisko– Imię Nazwisko” bez spacji przed półpauzą zostawał z nazwiskiem, a PDF pokazywał je dwa razy",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {"name": "Jan Korpusowy", "position": "Analityk Biznesowo-Systemowy"},
+      "html": "<h1>Analityk Biznesowo-Systemowy– Jan Korpusowy</h1>"
+    },
+    "oczekiwane": {
+      "nazwa": [{"imie_nazwisko": "Jan Korpusowy", "stanowisko": "Analityk Biznesowo-Systemowy"}]
+    }
+  },
+  {
+    "id": "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji-po",
+    "poprawka": "4abf8d802 #3984",
+    "opis": "Tytuł „Stanowisko –Imię Nazwisko” bez spacji po półpauzie zostawał z nazwiskiem",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {"name": "Jan Korpusowy", "position": "Analityk Biznesowo-Systemowy"},
+      "html": "<h1>Analityk Biznesowo-Systemowy –Jan Korpusowy</h1>"
+    },
+    "oczekiwane": {
+      "nazwa": [{"imie_nazwisko": "Jan Korpusowy", "stanowisko": "Analityk Biznesowo-Systemowy"}]
+    }
+  }
+]

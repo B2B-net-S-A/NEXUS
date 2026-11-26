@@ -1,0 +1,375 @@
+[
+ {
+  "poprawka": "697c9117a #4033",
+  "tytul": "fix(nowe-cv): Edukacja rozdziela stopień i kierunek także w „MA in …”, „Master's degree, …”, „Studia inżynierskie, …”",
+  "przypadki": [
+   "cv-4033-ma-in-economics"
+  ],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "38525460f #3988",
+  "tytul": "fix(nowe-cv): wieniec tylko przy wyróżniku u góry, Edukacja zawsze z ikonami",
+  "poza_czytnikiem": "układ strony 1 Nowego CV: wieniec tylko przy wyróżniku, ikony Edukacji, certyfikat z MUST pierwszy — render, pola Edukacji bez zmian"
+ },
+ {
+  "poprawka": "4abf8d802 #3984",
+  "tytul": "fix(nowe-cv): pętla jakości, porcje 8–12 — stanowiska bez nagłówka nie w językach, języki bez myślnika, nazwisko w tytule",
+  "przypadki": [
+   "cv-3984-stanowiska-bez-naglowka-nie-w-jezykach",
+   "cv-3984-jezyki-bez-myslnika-i-kody",
+   "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji",
+   "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji-po"
+  ],
+  "lapie_poprawke": true,
+  "do_rozszerzenia": "cv_new_layout.page1.shown_language — „level not specified” / „poziom nieokreślony” bez poziomu na pastylce (jezyki); runner liczy poziom z lang_level, nie z pastylki"
+ },
+ {
+  "poprawka": "9c16681ce #3982",
+  "tytul": "fix(cv-qc): pusta linia stanowiska to stanowisko, uwaga „Każde stanowisko ma nazwę”",
+  "do_rozszerzenia": "cv_qc._role_title_check i dz_review._kept (bloki CV z edytora): pusta linia stanowiska to osobne stanowisko — nazwa (stanowisko), daty; runner nie woła cv_qc ani dz_review"
+ },
+ {
+  "poprawka": "73c46cbd8 #3978",
+  "tytul": "fix(nowe-cv): język z myślnikiem bez spacji („Polish-fluent.”) — nie pastylka „PO” bez poziomu",
+  "przypadki": [
+   "cv-3978-jezyk-z-myslnikiem-bez-spacji"
+  ],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "67ff9ae6a #3974",
+  "tytul": "fix(nowe-cv): pętla jakości na 350 CV ze stagingu — daty, oś, kategorie umiejętności, obce formaty CV",
+  "przypadki": [
+   "cv-3974-daty-myslnik-bez-spacji-i-koniec-rokiem",
+   "cv-3974-edukacja-daty-na-poczatku-wiersza",
+   "cv-3974-szkic-jako-caly-dokument-html"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "oś kariery (rola bez firmy, ta sama firma po przerwie), kategorie umiejętności i etykieta „Degree” to układ strony, nie pola evalu"
+ },
+ {
+  "poprawka": "5f9d595c4 #3969",
+  "tytul": "fix(nowe-cv): najmocniejszy wynik sprawdzany na bieżącej treści i czyszczony przy innym CV",
+  "poza_czytnikiem": "„najmocniejszy wynik” strony 1 sprawdzany na bieżącej treści — render i edytor strony 1"
+ },
+ {
+  "poprawka": "80d878d9e #3970",
+  "tytul": "fix(cv): „currently” i inne „do dziś” w datach stanowisk — jedna lista słów",
+  "przypadki": [
+   "cv-3970-currently-w-datach",
+   "cv-3970-aktualnie-w-szkicu-bez-znacznikow"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "„currently” samo w sobie liczył już facts.parse_dates; poprawka zmieniła listę w cv_source_dates (przywracanie dat: „do dzisiaj”) i cv_approved_docx._DATES_ONLY (szkic bez znaczników: „aktualnie”) — te dwie ścieżki łapią przypadki. Panel klienta, formularz klienta i cv_qc z tej poprawki są poza runnerem"
+ },
+ {
+  "poprawka": "e09e473b3 #3954",
+  "tytul": "fix(cv): zrzut zgody WEBP w PDF „Nowe CV” i awarie zapytań, które udawały pustkę",
+  "poza_czytnikiem": "zrzut zgody WEBP w PDF i komunikaty awarii zapytań — render PDF i UI"
+ },
+ {
+  "poprawka": "efc12956b #3873",
+  "tytul": "fix(cv-asystent): zły JSON modelu naprawiany zamiast „chwilowo niedostępny”",
+  "poza_czytnikiem": "asystent CV: naprawa złego JSON-a z modelu — komendy edytora, nie odczyt CV"
+ },
+ {
+  "poprawka": "d48dc057d #3546",
+  "tytul": "fix(cv): bez źródła faktu i „niekomercyjnie” w CV z generatora",
+  "poza_czytnikiem": "generator CV: bez źródła faktu i „niekomercyjnie” w treści obowiązków — treść generatora"
+ },
+ {
+  "poprawka": "c75e7eb51 #3530",
+  "tytul": "fix(cv): obowiązki EN w czasie przeszłym, PL w formie rzeczownikowej",
+  "poza_czytnikiem": "generator CV: forma obowiązków (prompt) — treść generatora"
+ },
+ {
+  "poprawka": "9ee2dc5f3 #3289",
+  "tytul": "fix(cv): CV z edytora bez jawnego „bez podkreślenia” — podgląd w Cpro podkreślał każde zdanie",
+  "poza_czytnikiem": "Word z edytora bez jawnego „bez podkreślenia” — formatowanie DOCX"
+ },
+ {
+  "poprawka": "e37cb6e05 #3251",
+  "tytul": "fix(cv): ostrzeżenie o cudzym CV i bramka dla plików z Traffita",
+  "poza_czytnikiem": "ostrzeżenie o cudzym CV i bramka tożsamości dla plików z Traffita — kwarantanna"
+ },
+ {
+  "poprawka": "0ff46e9ad #3224",
+  "tytul": "fix(cv): dwa przyciski asystenta CV dostawały 422, trasa nie znała ich presetów",
+  "poza_czytnikiem": "presety asystenta CV (422) — trasa API"
+ },
+ {
+  "poprawka": "568590617 #3189",
+  "tytul": "fix(cv): podgląd DOCX nie dzieli imion i wyrazów łącznikiem",
+  "poza_czytnikiem": "podgląd DOCX bez dzielenia wyrazów — render podglądu"
+ },
+ {
+  "poprawka": "9b233a409 #3122",
+  "tytul": "fix(cv): ponowne zebranie paczki pomija CV już zapisane z tego samego tekstu",
+  "poza_czytnikiem": "paczka ponownego odczytu pomija zapisane CV — bieg masowy, koszty AI"
+ },
+ {
+  "poprawka": "215e62eb6 #3080",
+  "tytul": "fix(cv): niższe lata na stanowisku nie są fabrykacją",
+  "poza_czytnikiem": "weryfikacja fabrykacji w generatorze (niższe lata na stanowisku) — kontrola treści generatora"
+ },
+ {
+  "poprawka": "71793cbb7 #3021",
+  "tytul": "fix(cv): bieżące CV bez przypadku: plik bez daty na końcu, remis po id",
+  "poza_czytnikiem": "wybór bieżącego CV profilu (plik bez daty, remis po id) — wybór pliku"
+ },
+ {
+  "poprawka": "07b07e8b4 #3013",
+  "tytul": "fix(cv): bez numerów w „Dlaczego nasz kandydat” i bez kategorii „Must-have”",
+  "poza_czytnikiem": "„Dlaczego nasz kandydat” bez numerów i kategorii „Must-have” — treść generatora"
+ },
+ {
+  "poprawka": "4aab2cd3a #3002",
+  "tytul": "fix(cv): backfill czyta Worda przez LibreOffice zamiast znacznika legacy_doc",
+  "do_rozszerzenia": "cv_text_backfill: tekst .doc/.docx w biegu masowym przez LibreOffice zamiast znacznika legacy_doc — wejście wszystkich pól (tekst CV)"
+ },
+ {
+  "poprawka": "b60f44e60 #3001",
+  "tytul": "fix(cv): komunikat o skanie nie zgniata pola „Szukaj w CV” obok oryginału",
+  "poza_czytnikiem": "komunikat o skanie obok pola „Szukaj w CV” — UI"
+ },
+ {
+  "poprawka": "06e105739 #2986",
+  "tytul": "fix(cv): jednorazowa poprawka CV z nazwą usługi w nagłówku i pliku",
+  "poza_czytnikiem": "jednorazowa naprawa CV z nazwą usługi w nagłówku i pliku — skrypt danych"
+ },
+ {
+  "poprawka": "03397da45 #2997",
+  "tytul": "fix(cv): sama nazwa firmy w wierszu „Nazwa firmy:”, bez branży",
+  "poza_czytnikiem": "eksport HTML generatora (render_interactive_html): wiersz firmy bez branży — zapis HTML; czytnik czyta wiersz firmy bez zmian"
+ },
+ {
+  "poprawka": "1766bbddd #2983",
+  "tytul": "fix(cv): pole „Stanowisko” pokazuje nagłówek i plik, które dostanie klient",
+  "poza_czytnikiem": "pole „Stanowisko” w generatorze = nagłówek z rekrutacji (job_working_title) — nie odczyt CV"
+ },
+ {
+  "poprawka": "1d648608a #2979",
+  "tytul": "fix(cv): Word bez tekstu z python-docx czytany przez LibreOffice",
+  "do_rozszerzenia": "cv_text_extractor: tekst Worda (.docx bez tekstu z python-docx) przez LibreOffice — wejście wszystkich pól (tekst CV); runner dostaje gotowy tekst"
+ },
+ {
+  "poprawka": "0421813e1 #2975",
+  "tytul": "fix(cv): ten sam plik wgrany drugi raz nie płaci za odczyt modelem",
+  "poza_czytnikiem": "ten sam plik drugi raz bez płatnego odczytu modelem — koszty AI"
+ },
+ {
+  "poprawka": "5d4e95578 #2926",
+  "tytul": "fix(cv): firmowe CV ustępuje CV kandydata jako źródło generatora",
+  "poza_czytnikiem": "firmowe CV ustępuje CV kandydata jako źródło generatora — wybór źródła"
+ },
+ {
+  "poprawka": "83c09272c #2924",
+  "tytul": "fix(cv): daty stanowisk jak w oryginale, nie „obecnie” z modelu",
+  "przypadki": [
+   "cv-2924-obecnie-z-modelu-wraca-do-dat-oryginalu"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "w evalu przed poprawką pada ModuleNotFoundError (cv_new_layout powstał w #3714, 22.11.2026), ale restore_experience_dates powstało w tej poprawce: przed nią daty zostawały „08.2022 - obecnie” / „12.2019 - 11.2026”; restore_experience_dates z 83c09272c daje dokładnie oczekiwane daty (sprawdzone skryptem)"
+ },
+ {
+  "poprawka": "3a3aa9781 #2872",
+  "tytul": "fix(cv): nazwa usługi od klienta nie jest stanowiskiem — nagłówek z roli w Championie",
+  "poza_czytnikiem": "nagłówek CV z roli w Championie zamiast nazwy usługi (job_working_title) — nie odczyt CV"
+ },
+ {
+  "poprawka": "8c91a85bd #2841",
+  "tytul": "fix(cv): karta przed CV — profil kompetencji to same technologie, najwyżej 8",
+  "poza_czytnikiem": "karta przed CV: profil kompetencji — inny dokument"
+ },
+ {
+  "poprawka": "2f83be415 #2839",
+  "tytul": "fix(cv): wzór karty przed CV da się wgrać przy zasadach centralnych CV",
+  "poza_czytnikiem": "wgrywanie wzoru karty przed CV — uprawnienia i zasady CV"
+ },
+ {
+  "poprawka": "1738c277f #2823",
+  "tytul": "fix(cv): „Użyj gotowego CV” pyta, gdy plik z dysku wygląda na CV kandydata",
+  "poza_czytnikiem": "„Użyj gotowego CV” pyta przy pliku wyglądającym na CV kandydata — rozpoznanie pliku i UI"
+ },
+ {
+  "poprawka": "400d4c1d4 #2716",
+  "tytul": "fix(cv): rekruter bez uprawnienia wysyłki nie widzi „Oznacz „CV wysłane””",
+  "poza_czytnikiem": "przycisk „Oznacz CV wysłane” — uprawnienia"
+ },
+ {
+  "poprawka": "20a950244 #2695",
+  "tytul": "fix(cv): przepięcie z podobnej rekrutacji nie przenosi gotowego CV — CV dopiero po trzech potwierdzeniach",
+  "poza_czytnikiem": "przepięcie z podobnej rekrutacji bez gotowego CV — proces rekrutacji"
+ },
+ {
+  "poprawka": "4f5150ba6 #3949",
+  "tytul": "fix(kandydaci): eksport z bramką „Kończy u nas” i progiem trygramów listy po commicie audytu",
+  "poza_czytnikiem": "eksport kandydatów (bramka, próg trygramów) — eksport"
+ },
+ {
+  "poprawka": "189c103bd #3927",
+  "tytul": "fix(kandydaci): nazwa eksportu i ZIP-a z CV z dniem kalendarza firmy, nie UTC",
+  "poza_czytnikiem": "nazwa pliku eksportu i ZIP-a z datą firmy — eksport"
+ },
+ {
+  "poprawka": "048c70037 #3867",
+  "tytul": "fix(kandydaci): profil wczytany od zera hydratuje się bez rozjazdu z HTML-em serwera (Poligon, React #418)",
+  "poza_czytnikiem": "hydratacja profilu kandydata (React #418) — UI"
+ },
+ {
+  "poprawka": "e9de76493 #3720",
+  "tytul": "fix(kandydaci): kolejka warunków wysyła najpierw najnowsze zgłoszenia",
+  "poza_czytnikiem": "kolejka zaproszeń do warunków — maile"
+ },
+ {
+  "poprawka": "613bcb717 #3597",
+  "tytul": "fix(kandydaci): prostsze zaproszenie do podania warunków",
+  "poza_czytnikiem": "treść zaproszenia do warunków — maile"
+ },
+ {
+  "poprawka": "70b1bc6d0 #3590",
+  "tytul": "fix(kandydaci): widoczny wypis w mailu i diagnostyka nagłówków Graph",
+  "poza_czytnikiem": "wypis w mailu i diagnostyka nagłówków Graph — maile"
+ },
+ {
+  "poprawka": "a2507f712 #3585",
+  "tytul": "fix(kandydaci): List-Unsubscribe w MIME bez kodowania =?utf-8?q? (T3)",
+  "poza_czytnikiem": "nagłówek List-Unsubscribe — maile"
+ },
+ {
+  "poprawka": "eef044582 #3460",
+  "tytul": "fix(kandydaci): lista nie rozjeżdża hydratacji przy pamięci wyszukiwania karty (React #418)",
+  "poza_czytnikiem": "hydratacja listy kandydatów (React #418) — UI"
+ },
+ {
+  "poprawka": "bacc9cfe4 #3417",
+  "tytul": "fix(kandydaci): plakietka powodu w „Historii stawek” rośnie z zawiniętym tekstem",
+  "poza_czytnikiem": "plakietka powodu w „Historii stawek” — UI"
+ },
+ {
+  "poprawka": "259f65e75 #3148",
+  "tytul": "fix(kandydaci): rząd przycisków nagłówka listy zawija się na telefonie",
+  "poza_czytnikiem": "przyciski nagłówka listy na telefonie — UI"
+ },
+ {
+  "poprawka": "a472bc797 #3114",
+  "tytul": "fix(kandydaci): pasek „Ostatnie odrzucenie” dopiero od 1800 px — lista znów w górnych 65% laptopa",
+  "poza_czytnikiem": "pasek „Ostatnie odrzucenie” — UI"
+ },
+ {
+  "poprawka": "bbfb97e88 #3076",
+  "tytul": "fix(kandydaci): scalenie nie cofa karty w rekrutacji wspólnej dla obu profili",
+  "poza_czytnikiem": "scalenie profili a karta w rekrutacji — scalanie profili"
+ },
+ {
+  "poprawka": "af951fc2b #3079",
+  "tytul": "fix(kandydaci): nazwisko i telefon z grafiki nagłówka CV przez OCR pierwszej strony",
+  "do_rozszerzenia": "cv_text_extractor: OCR pierwszej strony, gdy imię i nazwisko są grafiką nagłówka — nazwa (imie, nazwisko); część cv_parser (_email_is_in_text) dotyczy e-maila, którego eval nie liczy"
+ },
+ {
+  "poprawka": "675f16b74 #3060",
+  "tytul": "fix(kandydaci): dokument z bajtami pliku z kwarantanny nie jest bieżącym CV",
+  "poza_czytnikiem": "dokument z bajtami z kwarantanny nie jest bieżącym CV — kwarantanna plików"
+ },
+ {
+  "poprawka": "1496448b9 #3068",
+  "tytul": "fix(kandydaci): własne CV w innej transliteracji nie jest cudze, bieg masowy nie czyści profilu",
+  "poza_czytnikiem": "bramka tożsamości: inna transliteracja nazwiska, bieg masowy — kwarantanna"
+ },
+ {
+  "poprawka": "3741664a8 #3064",
+  "tytul": "fix(kandydaci): nazwa z nagłówka CV i z pliku nie nazywa pustego profilu",
+  "do_rozszerzenia": "cv_parser._apply_contact_fallbacks: _name_from_header jako lista pól (first_name/last_name) — nazwa; runner zwraca tylko imie/nazwisko, a te się nie zmieniły"
+ },
+ {
+  "poprawka": "512a05d6f #3063",
+  "tytul": "fix(kandydaci): nazwa profilu z częstych słów CV nie daje kwarantanny",
+  "poza_czytnikiem": "nazwa profilu z częstych słów nie daje kwarantanny — bramka tożsamości"
+ },
+ {
+  "poprawka": "ea446e76e #3061",
+  "tytul": "fix(kandydaci): odczyt tekstu CV z plików ODT",
+  "do_rozszerzenia": "cv_text_extractor: odczyt tekstu z plików ODT — wejście wszystkich pól (tekst CV)"
+ },
+ {
+  "poprawka": "f82a565d9 #3062",
+  "tytul": "fix(kandydaci): same częste słowa z CV nie są imieniem i nazwiskiem",
+  "przypadki": [
+   "cv-3062-czeste-slowa-nie-sa-nazwiskiem",
+   "cv-3062-naglowki-i-miasto-bez-nazwiska"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "w evalu przed poprawką pada AttributeError (finalize_claude_cv_output / normalize_cv_output powstały w #3110, 07.11.2026); z wejściem cv_parser z tamtej rewizji (to samo co parse_cv) przypadek pada na wartości: „Doświadczenie Zawodowe”, „Technical Skills” jako imię i nazwisko"
+ },
+ {
+  "poprawka": "5a5da2f73 #3057",
+  "tytul": "fix(kandydaci): nazwa z samego nagłówka CV nie daje kwarantanny",
+  "do_rozszerzenia": "cv_parser._apply_contact_fallbacks: znacznik _name_from_header (imię i nazwisko z nagłówka, nie z modelu) dla bramki tożsamości — nazwa; runner zwraca tylko imie/nazwisko, a te się nie zmieniły"
+ },
+ {
+  "poprawka": "15cbcc785 #3059",
+  "tytul": "fix(kandydaci): scalenie nie zmienia głównego CV ocalałego",
+  "poza_czytnikiem": "scalenie nie zmienia głównego CV — scalanie profili"
+ },
+ {
+  "poprawka": "fed52a43d #3056",
+  "tytul": "fix(kandydaci): tekst pustego pola z Traffita to wypełniacz, nie nazwisko",
+  "przypadki": [
+   "cv-3056-not-provided-od-modelu-to-nie-nazwisko",
+   "cv-3056-not-provided-bez-nazwy-w-cv"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "w evalu przed poprawką pada AttributeError (finalize_claude_cv_output / normalize_cv_output powstały w #3110, 07.11.2026); z wejściem cv_parser z tamtej rewizji (to samo co parse_cv) przypadek pada na wartości: „Not Provided”, „not provided / NOT PROVIDED” jako imię i nazwisko"
+ },
+ {
+  "poprawka": "c962ce4dd #3055",
+  "tytul": "fix(kandydaci): kopia pliku z kwarantanny pod wskaźnikiem CV nie wraca do profilu",
+  "poza_czytnikiem": "kopia pliku z kwarantanny nie wraca do profilu — kwarantanna plików"
+ },
+ {
+  "poprawka": "8eca5f832 #3046",
+  "tytul": "fix(kandydaci): bieg masowy CV przez bramkę tożsamości, ta sama nazwa nie jest cudza",
+  "poza_czytnikiem": "bieg masowy CV przez bramkę tożsamości — kwarantanna"
+ },
+ {
+  "poprawka": "a3d1c5ebe #3041",
+  "tytul": "fix(kandydaci): nazwa z zapisanego odczytu CV trafia do profilu bez nazwy",
+  "poza_czytnikiem": "nazwa z zapisanego odczytu CV zapisywana do profilu bez nazwy (cv_backfill) — zapis profilu; odczyt CV bez zmian"
+ },
+ {
+  "poprawka": "100e03a4d #3045",
+  "tytul": "fix(kandydaci): kwarantanna czyści umiejętności w zapisanym kształcie",
+  "poza_czytnikiem": "kwarantanna czyści umiejętności — kwarantanna"
+ },
+ {
+  "poprawka": "cc35e838d #3035",
+  "tytul": "fix(kandydaci): dwa profile z Traffita da się scalić",
+  "poza_czytnikiem": "scalanie dwóch profili z Traffita — scalanie profili"
+ },
+ {
+  "poprawka": "1cfb97b22 #3038",
+  "tytul": "fix(kandydaci): nazwa Unknown z Traffita to wypełniacz, nie nazwisko",
+  "poza_czytnikiem": "nazwa „Unknown” z importu Traffita to wypełniacz (cv_backfill, cv_enrichment) — nazwa profilu z importu, nie z odczytu CV"
+ },
+ {
+  "poprawka": "65e93452a #2991",
+  "tytul": "fix(kandydaci): okno trwałego usunięcia mówi, co zostaje w systemie",
+  "poza_czytnikiem": "okno trwałego usunięcia kandydata — UI"
+ },
+ {
+  "poprawka": "0db545609 #2854",
+  "tytul": "fix(kandydaci): skrypt czyści pozostałe kopie umów w etapach rekrutacji",
+  "poza_czytnikiem": "skrypt czyści kopie umów w etapach — skrypt danych"
+ },
+ {
+  "poprawka": "47bc31df7 #2851",
+  "tytul": "fix(kandydaci): skrypt zdejmuje umowę z głównego CV w profilach po imporcie Traffita",
+  "poza_czytnikiem": "skrypt zdejmuje umowę z głównego CV — skrypt danych"
+ },
+ {
+  "poprawka": "970f9a7a2 #2757",
+  "tytul": "fix(kandydaci): powrót z profilu do wyników wyszukiwania i „Wybieram”",
+  "poza_czytnikiem": "powrót z profilu do wyników wyszukiwania — UI"
+ }
+]

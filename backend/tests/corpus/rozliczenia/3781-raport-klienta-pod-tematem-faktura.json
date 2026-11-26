@@ -1,0 +1,90 @@
+[
+ {
+  "id": "rozl-3781-potwierdzenie-ergo-bez-slowa-klucza",
+  "poprawka": "c77d58ae2 #3781",
+  "opis": "Potwierdzenie godzin ERGO „<osoba> September 2026.xlsx - Monthly Conformation .pdf” bez słowa-klucza w nazwie szło do faktur obok prawdziwej faktury",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Ubezpieczenia Przykładowe"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Fwd: wrzesień",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "Jan Korpusowy September 2026.xlsx -  Monthly Conformation .pdf",
+      "pdf": "Monthly confirmation of hours worked by an External Consultant\nMonth (mm/yyyy) External Consultant name\n01-09-2026 Jan Korpusowy\n1 ALFA Websites (ID-0001) Time Tracking 168\nTotal 168.00\nI confirm that the number of hours reported is correct"
+     },
+     {
+      "nazwa": "faktura-17-2026.pdf",
+      "pdf": "Faktura VAT nr 17/2026\nSprzedawca: Jan Korpusowy Uslugi IT\nNabywca: Firma Przykladowa Sp. z o.o.\nUslugi programistyczne 09/2026 21 x 1000,00\nRazem do zaplaty: 25 830,00 PLN"
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Jan Korpusowy September 2026.xlsx -  Monthly Conformation .pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "faktura-17-2026.pdf", "rodzaj": "invoice", "osoba": "A"}
+  ]
+ },
+ {
+  "id": "rozl-3781-time-sheet-xlsx-pod-tematem-faktura",
+  "poprawka": "c77d58ae2 #3781",
+  "opis": "Time Sheet w arkuszu bez słowa-klucza w nazwie, wysłany z tematem „Faktura 09/2026”, szedł do faktur, a rozliczenie bierze tylko raporty",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Faktura 09/2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "czas_pracy_092026.xlsx",
+      "arkusz": {
+       "Arkusz1": [
+        ["Time Sheet"],
+        ["Imię i nazwisko", "Jan Korpusowy"],
+        ["Data", "Opis", "Liczba godzin"],
+        ["2026-09-01", "ALFA", 8],
+        ["2026-09-02", "ALFA", 8],
+        ["2026-09-03", "ALFA", 8],
+        ["2026-09-04", "ALFA", 8],
+        ["2026-09-07", "ALFA", 8],
+        ["Suma", null, 40]
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [{"plik": "czas_pracy_092026.xlsx", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ },
+ {
+  "id": "rozl-3781-protokol-orlen-docx-bez-slowa-klucza",
+  "poprawka": "c77d58ae2 #3781",
+  "opis": "Protokół Orlenu w Wordzie nazwany „<osoba> 09.docx” szedł jako faktura",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Paliwa Przykładowe"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Fwd: wrzesień",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "Jan Korpusowy 09.docx",
+      "docx": [
+       [
+        ["OKRES ROZLICZENIOWY: WRZESIEŃ 2026", "DOTYCZY ZAMÓWIENIA NR: 1"],
+        ["Członkowie Personelu … stawki za Roboczodzień", "Jan Korpusowy"],
+        ["Sugerowane wynagrodzenie", "132 h x 150 PLN = 19 800 PLN"]
+       ]
+      ]
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [{"plik": "Jan Korpusowy 09.docx", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ }
+]

@@ -1,0 +1,18 @@
+[
+ {
+  "id": "rozl-3866-okres-z-nazwy-pliku-w-nfd",
+  "poprawka": "2b33255d7 #3866",
+  "opis": "Nazwa pliku z Maca w NFD („październik” z rozłożonym akcentem) przegrywała z tematem wątku „wrzesień”: Time Sheet za X szedł na IX",
+  "dzis": "2026-11-03",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "RE: Time Sheet wrzesień 2026",
+    "odebrano": "2026-11-03T08:00:00Z",
+    "pliki": [{"nazwa": "Time Sheet paz\u0301dziernik 2026.xlsx", "arkusz": {"Arkusz1": [["Time Sheet"], ["Imię i nazwisko", "Jan Korpusowy"], ["Suma", 168]]}}]
+   }
+  ],
+  "oczekiwane": [{"plik_zawiera": "Time Sheet pa", "rodzaj": "report", "osoba": "A", "okres": "2026-10"}]
+ }
+]

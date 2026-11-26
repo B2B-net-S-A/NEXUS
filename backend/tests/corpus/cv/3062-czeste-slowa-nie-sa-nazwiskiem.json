@@ -1,0 +1,60 @@
+[
+  {
+    "id": "cv-3062-czeste-slowa-nie-sa-nazwiskiem",
+    "poprawka": "f82a565d9 #3062",
+    "opis": "Nagłówek „Doświadczenie Zawodowe” to nie imię i nazwisko; nazwa z nagłówka bierze się z linii z osobą",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Doświadczenie Zawodowe\nAnna Korpusowa\nJava Developer\n2020 - 2024 Firma Przykładowa",
+        "model": null
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [
+        {
+          "imie": "Anna",
+          "nazwisko": "Korpusowa"
+        }
+      ]
+    }
+  },
+  {
+    "id": "cv-3062-naglowki-i-miasto-bez-nazwiska",
+    "poprawka": "f82a565d9 #3062",
+    "opis": "CV bez linii z osobą: nagłówek sekcji „Technical Skills”, „WORK EXPERIENCE” i miasto „Warsaw, Poland” nie mogą zostać imieniem i nazwiskiem",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Technical Skills\nWORK EXPERIENCE\nWarsaw, Poland\nProject Manager\n2019 - 2024 Firma Przykładowa",
+        "model": null
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [
+        {
+          "imie": null,
+          "nazwisko": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "cv-3062-technologie-w-naglowku-bez-nazwiska",
+    "poprawka": "f82a565d9 #3062",
+    "opis": "CV bez imienia i nazwiska w nagłówku: linia technologii „Python, Django” staje się imieniem i nazwiskiem, bo „Django” nie ma na liście częstych słów CV",
+    "znany_blad": "Lista COMMON_CV_WORDS (próg 4,5% tekstów CV) nie ma rzadszych technologii; reguła odrzuca linię tylko z samych częstych słów, więc „Python Django” przechodzi jako osoba (HEAD 82b1c3828)",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Senior Backend Developer\nPython, Django\n10 years of backend work",
+        "model": null
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [
+        {
+          "imie": null,
+          "nazwisko": null
+        }
+      ]
+    }
+  }
+]
