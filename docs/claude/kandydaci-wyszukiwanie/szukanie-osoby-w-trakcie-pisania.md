@@ -1,5 +1,5 @@
 # Szukanie osoby w trakcie pisania: v2 z tekstem dosłownym, krótkie słowo bez ILIKE (26.11.2026)
-<!-- indeks: `CANDIDATE_LOOKUP_PARAMS`, paleta ⌘K, `ConsultantPicker`, `NewContractorOrderDialog`, `AddCandidateToJobModal`, `EmailBulkActionBar`, `person_token_exists`, `_exact_person_prefilter`, `_has_trigram`, `test_short_text_person_lookup.py` -->
+<!-- indeks: `CANDIDATE_LOOKUP_PARAMS`, paleta ⌘K, `ConsultantPicker`, `NewContractorOrderDialog`, `AddCandidateToJobModal`, `EmailBulkActionBar`, `person_token_exists`, `_exact_person_prefilter`, `_has_trigram`, `test_short_text_person_lookup.py`, `candidate-lookup-params-guard.test.ts` -->
 
 Produkcja 26.11.2026, 09:45–09:48: `GET /api/candidates` z palety ⌘K trwał 90 s
 (16 zapytań, prawie cały czas w bazie), a listy innych osób czekały w tym czasie
@@ -19,7 +19,8 @@ zajmuje 3 z 8 vCPU serwera.
   te same osoby co v1. Na kopii: „qa” 0,37 s, „c#” 0,47 s. Nie `auto`, bo tekst,
   który nie wygląda na osobę, idzie wtedy po znaczeniu (wektory) przy każdym
   wpisanym znaku. Nowe pole, które pyta listę w trakcie pisania, dostaje te same
-  parametry.
+  parametry — pilnuje tego `frontend/src/lib/__tests__/candidate-lookup-params-guard.test.ts`
+  (każde `GET /api/candidates` z `q` musi nieść v2).
 - **Po trafności, nie „najnowsi”:** przy „najnowsi” z `count(*) OVER ()` i `LIMIT`
   Postgres 16 wybiera pętlę zagnieżdżoną po `ix_candidates_added_to_base_id`
   z filtrem złączenia na sumie identyfikatorów (kopia: v2 „qa”, 15 wierszy —
