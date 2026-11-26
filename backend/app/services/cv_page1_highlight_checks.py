@@ -65,14 +65,18 @@ ISSUE_NOT_MUST = "not_must"
 ISSUE_NUMBER_NOT_IN_CV = "number_not_in_cv"
 ISSUE_COMPANY_NAMED = "company_named"
 
-# Słowa nagrody w cytacie. „Best practices” i „najlepsze praktyki” to nie nagroda.
+# Słowa nagrody w cytacie. Tylko słowa, które same znaczą nagrodę: „najlepszych”,
+# „z tytułu”, „top”, „won” i „wyróżniających się” bywają zwykłym obowiązkiem
+# („Won 3 new clients”, „Rozliczenia z tytułu umów”), więc liczą się dopiero
+# w nagrodzie („won the first prize”, „tytuł „Pracownik Roku””) — przegląd 26.11.2026.
 _AWARD = re.compile(
-    r"\b(?:nagrod\w*|nagrodzon\w*|wyróżni\w*|wyrozni\w*|laureat\w*|zwycię\w*|"
-    r"zwycie\w*|medal\w*|odznaczen\w*|tytuł\w*|stypendi\w*|finalist\w*|"
-    r"award\w*|winner\w*|won|prize\w*|honou?r\w*|medal\w*|finalist\w*|"
-    r"scholarship\w*|employee of the (?:year|month|quarter)|"
-    r"(?:best|top|najlepsz\w*)\b(?!\s+(?:practices?|praktyk\w*)))|"
-    r"\b(?:[1-3]|i{1,3})\.?\s*(?:miejsce|place)\b|\b(?:first|second|third) place\b",
+    r"\b(?:nagrod\w*|nagrodzon\w*|wyróżnieni\w*|wyróżnion\w*|wyroznieni\w*|"
+    r"laureat\w*|zwycięzc\w*|zwycięstw\w*|zwyciężył\w*|medal\w*|odznaczen\w*|"
+    r"odznaczon\w*|stypendi\w*|finalist\w*|award\w*|winner\w*|prize\w*|"
+    r"honou?rs|scholarship\w*|employee of the (?:year|month|quarter))\b|"
+    r"\btytuł\w*\s+[„\"“]|"
+    r"\b(?:[1-3]|i{1,3})\.?\s*(?:miejsce|miejsca|place)\b|"
+    r"\b(?:first|second|third|1st|2nd|3rd) place\b",
     re.IGNORECASE,
 )
 # Formy z rodzajem — płeć kandydata nie jest znana (jak przy zdaniach 1–3).

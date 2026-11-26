@@ -106,7 +106,7 @@ describe("Wyróżnik — propozycja AI (26.11.2026)", () => {
     const [, cert] = screen.getAllByTestId("cv-new-highlight-proposal");
     await user.click(within(cert).getByRole("button", { name: "Przyjmij" }));
     await waitFor(() =>
-      expect(props.onSaveResult).toHaveBeenCalledWith({ highlight: { mode: "ai", proposal: 2 } }),
+      expect(props.onSaveResult).toHaveBeenCalledWith({ highlight: { mode: "ai", proposal: "k-cert" } }),
     );
   });
 
@@ -115,19 +115,19 @@ describe("Wyróżnik — propozycja AI (26.11.2026)", () => {
     const props = renderPage1();
     await user.click(screen.getByRole("radio", { name: "Propozycja AI" }));
     await waitFor(() =>
-      expect(props.onSaveResult).toHaveBeenCalledWith({ highlight: { mode: "ai", proposal: 1 } }),
+      expect(props.onSaveResult).toHaveBeenCalledWith({ highlight: { mode: "ai", proposal: "k-award" } }),
     );
   });
 
-  it("„Odrzuć” wysyła numer propozycji do odrzucenia", async () => {
+  it("„Odrzuć” wysyła odcisk propozycji, nie jej numer na liście", async () => {
     const user = userEvent.setup();
     const props = renderPage1();
     const [award] = screen.getAllByTestId("cv-new-highlight-proposal");
     await user.click(within(award).getByRole("button", { name: "Odrzuć" }));
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ highlight_reject: 1 }));
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ highlight_reject: "k-award" }));
   });
 
-  it("przyjęta stoi jako „Na stronie 1”, inne zostają do wyboru, odrzucenie przyjętej idzie po jej numerze", async () => {
+  it("przyjęta stoi jako „Na stronie 1”, inne zostają do wyboru, odrzucenie przyjętej idzie po jej odcisku", async () => {
     const user = userEvent.setup();
     const props = renderPage1({
       extras: {
@@ -141,7 +141,7 @@ describe("Wyróżnik — propozycja AI (26.11.2026)", () => {
     expect(within(accepted).getByText("Wyróżnienie Best Project Manager")).toBeInTheDocument();
     expect(screen.getAllByTestId("cv-new-highlight-proposal")).toHaveLength(1);
     await user.click(within(accepted).getByRole("button", { name: "Odrzuć" }));
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ highlight_reject: 1 }));
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ highlight_reject: "k-award" }));
   });
 
   it("„Popraw jako własny” przenosi słowa propozycji do „Własnego” bez gwiazdek", async () => {

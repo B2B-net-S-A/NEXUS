@@ -110,10 +110,11 @@ describe("poligon: edytor „Strona 1” Nowego CV (lekcja „Nowe CV: strona 1�
     expect(found.data.highlight_proposals[0]).toMatchObject({ kind: "certificate", verified: true });
     // Bez przyjęcia wyróżnik zostaje automatem.
     expect(branded(store, entry).data.page1_extras).not.toHaveProperty("highlight.mode", "ai");
-    const accepted = page1(store, entry, { highlight: { mode: "ai", proposal: 0 } });
+    const key = found.data.highlight_proposals[0].key;
+    const accepted = page1(store, entry, { highlight: { mode: "ai", proposal: key } });
     expect(accepted.data.page1_extras?.highlight).toMatchObject({ mode: "ai", label: "Certyfikat PRINCE2 Practitioner" });
-    expect(page1(store, entry, { highlight: { mode: "ai", proposal: 4 } }).status).toBe(422);
-    const rejected = page1(store, entry, { highlight_reject: 0 });
+    expect(page1(store, entry, { highlight: { mode: "ai", proposal: "nie-ma-takiej" } }).status).toBe(422);
+    const rejected = page1(store, entry, { highlight_reject: key });
     expect(rejected.data.page1_extras?.highlight).toBeNull();
     expect(rejected.data.page1_extras?.highlight_proposals).toEqual([]);
     const again = store.handle({ method: "post", url: `/api/candidates/stages/${entry}/cv/page1/highlight` }) as {

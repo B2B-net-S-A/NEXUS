@@ -22,7 +22,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { plainText } from "@/lib/cv-page1-why";
 
 export interface PendingProposal {
-  /** Numer w `highlight_proposals` — to on idzie w `proposal` / `highlight_reject`. */
+  /** Numer w `highlight_proposals` (tylko do klucza listy); zapis idzie po `proposal.key`. */
   index: number;
   proposal: CvHighlightProposal;
 }
@@ -31,7 +31,12 @@ export interface PendingProposal {
 export function pendingProposals(extras: CvPage1Extras | null | undefined): PendingProposal[] {
   const accepted = extras?.highlight?.mode === "ai" ? extras.highlight.key : null;
   return (extras?.highlight_proposals ?? []).flatMap((proposal, index) =>
-    proposal && proposal.verified === true && proposal.label?.trim() && proposal.text?.trim() && proposal.key !== accepted
+    proposal &&
+    proposal.verified === true &&
+    proposal.key &&
+    proposal.label?.trim() &&
+    proposal.text?.trim() &&
+    proposal.key !== accepted
       ? [{ index, proposal }]
       : [],
   );
@@ -52,8 +57,9 @@ export interface HighlightAiProps {
   disabled: boolean;
   /** Zapis trwa — przyciski czekają, żeby dwa kliknięcia nie poszły naraz. */
   saving: boolean;
-  onAccept: (index: number) => void;
-  onReject: (index: number) => void;
+  /** Odcisk propozycji (`key`) — nie numer, bo lista może się zmienić w tle. */
+  onAccept: (key: string) => void;
+  onReject: (key: string) => void;
   onEdit: (proposal: Pick<CvHighlightProposal, "label" | "token" | "text">) => void;
   /** „Poszukaj w CV”; brak = bez przycisku (np. harness bez modelu). */
   onFind?: () => Promise<void>;
@@ -64,9 +70,8 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
   const [error, setError] = useState<string | null>(null);
   const saved = extras?.highlight;
   const accepted = saved?.mode === "ai" && saved.label && saved.text ? saved : null;
-  const acceptedIndex = accepted
-    ? (extras?.highlight_proposals ?? []).findIndex((p) => p?.key && p.key === accepted.key)
-    : -1;
+  const acceptedKey =
+    accepted?.key && (extras?.highlight_proposals ?? []).some((p) => p?.key === accepted.key) ? accepted.key : null;
   const pending = pendingProposals(extras);
   const busy = disabled || saving || finding;
 
@@ -119,13 +124,13 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
           <Badge variant="success" size="md">
             <Check aria-hidden className="h-3 w-3" /> Na stronie 1
           </Badge>
-          {acceptedIndex >= 0 ? (
+          {acceptedKey ? (
             <Button
               type="button"
               size="sm"
               variant="ghost"
               disabled={busy}
-              onClick={() => onReject(acceptedIndex)}
+              onClick={() => onReject(acceptedKey)}
               className="h-7 px-2 text-xs"
             >
               Odrzuć
@@ -159,7 +164,7 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
                   type="button"
                   size="sm"
                   disabled={busy}
-                  onClick={() => onAccept(index)}
+                  onClick={() => onAccept(proposal.key)}
                   className="h-7 px-2.5 text-xs"
                 >
                   Przyjmij
@@ -169,7 +174,7 @@ export function HighlightAi({ extras, disabled, saving, onAccept, onReject, onEd
                   size="sm"
                   variant="ghost"
                   disabled={busy}
-                  onClick={() => onReject(index)}
+                  onClick={() => onReject(proposal.key)}
                   className="h-7 px-2 text-xs"
                 >
                   Odrzuć

@@ -394,8 +394,9 @@ i `services/cv_page1_highlight_checks.py` (sprawdzenie, bez sieci i bazy).
   (≤ 60), znak w wieńcu (≤ 8), jedno zdanie (≤ 160) i dosłowny cytat.
 - **Sprawdzenie (kod, nie model):** cytat stoi w całości w jednym wpisie CV
   (punkt albo nazwa stanowiska, certyfikat, wiersz wykształcenia; po słowach jak
-  przy wynikach); nagroda — cytat ma słowo nagrody („best practices” to nie
-  nagroda); certyfikat — cytat z certyfikatów i MUST jest certyfikatem w jego
+  przy wynikach); nagroda — cytat ma słowo, które samo znaczy nagrodę
+  („najlepszych”, „z tytułu”, „top”, „won”, „wyróżniających się” to zwykłe
+  słowa obowiązku i nie wystarczą); certyfikat — cytat z certyfikatów i MUST jest certyfikatem w jego
   nazwie (`education.must_certificate`, ta sama reguła co kolejność w Edukacji);
   każda liczba z etykiety, znaku i zdania stoi w cytacie albo w tym wpisie; bez
   form z rodzajem; w Blind CV bez nazw firm. Bez cytatu = brak propozycji;
@@ -412,10 +413,13 @@ i `services/cv_page1_highlight_checks.py` (sprawdzenie, bez sieci i bazy).
   własnej sesji, tylko przy fladze, kluczu dostawcy i nieaktualnym odcisku.
   Awaria = dodatki bez zmian, ślad w logu, wyróżnik działa jak dotąd.
 - **Przyjęcie i odrzucenie** (`PATCH …/cv/page1`): `highlight: {mode: "ai",
-  proposal: N}` przepisuje sprawdzoną propozycję do `highlight` (słowa, cytat,
-  `key`), ale tylko gdy cytat stoi w bieżącym szkicu (inaczej 422);
-  `highlight_reject: N` usuwa propozycję i zapisuje jej odcisk, a odrzucenie
-  przyjętej wraca do automatu. Historia zdarzeń zapisuje tryb, bez treści.
+  proposal: "<key>"}` przepisuje sprawdzoną propozycję do `highlight` (słowa,
+  cytat, `key`), ale tylko gdy cytat stoi w bieżącym szkicu (inaczej 422);
+  `highlight_reject: "<key>"` usuwa propozycję i zapisuje jej odcisk, a
+  odrzucenie przyjętej wraca do automatu. Po odcisku, nie po numerze na liście:
+  bieg w tle i „Poszukaj w CV” mogą podmienić listę między odczytem a kliknięciem
+  (przegląd 26.11.2026); odcisku, którego już nie ma, serwer nie przyjmuje (422).
+  Historia zdarzeń zapisuje tryb, bez treści.
 - **Render:** czyta wyłącznie `page1_extras.highlight` (`choice_from_extras`);
   „ai” rysuje się jak wpis rekrutera. Przed renderem
   `cv_page1_highlight_checks.rechecked_highlight` sprawdza przyjęty wyróżnik na

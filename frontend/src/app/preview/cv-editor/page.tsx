@@ -232,7 +232,7 @@ function memoryApi(initial: CVBrandedState): {
       if ("result_text" in payload) extras.result_text = payload.result_text?.trim() || null;
       if (payload.highlight?.mode === "ai") {
         // Przyjęcie propozycji AI jak na serwerze: słowa i cytat z listy, bez numeru.
-        const chosen = extras.highlight_proposals?.[payload.highlight.proposal ?? -1];
+        const chosen = extras.highlight_proposals?.find((p) => p.key === payload.highlight?.proposal);
         if (chosen?.verified) {
           const { label, token, text, quote, key, kind } = chosen;
           extras.highlight = { mode: "ai", label, token, text, quote, key, kind };
@@ -240,8 +240,8 @@ function memoryApi(initial: CVBrandedState): {
       } else if (payload.highlight) {
         extras.highlight = payload.highlight;
       }
-      if (typeof payload.highlight_reject === "number") {
-        const rejected = extras.highlight_proposals?.[payload.highlight_reject];
+      if (payload.highlight_reject) {
+        const rejected = extras.highlight_proposals?.find((p) => p.key === payload.highlight_reject);
         if (rejected) {
           extras.highlight_proposals = (extras.highlight_proposals ?? []).filter((p) => p.key !== rejected.key);
           extras.highlight_rejected = [...(extras.highlight_rejected ?? []), rejected.key];

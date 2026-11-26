@@ -7195,8 +7195,11 @@ export interface CvPage1Highlight {
   label?: string | null;
   token?: string | null;
   text?: string | null;
-  /** Zapis: numer przyjmowanej propozycji w `highlight_proposals` (tylko `mode: "ai"`). */
-  proposal?: number | null;
+  /**
+   * Zapis: odcisk (`key`) przyjmowanej propozycji z `highlight_proposals` (tylko `mode: "ai"`).
+   * Odcisk, nie numer — lista może się zmienić między odczytem a kliknięciem.
+   */
+  proposal?: string | null;
   /** Odczyt przyjętej propozycji: cytat z CV i odcisk propozycji. */
   quote?: string | null;
   key?: string | null;
@@ -7207,10 +7210,10 @@ export interface CvPage1Highlight {
 export interface CvPage1Update {
   result_index?: number | null;
   result_text?: string | null;
-  /** `mode: "custom"` wymaga etykiety i zdania, `mode: "ai"` numeru sprawdzonej propozycji (inaczej 422). */
+  /** `mode: "custom"` wymaga etykiety i zdania, `mode: "ai"` odcisku sprawdzonej propozycji (inaczej 422). */
   highlight?: CvPage1Highlight;
-  /** Numer propozycji wyróżnika, którą rekruter odrzuca. */
-  highlight_reject?: number;
+  /** Odcisk (`key`) propozycji wyróżnika, którą rekruter odrzuca. */
+  highlight_reject?: string;
   /** Zdania 1–3: `null` = slot bez zmiany, `""` = „Przywróć z generatora”. */
   why?: (string | null)[];
 }

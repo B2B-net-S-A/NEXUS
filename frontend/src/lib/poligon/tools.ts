@@ -503,7 +503,7 @@ export function createTools(ctx: ToolsContext) {
       }
       if (highlight.mode === "ai") {
         // Lustro przyjęcia propozycji AI: tylko sprawdzona z listy.
-        const chosen = proposals[Number(highlight.proposal)];
+        const chosen = proposals.find((item) => item.key === highlight.proposal);
         if (!chosen || chosen.verified !== true) {
           return { status: 422, data: { detail: "Tej propozycji wyróżnika nie ma na liście sprawdzonych propozycji." } };
         }
@@ -514,8 +514,8 @@ export function createTools(ctx: ToolsContext) {
       }
       touched = true;
     }
-    if (typeof body.highlight_reject === "number") {
-      const rejected = proposals[body.highlight_reject];
+    if (typeof body.highlight_reject === "string") {
+      const rejected = proposals.find((item) => item.key === body.highlight_reject);
       if (!rejected) return { status: 422, data: { detail: "Tej propozycji wyróżnika nie ma na liście sprawdzonych propozycji." } };
       next.highlight_proposals = proposals.filter((item) => item.key !== rejected.key);
       next.highlight_rejected = [...((extras.highlight_rejected as string[] | undefined) ?? []), rejected.key];

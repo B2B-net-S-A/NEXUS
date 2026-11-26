@@ -165,10 +165,11 @@ async def test_accept_then_reject_a_proposal(
     sid = await _draft()
     found = await app_client.post(_post(sid), headers=app_auth_headers)
     assert found.status_code == 200, found.text
+    key = found.json()["highlight_proposals"][0]["key"]
 
     accepted = await app_client.patch(
         _patch(sid),
-        json={"highlight": {"mode": "ai", "proposal": 0}},
+        json={"highlight": {"mode": "ai", "proposal": key}},
         headers=app_auth_headers,
     )
     assert accepted.status_code == 200, accepted.text
@@ -188,7 +189,7 @@ async def test_accept_then_reject_a_proposal(
     assert "Best Project Manager" not in str(logged.details)
 
     rejected = await app_client.patch(
-        _patch(sid), json={"highlight_reject": 0}, headers=app_auth_headers
+        _patch(sid), json={"highlight_reject": key}, headers=app_auth_headers
     )
     assert rejected.status_code == 200, rejected.text
     extras = (await _csv(sid)).page1_extras
@@ -204,10 +205,11 @@ async def test_bad_or_stale_proposal_is_refused(
     app_client: AsyncClient, app_auth_headers: dict, flag_on, model
 ):
     sid = await _draft()
-    await app_client.post(_post(sid), headers=app_auth_headers)
+    found = await app_client.post(_post(sid), headers=app_auth_headers)
+    key = found.json()["highlight_proposals"][0]["key"]
     missing = await app_client.patch(
         _patch(sid),
-        json={"highlight": {"mode": "ai", "proposal": 3}},
+        json={"highlight": {"mode": "ai", "proposal": "nie-ma-takiej"}},
         headers=app_auth_headers,
     )
     assert missing.status_code == 422
@@ -217,7 +219,7 @@ async def test_bad_or_stale_proposal_is_refused(
     )
     stale = await app_client.patch(
         _patch(sid),
-        json={"highlight": {"mode": "ai", "proposal": 0}},
+        json={"highlight": {"mode": "ai", "proposal": key}},
         headers=app_auth_headers,
     )
     assert stale.status_code == 422

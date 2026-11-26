@@ -10,10 +10,12 @@ generatora — `cv_layout.compose_page1_why`).
 
 Wyróżnik kandydata (25.11.2026): `highlight` = „auto” (praca u klienta
 rekrutacji, z dat stanowisk), „custom” (etykieta, znak w wieńcu, zdanie
-rekrutera) albo „off”. Od 26.11.2026 także „ai” z `proposal` = numer
+rekrutera) albo „off”. Od 26.11.2026 także „ai” z `proposal` = odcisk (`key`)
 sprawdzonej propozycji z `highlight_proposals` (przyjęcie rekrutera: kod
-sprawdza jeszcze raz cytat na bieżącym szkicu), a `highlight_reject` = numer
+sprawdza jeszcze raz cytat na bieżącym szkicu), a `highlight_reject` = odcisk
 propozycji, którą rekruter odrzuca (znika i nie wraca przy kolejnym biegu).
+Odcisk, nie numer: bieg w tle i „Poszukaj w CV” mogą podmienić listę między
+tym, co rekruter widzi, a jego kliknięciem (przegląd 26.11.2026).
 Bez przyjęcia propozycja nie trafia do CV — render czyta tylko `highlight`.
 
 Trzeci punkt strony 1 to dodatek CV (`candidate_stage_cvs.page1_extras`), nie
@@ -58,7 +60,10 @@ MSG_BAD_INDEX = "Tego wyniku nie ma na liście sprawdzonych wyników."
 
 
 MSG_HIGHLIGHT_EMPTY = "Wyróżnik potrzebuje etykiety i zdania."
-MSG_BAD_PROPOSAL = "Tej propozycji wyróżnika nie ma na liście sprawdzonych propozycji."
+MSG_BAD_PROPOSAL = (
+    "Tej propozycji wyróżnika nie ma już na liście — lista mogła się zmienić. "
+    "Otwórz CV ponownie albo poszukaj od nowa."
+)
 MSG_PROPOSAL_STALE = "Tego fragmentu nie ma już w CV — poszukaj propozycji od nowa albo wpisz własny wyróżnik."
 
 
@@ -70,7 +75,8 @@ class HighlightUpdate(BaseModel):
     label: Optional[str] = Field(default=None, max_length=LABEL_MAX)
     token: Optional[str] = Field(default=None, max_length=TOKEN_MAX)
     text: Optional[str] = Field(default=None, max_length=TEXT_MAX)
-    proposal: Optional[int] = Field(default=None, ge=0)
+    # Odcisk (`key`) przyjmowanej propozycji z `highlight_proposals`.
+    proposal: Optional[str] = Field(default=None, max_length=64)
 
 
 # Długość po złączeniu spacji sprawdza `_why` (422 z polskim zdaniem); tu tylko
@@ -85,8 +91,8 @@ class Page1Update(BaseModel):
     result_index: Optional[int] = Field(default=None, ge=0)
     result_text: Optional[str] = Field(default=None, max_length=RESULT_TEXT_MAX * 2)
     highlight: Optional[HighlightUpdate] = None
-    # Numer propozycji wyróżnika AI, którą rekruter odrzuca.
-    highlight_reject: Optional[int] = Field(default=None, ge=0)
+    # Odcisk (`key`) propozycji wyróżnika AI, którą rekruter odrzuca.
+    highlight_reject: Optional[str] = Field(default=None, max_length=64)
     # Zdania 1–3 strony 1: `null` = slot bez zmiany, "" = z generatora.
     why: Optional[list[Optional[WhySlot]]] = Field(default=None, max_length=3)
 
@@ -115,11 +121,12 @@ def _verified_results(extras: dict) -> list:
     return results if isinstance(results, list) else []
 
 
-def _proposal(extras: dict, index: Optional[int]) -> dict:
-    items = highlight_checks.proposals(extras)
-    if index is None or index >= len(items) or items[index].get("verified") is not True:
-        raise HTTPException(422, MSG_BAD_PROPOSAL)
-    return items[index]
+def _proposal(extras: dict, key: Optional[str]) -> dict:
+    """Sprawdzona propozycja o tym odcisku; brak (lista się zmieniła) = 422."""
+    for item in highlight_checks.proposals(extras):
+        if key and _key(item) == key and item.get("verified") is True:
+            return item
+    raise HTTPException(422, MSG_BAD_PROPOSAL)
 
 
 def _key(proposal: dict) -> str:
@@ -204,10 +211,10 @@ def _merged(
                 raise HTTPException(422, MSG_HIGHLIGHT_EMPTY)
             merged["highlight"] = {"mode": "custom", **fields}
     if "highlight_reject" in sent and payload.highlight_reject is not None:
-        items = highlight_checks.proposals(original)
-        if payload.highlight_reject >= len(items):
+        key = payload.highlight_reject
+        if not any(_key(p) == key for p in highlight_checks.proposals(original)):
             raise HTTPException(422, MSG_BAD_PROPOSAL)
-        merged = _rejected(merged, _key(items[payload.highlight_reject]))
+        merged = _rejected(merged, key)
     if "why" in sent and payload.why is not None:
         merged["why"] = _why(merged, payload.why)
     return merged

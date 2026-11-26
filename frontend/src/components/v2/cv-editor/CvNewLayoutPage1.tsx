@@ -589,15 +589,15 @@ function HighlightChoice({
   };
   const pending = pendingProposals(extras);
   /** „Przyjmij”: propozycja AI na stronę 1 (serwer sprawdza cytat jeszcze raz). */
-  const accept = (index: number) => {
+  const accept = (key: string) => {
     stopTimer();
     setMode("ai");
-    void save({ highlight: { mode: "ai", proposal: index } }, null);
+    void save({ highlight: { mode: "ai", proposal: key } }, null);
   };
   /** „Odrzuć”: znika i nie wraca; odrzucona przyjęta wraca do automatu (tryb idzie za zapisem). */
-  const reject = (index: number) => {
+  const reject = (key: string) => {
     stopTimer();
-    void save({ highlight_reject: index }, null);
+    void save({ highlight_reject: key }, null);
   };
   /** „Popraw jako własny”: słowa propozycji w polach „Własnego”, zapis od razu. */
   const editAsCustom = (proposal: { label?: string | null; token?: string | null; text?: string | null }) => {
@@ -620,7 +620,7 @@ function HighlightChoice({
     setError(null);
     if (next === "ai") {
       // Wybór trybu = przyjęcie pierwszej propozycji z listy niżej.
-      if (pending.length) accept(pending[0].index);
+      if (pending.length) accept(pending[0].proposal.key);
       return;
     }
     setMode(next);

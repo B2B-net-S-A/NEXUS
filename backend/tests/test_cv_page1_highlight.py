@@ -29,6 +29,7 @@ from app.services.cv_new_layout import NewCvDocument, render_new_cv_html
 from app.services.cv_new_layout.highlight import choice_from_extras
 from app.services.cv_page1_highlight_checks import (
     ISSUE_COMPANY_NAMED,
+    Entry,
     ISSUE_GENDERED,
     ISSUE_NOT_A_CERTIFICATE,
     ISSUE_NOT_AN_AWARD,
@@ -177,6 +178,66 @@ def test_best_practices_is_not_an_award():
     assert out["issue"] == ISSUE_NOT_AN_AWARD
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Wybór najlepszych dostawców IT dla banku",
+        "Rozliczenia z tytułu umów leasingowych",
+        "Won 3 new enterprise clients in the CEE region",
+        "Managed top accounts across Poland",
+        "Osiąganie wyróżniających się wyników sprzedaży w regionie",
+    ],
+)
+def test_duty_with_an_award_like_word_is_not_an_award(line):
+    """Przegląd 26.11.2026: „najlepszych”, „z tytułu”, „won”, „top” i
+    „wyróżniających się” to zwykłe słowa obowiązku, nie nagroda."""
+    item = {
+        "kind": "award",
+        "label": "Wyróżnik",
+        "token": "",
+        "text": "Wynik z CV.",
+        "quote": line,
+    }
+    (out,) = verify_proposals(
+        [item],
+        [Entry("role", line, line, "Example Bank")],
+        MUST,
+        companies=[],
+        blind=False,
+    )
+    assert out["issue"] == ISSUE_NOT_AN_AWARD, out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Received the Best IT Project Manager award for the Baltic Cluster in 2015",
+        "Won the first prize in the national hackathon",
+        "1. miejsce w ogólnopolskim konkursie programistycznym",
+        "Laureat konkursu Lider Cyfryzacji 2020",
+        "Uzyskanie wyróżnienia Best IT Project Manager w klastrze bałtyckim",
+        "Tytuł „Pracownik Roku 2019” w dziale IT",
+        "Employee of the Year 2022 in the delivery unit",
+    ],
+)
+def test_real_awards_still_count(line):
+    item = {
+        "kind": "award",
+        "label": "Wyróżnik",
+        "token": "",
+        "text": "Nagroda z CV.",
+        "quote": line,
+    }
+    (out,) = verify_proposals(
+        [item],
+        [Entry("role", line, line, "Example Bank")],
+        MUST,
+        companies=[],
+        blind=False,
+    )
+    assert out.get("issue") != ISSUE_NOT_AN_AWARD, out
+
+
 def test_certificate_outside_must_is_rejected():
     out = _one(
         {
@@ -249,8 +310,12 @@ def _extras():
     return {"highlight_proposals": _verify([AWARD, CERT]), "why": ["zostaje"]}
 
 
+def _key_of(item):
+    return proposal_key(item)
+
+
 def test_accepting_a_proposal_writes_mode_ai_with_quote():
-    payload = Page1Update(highlight={"mode": "ai", "proposal": 1})
+    payload = Page1Update(highlight={"mode": "ai", "proposal": _key_of(CERT)})
     merged = _merged(_extras(), payload)
     assert merged["highlight"]["mode"] == "ai"
     assert merged["highlight"]["label"] == CERT["label"]
@@ -260,14 +325,41 @@ def test_accepting_a_proposal_writes_mode_ai_with_quote():
 
 def test_unverified_or_missing_proposal_cannot_be_accepted():
     extras = {"highlight_proposals": _verify([{**AWARD, "quote": ""}])}
-    for index in (0, 5, None):
+    unverified = extras["highlight_proposals"][0]["key"]
+    for key in (unverified, "nie-ma-takiej", None):
         with pytest.raises(HTTPException) as err:
-            _merged(extras, Page1Update(highlight={"mode": "ai", "proposal": index}))
+            _merged(extras, Page1Update(highlight={"mode": "ai", "proposal": key}))
         assert err.value.status_code == 422
 
 
+def test_accept_and_reject_follow_the_key_when_the_list_was_replaced():
+    """Przegląd 26.11.2026: bieg w tle i „Poszukaj w CV” mogą podmienić listę między
+    tym, co rekruter widzi, a jego kliknięciem — wybór idzie po odcisku, nie po numerze."""
+    seen = _verify([AWARD, CERT])  # to widzi rekruter: [nagroda, certyfikat]
+    other = {
+        **AWARD,
+        "label": "Inna nagroda",
+        "quote": "Wyróżnienie Best Project Manager 2021",
+    }
+    replaced = {
+        "highlight_proposals": _verify([other, CERT])
+    }  # bieg w tle: [inna, certyfikat]
+    accepted = _merged(
+        replaced, Page1Update(highlight={"mode": "ai", "proposal": seen[1]["key"]})
+    )
+    assert accepted["highlight"]["label"] == CERT["label"]
+    with pytest.raises(HTTPException) as err:  # nagrody, którą widział, już nie ma
+        _merged(
+            replaced, Page1Update(highlight={"mode": "ai", "proposal": seen[0]["key"]})
+        )
+    assert err.value.status_code == 422
+    rejected = _merged(replaced, Page1Update(highlight_reject=seen[1]["key"]))
+    assert [p["label"] for p in rejected["highlight_proposals"]] == ["Inna nagroda"]
+    assert rejected["highlight_rejected"] == [seen[1]["key"]]
+
+
 def test_accepting_a_proposal_whose_quote_left_the_cv_is_refused():
-    payload = Page1Update(highlight={"mode": "ai", "proposal": 0})
+    payload = Page1Update(highlight={"mode": "ai", "proposal": _key_of(AWARD)})
     with pytest.raises(HTTPException) as err:
         _merged(_extras(), payload, lambda highlight: False)
     assert err.value.status_code == 422
@@ -275,7 +367,7 @@ def test_accepting_a_proposal_whose_quote_left_the_cv_is_refused():
 
 def test_rejecting_removes_the_proposal_and_remembers_it():
     extras = _extras()
-    merged = _merged(extras, Page1Update(highlight_reject=0))
+    merged = _merged(extras, Page1Update(highlight_reject=_key_of(AWARD)))
     assert [p["kind"] for p in merged["highlight_proposals"]] == ["certificate"]
     assert merged["highlight_rejected"] == [proposal_key(AWARD)]
     # Kolejny bieg modelu z tą samą nagrodą jej nie przywraca.
@@ -284,15 +376,19 @@ def test_rejecting_removes_the_proposal_and_remembers_it():
 
 
 def test_rejecting_the_accepted_proposal_returns_to_auto():
-    accepted = _merged(_extras(), Page1Update(highlight={"mode": "ai", "proposal": 0}))
-    rejected = _merged(accepted, Page1Update(highlight_reject=0))
+    accepted = _merged(
+        _extras(), Page1Update(highlight={"mode": "ai", "proposal": _key_of(AWARD)})
+    )
+    rejected = _merged(accepted, Page1Update(highlight_reject=_key_of(AWARD)))
     assert "highlight" not in rejected
     with pytest.raises(HTTPException):
-        _merged(_extras(), Page1Update(highlight_reject=9))
+        _merged(_extras(), Page1Update(highlight_reject="nie-ma-takiej"))
 
 
 def test_new_cv_forgets_proposals_and_the_ai_choice_but_not_rejections():
-    accepted = _merged(_extras(), Page1Update(highlight={"mode": "ai", "proposal": 0}))
+    accepted = _merged(
+        _extras(), Page1Update(highlight={"mode": "ai", "proposal": _key_of(AWARD)})
+    )
     accepted = {**accepted, "highlight_source_sha": "x", "highlight_rejected": ["k"]}
     kept = forget_page1_result(accepted)
     assert kept == {"highlight_rejected": ["k"]}
@@ -316,14 +412,18 @@ def test_proposal_alone_never_reaches_page_1():
 
 
 def test_accepted_proposal_is_on_page_1():
-    accepted = _merged(_extras(), Page1Update(highlight={"mode": "ai", "proposal": 0}))
+    accepted = _merged(
+        _extras(), Page1Update(highlight={"mode": "ai", "proposal": _key_of(AWARD)})
+    )
     page = _page1(rechecked_highlight(accepted, CV_JSON, blind=False))
     assert "<div class='hlk'>Wyróżnienie Best Project Manager</div>" in page
     assert "<b>Best Project Manager 2021</b> za program KYC" in page
 
 
 def test_accepted_highlight_gives_way_when_the_quote_left_the_cv():
-    accepted = _merged(_extras(), Page1Update(highlight={"mode": "ai", "proposal": 0}))
+    accepted = _merged(
+        _extras(), Page1Update(highlight={"mode": "ai", "proposal": _key_of(AWARD)})
+    )
     edited = json.loads(json.dumps(CV))
     edited["experience"][0]["responsibilities"].pop(0)
     edited_json = cv_json_from_editor_html(
