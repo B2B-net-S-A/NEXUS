@@ -1,5 +1,5 @@
 # Szukanie osoby w trakcie pisania: v2 z tekstem dosłownym, krótkie słowo bez ILIKE (26.11.2026)
-<!-- indeks: `CANDIDATE_LOOKUP_PARAMS`, paleta ⌘K, `ConsultantPicker`, `NewContractorOrderDialog`, `AddCandidateToJobModal`, `person_token_exists`, `_exact_person_prefilter`, `_has_trigram`, `test_short_text_person_lookup.py` -->
+<!-- indeks: `CANDIDATE_LOOKUP_PARAMS`, paleta ⌘K, `ConsultantPicker`, `NewContractorOrderDialog`, `AddCandidateToJobModal`, `EmailBulkActionBar`, `person_token_exists`, `_exact_person_prefilter`, `_has_trigram`, `test_short_text_person_lookup.py` -->
 
 Produkcja 26.11.2026, 09:45–09:48: `GET /api/candidates` z palety ⌘K trwał 90 s
 (16 zapytań, prawie cały czas w bazie), a listy innych osób czekały w tym czasie
@@ -11,7 +11,8 @@ z bufora (zero z dysku), na kopii produkcji „qa” 112 s, „c#” 74 s, a zap
 zajmuje 3 z 8 vCPU serwera.
 
 - **Paleta ⌘K i wybieraki osób** (`ConsultantPicker`, `NewContractorOrderDialog`,
-  `AddCandidateToJobModal`) dokładają `CANDIDATE_LOOKUP_PARAMS`
+  `AddCandidateToJobModal`, „Połącz z kandydatem” w `EmailBulkActionBar`) dokładają
+  `CANDIDATE_LOOKUP_PARAMS`
   (`semantics_version: 2`, `text_mode: "literal"`, `lib/candidate-search-semantics.ts`).
   Krótki tekst (≤ 2 znaki) jest wtedy całym słowem przez indeks
   (`short_literal_match`, decyzja z 07.10.2026), a dłuższy daje te same osoby co v1.
