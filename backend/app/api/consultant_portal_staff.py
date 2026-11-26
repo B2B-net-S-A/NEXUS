@@ -417,7 +417,14 @@ async def documents_of_card(
             select(CpDocument).where(CpDocument.id.in_(ids)).order_by(CpDocument.id)
         )
     ).all()
-    return {"items": [documents.staff_row(row) for row in rows]}
+    today = business_today()
+    items = []
+    for row in rows:
+        item = documents.staff_row(row)
+        # Kontrakty nadawcy jako podpowiedź przy „Przypisz” (plik bez kontraktu).
+        item["sender_person"] = await documents.sender_contracts(db, row, today=today)
+        items.append(item)
+    return {"items": items}
 
 
 @router.get("/documents/{document_id}/file")

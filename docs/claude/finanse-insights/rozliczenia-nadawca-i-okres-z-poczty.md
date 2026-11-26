@@ -1,6 +1,6 @@
 # Rozliczenia: nadawca i okres raportu z poczty — Gmail bez kropek, erste.pl, „MM RRRR”
 
-<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, faktura czeka na przypisanie, invoice_waits, dwóch klientów, skrzynka u klienta faktura, portfel Delivery Leada, Przypisz, assign_contract, miesiąc usługi, miesiąc faktury, Faktura bez kontraktu, Raport bez kontraktu, okres nie z nazwy pliku -->
+<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, faktura czeka na przypisanie, invoice_waits, dwóch klientów, skrzynka u klienta faktura, portfel Delivery Leada, Przypisz, assign_contract, miesiąc usługi, miesiąc faktury, Faktura bez kontraktu, Raport bez kontraktu, okres nie z nazwy pliku, podpowiedź kontraktów, sender_contracts, sender_person -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (powtórka na kopii produkcji) 24 przypadki poza
 Nordeą miały status „bez dokumentu”, choć Finanse wystawiły za nie faktury. Przegląd archiwum
@@ -130,6 +130,22 @@ zmieniamy (raport w tym samym mailu miały 2 z 18 faktur).
   przestawić na inny miesiąc.
 - Karta bez kontraktu nazywa się „Faktura bez kontraktu” albo „Raport bez kontraktu”.
   „Od nieznanego nadawcy” było nieprawdą przy osobie z dwoma kontraktami.
+
+## Podpowiedź kontraktów nadawcy przy „Przypisz” (od 26.11.2026)
+
+Faktura osoby u dwóch klientów czeka bez kontraktu, a Finanse szukały numeru
+kontraktu gdzie indziej. Decyzja Artura z 26.11.2026 (wariant „przyciski nad polem”):
+
+- Karta dokumentu bez kontraktu pokazuje „Nadawca: imię i nazwisko — kontrakty:” i po
+  jednym przycisku na działający kontrakt tej osoby (klient · numer · od–do, bez kwot).
+  Klik wpisuje numer w pole, „Przypisz” zostaje osobnym krokiem, pole przyjmuje też inny
+  numer (`CardDocuments`, `sender_person` z `GET …/documents/by-card/{id}`).
+- Osoba z adresu nadawcy jak w czytniku (`identity.sender_contract_ids`), kontrakty
+  działające w sensie `identity.eligible` (też zakończone do 60 dni temu)
+  (`documents.sender_contracts`). Nieznany adres, dwie osoby pod adresem albo dokument
+  z kontraktem = bez podpowiedzi.
+- Nie podpowiada osoby z nazwy pliku: faktura od koordynatora z nazwiskiem w nazwie
+  dalej ma samo pole.
 
 ## Czego ta zmiana nie robi
 
