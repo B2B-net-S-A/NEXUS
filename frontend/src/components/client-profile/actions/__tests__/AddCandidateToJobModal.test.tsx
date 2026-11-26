@@ -64,6 +64,24 @@ describe("AddCandidateToJobModal", () => {
     expect(await screen.findByText(/Brak wyników/)).toBeInTheDocument();
   });
 
+  it("pyta listę w v2 z tekstem dosłownym i po trafności — dwa znaki nie czytają całej bazy", async () => {
+    mocks.get.mockResolvedValue({ data: { items: [] } });
+    renderModal(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+    typeQuery("qa");
+
+    await waitFor(() =>
+      expect(mocks.get).toHaveBeenCalledWith("/api/candidates", {
+        params: {
+          q: "qa",
+          page_size: 15,
+          semantics_version: 2,
+          text_mode: "literal",
+          sort: "relevance",
+        },
+      }),
+    );
+  });
+
   it("po dodaniu unieważnia oba klucze kanbana rekrutacji", async () => {
     const user = userEvent.setup();
     mocks.get.mockResolvedValue({

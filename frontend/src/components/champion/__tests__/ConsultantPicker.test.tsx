@@ -106,7 +106,13 @@ describe("ConsultantPicker", () => {
     const base = await screen.findAllByTestId("consultant-picker-base-option");
     expect(base).toHaveLength(1);
     expect(getMock).toHaveBeenLastCalledWith("/api/candidates", {
-      params: { q: "Spozalisty", page_size: 8, sort: "relevance" },
+      params: {
+        q: "Spozalisty",
+        page_size: 8,
+        sort: "relevance",
+        semantics_version: 2,
+        text_mode: "literal",
+      },
     });
     expect(
       within(screen.getByRole("group", { name: "U tego klienta" })).getByText(

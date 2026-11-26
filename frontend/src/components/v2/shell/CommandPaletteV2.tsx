@@ -35,6 +35,7 @@ import { hasPermission } from "@/lib/permissions";
 import { useAccountingNavOpen } from "@/lib/api/accounting";
 import { useHrNavState, useHrProgram } from "@/lib/api/hr";
 import { reviewBatchBlock } from "@/lib/api/reviewBatch";
+import { CANDIDATE_LOOKUP_PARAMS } from "@/lib/candidate-search-semantics";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
@@ -219,11 +220,12 @@ export function CommandPaletteV2({
         requests.push(
           api
             .get("/api/candidates", {
-              // `sort: "relevance"` jest load-bearing: domyślne `newest` przy
-              // zapytaniu pasującym do dziesiątek tysięcy rekordów (np. pełny
-              // e-mail rozbity na słowa łapie samą domenę) oddawało piątkę
-              // NAJNOWSZYCH, bez szukanej osoby (UAT M00-B01).
-              params: { q: term, page_size: 5, sort: "relevance" },
+              // `CANDIDATE_LOOKUP_PARAMS` niesie `sort: "relevance"` — load-bearing:
+              // domyślne `newest` przy zapytaniu pasującym do dziesiątek tysięcy
+              // rekordów (np. pełny e-mail rozbity na słowa łapie samą domenę)
+              // oddawało piątkę NAJNOWSZYCH, bez szukanej osoby (UAT M00-B01).
+              // I v2: dwa znaki w v1 czytały całą bazę (26.11.2026).
+              params: { q: term, page_size: 5, ...CANDIDATE_LOOKUP_PARAMS },
               signal: ctrl.signal,
             })
             .then((res) => {

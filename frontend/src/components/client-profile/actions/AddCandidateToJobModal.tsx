@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { CANDIDATE_LOOKUP_PARAMS } from "@/lib/candidate-search-semantics";
 import { useToast } from "@/components/Toast";
 import { ModalShell } from "./CloseJobAsLostModal";
 
@@ -51,7 +52,7 @@ export function AddCandidateToJobModal({
     queryFn: async () => {
       if (!debouncedQ) return [];
       const r = await api.get("/api/candidates", {
-        params: { q: debouncedQ, page_size: 15 },
+        params: { q: debouncedQ, page_size: 15, ...CANDIDATE_LOOKUP_PARAMS },
       });
       const payload = r.data;
       return Array.isArray(payload) ? payload : payload?.items ?? [];

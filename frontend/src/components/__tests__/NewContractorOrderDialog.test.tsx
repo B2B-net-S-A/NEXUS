@@ -259,6 +259,26 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
     expect(await screen.findByText(/Brak wyników/i)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("pyta listę w v2 z tekstem dosłownym i po trafności — dwa znaki nie czytają całej bazy", async () => {
+    const user = userEvent.setup();
+    mockApi(() => Promise.resolve({ data: { items: [] } }));
+    renderDialog();
+
+    await user.type(screen.getByPlaceholderText(/Szukaj po imieniu/i), "qa");
+
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/api/candidates", {
+        params: {
+          q: "qa",
+          page_size: 15,
+          semantics_version: 2,
+          text_mode: "literal",
+          sort: "relevance",
+        },
+      }),
+    );
+  });
 });
 
 describe("NewContractorOrderDialog — jednostka i waluta zamówienia", () => {

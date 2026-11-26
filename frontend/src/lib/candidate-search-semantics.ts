@@ -23,6 +23,28 @@ import { searchRequestToUnified } from "@/lib/saved-search-unified";
 export type TextMode = "auto" | "literal" | "semantic";
 export type TextModeApplied = "literal" | "keywords" | "semantic" | "none";
 
+/**
+ * Wyszukanie osoby w trakcie pisania przez `GET /api/candidates` (paleta ⌘K,
+ * wybieraki kandydata): semantyka v2 z tekstem dosłownym, kolejność po trafności.
+ *
+ * Bez `semantics_version` lista idzie ścieżką v1 (zostaje dla alertów
+ * zapisanych wyszukiwań), która szuka podłańcucha w CV, profilu i notatkach —
+ * dla dwóch znaków bez indeksu trygramowego. Produkcja 26.11.2026: jedno takie
+ * zapytanie z palety trwało 90 s i zajmowało 3 z 8 vCPU serwera. W v2 krótki
+ * tekst (≤ 2 znaki) to całe słowo przez indeks, a dłuższy daje te same osoby
+ * co v1. `literal`, nie `auto`: `auto` wysyła tekst, który nie wygląda na
+ * osobę, do wyszukiwania po znaczeniu — przy każdym wpisanym znaku.
+ *
+ * `relevance`: domyślne „najnowsi” oddawało ostatnio dodanych zamiast szukanej
+ * osoby (UAT M00-B01), a z licznikiem wyników Postgres 16 wybiera dla niego
+ * pętlę zagnieżdżoną po indeksie daty (kopia: „qa” 83 s, 690 mln porównań).
+ */
+export const CANDIDATE_LOOKUP_PARAMS = {
+  semantics_version: 2,
+  text_mode: "literal",
+  sort: "relevance",
+} as const;
+
 /** Limit pozycji w jednym kubełku (lustro `max_length=20` w backendzie). */
 export const SKILL_BUCKET_LIMIT = 20;
 

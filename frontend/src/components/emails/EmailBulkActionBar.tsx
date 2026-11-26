@@ -21,6 +21,7 @@ import {
   type BulkEmailActionResponse,
 } from "@/lib/api";
 import { Alert } from "@/components/ui/alert";
+import { CANDIDATE_LOOKUP_PARAMS } from "@/lib/candidate-search-semantics";
 import { cn } from "@/lib/utils";
 
 interface EmailBulkActionBarProps {
@@ -114,6 +115,7 @@ export function EmailBulkActionBar({
       const r = await candidatesApi.list({
         q: debouncedQuery,
         page_size: 10,
+        ...CANDIDATE_LOOKUP_PARAMS,
       });
       const items = ((r.data as { items?: CandidateSearchResult[] }).items ?? []);
       return items;
