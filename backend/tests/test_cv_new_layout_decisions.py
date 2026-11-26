@@ -34,6 +34,7 @@ from app.services.cv_new_layout import (
 )
 from app.services.cv_new_layout.document import HighlightChoice
 from app.services.cv_new_layout.highlight import choice_from_extras
+from app.services.cv_new_layout.styles import BRAND_TEXT
 from tests._cv_new_layout_fixtures import (
     TODAY,
     blind,
@@ -865,3 +866,36 @@ def test_w33_word_page1_is_the_pdf_image_then_editable_tables():
     assert "Firma Kappa" in cells and "Zakres zadań" in cells
     settings = [c.tag.split("}")[1] for c in document.settings.element]
     assert "embedTrueTypeFonts" in settings
+
+
+def test_w34_school_degree_and_year_are_red_semibold():
+    """W34: stopień i rok przy szkole czerwone (BRAND_TEXT), półgrube — nie czarne
+    pogrubione z rundy 14; kierunek nad nimi czarny, pogrubiony."""
+    html = _html(long_cv())
+    edd = _decl(html, ".edd")
+    assert edd["color"].upper() == BRAND_TEXT.upper()
+    assert edd["font-weight"] == "600"
+    assert "700" in _decl(html, ".edf")["font"]
+    assert "<div class='edd'>Magister inżynier · 2008</div>" in _section(
+        html, "Edukacja"
+    )
+
+
+def test_w35_current_job_without_start_is_a_red_segment_without_year():
+    """W35: bieżąca praca bez daty początku to czerwony odcinek na końcu paska do
+    „dziś”, bez roku pod nim — nie kropka (runda 20)."""
+    data = _with_roles(
+        ("obecnie", "Firma Bieżąca", "Analityk"),
+        ("2018 - 2021", "Firma Dawna", "Tester"),
+    )
+    svg = _axis(_html(data))
+    rects = _rects(svg)
+    assert "<circle" not in svg
+    assert len(rects) == 2
+    last_x, last_w, last_fill = rects[-1]
+    assert last_fill.upper() == RED.upper()
+    assert last_x > rects[0][0] and last_w > 5  # odcinek, nie punkt
+    years = [t for *_, t in _texts(svg) if re.fullmatch(r"(19|20)\d{2}", t)]
+    assert years == ["2018"]  # bez roku przy bieżącej pracy
+    assert "Firma Bieżąca" in _words(svg)
+    assert "dziś" in _words(svg)
