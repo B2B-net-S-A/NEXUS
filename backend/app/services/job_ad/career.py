@@ -40,6 +40,7 @@ from app.services import career_board
 from app.services import job_public_profile as jpp
 from app.services.career_slugs import job_link_url
 from app.services.job_ad.text import visible
+from app.services.public_profile_lint import drop_placeholders
 
 STATUS_NONE = "none"
 STATUS_LIVE = "live"
@@ -66,10 +67,15 @@ def _line(value: Any) -> str:
 def career_text(content: dict[str, Any], lang: str) -> CareerText:
     """Podtytuł i opis strony kariery z treści ogłoszenia."""
     lead = _line(content.get("lead"))
+    lead = drop_placeholders(lead) or ""
     subtitle = jpp.trim_subtitle(lead, jpp.SUBTITLE_MAX) if lead else ""
+    # Zaślepka modelu w „O projekcie” nie trafia na stronę (26.11.2026).
     paragraphs = [
         _line(part)
-        for part in re.split(r"\n\s*\n", visible(str(content.get("about") or "")))
+        for part in re.split(
+            r"\n\s*\n",
+            drop_placeholders(visible(str(content.get("about") or ""))) or "",
+        )
         if part.strip()
     ]
     duties = [

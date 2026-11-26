@@ -25,7 +25,7 @@ const SUMMARY: ClientMdImportSummary = {
   period_month: "2026-08",
   filename: "zuzycie_MD_sierpien.xlsx",
   created_at: "2026-09-23T11:40:03Z",
-  uploaded_by_name: "Anna Korycka",
+  uploaded_by_name: "Anna Testycka",
   rows_total: 3,
   rows_booked: 2,
   rows_to_verify: 1,
@@ -109,7 +109,7 @@ describe("ClientMdImportsTab — zakładka „Importy MD”", () => {
     const onSelect = renderTab(null);
     const item = await screen.findByRole("button", { name: /Otwórz import MD za sierpień 2026/ });
     expect(item).toHaveTextContent("sierpień 2026");
-    expect(item).toHaveTextContent("Anna Korycka");
+    expect(item).toHaveTextContent("Anna Testycka");
     expect(item).toHaveTextContent("zuzycie_MD_sierpien.xlsx");
     expect(item).toHaveTextContent("wierszy: 3");
     expect(item).toHaveTextContent("zaksięgowano: 2");

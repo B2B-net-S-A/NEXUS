@@ -13,8 +13,8 @@ Dwa rodzaje trafienia, celowo rozróżniane:
   myślniki); jedyne, które bramka automatu akceptuje;
 * **rescued** — odmiana gramatyczna lub jedna drobna literówka; różnica
   jest sygnałem, że dokument i baza się nie
-  zgadzają, więc idzie do kolejki (korpus: „Podwin" w dokumencie CA vs
-  „Padwin" na karcie).
+  zgadzają, więc idzie do kolejki (korpus: „Testowy" w dokumencie CA vs
+  „Testawy" na karcie).
 
 Osoba to nie kontrakt: writer potrzebuje KONTRAKTU. Przy dwóch żywych
 kontraktach tej samej osoby u klienta ``_contract_for_candidate`` wybiera po

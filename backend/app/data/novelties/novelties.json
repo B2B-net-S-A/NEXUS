@@ -5136,6 +5136,19 @@
     "href": "/porcja",
     "section": "pipeline",
     "dot_anchor": "review-batch.return-group",
+    "steps": [
+      {
+        "anchor": "review-batch.tab-close",
+        "text": "Otwórz zakładkę „Do domknięcia”.",
+        "hint": "Tu czekają screeningi z rekrutacji, które nie są już Twoim P0."
+      },
+      {
+        "anchor": "review-batch.return-group",
+        "text": "„Oddaj … do Nowych” przy rekrutacji, która nie jest Twoim P0.",
+        "hint": "Screeningi wracają do „Nowych” bez odrzucenia i bez wpisu w historii osoby.",
+        "ack": true
+      }
+    ],
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
@@ -5539,6 +5552,38 @@
         "anchor": "job.hold.submit",
         "text": "Wybierz powód i kliknij „Wstrzymaj rekrutację”.",
         "hint": "Rekruterzy z osobami w toku dostaną dzwonek i mail, a nad Tablicą zobaczą pas. Na poligonie nic nie wychodzi."
+      }
+    ]
+  },
+  {
+    "id": "kandydaci-zwijane-wyszukiwanie",
+    "title": "Więcej kandydatów na ekranie: zwinięte wyszukiwanie",
+    "why": "Po „Szukaj” słowa kluczowe i filtry zwijają się do jednej linii, więc tabela zaczyna się wyżej. Fragmenty CV pod osobą są domyślnie schowane — włączasz je w „Kolumny”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Kandydaci → wyszukiwanie nad tabelą",
+    "href": "/candidates",
+    "practice_href": "/candidates?q_any=Java",
+    "section": "sourcing",
+    "dot_anchor": "candidates.search",
+    "used_anchor": "candidates.search-expand",
+    "steps": [
+      {
+        "anchor": "candidates.search",
+        "text": "Kliknij „Szukaj”.",
+        "hint": "Wyszukiwanie zwinie się do jednej linii ze słowami kluczowymi, stawką, miastem i trybem pracy."
+      },
+      {
+        "anchor": "candidates.search-expand",
+        "text": "Kliknij „Pokaż filtry”, żeby poprawić wyszukiwanie.",
+        "hint": "Klik w samą linię też rozwija. „Zwiń wyszukiwanie” w nagłówku słów kluczowych chowa je z powrotem."
+      },
+      {
+        "anchor": "candidates.columns",
+        "text": "Fragmenty CV pod osobą są w „Kolumny” → „Fragmenty CV pod osobą”.",
+        "hint": "Pokazują, gdzie w CV padły szukane słowa. Domyślnie schowane, żeby na ekranie mieściło się więcej osób.",
+        "ack": true
       }
     ]
   }

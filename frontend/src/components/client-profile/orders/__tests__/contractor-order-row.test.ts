@@ -38,7 +38,7 @@ function order(partial: Partial<ClientOrderRead> & { id: number }): ClientOrderR
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
     candidate_id: 99,
-    candidate_name: "Tomasz Sadowski",
+    candidate_name: "Tomasz Testowski",
     contract_status: "active",
     job_title: null,
     monthly_margin: null,
@@ -53,7 +53,7 @@ function contractor(
   return {
     contract_id: 529,
     candidate_id: 99,
-    candidate_name: "Tomasz Sadowski",
+    candidate_name: "Tomasz Testowski",
     contract_status: "active",
     contract_start_date: "2025-07-01",
     contract_end_date: null,
@@ -79,7 +79,7 @@ describe("contractorRowSummary", () => {
     expect(row).toMatchObject({
       key: "contract-529",
       contractId: 529,
-      name: "Tomasz Sadowski",
+      name: "Tomasz Testowski",
       orderNumber: "Z-1",
       periodLabel: "01.07.2026 → bezterminowo",
       costLabel: "120 PLN/h",

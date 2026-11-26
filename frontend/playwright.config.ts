@@ -51,7 +51,7 @@ export default defineConfig({
     {
       name: "ci-chromium",
       grep: /@stack/,
-      testIgnore: /(candidate-ux-preview|responsive-preview|poligon-walk)\.spec\.ts/,
+      testIgnore: /(candidate-ux-preview|responsive-preview|poligon-walk|lessons-solo)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
@@ -61,7 +61,7 @@ export default defineConfig({
     {
       name: "prod-smoke",
       grepInvert: /@stack|@writes/,
-      testIgnore: /(candidate-ux-preview|responsive-preview|poligon-walk)\.spec\.ts/,
+      testIgnore: /(candidate-ux-preview|responsive-preview|poligon-walk|lessons-solo)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
@@ -72,7 +72,7 @@ export default defineConfig({
       // Poligon NEXUSA: cała ścieżka onboardingu na podstawionym backendzie
       // (bez bazy i logowania), w CI po buildzie frontendu w kolejce merge'ów.
       name: "poligon-chromium",
-      testMatch: /poligon-walk\.spec\.ts/,
+      testMatch: /(poligon-walk|lessons-solo)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         locale: "pl-PL",

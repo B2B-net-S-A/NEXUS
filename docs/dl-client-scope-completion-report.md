@@ -28,11 +28,11 @@ Przypisania zmienione na prośbę Artura:
 
 | Klient (id) | Główny DL |
 |---|---|
-| ALIOR BANK (39) | Rafal Urban (81); Klaudia Uliasz usunięta |
-| Bank Pekao SA (3) | Rafal Urban (81) |
-| MS Enter Price (61) | Klaudia Uliasz (30) |
-| CARDIF – Assurances Risques Divers (38335) | Klaudia Uliasz (30) |
-| VIP Solution (62) | Klaudia Uliasz (30) |
+| ALIOR BANK (39) | Rafal Wzorban (81); Klaudia Wzoriasz usunięta |
+| Bank Pekao SA (3) | Rafal Wzorban (81) |
+| MS Enter Price (61) | Klaudia Wzoriasz (30) |
+| CARDIF – Assurances Risques Divers (38335) | Klaudia Wzoriasz (30) |
+| VIP Solution (62) | Klaudia Wzoriasz (30) |
 
 Weryfikacja na produkcji 26.09, tokeny DL zmintowane w kontenerze, same GET-y:
 
@@ -98,9 +98,9 @@ Weryfikacja na produkcji 26.09, tokeny DL zmintowane w kontenerze, same GET-y:
    scaleniem — zacznij od `traffit/importer.py::_canonical_client_id`.
 3. **Zamówienie kontraktu #668 u eZdrowie (115) nie ma umowy wykonawczej.**
    - U CeZ jest to wymagane.
-   - Zrobić ma Rafał Urban: profil klienta → „Nieprzypisani”. Albo przekazać
+   - Zrobić ma Rafał Wzorban: profil klienta → „Nieprzypisani”. Albo przekazać
      mu to zadanie.
-4. **Dominik Zwierzchowski (konto nieaktywne) nadal jest przypisany do
+4. **Dominik Wzorkowski (konto nieaktywne) nadal jest przypisany do
    Nordei** jako drugi DL. Do usunięcia w Ustawieniach → Zespół i dostęp →
    „Kto prowadzi którego klienta”. Najpierw potwierdzić z Arturem, bo nie było
    w poleceniu.

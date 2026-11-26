@@ -288,12 +288,12 @@ zachowanie `/api/jobs`.
 ### #315 · P3 — Poprawka NFD zastosowana punktowo do jednego wiersza, a nie do predykatu — siostrzane nazwisko z 0238 ma tę samą podatność
 0238 dopasowywał osoby przez `lower(trim(ca.name) || ' ' || trim(ca.lastname)) IN (...)`, czyli
 porównanie CAŁEGO napisu — i to właśnie się wywróciło na rekordzie zapisanym w NFD, co 0239
-naprawia dla Roberta Łuszczyńskiego prefiksem `LIKE 'Łuszcz%'`. Ale na liście 0238 jest jeszcze
-jedno nazwisko z tą samą podatnością: `michał leśniak` zawiera `ś` (U+015B), które NFD rozkłada
-na `s` + U+0301, dokładnie jak `ń` w `Łuszczyński` (`ł` i `Ł` są atomiczne, więc same z siebie
+naprawia dla Roberta Testczyńskiego prefiksem `LIKE 'Łuszcz%'`. Ale na liście 0238 jest jeszcze
+jedno nazwisko z tą samą podatnością: `michał testniak` zawiera `ś` (U+015B), które NFD rozkłada
+na `s` + U+0301, dokładnie jak `ń` w `Testczyński` (`ł` i `Ł` są atomiczne, więc same z siebie
 nie psują porównania). Pozostałe siedem pozycji to albo czysty ASCII, albo wyłącznie `ł`/`ą`
 bez znaków rozkładanych w sposób psujący prefiks. 0239 poprawia jeden wiersz i nie usuwa
-przyczyny, więc jeśli rekord Leśniaka też jest w NFD, jego kontrakt do dziś zostaje szkicem —
+przyczyny, więc jeśli rekord Testniaka też jest w NFD, jego kontrakt do dziś zostaje szkicem —
 cicho, bo 0238 nie raportuje, ilu z dziewięciu ludzi faktycznie trafił. Nie mam dostępu do
 produkcji, więc nie twierdzę, że tak jest — opis PR mówi o dwóch rekordach znalezionych podczas
 weryfikacji. Zgłaszam klasę, nie fakt.
@@ -320,7 +320,7 @@ normalizacji w lustrze zapala test).
 - **Nie flipnąłem `BACKUP_MONITORING_ENABLED`** — włączenie monitoringu przed
   wgraniem sekretów zrobiłoby z `uptime-probe` trwale czerwony workflow, czyli
   zniszczyłoby jego wartość jako sygnału.
-- **Nie aktywowałem kontraktu Michała Leśniaka** (#315). Czy naprawdę został
+- **Nie aktywowałem kontraktu Michała Testniaka** (#315). Czy naprawdę został
   szkicem, da się ustalić tylko w prodowej bazie; zmiana danych produkcyjnych
   na podstawie domysłu jest gorsza niż zostawienie tego Tobie.
 - **Nie przyjąłem kodu, który agenci napisali w moim drzewie roboczym** bez

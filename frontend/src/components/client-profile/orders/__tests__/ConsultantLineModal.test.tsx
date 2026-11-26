@@ -258,9 +258,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
         options: [
           {
             ...FROM_CLIENT,
-            full_name: "Katarzyna Maszewska",
+            full_name: "Katarzyna Makietewska",
             first_name: "Katarzyna",
-            last_name: "Maszewska",
+            last_name: "Makietewska",
             // Legacy pozostaje kanoniczne PLN/MD dla starego frontendu.
             suggested_rate_cost: 480,
             suggested_contract_rate_cost: 60,
@@ -275,7 +275,7 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     renderModal(onSubmit);
 
     await user.click(
-      await screen.findByRole("button", { name: /Katarzyna Maszewska/ }),
+      await screen.findByRole("button", { name: /Katarzyna Makietewska/ }),
     );
 
     expect(

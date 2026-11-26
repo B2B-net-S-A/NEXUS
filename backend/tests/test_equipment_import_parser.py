@@ -357,7 +357,7 @@ def test_status_column_wins_over_state_in_holder_column() -> None:
         ("Oscar", []),
         ("recepcja/zamiast tableta", []),
         # „Ś” rozłożone na literę i znak łączący (tak jest w pliku kart).
-        ("Patryk Świętoń", ["Patryk Świętoń"]),
+        ("Patryk Ślimakoń", ["Patryk Ślimakoń"]),
     ],
 )
 def test_person_candidates(text: str, expected: list[str]) -> None:

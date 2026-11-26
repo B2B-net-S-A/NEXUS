@@ -25,14 +25,16 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { ClientFormDialog } from "@/components/v2/recruitment/client-form/ClientFormDialog";
+import {
+  storeClientFormView,
+  useClientFormFill,
+} from "@/components/v2/recruitment/client-form/useClientFormFill";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   CLIENT_FORM_UPLOAD_ACCEPT,
   clientFormFieldName,
-  clientFormKey,
   deleteUploadedClientForm,
   downloadClientForm,
-  fillClientForm,
   saveClientForm,
   saveClientFormYears,
   uploadClientForm,
@@ -87,7 +89,6 @@ export function ClientFormCard({
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const query = useClientForm(stageId, true, kind);
-  const [filling, setFilling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -97,33 +98,9 @@ export function ClientFormCard({
   const dialogOpen = openDialog ?? localOpen;
   const setDialogOpen = onOpenDialogChange ?? setLocalOpen;
 
-  const store = (view: ClientFormView) => {
-    queryClient.setQueryData(clientFormKey(stageId, kind), view);
-    // Tablica i lista wymagań liczą braki formularza z serwera.
-    void queryClient.invalidateQueries({ queryKey: ["move-requirements"] });
-    void queryClient.invalidateQueries({ queryKey: ["kanban"] });
-  };
-
-  const fill = async () => {
-    setFilling(true);
-    try {
-      const view = await fillClientForm(stageId, kind);
-      store(view);
-      if (view.message) showError(view.message);
-      else
-        showSuccess(
-          view.missing.length
-            ? `${score ? "Tabela wypełniona" : "Formularz wypełniony"} — ${view.missing.length} do uzupełnienia.`
-            : score
-              ? "Tabela wypełniona."
-              : "Formularz wypełniony.",
-        );
-    } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się wypełnić formularza."));
-    } finally {
-      setFilling(false);
-    }
-  };
+  const store = (view: ClientFormView) => storeClientFormView(queryClient, stageId, kind, view);
+  // Wspólne z ramką „Następny etap” — ten sam stan „w toku” w obu miejscach.
+  const { fill, filling } = useClientFormFill(stageId, kind);
 
   const save = async (fields: Record<string, string>) => {
     setSaving(true);

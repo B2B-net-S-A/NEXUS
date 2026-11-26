@@ -576,7 +576,7 @@ async def _provision_sso_user(
 # 60/min per IP (było 10). To endpoint klikany przyciskiem „Zaloguj się przez
 # Microsoft" — buduje tylko URL, bez skutków ubocznych. Przy wspólnym kluczu
 # limitu 10/min wystarczyło, że w tej samej minucie logowało się kilka osób,
-# żeby reszta dostała 429 (zgłoszenie: Wiktoria Denka).
+# żeby reszta dostała 429 (zgłoszenie rekruterki).
 @limiter.limit("60/minute")
 async def authorize(request: Request) -> AuthorizeResponse:
     """Build the Microsoft login URL. Frontend does ``window.location = url``."""

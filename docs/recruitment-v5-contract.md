@@ -116,7 +116,7 @@ Wymagania per kolumna docelowa (sumowane po pominiętych kolumnach):
 - `hired`: podpis obustronny (`waiting`, nie blokuje).
 
 ### Cpro — jedna osoba na firmę (backend B2)
-`GET /api/board-tasks/cpro/sender` → `{"user_id": 5, "user_name": "Kinga Sordyl", "until": "2026-10-03|null", "fallback_user_id": 4, "fallback_user_name": "…", "set_by_name": "…", "set_at": "…"}` (`user_id` null = nikt).
+`GET /api/board-tasks/cpro/sender` → `{"user_id": 5, "user_name": "Kinga Testyl", "until": "2026-10-03|null", "fallback_user_id": 4, "fallback_user_name": "…", "set_by_name": "…", "set_at": "…"}` (`user_id` null = nikt).
 `PUT /api/board-tasks/cpro/sender` body `{"user_id": 7, "until": "2026-10-03|null"}` — każdy zalogowany z rolą operacyjną; `until` = zastępstwo, po dacie wraca poprzednia osoba. Stan w `app_settings['cpro_sender']`. Powiadamia nową osobę.
 `GET /api/board-tasks/cpro/queue` →
 ```json

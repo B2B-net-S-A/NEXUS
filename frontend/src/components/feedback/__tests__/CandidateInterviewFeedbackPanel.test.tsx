@@ -110,7 +110,7 @@ describe("CandidateInterviewFeedbackPanel — debrief", () => {
           decision: null,
           technical_fit: null,
           feedback_summary: null,
-          author_name: "Sandra Strzelak",
+          author_name: "Sandra Testelak",
           calendar_event_start: "2026-10-04T13:46:00Z",
         }),
         row({
@@ -133,7 +133,7 @@ describe("CandidateInterviewFeedbackPanel — debrief", () => {
     expect(cards[0]).toHaveTextContent("Czy przyjmie ofertę: Raczej tak");
     expect(cards[0]).toHaveTextContent("Komentarz kandydata: Projekt mu się podoba");
     expect(cards[0]).toHaveTextContent("Pytania klienta (2)");
-    expect(cards[0]).toHaveTextContent("zapisał(a) Sandra Strzelak");
+    expect(cards[0]).toHaveTextContent("zapisał(a) Sandra Testelak");
     expect(cards[1]).toHaveTextContent("Runda 1: bez warunków");
     // Bez pustych kart „Brak zapisanego feedbacku” obok debriefów.
     expect(screen.queryByText("Brak zapisanego feedbacku.")).not.toBeInTheDocument();

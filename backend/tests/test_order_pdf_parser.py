@@ -539,8 +539,8 @@ class TestNormalizeClaudeShape:
                 "rate_client": 999,
                 "consultant_rows": [
                     {
-                        "consultant_name": "Prus-Rudzińska Natalia",
-                        "rate_client": "1 640,50 PLN",
+                        "consultant_name": "Fikus-Próbińska Natalia",
+                        "rate_client": "1 480,50 PLN",
                         "rate_unit": "MD",
                         "md_total": "42,5",
                         "uncertain": False,
@@ -555,8 +555,8 @@ class TestNormalizeClaudeShape:
 
         assert len(r.consultant_rows) == 1
         row = r.consultant_rows[0]
-        assert row.consultant_name == "Prus-Rudzińska Natalia"
-        assert row.rate_client == Decimal("1640.50")
+        assert row.consultant_name == "Fikus-Próbińska Natalia"
+        assert row.rate_client == Decimal("1480.50")
         assert row.rate_unit == "day"
         assert row.md_total == Decimal("42.5")
         assert row.uncertain is False
@@ -566,8 +566,8 @@ class TestNormalizeClaudeShape:
             {
                 "consultant_rows": [
                     {
-                        "consultant_name": "Natalia Prus-Rudzińska",
-                        "rate_client": 1640,
+                        "consultant_name": "Natalia Fikus-Próbińska",
+                        "rate_client": 1480,
                         "rate_unit": "day",
                         "md_total": 20,
                     }
@@ -583,8 +583,8 @@ class TestNormalizeClaudeShape:
             {
                 "consultant_rows": [
                     {
-                        "consultant_name": "Natalia Prus-Rudzińska",
-                        "rate_client": 1640,
+                        "consultant_name": "Natalia Fikus-Próbińska",
+                        "rate_client": 1480,
                         "rate_unit": "day",
                         "md_total": 20,
                         "uncertain": False,
@@ -629,9 +629,9 @@ class TestConsultantRowMatching:
     @pytest.mark.parametrize(
         "written_name",
         [
-            "PRUS-RUDZINSKA NATALIA",
-            "Natalia Prus Rudzinska",
-            "Natalia PrusRudzinska",
+            "FIKUS-PROBINSKA NATALIA",
+            "Natalia Fikus Probinska",
+            "Natalia FikusProbinska",
         ],
     )
     def test_order_case_diacritics_and_hyphen_formats_match(self, written_name):
@@ -641,7 +641,7 @@ class TestConsultantRowMatching:
             consultant_rows=[
                 m.ConsultantOrderRow(
                     consultant_name=written_name,
-                    rate_client=Decimal("1640"),
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("42"),
                     uncertain=False,
@@ -651,15 +651,15 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
-        assert matched.rate_client == Decimal("1640")
+        assert matched.rate_client == Decimal("1480")
         assert matched.rate_unit == "day"
         assert matched.md_total == Decimal("42")
 
     @pytest.mark.parametrize(
         "written_name",
-        ["Natalia Prus-Rudzniska", "Natalia Purs-Rudzinska"],
+        ["Natalia Fikus-Probniska", "Natalia Fiuks-Probinska"],
     )
     def test_single_transposition_in_either_surname_component_is_tolerated(
         self, written_name
@@ -678,7 +678,7 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
         assert matched.rate_client == Decimal("1700")
         assert matched.md_total == Decimal("15")
@@ -689,7 +689,7 @@ class TestConsultantRowMatching:
             ("Anna Kowalska", "Hanna Kowalska"),
             ("Jan Kowalski", "Jan Kowalska"),
             ("Jan Nowak", "Jan Nowik"),
-            ("Dariusz Wysocki", "Mariusz Wysocki"),
+            ("Dariusz Testocki", "Mariusz Testocki"),
             ("Maria Nowak", "Maira Nowak"),
             ("Anna Maria Nowak", "Anna Maira Nowak"),
         ],
@@ -717,19 +717,19 @@ class TestConsultantRowMatching:
     def test_rate_and_md_come_only_from_the_matched_person_row(self):
         result = m.OrderExtraction(
             # Symulacja starego, losowego wyboru modelu z pierwszego wiersza.
-            rate_client=Decimal("910"),
+            rate_client=Decimal("870"),
             md_total=Decimal("8"),
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Dariusz Wysocki",
-                    rate_client=Decimal("910"),
+                    consultant_name="Dariusz Testocki",
+                    rate_client=Decimal("870"),
                     rate_unit="hour",
                     md_total=Decimal("8"),
                     uncertain=False,
                 ),
                 m.ConsultantOrderRow(
-                    consultant_name="Prus-Rudzińska Natalia",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Fikus-Próbińska Natalia",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("37"),
                     uncertain=False,
@@ -739,15 +739,15 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
-        assert matched.rate_client == Decimal("1640")
+        assert matched.rate_client == Decimal("1480")
         assert matched.rate_unit == "day"
         assert matched.md_total == Decimal("37")
 
     def test_unrelated_person_never_matches_and_global_values_are_cleared(self):
         result = m.OrderExtraction(
-            rate_client=Decimal("910"),
+            rate_client=Decimal("870"),
             rate_unit="hour",
             rate_client_md=Decimal("7280"),
             rate_client_gross=Decimal("1119.30"),
@@ -755,8 +755,8 @@ class TestConsultantRowMatching:
             confidence={"rate_client": 0.99, "md_total": 0.99},
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Dariusz Wysocki",
-                    rate_client=Decimal("910"),
+                    consultant_name="Dariusz Testocki",
+                    rate_client=Decimal("870"),
                     md_total=Decimal("8"),
                 )
             ],
@@ -764,7 +764,7 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
         assert matched.rate_client is None
         assert matched.rate_unit is None
@@ -798,8 +798,8 @@ class TestConsultantRowMatching:
         result = m.OrderExtraction(
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Dariusz Wysocki",
-                    rate_client=Decimal("910"),
+                    consultant_name="Dariusz Testocki",
+                    rate_client=Decimal("870"),
                     rate_unit="day",
                     md_total=Decimal("8"),
                     uncertain=False,
@@ -808,7 +808,7 @@ class TestConsultantRowMatching:
             uncertain=False,
             source="claude",
         )
-        no_match = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        no_match = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
         assert no_match.rate_client is None
 
         policy_result = policy(no_match, document)
@@ -825,7 +825,7 @@ class TestConsultantRowMatching:
             m.OrderExtraction(
                 consultant_rows=[
                     m.ConsultantOrderRow(
-                        consultant_name="Natalia Prus-Rudzińska",
+                        consultant_name="Natalia Fikus-Próbińska",
                         rate_client=Decimal("1230"),
                         rate_unit="day",
                         uncertain=False,
@@ -833,7 +833,7 @@ class TestConsultantRowMatching:
                 ],
                 uncertain=False,
             ),
-            "Natalia Prus-Rudzińska",
+            "Natalia Fikus-Próbińska",
         )
 
         converted = m.apply_erste_order_policy(matched, "Stawka 1230 PLN brutto")
@@ -849,7 +849,7 @@ class TestConsultantRowMatching:
             m.OrderExtraction(
                 consultant_rows=[
                     m.ConsultantOrderRow(
-                        consultant_name="Natalia Prus-Rudzińska",
+                        consultant_name="Natalia Fikus-Próbińska",
                         rate_client=Decimal("20"),
                         rate_unit="day",
                         md_total=Decimal("20"),
@@ -858,7 +858,7 @@ class TestConsultantRowMatching:
                 ],
                 uncertain=False,
             ),
-            "Natalia Prus-Rudzińska",
+            "Natalia Fikus-Próbińska",
         )
         document = "Szacowana ilość MD: 20\nWynagrodzenie za 1MD (8h) (PLN netto): 1040"
 
@@ -872,14 +872,14 @@ class TestConsultantRowMatching:
         result = m.OrderExtraction(
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Natalia Prus-Rudzińska",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Natalia Fikus-Próbińska",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("20"),
                     uncertain=False,
                 ),
                 m.ConsultantOrderRow(
-                    consultant_name="Natalia Prus-Rudzniska",
+                    consultant_name="Natalia Fikus-Probniska",
                     rate_client=Decimal("1700"),
                     rate_unit="day",
                     md_total=Decimal("25"),
@@ -890,7 +890,7 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
         assert matched.rate_client is None
         assert matched.md_total is None
@@ -901,15 +901,15 @@ class TestConsultantRowMatching:
         result = m.OrderExtraction(
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Natalia Prus-Rudzińska",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Natalia Fikus-Próbińska",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("20"),
                     uncertain=False,
                 ),
                 m.ConsultantOrderRow(
-                    consultant_name="Prus Rudzinska Natalia",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Fikus Probinska Natalia",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("20"),
                     uncertain=False,
@@ -919,23 +919,23 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
-        assert matched.rate_client == Decimal("1640")
+        assert matched.rate_client == Decimal("1480")
         assert matched.md_total == Decimal("20")
 
     def test_conflicting_duplicate_rows_require_manual_review(self):
         result = m.OrderExtraction(
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Natalia Prus-Rudzińska",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Natalia Fikus-Próbińska",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("20"),
                     uncertain=False,
                 ),
                 m.ConsultantOrderRow(
-                    consultant_name="Prus Rudzinska Natalia",
+                    consultant_name="Fikus Probinska Natalia",
                     rate_client=Decimal("1700"),
                     rate_unit="day",
                     md_total=Decimal("20"),
@@ -946,7 +946,7 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
         assert matched.rate_client is None
         assert matched.md_total is None
@@ -956,8 +956,8 @@ class TestConsultantRowMatching:
         result = m.OrderExtraction(
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Natalia Prus-Rudzińska",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Natalia Fikus-Próbińska",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("20"),
                     uncertain=True,
@@ -968,7 +968,7 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
         assert matched.rate_client is None
         assert matched.rate_unit is None
@@ -979,8 +979,8 @@ class TestConsultantRowMatching:
         result = m.OrderExtraction(
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Natalia Prus-Rudzińska",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Natalia Fikus-Próbińska",
+                    rate_client=Decimal("1480"),
                     md_total=Decimal("20"),
                     uncertain=False,
                 )
@@ -989,7 +989,7 @@ class TestConsultantRowMatching:
             source="claude",
         )
 
-        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+        matched = m.apply_consultant_row_match(result, "Natalia Fikus-Próbińska")
 
         assert matched.rate_client is None
         assert matched.rate_unit is None
@@ -1012,14 +1012,14 @@ class TestOrlenOrderPolicy:
     ) -> list[m.ConsultantOrderRow]:
         return [
             m.ConsultantOrderRow(
-                consultant_name="Aleksandra Lebiedziewicz",
+                consultant_name="Aleksandra Testowiewicz",
                 rate_client=onsite_rate,
                 rate_unit=onsite_unit,
                 md_total=Decimal("75"),
                 uncertain=False,
             ),
             m.ConsultantOrderRow(
-                consultant_name="Lebiedziewicz Aleksandra",
+                consultant_name="Testowiewicz Aleksandra",
                 rate_client=offsite_rate,
                 rate_unit=offsite_unit,
                 md_total=Decimal("50"),
@@ -1037,14 +1037,14 @@ class TestOrlenOrderPolicy:
         )
         # Generyczny matcher prawidłowo pozostaje zachowawczy dla innych
         # klientów i widzi dwie pozycje z różnymi pulami MD.
-        ambiguous = m.apply_consultant_row_match(result, "Aleksandra Lebiedziewicz")
+        ambiguous = m.apply_consultant_row_match(result, "Aleksandra Testowiewicz")
         assert ambiguous.rate_client is None
         assert any("więcej niż jedną" in r for r in ambiguous.uncertain_reasons)
 
         enforced = m.apply_orlen_order_policy(
             ambiguous,
             "on-site 75 MD; off-site 50 MD",
-            consultant_name="Aleksandra Lebiedziewicz",
+            consultant_name="Aleksandra Testowiewicz",
         )
 
         assert enforced.rate_client == Decimal("1320")
@@ -1074,13 +1074,13 @@ class TestOrlenOrderPolicy:
                 uncertain=False,
                 source="claude",
             ),
-            "Aleksandra Lebiedziewicz",
+            "Aleksandra Testowiewicz",
         )
 
         enforced = m.apply_orlen_order_policy(
             ambiguous,
             "",
-            consultant_name="Aleksandra Lebiedziewicz",
+            consultant_name="Aleksandra Testowiewicz",
         )
 
         assert enforced.rate_client is None
@@ -1104,7 +1104,7 @@ class TestOrlenOrderPolicy:
         enforced = m.apply_orlen_order_policy(
             result,
             "",
-            consultant_name="Aleksandra Lebiedziewicz",
+            consultant_name="Aleksandra Testowiewicz",
         )
 
         assert enforced.rate_client is None
@@ -1131,7 +1131,7 @@ class TestOrlenOrderPolicy:
         enforced = m.apply_orlen_order_policy(
             result,
             "",
-            consultant_name="Aleksandra Lebiedziewicz",
+            consultant_name="Aleksandra Testowiewicz",
         )
 
         assert enforced.rate_client == Decimal("1320")
@@ -1144,12 +1144,12 @@ class TestTargetedDocumentExcerpt:
         appendix = "".join(
             f"Załącznik techniczny, wiersz {index}\n" for index in range(900)
         )
-        target_row = "Prus-Rudzińska Natalia | 1640 PLN/MD | 37 MD\n"
+        target_row = "Fikus-Próbińska Natalia | 1480 PLN/MD | 37 MD\n"
         document = header + appendix + target_row
         assert document.index(target_row) > m._MAX_DOC_CHARS
 
         excerpt, incomplete = m._document_text_for_prompt(
-            document, "Natalia Prus-Rudzińska"
+            document, "Natalia Fikus-Próbińska"
         )
 
         assert incomplete is False
@@ -1157,10 +1157,10 @@ class TestTargetedDocumentExcerpt:
         assert target_row.strip() in excerpt
 
     def test_no_plausible_target_keeps_safe_legacy_excerpt(self):
-        document = "Początek dokumentu\n" + ("Dariusz Wysocki | 910 PLN\n" * 1000)
+        document = "Początek dokumentu\n" + ("Dariusz Testocki | 870 PLN\n" * 1000)
 
         excerpt, incomplete = m._document_text_for_prompt(
-            document, "Natalia Prus-Rudzińska"
+            document, "Natalia Fikus-Próbińska"
         )
 
         assert incomplete is False
@@ -1168,12 +1168,12 @@ class TestTargetedDocumentExcerpt:
 
     def test_name_split_across_three_lines_after_limit_is_included(self):
         appendix = "".join(f"Załącznik {index}\n" for index in range(1500))
-        split_row = "Natalia\nPrus\nRudzińska | 1640 PLN/MD | 37 MD\n"
+        split_row = "Natalia\nFikus\nPróbińska | 1480 PLN/MD | 37 MD\n"
         document = "PO-3-LINES\n" + appendix + split_row
         assert document.index(split_row) > m._MAX_DOC_CHARS
 
         excerpt, incomplete = m._document_text_for_prompt(
-            document, "Natalia Prus-Rudzińska"
+            document, "Natalia Fikus-Próbińska"
         )
 
         assert incomplete is False
@@ -1181,7 +1181,7 @@ class TestTargetedDocumentExcerpt:
 
     def test_raw_document_presence_requires_exact_first_name_anchor(self):
         assert m._document_mentions_consultant(
-            "Prus-Rudzniska Natalia | 1640 PLN/MD", "Natalia Prus-Rudzińska"
+            "Fikus-Probniska Natalia | 1480 PLN/MD", "Natalia Fikus-Próbińska"
         )
         assert not m._document_mentions_consultant(
             "Maira Nowak | 1700 PLN/MD", "Maria Nowak"
@@ -1192,64 +1192,64 @@ class TestTargetedDocumentExcerpt:
 
     def test_raw_document_presence_never_combines_adjacent_people(self):
         document = (
-            "Natalia Wysocka | 1500 PLN/MD | 20 MD\n"
-            "Anna Prus-Rudzińska | 1700 PLN/MD | 25 MD\n"
+            "Natalia Testocka | 1500 PLN/MD | 20 MD\n"
+            "Anna Fikus-Próbińska | 1700 PLN/MD | 25 MD\n"
         )
 
         assert not m._document_mentions_consultant(
-            document, "Natalia Prus-Rudzińska", "Natalia"
+            document, "Natalia Fikus-Próbińska", "Natalia"
         )
         assert not m._document_mentions_consultant(
-            "Prus Natalia\nRudzińska Natalia",
-            "Natalia Prus-Rudzińska",
+            "Fikus Natalia\nPróbińska Natalia",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
         assert m._document_mentions_consultant(
-            "Natalia\nPrus\nRudzińska | 1640 PLN/MD",
-            "Natalia Prus-Rudzińska",
+            "Natalia\nFikus\nPróbińska | 1480 PLN/MD",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
 
     def test_cross_line_name_rejects_interleaved_duplicate_given_names(self):
         assert not m._document_mentions_consultant(
-            "Prus\nNatalia\nRudzińska\nNatalia",
-            "Natalia Prus-Rudzińska",
+            "Fikus\nNatalia\nPróbińska\nNatalia",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
 
     def test_cross_line_name_rejects_ambiguous_column_major_people(self):
         assert not m._document_mentions_consultant(
-            "Prus\nRudzińska\nNatalia\nAnna",
-            "Natalia Prus-Rudzińska",
+            "Fikus\nPróbińska\nNatalia\nAnna",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
 
     def test_cross_line_name_rejects_other_person_even_with_rate_context(self):
         assert not m._document_mentions_consultant(
-            "Prus\nRudzińska\nNatalia\nAnna | 1600 PLN/MD",
-            "Natalia Prus-Rudzińska",
+            "Fikus\nPróbińska\nNatalia\nAnna | 1600 PLN/MD",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
 
     def test_cross_line_name_allows_compound_surname_without_retained_hyphen(self):
         assert m._document_mentions_consultant(
-            "Natalia Prus\nRudzińska",
-            "Natalia Prus-Rudzińska",
+            "Natalia Fikus\nPróbińska",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
 
     @pytest.mark.parametrize(
         "document",
         [
-            "Natalia\nPrus\nRudzińska | 1640 zł/MD",
-            "Natalia\nPrus\nRudzińska\nStawka: 1640 zł/MD",
-            "Konsultant: Natalia\nPrus-Rudzińska",
+            "Natalia\nFikus\nPróbińska | 1480 zł/MD",
+            "Natalia\nFikus\nPróbińska\nStawka: 1480 zł/MD",
+            "Konsultant: Natalia\nFikus-Próbińska",
         ],
     )
     def test_cross_line_name_accepts_structurally_anchored_wraps(self, document):
         assert m._document_mentions_consultant(
             document,
-            "Natalia Prus-Rudzińska",
+            "Natalia Fikus-Próbińska",
             "Natalia",
         )
 
@@ -1826,8 +1826,8 @@ class TestParseOrderDocument:
         monkeypatch.setattr(m.settings, "ANTHROPIC_API_KEY", "", raising=False)
 
         r = await parse_order_document(
-            "Dariusz Wysocki | stawka 910 PLN | 8 MD",
-            consultant_name="Natalia Prus-Rudzińska",
+            "Dariusz Testocki | stawka 870 PLN | 8 MD",
+            consultant_name="Natalia Fikus-Próbińska",
         )
 
         assert r.source == "regex"
@@ -1848,13 +1848,13 @@ class TestParseOrderDocument:
             consultant_name: str | None = None,
             consultant_given_names: str | None = None,
         ):
-            assert consultant_name == "Natalia Prus-Rudzińska"
+            assert consultant_name == "Natalia Fikus-Próbińska"
             assert consultant_given_names is None
             return m.OrderExtraction(
                 consultant_rows=[
                     m.ConsultantOrderRow(
-                        consultant_name="Natalia Prus-Rudzińska",
-                        rate_client=Decimal("1640"),
+                        consultant_name="Natalia Fikus-Próbińska",
+                        rate_client=Decimal("1480"),
                         rate_unit="day",
                         md_total=Decimal("37"),
                         uncertain=False,
@@ -1867,8 +1867,8 @@ class TestParseOrderDocument:
         monkeypatch.setattr(m, "_extract_with_claude", fake_extract)
 
         r = await parse_order_document(
-            "Dariusz Wysocki | 910 PLN/MD | 8 MD",
-            consultant_name="Natalia Prus-Rudzińska",
+            "Dariusz Testocki | 870 PLN/MD | 8 MD",
+            consultant_name="Natalia Fikus-Próbińska",
         )
 
         assert r.rate_client is None
@@ -1889,7 +1889,7 @@ class TestParseOrderDocument:
             return m.OrderExtraction(
                 consultant_rows=[
                     m.ConsultantOrderRow(
-                        consultant_name="Natalia Prus-Rudzińska",
+                        consultant_name="Natalia Fikus-Próbińska",
                         rate_client=Decimal("1230"),
                         rate_unit=None,
                         uncertain=False,
@@ -1902,13 +1902,13 @@ class TestParseOrderDocument:
         monkeypatch.setattr(m, "_extract_with_claude", fake_extract)
 
         parsed = await parse_order_document(
-            "Natalia Prus-Rudzińska — stawka brutto 1230 PLN za godzinę",
-            consultant_name="Natalia Prus-Rudzińska",
+            "Natalia Fikus-Próbińska — stawka brutto 1230 PLN za godzinę",
+            consultant_name="Natalia Fikus-Próbińska",
             consultant_rate_unit_default="hour",
         )
         enforced = m.apply_pfron_order_policy(
             parsed,
-            "Natalia Prus-Rudzińska — termin realizacji usług do 31.12.2026. Stawka brutto 1230 PLN za godzinę",
+            "Natalia Fikus-Próbińska — termin realizacji usług do 31.12.2026. Stawka brutto 1230 PLN za godzinę",
         )
         enforced = m.enforce_consultant_policy_safety(enforced)
 
@@ -1923,9 +1923,9 @@ class TestParseOrderDocument:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setattr(m.settings, "ANTHROPIC_API_KEY", "", raising=False)
 
-        r = await parse_order_document("Stawka 910 PLN | 8 MD")
+        r = await parse_order_document("Stawka 870 PLN | 8 MD")
 
-        assert r.rate_client == Decimal("910")
+        assert r.rate_client == Decimal("870")
         assert r.md_total == Decimal("8")
 
 

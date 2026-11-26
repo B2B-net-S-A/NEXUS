@@ -76,7 +76,7 @@ let queue: CproQueueResponse;
 
 function freshQueue(): CproQueueResponse {
   return {
-    sender: { user_id: 5, user_name: "Kinga Sordyl", until: null, fallback_user_id: null, fallback_user_name: null, set_by_name: null, set_at: null, can_set: true },
+    sender: { user_id: 5, user_name: "Kinga Testyl", until: null, fallback_user_id: null, fallback_user_name: null, set_by_name: null, set_at: null, can_set: true },
     sent_today: 2,
     jobs: [
       {
@@ -117,7 +117,7 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     get.mockImplementation((url: string) => {
       if (url === "/api/board-tasks/cpro/queue") return Promise.resolve({ data: queue });
       if (url === "/api/board-tasks/cpro/sender") return Promise.resolve({ data: queue.sender });
-      if (url === "/api/users") return Promise.resolve({ data: [{ id: 5, name: "Kinga Sordyl" }, { id: 7, name: "Ola Nowicka" }] });
+      if (url === "/api/users") return Promise.resolve({ data: [{ id: 5, name: "Kinga Testyl" }, { id: 7, name: "Ola Nowicka" }] });
       return Promise.reject(new Error(url));
     });
     post.mockResolvedValue({ data: {} });
@@ -127,7 +127,7 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText(/Do Cpro wrzuca/)).toBeTruthy();
-    expect(within(dialog).getByText("Kinga Sordyl")).toBeTruthy();
+    expect(within(dialog).getByText("Kinga Testyl")).toBeTruthy();
     const nav = within(dialog).getByRole("navigation", { name: "Rekrutacje" });
     const jobs = within(nav).getAllByRole("button");
     expect(jobs.map((b) => b.textContent)).toEqual([
@@ -332,7 +332,7 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     queue = { ...queue, sender: { ...queue.sender, can_set: false } };
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByText("Kinga Sordyl")).toBeTruthy();
+    expect(await within(dialog).findByText("Kinga Testyl")).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Zmień" })).toBeNull();
   });
 

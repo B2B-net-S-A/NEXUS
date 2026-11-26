@@ -603,15 +603,15 @@ def test_fold_polish_helper():
 
     from app.services.advanced_candidate_search import fold_polish
 
-    assert fold_polish("Łukasz Grądzki") == "lukasz gradzki"
+    assert fold_polish("Łukasz Testądzki") == "lukasz testadzki"
     assert fold_polish("Kraków") == "krakow"
     assert fold_polish("Gdańsk") == "gdansk"
     assert fold_polish("Źródło Ćma Żółw Świnoujście") == "zrodlo cma zolw swinoujscie"
     # NFD (decomposed) input must fold identically to NFC — paste / IME / the
     # computer-use `type` action emit NFD.
-    assert fold_polish(unicodedata.normalize("NFD", "Grądzki")) == "gradzki"
+    assert fold_polish(unicodedata.normalize("NFD", "Testądzki")) == "testadzki"
     # Already-folded ASCII is unchanged (idempotent).
-    assert fold_polish("lukasz gradzki") == "lukasz gradzki"
+    assert fold_polish("lukasz testadzki") == "lukasz testadzki"
 
 
 @pytest.mark.asyncio
@@ -620,7 +620,7 @@ async def test_diacritic_insensitive_name_search(
 ):
     """Regression: a Polish name typed WITHOUT diacritics must match.
 
-    „Łukasz Grądzki" was unreachable via `?q=lukasz gradzki` — both search paths
+    „Łukasz Testądzki" was unreachable via `?q=lukasz testadzki` — both search paths
     are diacritic-sensitive (FTS `to_tsquery('simple','lukasz:*')` never reaches
     the token `łukasz`; `search_doc ILIKE '%lukasz%'` never matches `ł`). The
     folded `search_doc_unaccented` branch (migration 0159) closes the gap.
@@ -630,7 +630,7 @@ async def test_diacritic_insensitive_name_search(
     from sqlalchemy import delete
 
     suffix = uuid.uuid4().hex[:8]
-    target_last = f"Grądzki{suffix}"
+    target_last = f"Testądzki{suffix}"
     async with AsyncSessionLocal() as db:
         target = Candidate(
             name="Łukasz",
@@ -654,9 +654,9 @@ async def test_diacritic_insensitive_name_search(
         # Full ascii pair, single ascii lastname token, and — no regression —
         # the same lastname typed WITH its diacritic must all reach the target.
         for query in (
-            f"lukasz gradzki{suffix}",
-            f"gradzki{suffix}",
-            f"Grądzki{suffix}",
+            f"lukasz testadzki{suffix}",
+            f"testadzki{suffix}",
+            f"Testądzki{suffix}",
         ):
             r = await app_client.get(
                 "/api/candidates",
@@ -665,12 +665,12 @@ async def test_diacritic_insensitive_name_search(
             )
             assert r.status_code == 200, r.text
             ids = {it["id"] for it in r.json()["items"]}
-            assert target_id in ids, f"query {query!r} must match „Łukasz Grądzki"
+            assert target_id in ids, f"query {query!r} must match „Łukasz Testądzki"
 
         # The un-accented query must not sweep in the unrelated candidate.
         r = await app_client.get(
             "/api/candidates",
-            params={"q": f"lukasz gradzki{suffix}", "page_size": 100},
+            params={"q": f"lukasz testadzki{suffix}", "page_size": 100},
             headers=app_auth_headers,
         )
         assert noise_id not in {it["id"] for it in r.json()["items"]}

@@ -774,7 +774,7 @@ async def test_sheet_dl_for_extra_recipient_gets_no_second_bonus(payroll_on) -> 
 
 @pytest.mark.asyncio
 async def test_stale_termination_date_does_not_cancel_bonus(payroll_on) -> None:
-    """Ewa Zieleń: aktywny kontrakt ze starą datą zakończenia zachowuje premię."""
+    """Ewa Próbeń: aktywny kontrakt ze starą datą zakończenia zachowuje premię."""
 
     world = await _placement(started_days_ago=5)
     start = business_today() - timedelta(days=5)

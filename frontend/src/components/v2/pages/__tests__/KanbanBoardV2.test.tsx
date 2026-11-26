@@ -899,7 +899,7 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
             days_in_stage: 2,
             moved_at: "2026-10-16T10:00:00Z",
             rejection_reason_name: "Za wysokie oczekiwania finansowe",
-            closed_by_name: "Julia Swidkiewicz",
+            closed_by_name: "Julia Testkiewicz",
             notes: "Oczekuje 190 zł/h.",
           },
           { id: 903, candidate_id: 33, name: "Maciej", lastname: "Traffit", stage: "rejected", days_in_stage: 30 },
@@ -918,7 +918,7 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     expect(line).toHaveAttribute("data-tone", "danger");
     expect(line).toHaveAttribute(
       "title",
-      "Odrzucony: Za wysokie oczekiwania finansowe — Oczekuje 190 zł/h.\nJulia Swidkiewicz · 16.10.2026",
+      "Odrzucony: Za wysokie oczekiwania finansowe — Oczekuje 190 zł/h.\nJulia Testkiewicz · 16.10.2026",
     );
     const description = document.getElementById(
       screen.getByRole("link", { name: "Krzysztof Odrzucony" }).getAttribute("aria-describedby") ?? "",

@@ -81,7 +81,7 @@ i nie renderuje nazwy klienta; bez zmian.
 
 ## T3 — audyt „BNP Paribas Cardif” ↔ „CARDIF - ASSURANCES…”
 
-Dwa niezależne zgłoszenia tej samej pomyłki (Marek Cyran, Maciej Rogala) to
+Dwa niezależne zgłoszenia tej samej pomyłki (Marek Testran, Maciej Wzorala) to
 sygnał systemowy: w liście wyboru klienta stoją obok siebie dwa rekordy
 o mylnie podobnych nazwach, a wybór sąsiada nie daje ŻADNEGO widocznego
 sygnału — dokument generuje się poprawnie, kontrakt zapisuje się poprawnie,
@@ -115,10 +115,10 @@ Trzy punkty tych ticketów to edycje danych na produkcji i **nie zostały
 wykonane** — ta sesja nie ma dostępu do prodowej bazy (SSH martwe) ani do
 zalogowanej sesji API:
 
-1. Marek Cyran — usunięcie projektu/zamówienia „BNP Paribas Cardif”
+1. Marek Testran — usunięcie projektu/zamówienia „BNP Paribas Cardif”
    (zostaje kontrakt #602).
-2. Maciej Rogala — umowa 1474/2026: klient → CARDIF.
-3. Maciej Rogala — kontrakt #521: klient → CARDIF.
+2. Maciej Wzorala — umowa 1474/2026: klient → CARDIF.
+3. Maciej Wzorala — kontrakt #521: klient → CARDIF.
 
 Do punktu 3 dochodzi **luka produktowa**: `ContractUpdate` nie przyjmuje
 `client_id`, więc kontraktu nie da się przepiąć na innego klienta z interfejsu
@@ -245,7 +245,7 @@ zakładka, z której operator kliknął.
   jeszcze tej nocy i poprawka kasowałaby samą siebie.
 
 **Historia:** migracja `0243_revive_contracts_with_live_orders` leczy wiersze,
-które już powstały (w tym przykład z ticketu — Mariusz Matyszczuk / Erste).
+które już powstały (w tym przykład z ticketu — Mariusz Wzorczuk / Erste).
 Reguła OGÓLNA, zero identyfikatorów w SQL-u: naprawiamy klasę wierszy powstałą
 z jednego defektu kodu, a nie trzy znane pomyłki operatora — więc „zero
 dopasowań” jest tu poprawnym wynikiem (świeża baza, CI), nie błędem.
@@ -389,7 +389,7 @@ w kryzysie nie ma z niej pożytku — trzeba iść wprost `gh workflow run Deplo
 
 ### Potwierdzenie T7 na żywych danych
 
-Kontrakt 479 (M. Matyszczuk, Erste) ma na produkcji status `active`,
+Kontrakt 479 (M. Wzorczuk, Erste) ma na produkcji status `active`,
 a zgłoszenie opisywało go jako siedzącego w „Zakończonych". Sąsiednie 477 i 478
 pozostały `ended`, więc nie jest to efekt hurtowy — migracja `0243` trafiła
 w przykład z ticketu.

@@ -290,7 +290,7 @@
       },
       {
         "q": "Dlaczego lista nie zmienia się po ustawieniu filtra?",
-        "a": "Zmiany słów i filtrów czekają na przycisk „Szukaj” (albo Enter w pustym polu). Liczba na przycisku mówi, ile zmian czeka; „Cofnij zmiany” wraca do tego, co widzisz w tabeli.",
+        "a": "Zmiany słów i filtrów czekają na „Szukaj” (albo Enter w pustym polu); liczba na przycisku mówi, ile ich czeka, a „Cofnij zmiany” wraca do tabeli. Po „Szukaj” wyszukiwanie zwija się do jednej linii — „Pokaż filtry” je rozwija. Fragmenty CV pod osobą włączysz w „Kolumny”.",
         "anchor": "candidates.list.search"
       },
       {
@@ -344,7 +344,7 @@
       {
         "id": "candidates.list.columns",
         "label": "Kolumny",
-        "describe": "Wybór kolumn tabeli kandydatów."
+        "describe": "Wybór kolumn tabeli kandydatów i fragmentów CV pod osobą."
       }
     ],
     "help_slug": null,

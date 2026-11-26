@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Info, MapPin, Search, X } from "lucide-react";
+import { ChevronUp, Info, MapPin, Search, X } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,7 @@ export function KeywordFields({
   onSearch,
   pendingCount = 0,
   sourceNote,
+  onCollapse,
 }: {
   filters: CandidateFilters;
   /**
@@ -91,6 +92,8 @@ export function KeywordFields({
   pendingCount?: number;
   /** Zdanie o pochodzeniu wierszy (okno rekrutacji: „ustawione przy tworzeniu”). */
   sourceNote?: string;
+  /** „Zwiń wyszukiwanie” w nagłówku (lista kandydatów, 26.11.2026). */
+  onCollapse?: () => void;
 }) {
   const scopeId = useId();
   const titleId = useId();
@@ -157,6 +160,18 @@ export function KeywordFields({
                 inne zapisy tej technologii. Wyniki zmieniają się po kliknięciu „Szukaj”.
               </PopoverContent>
             </Popover>
+            {onCollapse && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onCollapse}
+                className="h-8 gap-1 px-2 text-xs"
+              >
+                Zwiń wyszukiwanie
+                <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            )}
           </div>
         </div>
 
@@ -189,6 +204,7 @@ export function KeywordFields({
                 pendingCount > 0 && "ring-4 ring-primary/20",
               )}
               data-help="candidates.list.search"
+              data-tour="candidates.search"
             >
               <Search className="h-4 w-4" aria-hidden />
               Szukaj

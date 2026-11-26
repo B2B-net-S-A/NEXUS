@@ -2,7 +2,8 @@
 
 To nie błąd danych: konsultant pracuje naraz u dwóch klientów i fakturujemy obu
 (Nordea i Bosch, Bank Pocztowy i VeloBank). Dwa kontrakty dalej znaczą „karta do
-ręcznego przypisania”, chyba że mail sam wskazuje klienta:
+ręcznego przypisania”, chyba że mail sam wskazuje klienta. Raport wtedy idzie do
+tego kontraktu, a faktura nie: żadną drogą nie przypina się sama (26.11.2026):
 
 - skrzynka u klienta (``p.nazwisko@<domena klienta>``) → kontrakt u tego klienta,
   a domena wspólna dla grupy (``plus.pl``: Polkomtel i Cyfrowy Polsat) nic nie
@@ -21,20 +22,29 @@ from __future__ import annotations
 
 import secrets
 from datetime import date, datetime, timedelta, timezone
+from email.message import EmailMessage
 
 import pytest
-from sqlalchemy import update
+import pytest_asyncio
+from sqlalchemy import delete, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.client_settlement import ClientSettlementRuleSet
 from app.models.contract import Contract, ContractStatus
+from app.models.team_structure import DeliveryLeadClientAssignment
+from app.models.user import UserRole
 from app.services.client_settlements import time_reports
 from app.services.consultant_portal import identity, mailbox
 from app.services.consultant_portal.portal_settings import PortalSettings
 from app.services.order_policies import known_clients
-from tests.care_announcements_seed import care_on, tag  # noqa: F401  (fixture)
+from tests.care_announcements_seed import (  # noqa: F401  (fixture)
+    care_on,
+    make_user,
+    tag,
+)
 from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     make_person,
     portal_restored,
@@ -402,3 +412,246 @@ async def test_two_people_under_one_address_still_wait() -> None:
 
     assert (await _read(_mail(gone.email, _ts(today))))["created"] == 1
     assert [row.contract_id for row in await _documents()] == [None]
+
+
+# ── Faktura osoby u dwóch klientów nie przypina się sama (od 26.11.2026) ─────
+
+
+async def _bank_mailbox_person(monkeypatch):
+    """Osoba u dwóch klientów; pierwszy (bank) pisze z ``CLIENT_DOMAIN``."""
+
+    last = f"Skrzynska{tag()}"
+    bank, other = await _person_at_two_clients("Olga", last)
+    nip = _nip_for_test()
+    await _nip(bank.client_id, nip)
+    _registry(monkeypatch, {CLIENT_DOMAIN: "bank_testowy"}, {"bank_testowy": (nip,)})
+    return bank, other, f"olga.{last.lower()}@{CLIENT_DOMAIN}", last
+
+
+def _invoice_and_report(who: str = "") -> tuple[dict, dict]:
+    suffix = f" {who}" if who else ""
+    return (
+        _attachment(f"Faktura{suffix} 09_2026.pdf", PDF),
+        _attachment(f"Time Sheet{suffix} 09.2026.pdf", PDF + b" raport"),
+    )
+
+
+async def _by_kind() -> dict[str, int | None]:
+    return {row.kind: row.contract_id for row in await _documents()}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_invoice_from_client_mailbox_of_two_clients_waits(monkeypatch) -> None:
+    """Skrzynka w jednym banku wskazuje jego kontrakt, ale faktura bywa jedna na oba:
+    czeka na człowieka, a raport z tego samego maila idzie do banku jak dotąd."""
+
+    bank, _, address, _ = await _bank_mailbox_person(monkeypatch)
+
+    assert (await _read(_mail(address, *_invoice_and_report())))["created"] == 2
+    assert await _by_kind() == {"invoice": None, "report": bank.contract_id}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_invoice_from_address_of_one_contract_waits() -> None:
+    """Adres prywatny wpisany tylko w jednym kontrakcie wskazuje ten kontrakt, ale
+    nie fakturę (na kopii z 26.11.2026 tak miała jedna z siedmiu takich osób)."""
+
+    one, _ = await _person_at_two_clients("Olga", f"Prywatna{tag()}")
+
+    assert (await _read(_mail(one.email, *_invoice_and_report())))["created"] == 2
+    assert await _by_kind() == {"invoice": None, "report": one.contract_id}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_invoice_forwarded_by_client_waits(monkeypatch) -> None:
+    """Pracownik klienta przekazuje fakturę z nazwiskiem: raport trafia do kontraktu
+    u tego klienta, faktura czeka."""
+
+    bank, _, _, last = await _bank_mailbox_person(monkeypatch)
+    reader = _mail(f"kierownik@{CLIENT_DOMAIN}", *_invoice_and_report(f"Olga {last}"))
+
+    assert (await _read(reader))["created"] == 2
+    assert await _by_kind() == {"invoice": None, "report": bank.contract_id}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_invoice_from_client_mailbox_of_one_client_goes_to_it(
+    monkeypatch,
+) -> None:
+    """Drugi kontrakt skończony dawniej niż 60 dni temu się nie liczy: jak dotąd."""
+
+    bank, other, address, _ = await _bank_mailbox_person(monkeypatch)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == other.contract_id)
+            .values(
+                status=ContractStatus.ended,
+                end_date=business_today() - timedelta(days=90),
+            )
+        )
+        await db.commit()
+
+    assert (await _read(_mail(address, _invoice_and_report()[0])))["created"] == 1
+    assert await _by_kind() == {"invoice": bank.contract_id}
+
+
+class _Accepted(FakeMailbox):
+    """Mail z cytowaną akceptacją kierownika z banku; ``readable`` = MIME dostępny."""
+
+    def __init__(self, sender: str, files: list[dict], *, subject: str) -> None:
+        message = _message("m1", sender)
+        message["subject"] = subject
+        super().__init__([message], {"m1": files})
+        mail = EmailMessage()
+        mail["From"] = sender
+        mail["Subject"] = subject
+        mail.set_content(
+            "W zalaczniku.\n\n"
+            f"From: Kierownik <kierownik@{CLIENT_DOMAIN}>\n"
+            "Sent: Monday, October 5, 2026 11:02 AM\n"
+            "Subject: ODP: akceptacja\n\nPotwierdzam\n"
+        )
+        self.raw = mail.as_bytes()
+        self.readable = True
+
+    async def mime(self, message_id):
+        return self.raw if self.readable else None
+
+
+@pytest_asyncio.fixture
+async def accepts_by_mail():
+    """Reguła „Excel z mailem” klienta: czytnik zapisuje treść maila przy kontrakcie."""
+
+    clients: list[int] = []
+
+    async def enable(client_id: int) -> None:
+        rules = {
+            "proof.excel_with_mail": {
+                "level": "warn",
+                "params": {"domain": CLIENT_DOMAIN},
+            }
+        }
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientSettlementRuleSet(
+                    client_id=client_id, effective_from="2026-01", rules=rules
+                )
+            )
+            await db.commit()
+        clients.append(client_id)
+
+    yield enable
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(ClientSettlementRuleSet).where(
+                ClientSettlementRuleSet.client_id.in_(clients)
+            )
+        )
+        await db.commit()
+
+
+async def _owners() -> dict[str, int | None]:
+    return {row.file_name: row.contract_id for row in await _documents()}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_mail_body_still_goes_to_the_client_mailbox_contract(
+    monkeypatch, accepts_by_mail
+) -> None:
+    """Faktura czeka, ale mail z akceptacją kierownika to dalej dowód godzin, także
+    gdy treść udaje się pobrać dopiero przy ponownym odczycie tej samej faktury."""
+
+    bank, _, address, _ = await _bank_mailbox_person(monkeypatch)
+    await accepts_by_mail(bank.client_id)
+    subject = f"Faktura {tag()}"
+    reader = _Accepted(address, [_invoice_and_report()[0]], subject=subject)
+    reader.readable = False
+
+    assert (await _read(reader))["created"] == 1
+    reader.readable = True
+    assert (await _read(reader))["created"] == 1
+
+    assert await _owners() == {
+        "Faktura 09_2026.pdf": None,
+        f"{subject}.eml": bank.contract_id,
+    }
+
+
+@pytest.mark.usefixtures("internal")
+async def test_mail_body_goes_to_the_client_that_forwarded_the_invoice(
+    monkeypatch, accepts_by_mail
+) -> None:
+    bank, _, _, last = await _bank_mailbox_person(monkeypatch)
+    await accepts_by_mail(bank.client_id)
+    subject = f"Faktura {tag()}"
+    invoice = _invoice_and_report(f"Olga {last}")[0]
+    reader = _Accepted(f"kierownik@{CLIENT_DOMAIN}", [invoice], subject=subject)
+
+    assert (await _read(reader))["created"] == 2
+
+    assert await _owners() == {
+        invoice["name"]: None,
+        f"{subject}.eml": bank.contract_id,
+    }
+
+
+async def _delivery_lead(client_id: int) -> str:
+    """Delivery Lead z portfelem z jednym klientem; zwraca jego adres."""
+
+    lead = await make_user(UserRole.delivery_lead)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=lead.id, client_id=client_id, is_head=True
+            )
+        )
+        await db.commit()
+    return lead.email
+
+
+def _to_settlements_and(sender: str, lead: str, *files: dict) -> FakeMailbox:
+    message = _message("m1", sender)
+    message["toRecipients"] = [
+        {"emailAddress": {"address": address}}
+        for address in (f"rozliczenia@{COMPANY_DOMAIN}", lead)
+    ]
+    return FakeMailbox([message], {"m1": list(files)})
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+@pytest.mark.parametrize("local", ["olga.{last}", "koordynator"])
+async def test_invoice_named_in_dl_portfolio_of_two_clients_waits(local: str) -> None:
+    """Delivery Lead w adresatach ma w portfelu jeden z banków, więc nazwisko z nazwy
+    pliku wskazywało jego kontrakt: faktura czeka, raport idzie do banku jak dotąd.
+    Tak samo, gdy pisze sama osoba ze skrzynki firmowej albo koordynator."""
+
+    last = f"Portfelowa{tag()}"
+    bank, _ = await _person_at_two_clients("Olga", last)
+    lead = await _delivery_lead(bank.client_id)
+    sender = f"{local.format(last=last.lower())}@{COMPANY_DOMAIN}"
+    reader = _to_settlements_and(sender, lead, *_invoice_and_report(f"Olga {last}"))
+
+    assert (await _read(reader))["created"] == 2
+    assert await _by_kind() == {"invoice": None, "report": bank.contract_id}
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_invoice_named_in_dl_portfolio_of_one_client_goes_to_it() -> None:
+    """Literówka w imieniu, jeden kontrakt: portfel DL-a wskazuje go jak dotąd."""
+
+    last = f"Jedyny{tag()}"
+    person = await make_person(activated=False)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Candidate)
+            .where(Candidate.id == person.candidate_id)
+            .values(name="Tomasz", lastname=last)
+        )
+        await db.commit()
+    lead = await _delivery_lead(person.client_id)
+    invoice = _attachment(f"Faktura Tomsz {last} 09_2026.pdf", PDF)
+    reader = _to_settlements_and(f"koordynator@{COMPANY_DOMAIN}", lead, invoice)
+
+    assert (await _read(reader))["created"] == 1
+    assert await _by_kind() == {"invoice": person.contract_id}

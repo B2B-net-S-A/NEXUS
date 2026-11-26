@@ -25,6 +25,8 @@ export const PUBLIC_PATHS = [
   "/engagement/",
   // Warunki od kandydata (17.11.2026): link z maila po aplikacji, token w adresie.
   "/warunki/",
+  // Raport kompetencji (25.11.2026): zmiana warunków i wypis z linku w mailu, token w adresie.
+  "/raport/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
   // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.

@@ -70,6 +70,21 @@ export interface LessonRun {
   question: number;
   /** Złe odpowiedzi z rzędu — druga wraca do pokazu. */
   wrongStreak: number;
+  /**
+   * Ile razy osoba wróciła z etapu „sam” do pokazu w tym przebiegu. Od drugiego
+   * razu furtka „Coś nie działa — zalicz i dalej” jest przyciskiem głównym:
+   * 26.11.2026 Delivery Lead klikał „Wróć do pokazu” sześć razy w minutę i nie
+   * zauważył furtki pod spodem.
+   */
+  soloTries?: number;
+}
+
+/** Od tylu powrotów do pokazu furtka jest przyciskiem głównym karty zadania. */
+export const BROKEN_PROMINENT_AFTER = 2;
+
+/** Powrót z etapu „sam” do pokazu, z licznikiem powrotów. */
+export function backFromSolo(run: LessonRun): LessonRun {
+  return restartShow({ ...run, soloTries: (run.soloTries ?? 0) + 1 });
 }
 
 const RUN_KEY = "nexus:lesson-run:v1";

@@ -1,6 +1,6 @@
 """Zamówienie z maila dla osoby, której nie ma w rosterze klienta.
 
-Zgłoszenie 09.2026 (PKO BP, zamówienie 1893/2026, Piotr Michałowski):
+Zgłoszenie 09.2026 (PKO BP, zamówienie 1893/2026, Piotr Testałowski):
 dokument rozpoznał klienta po NIP-ie na ZDUBLOWANYM rekordzie (0 kontraktów),
 więc roster był pusty, osoba wyszła jako „nowy kontraktor", a automat
 zatrzymał się dopiero w writerze na przypadkowej przeszkodzie („kilka osób
@@ -59,7 +59,7 @@ from app.services.order_mail_resolver import (
 from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 
 TODAY = date(2031, 9, 16)
-DOCUMENT_NAME = "Piotr Michałowski"
+DOCUMENT_NAME = "Piotr Testałowski"
 #: Klient, którego rekord niesie kontrakty; „drugi rekord" to jego duplikat.
 CLIENT_WITH_CONTRACTS = 26
 
@@ -126,7 +126,7 @@ def test_person_on_the_client_roster_is_matched_not_offered_as_new_contractor():
         RosterPerson(
             11,
             "Piotr",
-            "Michałowski",
+            "Testałowski",
             (RosterContract(456, "ending", date(2031, 7, 1), date(2031, 9, 30)),),
         )
     ]
@@ -148,10 +148,10 @@ def test_document_without_diacritics_still_matches_the_roster():
     """Skan bez polskich znaków to ta sama osoba, nie nowy kontraktor."""
     roster = [
         RosterPerson(
-            11, "Piotr", "Michałowski", (RosterContract(456, "active", None, None),)
+            11, "Piotr", "Testałowski", (RosterContract(456, "active", None, None),)
         )
     ]
-    resolved = resolve_rows([_row("Michalowski Piotr")], roster)
+    resolved = resolve_rows([_row("Testalowski Piotr")], roster)
     assert resolved[0].match_kind == MATCH_EXACT and resolved[0].contract_id == 456
 
 
@@ -162,10 +162,10 @@ def test_two_different_people_of_the_same_name_at_this_client_still_ask_a_human(
     """Automat nie chowa realnej niejednoznaczności pod dopasowaniem."""
     roster = [
         RosterPerson(
-            11, "Piotr", "Michałowski", (RosterContract(456, "active", None, None),)
+            11, "Piotr", "Testałowski", (RosterContract(456, "active", None, None),)
         ),
         RosterPerson(
-            12, "Piotr", "Michałowski", (RosterContract(789, "active", None, None),)
+            12, "Piotr", "Testałowski", (RosterContract(789, "active", None, None),)
         ),
     ]
     rows = [_row()]
@@ -198,7 +198,7 @@ def test_open_engagement_elsewhere_blocks_auto_and_names_the_contract():
         (
             PersonElsewhere(
                 candidate_id=11,
-                full_name="Piotr Michałowski",
+                full_name="Piotr Testałowski",
                 contract_id=456,
                 contract_status="ending",
                 client_id=CLIENT_WITH_CONTRACTS,
@@ -286,7 +286,7 @@ def test_the_same_order_applies_itself_once_the_contract_exists():
 def test_person_in_base_without_any_engagement_also_waits_for_confirmation():
     rows = [_row()]
     resolved = _unmatched(
-        rows, (PersonElsewhere(candidate_id=11, full_name="Piotr Michałowski"),)
+        rows, (PersonElsewhere(candidate_id=11, full_name="Piotr Testałowski"),)
     )
     assert resolved[0].known_elsewhere_ids == (11,)
     assert "zastosuj ręcznie" in resolved[0].reason
@@ -295,8 +295,8 @@ def test_person_in_base_without_any_engagement_also_waits_for_confirmation():
 
 def test_namesakes_in_the_base_are_listed_rather_than_guessed():
     hits = (
-        PersonElsewhere(11, "Piotr Michałowski", 456, "active", 26, "Klient A"),
-        PersonElsewhere(12, "Piotr Michałowski", 999, "active", 77, "Klient B"),
+        PersonElsewhere(11, "Piotr Testałowski", 456, "active", 26, "Klient A"),
+        PersonElsewhere(12, "Piotr Testałowski", 999, "active", 77, "Klient B"),
     )
     reason = known_elsewhere_reason(DOCUMENT_NAME, hits)
     assert "#11" in reason and "#12" in reason
@@ -311,7 +311,7 @@ def test_md_order_carries_the_finding_next_to_the_decide_person_message():
         (
             PersonElsewhere(
                 candidate_id=11,
-                full_name="Piotr Michałowski",
+                full_name="Piotr Testałowski",
                 contract_id=456,
                 contract_status="active",
                 client_id=CLIENT_WITH_CONTRACTS,
@@ -367,14 +367,14 @@ def test_annotation_never_touches_a_row_that_matched_the_roster():
     """Podpowiedź dotyczy wyłącznie wierszy bez dopasowania u tego klienta."""
     roster = [
         RosterPerson(
-            11, "Piotr", "Michałowski", (RosterContract(456, "active", None, None),)
+            11, "Piotr", "Testałowski", (RosterContract(456, "active", None, None),)
         )
     ]
     rows = [_row()]
     resolved = resolve_rows(rows, roster)
     annotated = annotate_known_elsewhere(
         resolved,
-        {DOCUMENT_NAME: (PersonElsewhere(99, "Piotr Michałowski"),)},
+        {DOCUMENT_NAME: (PersonElsewhere(99, "Piotr Testałowski"),)},
     )
     assert annotated[0].known_elsewhere_ids == ()
     assert annotated[0].contract_id == 456

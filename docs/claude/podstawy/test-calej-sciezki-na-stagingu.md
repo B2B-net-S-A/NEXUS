@@ -53,7 +53,14 @@ klient) — to też są kroki.
   pierwszą wolną parę `FRONT_PORT` (3101–3199) i `BACKEND_PORT` (8101–8199,
   ten sam numer po 3100/8100). Decyzja Artura z 26.11.2026: zamiast zawsze
   3101/8101, bo w 30 dni było 12 błędów „Port already in use”, a sesje
-  nadpisywały sobie front gałęzi. Porty idą do paragonu.
+  nadpisywały sobie front gałęzi. Porty idą do paragonu. Para z bazą
+  `nexus_branch_<port>` albo kontenerem `nexus-staging-backend-branch-<port>`
+  (także zatrzymanym) jest zajęta, bo sesja ze zmianą schematu kopiuje bazę
+  kilka minut, zanim cokolwiek nasłuchuje (26.11.2026 dwie sesje dostały 8104).
+  Gdy na wspólnej bazie trwa `pg_dump` cudzej kopii, start backendu gałęzi
+  poczekaj: migracja w entrypoincie (ALTER TABLE) stoi wtedy w blokadzie za
+  kopią, a kontener wisi w „health: starting”. Sprawdzisz to tak:
+  `docker exec nexus-staging-postgres-1 psql -U nexus -d postgres -Atc "select count(*) from pg_stat_activity where application_name='pg_dump'"`.
 - **Front z gałęzi:**
   `cd frontend && NEXT_PUBLIC_API_URL=http://localhost:$BACKEND_PORT npm run dev -- -p $FRONT_PORT`.
   Front zawsze z własnym backendem gałęzi, także przy zmianie samego frontu:

@@ -256,6 +256,9 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // lustro `HeadOfRecruitmentPlus`.
   { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   { prefix: "/settings/jakosc-generatora", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
+  // Opiekunowie raportów ze strony (25.11.2026): lista ustawiana przez admina,
+  // lustro `AdminUser` w `api/competence_reports.py`.
+  { prefix: "/settings/opiekunowie-raportow", roles: ["admin"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],

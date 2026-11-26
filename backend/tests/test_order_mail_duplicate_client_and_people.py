@@ -128,15 +128,15 @@ async def test_person_with_a_live_contract_at_another_client_is_reported(db_sess
     """Dokładnie zgłoszenie: dokument trafił na pusty duplikat rekordu klienta."""
     with_contracts = await _client(db_session, "Bank Rekord Właściwy")
     empty_duplicate = await _client(db_session, "Bank Rekord Pusty")
-    candidate = await _candidate(db_session, "Piotr", "Michałowski")
+    candidate = await _candidate(db_session, "Piotr", "Testałowski")
     contract = await _contract(db_session, candidate, with_contracts)
     await db_session.flush()
 
     found = await load_people_outside_roster(
-        db_session, client_id=empty_duplicate.id, names=["Piotr Michałowski"]
+        db_session, client_id=empty_duplicate.id, names=["Piotr Testałowski"]
     )
 
-    hits = found["Piotr Michałowski"]
+    hits = found["Piotr Testałowski"]
     assert [h.candidate_id for h in hits] == [candidate.id]
     assert hits[0].contract_id == contract.id
     assert hits[0].client_id == with_contracts.id
@@ -149,15 +149,15 @@ async def test_a_document_without_diacritics_still_finds_the_person(db_session):
     """Prod nie ma ``unaccent`` — prefiltr musi zwijać polskie znaki po obu stronach."""
     other = await _client(db_session, "Bank Inny")
     this_client = await _client(db_session, "Bank Ten")
-    candidate = await _candidate(db_session, "Piotr", "Michałowski")
+    candidate = await _candidate(db_session, "Piotr", "Testałowski")
     await _contract(db_session, candidate, other)
     await db_session.flush()
 
     found = await load_people_outside_roster(
-        db_session, client_id=this_client.id, names=["Michalowski Piotr"]
+        db_session, client_id=this_client.id, names=["Testalowski Piotr"]
     )
 
-    assert [h.candidate_id for h in found["Michalowski Piotr"]] == [candidate.id]
+    assert [h.candidate_id for h in found["Testalowski Piotr"]] == [candidate.id]
     await db_session.rollback()
 
 
@@ -165,16 +165,16 @@ async def test_a_document_without_diacritics_still_finds_the_person(db_session):
 async def test_contracts_at_the_asking_client_are_not_reported_as_elsewhere(db_session):
     """Roster to inna warstwa — tu interesuje nas wyłącznie „gdzie indziej"."""
     client = await _client(db_session, "Bank Jedyny")
-    candidate = await _candidate(db_session, "Piotr", "Michałowski")
+    candidate = await _candidate(db_session, "Piotr", "Testałowski")
     await _contract(db_session, candidate, client)
     await db_session.flush()
 
     found = await load_people_outside_roster(
-        db_session, client_id=client.id, names=["Piotr Michałowski"]
+        db_session, client_id=client.id, names=["Piotr Testałowski"]
     )
 
     # Osoba jest w bazie, ale bez ŻADNEGO zaangażowania poza tym klientem.
-    hits = found["Piotr Michałowski"]
+    hits = found["Piotr Testałowski"]
     assert [h.candidate_id for h in hits] == [candidate.id]
     assert hits[0].contract_id is None and not hits[0].is_open
     await db_session.rollback()
@@ -190,11 +190,11 @@ async def test_a_similar_but_different_name_is_not_a_hit(db_session):
     await db_session.flush()
 
     found = await load_people_outside_roster(
-        db_session, client_id=this_client.id, names=["Piotr Michałowski"]
+        db_session, client_id=this_client.id, names=["Piotr Testałowski"]
     )
 
     assert found == {} or all(
-        h.candidate_id != candidate.id for h in found.get("Piotr Michałowski", ())
+        h.candidate_id != candidate.id for h in found.get("Piotr Testałowski", ())
     )
     await db_session.rollback()
 
@@ -204,17 +204,17 @@ async def test_two_namesakes_are_both_reported(db_session):
     """Dwie RÓŻNE osoby o tym nazwisku — automat ma zamilknąć, nie wybrać."""
     other = await _client(db_session, "Bank Trzeci")
     this_client = await _client(db_session, "Bank Czwarty")
-    first = await _candidate(db_session, "Piotr", "Michałowski")
-    second = await _candidate(db_session, "Piotr", "Michałowski")
+    first = await _candidate(db_session, "Piotr", "Testałowski")
+    second = await _candidate(db_session, "Piotr", "Testałowski")
     await _contract(db_session, first, other)
     await _contract(db_session, second, other)
     await db_session.flush()
 
     found = await load_people_outside_roster(
-        db_session, client_id=this_client.id, names=["Piotr Michałowski"]
+        db_session, client_id=this_client.id, names=["Piotr Testałowski"]
     )
 
-    assert {h.candidate_id for h in found["Piotr Michałowski"]} >= {
+    assert {h.candidate_id for h in found["Piotr Testałowski"]} >= {
         first.id,
         second.id,
     }

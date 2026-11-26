@@ -1,0 +1,215 @@
+[
+ {
+  "id": "rozl-4077-faktura-ze-skrzynki-w-jednym-banku",
+  "poprawka": "d8c9d024c #4077",
+  "opis": "Osoba u dwóch banków pisze ze skrzynki w VeloBanku: faktura trafiała sama do kontraktu w VeloBanku",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Marta",
+    "nazwisko": "Dwubankowa",
+    "email": "marta.prywatna@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-01-01"},
+     {"klient": "VB", "od": "2025-03-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "marta.dwubankowa@velobank.pl",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura i TS lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura_FV1_8_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura ze skrzynki w banku"},
+     {"nazwa": "Time Sheet 07.2026.pdf", "tekst": "%PDF-1.4 fikcyjny raport ze skrzynki w banku"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura_FV1_8_2026.pdf", "rodzaj": "invoice", "osoba": null},
+   {"plik": "Time Sheet 07.2026.pdf", "rodzaj": "report", "osoba": "A#2", "okres": "2026-07"}
+  ],
+  "liczba_dokumentow": 2
+ },
+ {
+  "id": "rozl-4077-faktura-z-adresu-jednego-kontraktu",
+  "poprawka": "d8c9d024c #4077",
+  "opis": "Osoba u dwóch klientów ma prywatny adres tylko w jednym kontrakcie: faktura z niego trafiała sama do tego kontraktu",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Olga",
+    "nazwisko": "Prywatna",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-01-01", "email_kontraktu": "olga.prywatna.kontrakt@gmail.com"},
+     {"klient": "VB", "od": "2025-03-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "olga.prywatna.kontrakt@gmail.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura_FV4_8_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura z adresu prywatnego"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura_FV4_8_2026.pdf", "rodzaj": "invoice", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-4077-faktura-od-klienta-z-nazwiskiem",
+  "poprawka": "d8c9d024c #4077",
+  "opis": "Pracownik klienta przekazuje fakturę osoby u dwóch klientów z nazwiskiem w nazwie pliku: trafiała sama do kontraktu u tego klienta",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189", "kontakty": ["kierownik@velobank.pl"]}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Olga",
+    "nazwisko": "Przekazana",
+    "email": "olga.przekazana@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-01-01"},
+     {"klient": "VB", "od": "2025-03-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "kierownik@velobank.pl",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura Olga Przekazana 08_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura od klienta"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura Olga Przekazana 08_2026.pdf", "rodzaj": "invoice", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-4077-faktura-w-portfelu-delivery-leada",
+  "poprawka": "d8c9d024c #4077",
+  "opis": "Koordynator z Delivery Leadem w adresatach: nazwisko z pliku i portfel DL-a wybierały jeden bank dla faktury osoby u dwóch",
+  "dzis": "2026-08-10",
+  "uzytkownicy": {"DL": {"email": "dl.korpus@firma.example.com", "rola": "delivery_lead"}},
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271", "dl": "DL"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Marta",
+    "nazwisko": "Portfelowa",
+    "email": "marta.portfelowa@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-01-01"},
+     {"klient": "VB", "od": "2025-03-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com", "dl.korpus@firma.example.com"],
+    "temat": "Dokumenty lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura Marta Portfelowa 08_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura przez portfel"},
+     {"nazwa": "Time Sheet Marta Portfelowa 07.2026.pdf", "tekst": "%PDF-1.4 fikcyjny raport przez portfel"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura Marta Portfelowa 08_2026.pdf", "rodzaj": "invoice", "osoba": null},
+   {"plik": "Time Sheet Marta Portfelowa 07.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-07"}
+  ],
+  "liczba_dokumentow": 2
+ },
+ {
+  "id": "rozl-4077-faktura-z-numerem-umowy",
+  "poprawka": "d8c9d024c #4077",
+  "opis": "Numer umowy wykonawczej w nazwie faktury przypinał ją do kontraktu osoby, która pracuje też u drugiego klienta",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "CZ": {"nazwa": "Centrum Przykładowe"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Ewa",
+    "nazwisko": "Umowna",
+    "email": "ewa.umowna@example.com",
+    "kontrakty": [
+     {"klient": "CZ", "od": "2026-01-01"},
+     {"klient": "VB", "od": "2025-03-01"}
+    ]
+   }
+  },
+  "zamowienia": [{"numer": "AbC/177/2026", "klient": "CZ", "osoby": ["A"]}],
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura do umowy AbC_177_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura z numerem umowy"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura do umowy AbC_177_2026.pdf", "rodzaj": "invoice", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-4077-faktura-ze-skrzynki-jeden-klient",
+  "poprawka": "d8c9d024c #4077",
+  "opis": "Osoba z jednym kontraktem pisze ze skrzynki u klienta: faktura dalej trafia do tego kontraktu",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Ewa",
+    "nazwisko": "Jednobankowa",
+    "email": "ewa.prywatna@example.com",
+    "kontrakty": [{"klient": "VB", "od": "2025-03-01"}]
+   }
+  },
+  "maile": [
+   {
+    "od": "ewa.jednobankowa@velobank.pl",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura_FV5_8_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura jednego banku"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura_FV5_8_2026.pdf", "rodzaj": "invoice", "osoba": "A"}
+  ]
+ }
+]
