@@ -52,9 +52,42 @@ export function cvDownloadPlan(format: CvFileFormat | null | undefined, layout: 
   }
 }
 
+/**
+ * Przyciski miejsca bez menu „Więcej” (dok panelu, pasek podglądu „CV firmowe”):
+ * Word i PDF obok siebie, plik klienta pierwszy. „Word (klasyczne)” zostaje
+ * w karcie „CV do klienta”. Bez wymagań — jak dotąd: Word, potem PDF.
+ */
+export function cvDownloadsWithoutMenu(
+  format: CvFileFormat | null | undefined,
+  layout: CvLayout,
+): ("docx" | "pdf")[] {
+  if (!format) return ["docx", "pdf"];
+  const plan = cvDownloadPlan(format, layout);
+  return [...plan.primary, ...plan.inMenu].filter(
+    (kind): kind is "docx" | "pdf" => kind !== "docx_classic",
+  );
+}
+
 /** Etykieta przycisku pliku Word. */
 export function wordLabel(kind: "docx" | "docx_classic"): string {
   return kind === "docx_classic" ? "Word (klasyczne)" : "Pobierz Word";
+}
+
+/**
+ * Wiersz listy CV podpięty w rekrutacji (pliki kandydata, „Moje wygenerowane
+ * CV”): plik z reguły klienta na wierzchu, reszta w „⋯” (25.11.2026). Pola
+ * daje `GET /api/cv-generator/generated` przy CV etapu.
+ */
+export function stageCvRowPlan(item: {
+  client_file_format?: unknown;
+  stage_cv_layout?: CvLayout | null;
+}): CvDownloadPlan {
+  return cvDownloadPlan(cvFileFormat(item.client_file_format), item.stage_cv_layout === "new" ? "new" : "classic");
+}
+
+/** Etykieta pozycji pobrania pliku CV etapu w menu wiersza. */
+export function cvKindMenuLabel(kind: CvFileKind): string {
+  return kind === "pdf" ? "Pobierz PDF" : wordLabel(kind);
 }
 
 /** Dopisuje `layout=classic` do adresu pliku Word („Word (klasyczne)” przy Nowym CV). */

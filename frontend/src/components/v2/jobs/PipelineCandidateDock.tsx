@@ -80,7 +80,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
-import { cvDownloadPlan, cvFileFormat } from "@/lib/cv-file-format";
+import { cvDownloadsWithoutMenu, cvFileFormat } from "@/lib/cv-file-format";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
@@ -1299,17 +1299,12 @@ export function PipelineCandidateDock({
   const companyConsentMissing = canDownloadCompanyCv && companyBranded?.consent_missing === true;
   const [downloadingCv, setDownloadingCv] = useState<"docx" | "pdf" | null>(null);
   // Format pliku z reguły klienta (25.11.2026): plik, którego chce klient, stoi
-  // pierwszy. Bez wymagań — jak dotąd: Word, potem PDF.
-  const companyFileFormat = cvFileFormat(companyBranded?.client_file_format);
-  const dockDownloadOrder: ("docx" | "pdf")[] = companyFileFormat
-    ? (() => {
-        const plan = cvDownloadPlan(companyFileFormat, companyBranded?.cv_layout === "new" ? "new" : "classic");
-        // „Word (klasyczne)” zostaje w karcie; dok ma Word (przy Nowym CV — nowy wygląd) i PDF.
-        return [...plan.primary, ...plan.inMenu].filter(
-          (kind): kind is "docx" | "pdf" => kind !== "docx_classic",
-        );
-      })()
-    : ["docx", "pdf"];
+  // pierwszy. Bez wymagań — jak dotąd: Word, potem PDF. „Word (klasyczne)”
+  // zostaje w karcie; dok ma Word (przy Nowym CV — nowy wygląd) i PDF.
+  const dockDownloadOrder = cvDownloadsWithoutMenu(
+    cvFileFormat(companyBranded?.client_file_format),
+    companyBranded?.cv_layout === "new" ? "new" : "classic",
+  );
   const downloadCompanyCv = async (format: "docx" | "pdf") => {
     setDownloadingCv(format);
     try {

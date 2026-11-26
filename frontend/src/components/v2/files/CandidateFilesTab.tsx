@@ -49,6 +49,7 @@ import {
 } from "@/lib/candidate-files";
 import type { GeneratedCvItem } from "@/lib/api";
 import { downloadBlob } from "@/lib/authenticated-files";
+import { cvKindMenuLabel, stageCvRowPlan, type CvFileKind } from "@/lib/cv-file-format";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { downloadGeneratedCv } from "@/components/v2/cv-generator/cv-generated-files";
 import { GeneratedCvPreviewModal } from "@/components/v2/cv-generator/GeneratedCvPreviewModal";
@@ -886,20 +887,25 @@ function ClientCvGroup({
  const problem = await downloadGeneratedCv(item, "docx", "files");
  if (problem) showError(problem);
  }
- async function download(item: GeneratedCvItem, format: "docx" | "pdf" = "docx") {
+ // Format pliku z reguły klienta (25.11.2026): „Pobierz” daje plik, którego
+ // chce klient; drugi format (i „Word (klasyczne)” przy Nowym CV) jest w „⋯”.
+ async function download(item: GeneratedCvItem, kind: CvFileKind = stageCvRowPlan(item).primary[0]) {
  const stageId = item.stage_cv_stage_id;
  if (stageId == null) return downloadRaw(item);
  try {
  const file =
- format === "docx"
- ? await fetchStageCvFile(stageId, { download: "files" })
- : await fetchStageCvPdf(stageId, { download: "files" });
+ kind === "pdf"
+ ? await fetchStageCvPdf(stageId, { download: "files" })
+ : await fetchStageCvFile(stageId, {
+ download: "files",
+ ...(kind === "docx_classic" ? { classic: true } : {}),
+ });
  downloadBlob(file.blob, file.filename || item.filename);
  } catch (error) {
  showError(
  apiErrorMessage(
  error,
- format === "pdf"
+ kind === "pdf"
  ? "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz plik Word."
  : "Nie udało się pobrać CV.",
  ),
@@ -911,6 +917,9 @@ function ClientCvGroup({
  ...generated.map((item) => {
  const inRecruitment = item.stage_cv_stage_id != null;
  const downloadable = inRecruitment || item.can_download;
+ const plan = stageCvRowPlan(item);
+ const mainKind = inRecruitment ? plan.primary[0] : "docx";
+ const menuKinds = [...plan.primary.slice(1), ...plan.inMenu];
  return (
  <div key={`generated-${item.id}`} className="flex items-center gap-3 px-3 py-2.5 text-sm">
  <div className="min-w-0 flex-1">
@@ -929,8 +938,8 @@ function ClientCvGroup({
  <p className="text-xs text-muted-foreground">{generatedCvRowLabel(item)}</p>
  </div>
  {downloadable ? (
- <Button size="sm" variant="outline" onClick={() => void download(item)}>
- Pobierz
+ <Button size="sm" variant="outline" onClick={() => void download(item, mainKind)}>
+ {mainKind === "pdf" ? "Pobierz PDF" : "Pobierz"}
  </Button>
  ) : null}
  {inRecruitment ? (
@@ -941,9 +950,11 @@ function ClientCvGroup({
  </Button>
  </DropdownMenuTrigger>
  <DropdownMenuContent align="end" className="w-64">
- <DropdownMenuItem onSelect={afterMenuCloses(() => void download(item, "pdf"))}>
- Pobierz PDF
+ {menuKinds.map((kind) => (
+ <DropdownMenuItem key={kind} onSelect={afterMenuCloses(() => void download(item, kind))}>
+ {cvKindMenuLabel(kind)}
  </DropdownMenuItem>
+ ))}
  {item.can_download ? (
  <DropdownMenuItem onSelect={afterMenuCloses(() => void downloadRaw(item))}>
  Plik z generatora (bez poprawek)
