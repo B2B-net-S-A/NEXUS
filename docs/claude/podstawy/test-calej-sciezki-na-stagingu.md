@@ -28,7 +28,11 @@ miejscu decyduje „✓ zmienione”, „— nie: <powód>” albo pyta Artura. 
 dodana na jednym ekranie bez drugiego daje dwa ekrany, które mówią co innego, a
 ścieżka po ekranie, który zmieniłeś, tego nie złapie. Tabela idzie do paragonu i
 do opisu PR-a („Wpływ na inne miejsca”); bramka blokuje paragon bez niej albo z
-miejscem bez decyzji.
+miejscem bez decyzji. Symbol z ponad 50 miejscami dostaje jeden wiersz
+`<symbol> · *` („za ogólne”): decyzja jest jedna dla wszystkich, a gdy nowe pole
+ma tę samą informację gdzie indziej, listę daje `git grep -lw <symbol> --
+frontend/src backend/app`. Bo nowy typ z polami `text`, `source`, `company`
+(PR #4058) dał 2797 wierszy i żaden nie czytał nowej informacji.
 
 Nowy obszar: pierwsza sesja przechodzi go ręcznie i dopisuje scenariusz
 (`.claude/skills/sciezka/scenariusze/`) oraz wpis w mapie ról.

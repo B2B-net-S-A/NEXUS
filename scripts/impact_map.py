@@ -16,6 +16,12 @@ paragonu, a hook `sciezka-stagingu-gate.js` sprawdza, że każde miejsce ma decy
     python3 scripts/impact_map.py --diff A...B
 
 Pliki zmienione w diffie, testy i harnessy `/preview/*` nie są „innym miejscem”.
+Pole TS liczy się w `interface`/`type` i w typie wpisanym w sygnaturę, nie we
+właściwości obiektu (`timeout:`, `queryKey:`). Symbol z ponad `TOO_BROAD` miejscami ma nazwę zbyt
+ogólną, żeby grep znalazł tę samą informację: dostaje jeden wiersz
+`<symbol> · *` z decyzją zbiorczą zamiast wiersza na plik (PR #4058: nowy typ
+z polami `text`, `source`, `company` dał 2797 miejsc, z których żadne nie
+czytało nowej informacji).
 """
 
 from __future__ import annotations
@@ -27,18 +33,34 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import NamedTuple
 
 SEARCH_ROOTS = ("frontend/src", "backend/app")
 # Nazwy, które są w każdym pliku: ich użycia nic nie mówią o tej samej informacji.
+# Ostatni wiersz: pomiar na PR #4058 (każde z tych słów: od 27 do 1937 miejsc).
 GENERIC = frozenset(
     "id name type status data value label title key kind items count total page size "
     "created_at updated_at deleted_at user_id email notes description url path code "
-    "message error result results detail children className props".split()
+    "message error result results detail children className props "
+    "text source company token quote verified issue timeout".split()
 )
+# Więcej miejsc dla jednego symbolu = jeden wiersz zbiorczy. Mediana z 120 commitów
+# maina (26.11.2026) to 22 miejsca na pole; powyżej 50 są już tylko słowa ogólne
+# i identyfikatory w rodzaju `contract_id`, których nikt nie przegląda plik po pliku.
+TOO_BROAD = 50
 PY_FIELD = re.compile(r"^\s{4}([a-z_][a-z0-9_]*)\s*:\s*[^=\s]")
 TS_FIELD = re.compile(r"^\s+([a-zA-Z_][a-zA-Z0-9_]*)\??\s*:\s*[^=\s]")
+TS_TYPE_DECL = re.compile(r"^(?:export\s+)?(?:declare\s+)?(?:interface|type)\s")
+# Deklaracja na najwyższym poziomie; ten sam warunek git stosuje do nagłówka hunka.
+TOP_LEVEL = re.compile(r"^[A-Za-z_$]")
+HUNK = re.compile(r"^@@ [^@]+ @@ ?(.*)$")
 ENDPOINT = re.compile(r"@\w+\.(?:get|post|put|patch|delete)\(\s*[\"']([^\"']+)[\"']")
 IGNORE = re.compile(r"(__tests__|\.test\.|\.spec\.|/tests?/|\.stories\.|frontend/src/app/preview/)")
+
+
+class Line(NamedTuple):
+    text: str
+    scope: str  # ostatnia deklaracja z najwyższego poziomu nad linią; "" = nieznana
 
 
 @dataclass(frozen=True)
@@ -59,20 +81,45 @@ class Place:
         return f"{self.symbol} · {self.path}"
 
 
-def changed_lines(diff_text: str) -> dict[str, list[str]]:
-    """Plik → dodane i usunięte linie (bez znaku +/-)."""
-    out: dict[str, list[str]] = {}
+def changed_lines(diff_text: str) -> dict[str, list[Line]]:
+    """Plik → dodane i usunięte linie (bez znaku +/-) z deklaracją, w której stoją.
+
+    Deklaracja to nagłówek hunka (`@@ … @@ export interface X {`) albo ostatnia linia
+    z najwyższego poziomu w hunku, także z kontekstu.
+    """
+    out: dict[str, list[Line]] = {}
     current = None
+    scope = ""
     for line in diff_text.splitlines():
         if line.startswith("+++ "):
             current = line[6:] if line.startswith("+++ b/") else None
+            scope = ""
             if current:
                 out.setdefault(current, [])
         elif line.startswith("--- "):
             continue
-        elif current and line[:1] in "+-" and not line.startswith(("+++", "---")):
-            out[current].append(line[1:])
+        elif hunk := HUNK.match(line):
+            scope = hunk.group(1)
+        elif current and line and line[0] in "+- ":
+            text = line[1:]
+            if TOP_LEVEL.match(text):
+                scope = text
+            if line[0] != " ":
+                out[current].append(Line(text, scope))
     return out
+
+
+def _is_ts_type_field(text: str, scope: str) -> bool:
+    """Pole typu, nie właściwość obiektu (`timeout:` w opcjach wywołania).
+
+    Poza `interface`/`type` pole typu poznać po `?:` albo `;` na końcu: tak wygląda
+    typ wpisany w sygnaturę metody (`create: (data: { a?: number; }) => …`), a
+    przypisanie w obiekcie kończy się przecinkiem.
+    """
+    if not scope or TS_TYPE_DECL.match(scope):
+        return True
+    code = text.split("//")[0].rstrip()
+    return code.endswith(";") or bool(re.match(r"\s*\w+\?:", code))
 
 
 def _is_schema_py(path: str) -> bool:
@@ -85,22 +132,22 @@ def _is_types_ts(path: str) -> bool:
     )
 
 
-def symbols_from_diff(files: dict[str, list[str]]) -> list[Symbol]:
+def symbols_from_diff(files: dict[str, list[Line]]) -> list[Symbol]:
     found: dict[str, Symbol] = {}
     for path, lines in files.items():
         if IGNORE.search(path):
             continue
-        for line in lines:
+        for text, scope in lines:
             if _is_schema_py(path):
-                m = PY_FIELD.match(line)
-                if m and not line.lstrip().startswith(("def ", "return", "#")):
+                m = PY_FIELD.match(text)
+                if m and not text.lstrip().startswith(("def ", "return", "#")):
                     found.setdefault(m.group(1), Symbol(m.group(1), "pole"))
-            if _is_types_ts(path):
-                m = TS_FIELD.match(line)
-                if m and not re.match(r"\s*(case|default|return|const|let)\b", line):
+            if _is_types_ts(path) and _is_ts_type_field(text, scope):
+                m = TS_FIELD.match(text)
+                if m and not re.match(r"\s*(case|default|return|const|let)\b", text):
                     found.setdefault(m.group(1), Symbol(m.group(1), "pole"))
             if path.startswith("backend/app/api/") and path.endswith(".py"):
-                m = ENDPOINT.search(line)
+                m = ENDPOINT.search(text)
                 if m:
                     # stała część trasy, bez parametrów: tak wygląda w wywołaniach frontu
                     route = m.group(1).split("{")[0].rstrip("/")
@@ -150,18 +197,17 @@ def grep(symbol: Symbol) -> list[str]:
 
 def places_for(symbols: list[Symbol], changed: set[str], search=grep) -> list[Place]:
     out: list[Place] = []
-    seen: set[str] = set()
     for sym in symbols:
-        for path in search(sym):
-            if path in changed:
-                continue
-            label = classify(path)
-            if not label:
-                continue
-            place = Place(sym.name, label, path)
-            if place.key not in seen:
-                seen.add(place.key)
-                out.append(place)
+        found = {
+            Place(sym.name, label, path)
+            for path in search(sym)
+            if path not in changed and (label := classify(path))
+        }
+        if len(found) > TOO_BROAD:
+            label = f"za ogólne (miejsc: {len(found)}) — decyzja zbiorcza"
+            out.append(Place(sym.name, label, "*"))
+        else:
+            out += found
     return sorted(out, key=lambda p: (p.symbol, p.label, p.path))
 
 
