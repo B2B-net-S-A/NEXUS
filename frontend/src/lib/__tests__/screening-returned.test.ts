@@ -6,7 +6,7 @@ const card = (holder: number | null, extra: object = {}) => ({
   returned_from_screening: {
     at: "2026-11-25T23:06:41Z",
     holder_user_id: holder,
-    holder_name: "Barbara I.",
+    holder_name: "Ola Testowa",
     screening_since: "2026-11-23T09:15:00Z",
     ...extra,
   },
@@ -22,7 +22,7 @@ describe("napis pod kartą, która wróciła ze Screeningu", () => {
 
   it("pozostałym: od kogo wróciła", () => {
     expect(returnedToViewer(card(261), 5)).toBe(false);
-    expect(returnedLine(card(261), 5)).toBe("Wróciła ze Screeningu od: Barbara I.");
+    expect(returnedLine(card(261), 5)).toBe("Wróciła ze Screeningu od: Ola Testowa");
     expect(returnedLine(card(null, { holder_name: null }), 5)).toBe("Wróciła ze Screeningu");
   });
 
