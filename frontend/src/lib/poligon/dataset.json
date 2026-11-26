@@ -3181,18 +3181,6 @@
    ],
    "missing_evidence_policy": "review"
   },
-  "GET /api/jobs/990001/hold": {
-   "job_id": 990001,
-   "state": "searching",
-   "reason": null,
-   "review_on": null,
-   "since": null,
-   "by_id": null,
-   "by_name": null,
-   "can_manage": false,
-   "recipients": [],
-   "my_open_report": null
-  },
   "GET /api/jobs/990001/twins": {
    "job_id": 990001,
    "can_manage": false,

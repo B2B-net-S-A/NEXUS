@@ -311,7 +311,7 @@ function HoldForm({
         <Button type="button" variant="ghost" onClick={onCancel} disabled={save.isPending}>
           Anuluj
         </Button>
-        <Button type="submit" loading={save.isPending} data-testid="job-hold-submit">
+        <Button type="submit" loading={save.isPending} data-tour="job.hold.submit" data-testid="job-hold-submit">
           {editing ? (
             "Zapisz"
           ) : (

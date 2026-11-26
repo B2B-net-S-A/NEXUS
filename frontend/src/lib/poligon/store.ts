@@ -58,6 +58,8 @@ export interface PoligonRequest {
   viewer?: PoligonViewer;
   /** Ustawia i zdejmuje stop do podpisu przedwstępnej (DL, HoR, admin — 0762). */
   canSetPreContractStop?: boolean;
+  /** Wstrzymuje i wznawia rekrutację (DL, HoR, admin — `WorkStateEditor`, 26.11.2026). */
+  canManageHold?: boolean;
 }
 
 export interface PoligonResponse {
@@ -736,10 +738,54 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     template,
   });
 
+  // Rekrutacja „Wstrzymana” (lekcje z 26.11.2026). Odczyt bez stanu — zawsze
+  // „Szukamy”, bo etap „sam” po pokazie znowu potrzebuje „Wstrzymaj rekrutację…”
+  // i „Zgłoś DL-owi”. Zapisy odpowiadają jak serwer, ale niczego nie zostawiają.
+  function holdView(canManage: boolean, over: Record<string, Json> = {}): Json {
+    const rec = meta.trainers?.rec;
+    return {
+      job_id: meta.job_id,
+      state: "searching",
+      reason: null,
+      review_on: null,
+      since: null,
+      by_id: null,
+      by_name: null,
+      can_manage: canManage,
+      recipients: canManage && rec ? [{ user_id: rec.id, name: rec.name, people: 2 }] : [],
+      my_open_report: null,
+      ...over,
+    };
+  }
+
+  function hold(method: string, report: boolean, body: Record<string, Json>, canManage: boolean): PoligonResponse {
+    if (report) return method === "POST" ? { status: 201, data: { ok: true } } : { status: 405, data: null };
+    if (method === "GET") return { status: 200, data: holdView(canManage) };
+    if (!canManage) return { status: 403, data: { detail: "Stan rekrutacji zmienia Delivery Lead." } };
+    if (method === "PUT") {
+      return {
+        status: 200,
+        data: holdView(true, {
+          state: "on_hold",
+          reason: typeof body.reason === "string" ? body.reason : "",
+          review_on: typeof body.review_on === "string" ? body.review_on : null,
+          since: new Date(now).toISOString(),
+          by_name: "Ty",
+        }),
+      };
+    }
+    if (method === "DELETE") return { status: 200, data: holdView(true) };
+    return { status: 405, data: null };
+  }
+
   function handle(req: PoligonRequest): PoligonResponse | "network" {
     const method = (req.method || "get").toUpperCase();
     const { path, query } = splitUrl(req);
     const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, Json>;
+    const holdMatch = path.match(/^\/api\/jobs\/(\d+)\/hold(\/report)?$/);
+    if (holdMatch && Number(holdMatch[1]) === meta.job_id) {
+      return hold(method, Boolean(holdMatch[2]), body, req.canManageHold === true);
+    }
     // Narzędzia z ćwiczeń z 16.11.2026: stan w pamięci karty, odczyty i zapisy.
     const tool = tools.handle(method, path, body, req.viewerId ?? null);
     if (tool) {

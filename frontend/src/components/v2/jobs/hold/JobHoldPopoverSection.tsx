@@ -95,6 +95,7 @@ export function JobHoldPopoverSection({
             onClick={onHold}
             disabled={busy}
             className="border-warning/60 text-warning-muted-foreground hover:bg-warning-muted"
+            data-tour="job.hold.start"
             data-testid="job-hold-popover-hold"
           >
             <Pause className="h-3.5 w-3.5" aria-hidden="true" />
@@ -133,7 +134,7 @@ export function JobHoldPopoverSection({
             />
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">DL potwierdza jednym kliknięciem</span>
-              <Button type="submit" size="sm" loading={busy} data-testid="job-hold-report">
+              <Button type="submit" size="sm" loading={busy} data-tour="job.hold.report" data-testid="job-hold-report">
                 <Pause className="h-3.5 w-3.5" aria-hidden="true" />
                 Zgłoś DL-owi
               </Button>

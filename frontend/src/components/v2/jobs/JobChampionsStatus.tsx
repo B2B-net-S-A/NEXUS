@@ -191,6 +191,8 @@ export function JobChampionsStatus({
             "hit-area hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
           data-help="job.champion.found"
+          // Kotwica lekcji „Wstrzymana rekrutacja” (26.11.2026): dymek pigułki.
+          data-tour="job.status-pill"
           data-testid="job-champions-status"
           data-kind={view.kind}
           data-hold={hold ? "true" : undefined}
