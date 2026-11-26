@@ -355,6 +355,50 @@ def test_w07_wreath_only_next_to_the_highlight():
     assert 'class="hlw"' not in body and "0 0 32.0 32.0" not in body
 
 
+def test_w36_ai_highlight_only_after_the_recruiter_accepts_it():
+    """W36: wyróżnik — praca u klienta automatycznie, propozycja AI tylko po przyjęciu
+    przez rekrutera, albo wpis rekrutera. Sama propozycja w `page1_extras` (nawet
+    sprawdzona) nie zmienia strony 1; przyjęta (`highlight.mode = "ai"`) wygrywa
+    z automatem, wpis rekrutera wygrywa z propozycją."""
+    proposal = {
+        "kind": "award",
+        "label": "Wyróżnienie Lider Roku",
+        "token": "2022",
+        "text": "**Lider Roku 2022** za program KYC.",
+        "quote": "Wyróżnienie Lider Roku 2022 za program KYC",
+        "key": "k-lider",
+        "verified": True,
+    }
+    proposals = {"highlight_proposals": [proposal], "highlight_source_sha": "s"}
+
+    def page(data: dict, extras: dict) -> str:
+        return _page1(_html(data, highlight=choice_from_extras(extras)))
+
+    # Bez przyjęcia: automat (praca u klienta) albo brak wyróżnika — nigdy propozycja.
+    auto = page(_with_client(["Bank Przykładowy"]), proposals)
+    assert "Doświadczenie w Bank Przykładowy" in auto
+    assert "Lider Roku" not in auto
+    none = page(long_cv(), proposals)
+    assert "class='hl'" not in none and "Lider Roku" not in none
+    # Przyjęta przez rekrutera: na stronie 1 zamiast automatu.
+    accepted = dict(
+        proposals,
+        highlight={k: proposal[k] for k in ("label", "token", "text", "quote", "key")}
+        | {"mode": "ai"},
+    )
+    taken = page(_with_client(["Bank Przykładowy"]), accepted)
+    assert "<div class='hlk'>Wyróżnienie Lider Roku</div>" in taken
+    assert "<b>Lider Roku 2022</b> za program KYC." in taken
+    assert re.search(r'class="hlw".*?>2022</text></svg>', taken, re.S)
+    assert "Doświadczenie w Bank Przykładowy" not in taken
+    # Wpis rekrutera wygrywa z propozycją.
+    custom = dict(
+        proposals, highlight={"mode": "custom", "label": "Atut", "text": "Zdanie."}
+    )
+    mine = page(long_cv(), custom)
+    assert "<div class='hlk'>Atut</div>" in mine and "Lider Roku" not in mine
+
+
 # ---------- „Dlaczego nasz kandydat” ----------
 
 

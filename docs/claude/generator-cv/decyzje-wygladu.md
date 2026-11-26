@@ -1,6 +1,6 @@
 # Decyzje wyglądu Nowego CV
 
-<!-- indeks: decyzje W1–W33 układu `services/cv_new_layout/`, `tests/test_cv_new_layout_decisions.py`: logo i stopka, nagłówek T2, języki od B1, miasto, wyróżnik i wieniec tylko u góry, „Dlaczego” z liniami, pismo od 11 pt, odstęp 5,5 mm, oś po kolei S1, „Wcześniej”, Umiejętności z kreskami, Edukacja z ikonami, rok ukończenia, 3 certyfikaty, MUST pierwszy, tabele od str. 2, RODO na końcu, Poppins i Source Sans 3, Word wariant B -->
+<!-- indeks: decyzje W1–W33 i W36 układu `services/cv_new_layout/`, `tests/test_cv_new_layout_decisions.py`: logo i stopka, nagłówek T2, języki od B1, miasto, wyróżnik i wieniec tylko u góry, wyróżnik z propozycji AI tylko po przyjęciu, „Dlaczego” z liniami, pismo od 11 pt, odstęp 5,5 mm, oś po kolei S1, „Wcześniej”, Umiejętności z kreskami, Edukacja z ikonami, rok ukończenia, 3 certyfikaty, MUST pierwszy, tabele od str. 2, RODO na końcu, Poppins i Source Sans 3, Word wariant B -->
 
 Zmiana którejkolwiek decyzji to zmiana tego pliku i jej testu w jednym PR-ze, za zgodą Artura.
 
@@ -54,6 +54,14 @@ WeasyPrint; bez bibliotek natywnych lokalnie są pomijane, jak `test_cv_new_layo
   klienta do 8 znaków, inaczej staż; nigdy „Zna klienta od środka”. CV Blind i tryb
   „off” — bez wyróżnika, „custom” — słowa rekrutera. 25.11.2026, docs („Strona 1,
   runda 37”), #3965. Test: `test_w06_automatic_highlight_is_work_at_the_client`.
+- **W36** — Wyróżnik ma trzy źródła: praca u klienta automatycznie, propozycja AI tylko
+  po przyjęciu przez rekrutera, albo wpis rekrutera. Propozycja AI (nagroda, wyróżnienie,
+  certyfikat z MUST, każda z cytatem z CV sprawdzonym kodem) sama nie trafia na stronę 1:
+  render bierze wyłącznie `page1_extras.highlight`, tryb „ai” zapisuje „Przyjmij”
+  rekrutera, a przyjęta wygrywa z automatem tak jak wpis rekrutera. 26.11.2026 (Artur:
+  „wyróżnik może też być to, co AI zaproponuje, lub rekruter sam wpisze i zdecyduje”),
+  docs („Wyróżnik z propozycji AI”).
+  Test: `test_w36_ai_highlight_only_after_the_recruiter_accepts_it`.
 - **W7** — Wieniec tylko u góry: na stronie jest najwyżej jeden, wyłącznie przy
   wyróżniku; bez wyróżnika strona nie ma wieńca, Edukacja nigdy, a stary wpis
   `page1_extras.wreath` nie zmienia renderu. 25.11.2026 („Tylko u góry, Edukacja
