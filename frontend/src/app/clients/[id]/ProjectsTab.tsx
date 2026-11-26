@@ -186,6 +186,7 @@ function ProjectRow({
         won && "bg-success-muted hover:bg-success-muted",
       )}
       data-outcome={job.outcome ?? undefined}
+      data-tour={won ? "client-projects.won-row" : undefined}
     >
       <TableCell className={cn(won && "shadow-[inset_3px_0_0_var(--color-success)]")}>
         {/* Nawigacja do rekrutacji zostaje na tytule; akcje są osobnymi
@@ -280,6 +281,7 @@ function ProjectStatusCell({
             type="button"
             onClick={() => onFillOutcome(job)}
             aria-label={`Uzupełnij wynik: ${job.title}`}
+            data-tour="client-projects.fill-outcome"
             className="block text-xs font-medium text-primary hover:underline"
           >
             Uzupełnij wynik
@@ -311,6 +313,7 @@ function OutcomeChips({
             key={chip.value}
             type="button"
             aria-pressed={pressed}
+            data-tour={chip.value === "won" ? "client-projects.outcome-won" : undefined}
             onClick={() => onChange(chip.value)}
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
@@ -598,6 +601,7 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
             },
             {
               value: "closed",
+              "data-tour": "client-projects.closed",
               label: closedQuery.isError
                 ? "Zamknięte projekty (—)"
                 : "Zamknięte projekty",

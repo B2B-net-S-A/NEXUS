@@ -1285,6 +1285,146 @@ def lost_review_empty() -> dict:
     }
 
 
+# ── Rekrutacje → Projekty (26.11.2026) ─────────────────────────────────────
+#
+# Lekcja „Wygrane projekty na zielono”: zakładka Projekty klienta ćwiczebnego
+# z aktywną rekrutacją 990001 i zamkniętymi projektami w każdym wyniku hit
+# ratio (`services/job_outcome.py`). Chipy filtrują na serwerze, więc zestaw
+# ma osobną odpowiedź na każdy chip. Rekrutacje zamknięte istnieją tylko tutaj
+# (lista), bez szczegółów — w lekcji nikt ich nie otwiera.
+
+_RECRUITER = {
+    "user_id": REC[0],
+    "name": REC[1],
+    "via": "owner",
+    "proposed": False,
+    "assigned_by_name": None,
+}
+
+
+def _project(
+    job_id: int,
+    title: str,
+    reference: str,
+    opened_days: int,
+    candidates: int,
+    outcome: str | None,
+    *,
+    status: str = "closed",
+    close_reason: str | None = None,
+    hired: list[str] | None = None,
+) -> dict:
+    return {
+        "id": job_id,
+        "title": title,
+        "location": "Gdańsk",
+        "status": status,
+        "client_id": POLIGON_CLIENT,
+        "client_reference": reference,
+        "candidate_count": candidates,
+        "opened_effective_at": f"@rel:{opened_days}",
+        "opened_at": None,
+        "created_at": f"@rel:{opened_days}",
+        "recruiters": [_RECRUITER],
+        "outcome": outcome,
+        "hired_names": hired or [],
+        "close_reason": close_reason,
+        "close_notes": None,
+        "duplicate_of_job_id": None,
+    }
+
+
+def _closed_projects() -> list[dict]:
+    return [
+        _project(
+            990611,
+            "Analityk systemowy (płatności)",
+            "BP/2026/041",
+            -40,
+            22,
+            "won",
+            close_reason="filled_by_us",
+            hired=["Filip Bukowiec"],
+        ),
+        _project(
+            990612, "Tester automatyzujący (Java)", "BP/2026/037", -55, 31, "unreviewed"
+        ),
+        _project(
+            990613,
+            "Architekt rozwiązań chmurowych",
+            "BP/2026/033",
+            -70,
+            14,
+            "neutral",
+            close_reason="paused",
+        ),
+        _project(
+            990614,
+            "Kierownik projektu IT",
+            "BP/2026/029",
+            -90,
+            18,
+            "lost",
+            close_reason="competitor",
+        ),
+        _project(
+            990615,
+            "Programista .NET",
+            "BP/2026/021",
+            -120,
+            27,
+            "won",
+            hired=["Maja Wierzbicka"],
+        ),
+    ]
+
+
+def client_projects() -> dict[str, object]:
+    """Odpowiedzi zakładki Rekrutacje → Projekty: klucz zestawu → odpowiedź."""
+    c = POLIGON_CLIENT
+    active = [
+        _project(
+            POLIGON_JOB, JOB_TITLE, "BP/2026/052", -9, 16, None, status="published"
+        )
+    ]
+    closed = _closed_projects()
+    counts = {
+        k: sum(1 for j in closed if j["outcome"] == k)
+        for k in ("won", "lost", "neutral", "unreviewed")
+    }
+
+    def page(items: list[dict], **extra: object) -> dict:
+        return {
+            "items": items,
+            "total": len(items),
+            "page": 1,
+            "page_size": 100,
+            **extra,
+        }
+
+    base = f"GET /api/jobs?client_id={c}"
+    out: dict[str, object] = {
+        f"{base}&open_only=true&page_size=100": page(active),
+        f"{base}&page_size=100": page(active + closed),
+        f"{base}&outcome_counts=true&page_size=100&status=closed": page(
+            closed, outcome_counts=counts
+        ),
+        f"GET /api/conflicts?client_id={c}&limit=100&offset=0&state=active": {
+            "items": [],
+            "total": 0,
+            "limit": 100,
+            "offset": 0,
+            "type_labels": {},
+        },
+        f"GET /api/clients/{c}/bnp-report/availability": {"available": False},
+    }
+    for outcome in counts:
+        out[
+            f"{base}&outcome={outcome}&outcome_counts=true&page_size=100&status=closed"
+        ] = page([j for j in closed if j["outcome"] == outcome], outcome_counts=counts)
+    return out
+
+
 def client_practice(template_candidate_id: int) -> dict[str, object]:
     """Odpowiedzi klienta ćwiczebnego: klucz zestawu → odpowiedź."""
     c = POLIGON_CLIENT
@@ -1430,6 +1570,7 @@ def client_practice(template_candidate_id: int) -> dict[str, object]:
         "GET /api/finance/order-cost-corrections": order_cost_corrections(),
         "GET /api/finance/order-changes/summary": order_changes_summary(),
         **contract_list_keys(),
+        **client_projects(),
     }
     for outcome in ("auto_applied", "applied", "unrecognized_client", "failed"):
         out[f"GET /api/order-mail/queue?limit=1&outcome={outcome}"] = {
