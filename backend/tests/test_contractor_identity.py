@@ -1,7 +1,9 @@
 """Business identity used by every aggregate active-contractor counter."""
 
+import re
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,12 +13,16 @@ from app.api import contract_analytics
 from app.api.contractors import contractor_stats
 from app.models.contract import ContractStatus
 from app.models.user import UserRole
+from app.services import contractor_identity
 from app.services.contractor_identity import (
     contractor_identity_key,
     count_unique_contractors,
     summarize_active_contracts,
 )
 from app.core.scheduling import business_today
+from tests._namesake_pair import fictional_namesakes  # noqa: F401 (fixture)
+
+_BACKEND = Path(__file__).resolve().parents[1]
 
 
 def _candidate(
@@ -51,25 +57,27 @@ def test_non_latin_names_are_preserved_and_deduplicated():
     assert count_unique_contractors(variants) == 1
 
 
-def test_only_filip_jablonski_is_split_by_normalized_profile_email():
-    filip_variants = [
-        _candidate(1, " Filip ", "Jabłoński", " FIRST@Example.com "),
-        _candidate(2, "FILIP", "Jablonski", "first@example.com"),
-        _candidate(3, "Filip", "Jabłoński", "second@example.com"),
+@pytest.mark.usefixtures("fictional_namesakes")
+def test_only_a_namesake_pair_is_split_by_normalized_profile_email():
+    namesake_variants = [
+        _candidate(1, " Józef ", "Przykładowy", " FIRST@Example.com "),
+        _candidate(2, "JOZEF", "Przy-kladowy", "first@example.com"),
+        _candidate(3, "Józef", "Przykładowy", "second@example.com"),
     ]
     ordinary_same_name_different_email = [
         _candidate(4, "Anna", "Nowak", "one@example.com"),
         _candidate(5, "ANNA", "NOWAK", "two@example.com"),
     ]
 
-    assert count_unique_contractors(filip_variants) == 2
+    assert count_unique_contractors(namesake_variants) == 2
     assert count_unique_contractors(ordinary_same_name_different_email) == 1
 
 
-def test_filip_jablonski_without_email_fails_closed_by_candidate_id():
+@pytest.mark.usefixtures("fictional_namesakes")
+def test_namesake_without_email_fails_closed_by_candidate_id():
     incomplete_profiles = [
-        _candidate(6, "Filip", "Jabłoński", None),
-        _candidate(7, "filip", "jablonski", " "),
+        _candidate(6, "Józef", "Przykładowy", None),
+        _candidate(7, "jozef", "przykladowy", " "),
     ]
 
     assert count_unique_contractors(incomplete_profiles) == 2
@@ -99,10 +107,12 @@ def test_headcount_keeps_person_and_contract_totals_separate():
     assert result.active_contracts == 3
 
 
+@pytest.mark.usefixtures("fictional_namesakes")
 def test_raw_key_normalizes_exception_email_case_and_space():
-    assert contractor_identity_key(
-        "Filip", "Jabłoński", " FILIP@EXAMPLE.COM "
-    ) == contractor_identity_key("filip", "jablonski", "filip@example.com")
+    key = contractor_identity_key("Józef", "Przykładowy", " JOZEF@EXAMPLE.COM ")
+
+    assert key == contractor_identity_key("jozef", "przykladowy", "jozef@example.com")
+    assert key == ("name_email", "jozef", "przykladowy", "jozef@example.com")
 
 
 @pytest.mark.asyncio
@@ -313,6 +323,7 @@ async def test_role_client_mix_global_person_total_is_not_sum_of_cells():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fictional_namesakes")
 async def test_location_distribution_uses_lowest_profile_once_per_identity():
     rows = [
         SimpleNamespace(
@@ -326,12 +337,12 @@ async def test_location_distribution_uses_lowest_profile_once_per_identity():
             region="Małopolskie",
         ),
         SimpleNamespace(
-            **vars(_candidate(62, "Filip", "Jabłoński", "first@example.com")),
+            **vars(_candidate(62, "Józef", "Przykładowy", "first@example.com")),
             hub_city="Gdańsk",
             region="Pomorskie",
         ),
         SimpleNamespace(
-            **vars(_candidate(63, "FILIP", "JABLONSKI", "second@example.com")),
+            **vars(_candidate(63, "JOZEF", "PRZYKLADOWY", "second@example.com")),
             hub_city="Wrocław",
             region="Dolnośląskie",
         ),
@@ -346,3 +357,44 @@ async def test_location_distribution_uses_lowest_profile_once_per_identity():
     assert result.total_with_hub == 3
     hubs = {row.hub_city: row.count for row in result.hubs}
     assert hubs == {"Warszawa": 1, "Gdańsk": 1, "Wrocław": 1}
+
+
+# ── Para imienników istnieje w repo wyłącznie jako skrót ─────────────────────
+
+
+def test_namesake_digests_match_the_repo_guard_list():
+    """Literówka w skrócie po cichu wyłączyłaby wyjątek — trzyma go druga kopia."""
+    guard = (
+        _BACKEND.parent / "frontend/src/__tests__/fixtures/real-people.ts"
+    ).read_text(encoding="utf-8")
+
+    assert contractor_identity.NAMESAKE_NAME_DIGESTS
+    for digest in contractor_identity.NAMESAKE_NAME_DIGESTS:
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        assert f'"{digest[:16]}"' in guard
+
+
+def test_app_code_does_not_name_the_namesakes():
+    """Strażnik repo czyta testy i dokumenty — ten wyjątek siedział w kodzie."""
+    pairs_by_file: dict[str, set[tuple[str, str]]] = {}
+    for root in (_BACKEND / "app", _BACKEND / "scripts"):
+        for path in root.rglob("*"):
+            if path.suffix not in {".py", ".md", ".json", ".html", ".txt"}:
+                continue
+            text = path.read_text(encoding="utf-8").lower()
+            for letter, plain in zip("ąćęłńóśźż", "acelnoszz"):
+                text = text.replace(letter, plain)
+            # „_” też dzieli słowa: nazwisko w nazwie stałej to nadal nazwisko.
+            words = re.findall(r"[^\W_]+", text)
+            pairs_by_file[str(path.relative_to(_BACKEND))] = set(zip(words, words[1:]))
+
+    all_pairs = set().union(*pairs_by_file.values())
+    named = {
+        (one, other)
+        for one, other in all_pairs
+        if contractor_identity.is_namesake_pair(one, other)
+        or contractor_identity.is_namesake_pair(other, one)
+    }
+
+    assert len(all_pairs) > 10_000  # strażnik nie jest pusty
+    assert [path for path, pairs in pairs_by_file.items() if pairs & named] == []

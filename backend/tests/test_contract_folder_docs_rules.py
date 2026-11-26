@@ -20,14 +20,19 @@ from app.services.contract_folder_docs.matching import (
     ContractPerson,
     Folder,
     folder_display_name,
+    is_excluded_folder,
     match_contracts,
     match_person,
 )
 from app.services.contract_folder_docs.plan import (
     MAX_FILE_BYTES,
+    NOTE_EXCLUDED,
     ListedFile,
     build_plan,
 )
+from tests._namesake_pair import fictional_namesakes  # noqa: F401 (fixture)
+
+pytestmark = pytest.mark.usefixtures("fictional_namesakes")
 
 
 @pytest.mark.parametrize(
@@ -134,7 +139,7 @@ FOLDERS = [
         "Zieliński Tomasz Marek",
         "Wiśniewski Piotr",
         "Wisniewski Piotr",
-        "Jabłoński Filip",
+        "Przykładowy Józef",
         "Mazur Karolina",
     )
 ]
@@ -152,8 +157,8 @@ FOLDERS = [
         ("Tomasz", "Zieliński", UNCERTAIN, "Zieliński Tomasz Marek", ("partial_name",)),
         ("Karolna", "Mazur", UNCERTAIN, "Mazur Karolina", ("typo",)),
         ("Piotr", "Wiśniewski", AMBIGUOUS, None, ("multiple_folders",)),
-        ("Filip", "Jabłoński", EXCLUDED, None, ()),
-        ("Filip", "Jablonski", EXCLUDED, None, ()),
+        ("Józef", "Przykładowy", EXCLUDED, None, ()),
+        ("Jozef", "Przykladowy", EXCLUDED, None, ()),
         ("Adam", "Nieobecny", NONE, None, ()),
     ],
 )
@@ -183,11 +188,11 @@ def _plan():
         ContractPerson(1, 10, "Jan", "Kowalski"),
         # Ta sama osoba, drugi projekt jako osobny kontrakt (ticket, pkt 3).
         ContractPerson(2, 10, "Jan", "Kowalski"),
-        ContractPerson(3, 11, "Filip", "Jabłoński"),
+        ContractPerson(3, 11, "Józef", "Przykładowy"),
         ContractPerson(4, 12, "Adam", "Nieobecny"),
         ContractPerson(5, 13, "Ewa", "Pusta"),
     ]
-    folders = ["Kowalski Jan", "Obcy Ktoś", "Pusta Ewa", "Jabłoński Filip"]
+    folders = ["Kowalski Jan", "Obcy Ktoś", "Pusta Ewa", "Przykładowy Józef"]
     files = [
         ListedFile("Kowalski Jan", "a", "1401-2026 B2B 04.05.2026.pdf", 100),
         ListedFile("Kowalski Jan", "b", "2025/Aneks 1.pdf", 100),
@@ -195,7 +200,7 @@ def _plan():
         ListedFile("Kowalski Jan", "d", "wielki.pdf", MAX_FILE_BYTES + 1),
         ListedFile("Obcy Ktoś", "e", "NDA.pdf", 10),
         ListedFile("Pusta Ewa", "f", "umowa.doc", 10),
-        ListedFile("Jabłoński Filip", "g", "NDA.pdf", 10),
+        ListedFile("Przykładowy Józef", "g", "NDA.pdf", 10),
         ListedFile(None, "h", "lista.xlsx", 10),
     ]
     return build_plan(contracts, folders, files)
@@ -223,7 +228,7 @@ def test_plan_reports_what_the_ticket_asks_for() -> None:
     # Adam bez folderu, Ewa z folderem bez PDF/JPG.
     assert counters["contracts_without_documents"] == 2
     assert counters["contracts_excluded"] == 1
-    # „Obcy Ktoś” — bez kontraktu; folder Filipa to wykluczenie, nie brak.
+    # „Obcy Ktoś” — bez kontraktu; folder imienników to wykluczenie, nie brak.
     assert counters["folders_without_contract"] == 1
     assert counters["files_skipped_extension"] == 2
     assert counters["files_skipped_size"] == 1
@@ -231,12 +236,29 @@ def test_plan_reports_what_the_ticket_asks_for() -> None:
     notes = {r.contract_id: r.note for r in plan.rows if r.kind == "contract"}
     assert "Nie znaleziono podfolderu" in notes[4]
     assert "PDF ani JPG" in notes[5]
-    assert "Filip Jabłoński" in notes[3]
+    assert notes[3] == NOTE_EXCLUDED
 
 
-def test_filip_jablonski_files_are_never_assigned() -> None:
+def test_namesake_files_are_never_assigned() -> None:
     plan = _plan()
     assert not [r for r in plan.rows if r.kind == "assignment" and r.item_id == "g"]
+
+
+@pytest.mark.parametrize(
+    ("folder", "excluded"),
+    [
+        ("Przykładowy Józef", True),
+        ("Józef Przykładowy", True),
+        ("przykladowy-jozef", True),
+        # Tylko dokładnie te dwa słowa — inny skład to inna osoba.
+        ("Przykładowy Józef Marek", False),
+        ("Przykładowy Anna", False),
+        ("Józef", False),
+        ("", False),
+    ],
+)
+def test_namesake_folder_is_recognised_in_either_word_order(folder, excluded) -> None:
+    assert is_excluded_folder(folder) is excluded
 
 
 # ── Podmieniona treść dokumentu wysłanego do SharePointa ─────────────────────

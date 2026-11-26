@@ -75,7 +75,8 @@ domyślnie 60):
   podfolder osoby (brak folderu = NEXUS go zakłada jako „Nazwisko Imię”;
   folder pasujący do dwóch osób o tym samym nazwisku = pominięcie);
 - usunięcie po którejkolwiek stronie niczego nie kasuje po drugiej;
-- Filip Jabłoński jest pomijany w obu kierunkach.
+- imiennicy (dwie różne osoby o tym samym imieniu i nazwisku) są pomijani
+  w obu kierunkach.
 
 Sonda: `checks.contract_docs_sharepoint` (`degraded` = ostatni bieg padł albo
 brak biegu przez 3 odstępy).

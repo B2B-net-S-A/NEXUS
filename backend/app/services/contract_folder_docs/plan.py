@@ -32,7 +32,7 @@ MAX_FILE_BYTES = 20 * 1024 * 1024
 NOTE_NO_FOLDER = "Nie znaleziono podfolderu „Nazwisko Imię”."
 NOTE_EMPTY_FOLDER = "Podfolder nie zawiera plików PDF ani JPG."
 NOTE_EXCLUDED = (
-    "Filip Jabłoński — dokumenty dodawane ręcznie (dwie osoby o tym nazwisku)."
+    "Dwie różne osoby o tym imieniu i nazwisku — dokumenty dodawane ręcznie."
 )
 NOTE_AMBIGUOUS = "Kilka pasujących podfolderów: {names}."
 NOTE_FOLDER_WITHOUT_CONTRACT = (

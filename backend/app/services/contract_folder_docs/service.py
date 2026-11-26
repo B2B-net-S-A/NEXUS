@@ -676,7 +676,7 @@ async def report_xlsx(db: AsyncSession, run_id: int) -> bytes:
         ("Kontrakty bez podfolderu lub dokumentów", "contracts_without_documents"),
         ("Kontrakty z przypisaniem niepewnym", "contracts_uncertain"),
         ("Kontrakty z kilkoma pasującymi folderami", "contracts_ambiguous"),
-        ("Kontrakty pominięte (Filip Jabłoński)", "contracts_excluded"),
+        ("Kontrakty pominięte (imiennicy)", "contracts_excluded"),
         ("Foldery bez kontraktu w NEXUSIE", "folders_without_contract"),
         ("Pliki zapisane", "imported"),
         ("Pliki pominięte — już były", "skipped_existing"),
