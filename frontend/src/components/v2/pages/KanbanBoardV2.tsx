@@ -145,7 +145,7 @@ import {
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
 import { attemptLabel, orderScreeningColumn, returnNotice, screeningGroupLabel, type ScreeningGroup } from "@/lib/screening-column-groups";
-import { RETURNED_TITLE, returnedLine, returnedToViewer, screeningWarning } from "@/lib/screening-returned";
+import { RETURNED_TITLE, returnedLine, returnedTitle, returnedToViewer, screeningWarning } from "@/lib/screening-returned";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import { checkApplicantCv } from "@/lib/api/applicationScreenings";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
@@ -2406,7 +2406,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <span
  data-testid="card-returned-line"
  className={cn(returnedMine ? "font-semibold text-primary" : "text-muted-foreground")}
- title={RETURNED_TITLE}
+ title={returnedTitle(item)}
  >
  {returned}
  </span>

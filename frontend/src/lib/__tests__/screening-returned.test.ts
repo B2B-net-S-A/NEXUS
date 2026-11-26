@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { people, returnedLine, returnedToViewer, screeningWarning } from "@/lib/screening-returned";
+import { people, returnedLine, returnedTitle, returnedToViewer, screeningWarning } from "@/lib/screening-returned";
 
 const card = (holder: number | null, extra: object = {}) => ({
   returned_from_screening: {
@@ -13,9 +13,11 @@ const card = (holder: number | null, extra: object = {}) => ({
 });
 
 describe("napis pod kartą, która wróciła ze Screeningu", () => {
-  it("osobie, od której wróciła: kiedy wróciła i od kiedy stała w Screeningu", () => {
+  it("osobie, od której wróciła: dzień powrotu, a w podpowiedzi od kiedy stała w Screeningu", () => {
     expect(returnedToViewer(card(261), 261)).toBe(true);
-    expect(returnedLine(card(261), 261)).toBe("Wróciła 26.11 · w Screeningu od 23.11");
+    expect(returnedLine(card(261), 261)).toBe("Wróciła 26.11");
+    expect(returnedTitle(card(261))).toMatch(/^W Screeningu od 23\.11\. 2 dni robocze/);
+    expect(returnedTitle(card(261, { screening_since: null }))).toMatch(/^2 dni robocze/);
   });
 
   it("pozostałym: od kogo wróciła", () => {

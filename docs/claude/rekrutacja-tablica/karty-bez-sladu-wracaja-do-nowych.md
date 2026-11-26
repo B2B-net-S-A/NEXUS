@@ -134,7 +134,7 @@ https://claude.ai/artifact/FqzXsyeZdmoVACwzrHibUg
 - **„Nowi”:** osobie z `holder_user_id` karty stoją na samej górze w grupie
   „Wróciły od Ciebie · N” (`orderNewColumn(…, viewerId)`, sekcja
   `returned_mine`), najświeższy powrót pierwszy, poza kolejką „Zadzwoń
-  najpierw”. Pod kartą: „Wróciła <dzień> · w Screeningu od <dzień>”
+  najpierw”. Pod kartą: „Wróciła <dzień>” (w podpowiedzi: od kiedy stała w Screeningu)
   i „Weź z powrotem” = `POST /api/pipeline/claim`, potem ruch strzałką „→”
   (ta sama droga, `deferMove` albo „Przesuń dalej”). Pozostali widzą pod kartą
   „Wróciła ze Screeningu od: <osoba>”. Karta dalej jest dla wszystkich.

@@ -46,12 +46,9 @@ export function returnedLine(item: ReturnedItem, viewerId: number | null | undef
   if (!returned) return null;
   const when = dayLabel(returned.at);
   if (returnedToViewer(item, viewerId)) {
-    const since = dayLabel(returned.screening_since);
-    // Grupa nad kartą mówi już „Wróciły od Ciebie” — tu tylko daty, krótko,
-    // żeby „Weź z powrotem” zmieściło się w tej samej linii przy 1280 px.
-    return [`Wróciła${when ? ` ${when}` : ""}`, since ? `w Screeningu od ${since}` : null]
-      .filter(Boolean)
-      .join(" · ");
+    // Grupa nad kartą mówi już „Wróciły od Ciebie” — tu sam dzień, żeby
+    // „Weź z powrotem” zmieściło się w tej samej linii przy 1280 px.
+    return `Wróciła${when ? ` ${when}` : ""}`;
   }
   const holder = returned.holder_name?.trim();
   return holder ? `Wróciła ze Screeningu od: ${holder}` : "Wróciła ze Screeningu";
@@ -60,6 +57,12 @@ export function returnedLine(item: ReturnedItem, viewerId: number | null | undef
 /** Podpowiedź napisu: dlaczego karta wróciła. */
 export const RETURNED_TITLE =
   "2 dni robocze bez notatki, próby kontaktu, telefonu, arkusza i ruchu karty — karta wróciła do „Nowych” dla wszystkich.";
+
+/** Podpowiedź napisu pod kartą: od kiedy stała w Screeningu i dlaczego wróciła. */
+export function returnedTitle(item: ReturnedItem): string {
+  const since = dayLabel(item.returned_from_screening?.screening_since);
+  return since ? `W Screeningu od ${since}. ${RETURNED_TITLE}` : RETURNED_TITLE;
+}
 
 /** Pasek nad „Screeningiem” (26.11.2026): ile kart ma napis „Wraca do
  *  „Nowych” …” (został najwyżej 1 dzień roboczy). `notices` to wynik
