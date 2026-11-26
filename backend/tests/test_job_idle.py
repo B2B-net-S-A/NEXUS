@@ -18,7 +18,7 @@ from app.models.job import JobCloseReason
 from app.services import job_idle
 from app.services.hit_ratio_scope import close_reason_group
 from app.services.job_close_choice import validate_close_choice
-from app.services.job_idle import IdleFacts, idle_state, notice_text, stage_for
+from app.services.job_idle import IdleFacts, idle_state, may_auto_close, notice_text, stage_for
 
 NOW = datetime(2026, 11, 12, 9, 0, tzinfo=timezone.utc)
 START = datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc)
@@ -560,3 +560,20 @@ async def test_overdue_bell_eaten_by_daily_dedup_is_retried(
         await db.execute(delete(Notification).where(Notification.id == earlier_id))
         await db.commit()
     assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 1
+
+
+def test_auto_close_rechecks_hold_after_the_row_lock() -> None:
+    # Przegląd 26.11: DL klika „Wstrzymana…” w pasku 28. dnia, gdy pętla już
+    # wybrała rekrutację do zamknięcia. Po blokadzie wiersza liczy się stan
+    # z bazy — wstrzymana nigdy nie zamyka się sama jako przegrana.
+    from types import SimpleNamespace
+
+    from app.models.job import JobStatus
+
+    open_job = SimpleNamespace(status=JobStatus.published, work_state="searching")
+    held = SimpleNamespace(status=JobStatus.published, work_state="on_hold")
+    closed = SimpleNamespace(status=JobStatus.closed, work_state="finished")
+    assert may_auto_close(open_job) is True
+    assert may_auto_close(held) is False
+    assert may_auto_close(closed) is False
+    assert may_auto_close(None) is False

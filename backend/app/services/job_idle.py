@@ -221,6 +221,19 @@ async def last_cv_sent_at(
     return {job_id: moved_at for job_id, moved_at in rows}
 
 
+def may_auto_close(job: Optional[Job]) -> bool:
+    """Czy pętla może zamknąć rekrutację — sprawdzane PO blokadzie wiersza.
+
+    Kandydatów pętla wybiera bez blokady; wstrzymanie zapisane w tym czasie
+    widać dopiero w ``SELECT … FOR UPDATE``. Wstrzymana nie zamyka się sama.
+    """
+    return (
+        job is not None
+        and job.status == JobStatus.published
+        and job.work_state != ON_HOLD
+    )
+
+
 def in_send_window(now: datetime) -> bool:
     from app.core.scheduling import is_business_day  # noqa: PLC0415
 
@@ -534,7 +547,7 @@ async def run_idle_sweep(
             stage = "hor"
         if stage == "close":
             job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
-            if job is None or job.status != JobStatus.published:
+            if not may_auto_close(job):
                 continue
             await close_job_core(
                 db,

@@ -74,6 +74,21 @@ beforeEach(() => {
 });
 
 describe("usePipelineMoveCore — rekrutacja wstrzymana", () => {
+  it("pyta o rekrutację z ruchu, nie o tę, z którą powstał hak (łączny screening bliźniaków)", async () => {
+    // Hak z rekrutacji 7 („Szukamy”), ruch w bliźniaku 8, który jest wstrzymany.
+    get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url === "/api/jobs/8/hold" ? { ...HOLD, job_id: 8 } : { ...HOLD, state: "searching", reason: null },
+      }),
+    );
+    const send = setup();
+    void send({ candidate_id: 3, job_id: 8, stage: "verified" });
+
+    expect(await screen.findByText("Ta rekrutacja jest wstrzymana")).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith("/api/jobs/8/hold");
+    expect(move).not.toHaveBeenCalled();
+  });
+
   it("„Nie przesuwaj” = bez żądania i bez komunikatu błędu", async () => {
     get.mockResolvedValue({ data: HOLD });
     const send = setup();

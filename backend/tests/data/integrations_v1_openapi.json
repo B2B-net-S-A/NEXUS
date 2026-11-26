@@ -11600,7 +11600,7 @@
             "type": "string"
           },
           "work_state": {
-            "description": "to_review | searching | champion | client_silent | finished",
+            "description": "to_review | searching | champion | client_silent | on_hold | finished",
             "title": "Work State",
             "type": "string"
           },
@@ -11925,7 +11925,7 @@
             "type": "string"
           },
           "work_state": {
-            "description": "to_review | searching | champion | client_silent | finished",
+            "description": "to_review | searching | champion | client_silent | on_hold | finished",
             "title": "Work State",
             "type": "string"
           },

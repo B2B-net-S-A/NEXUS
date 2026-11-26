@@ -101,12 +101,15 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
   // Stan wstrzymania z cache'u strony rekrutacji (najwyżej minutę stary),
   // a bez niego jedno `GET …/hold`. Błąd odczytu = bez pytania: ostrzeżenie
   // nie może zatrzymać pracy, gdy trasa nie odpowiada.
-  const holdViewForMove = useCallback(async (): Promise<HoldView | null> => {
-    if (!jobId) return null;
+  // Rekrutacja z ruchu, nie z haka: łączny screening (`JointScreeningForm`)
+  // ma jeden hak i przesuwa karty w kilku bliźniaczych rekrutacjach.
+  const holdViewForMove = useCallback(async (moveJobId: number | undefined): Promise<HoldView | null> => {
+    const id = moveJobId || jobId;
+    if (!id) return null;
     try {
       const hold = await queryClient.fetchQuery({
-        queryKey: jobHoldKey(jobId),
-        queryFn: () => fetchJobHold(jobId),
+        queryKey: jobHoldKey(id),
+        queryFn: () => fetchJobHold(id),
         staleTime: JOB_HOLD_STALE_MS,
       });
       return holdViewOf(hold);
@@ -129,7 +132,7 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
         !initialHandlers.holdAcknowledged &&
         !isHoldExemptMove(payload)
       ) {
-        const hold = await holdViewForMove();
+        const hold = await holdViewForMove(payload.job_id);
         if (hold) {
           const warning = holdMoveWarning(hold, {
             candidateName: initialHandlers.candidateName,
