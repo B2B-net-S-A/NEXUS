@@ -191,6 +191,21 @@ def test_finance_novelty_starts_on_its_own_view_not_the_overview() -> None:
     assert wrong == [], f"Dopisz practice_href z ?view= widoku: {wrong}"
 
 
+def test_show_does_not_start_by_folding_an_open_cv_section() -> None:
+    """Panel Jakuba (990108, „Zweryfikowany”) otwiera się z rozwiniętą sekcją
+    „CV” (bieżący etap). 26.11.2026 pokaz „Nowe CV: strona 1” zaczynał od
+    „Rozwiń sekcję CV” — klik ją zwijał i „Edytuj CV” nie miał czego wskazać.
+    Pokaz przy tej osobie zaczyna od kroku w otwartej sekcji."""
+    wrong = [
+        n.id
+        for n in load_novelties().values()
+        if (n.practice_href or "").endswith("candidate=990108")
+        and n.steps
+        and n.steps[0].anchor == "person.dock.cv"
+    ]
+    assert wrong == [], f"Pierwszy krok zwija otwartą sekcję CV: {wrong}"
+
+
 def test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list() -> None:
     """Pokaz lekcji zaczyna tam, gdzie jest element, a nie na liście `/jobs`.
 
