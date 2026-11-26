@@ -1,0 +1,1106 @@
+/*
+ * Język A strony kariery (decyzja Artura 26.11.2026, makiety A-pierwszy-ekran,
+ * A-telefon, O-oferta, O-zdalna, O-wyslane, O-brak-wynikow, O-zamknieta):
+ * szklana mapa Polski na czerwonym polu, fakty w szklanych kafelkach,
+ * proces jako szklane stopnie. Tokeny kolorów są w `site.module.css`
+ * (`.site`), tu tylko układ. Telefon do 1023 px (mapa pod tekstem),
+ * od 1024 px tekst i mapa obok siebie. Tekst na telefonie ≥ 16 px.
+ *
+ * Selektory podwojone (`.x.x`) wygrywają z tłem rozdziału z `site.module.css`
+ * bez zależności od kolejności wczytania modułów.
+ */
+
+/* ───────────── Mapa ───────────── */
+.map {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.mapNum {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  fill: var(--white);
+}
+.mapName {
+  font-family: var(--text);
+  font-weight: 600;
+  fill: var(--on-red-soft);
+}
+.mapName .mapNum {
+  letter-spacing: 0;
+}
+.mapMono {
+  font-family: var(--mono);
+  fill: var(--on-red-soft);
+}
+.leader {
+  fill: none;
+  stroke: var(--white);
+  stroke-opacity: 0.7;
+  stroke-width: 1;
+}
+.cols {
+  stroke: var(--white);
+  stroke-opacity: 0.8;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.flows {
+  fill: none;
+  stroke: var(--white);
+  stroke-width: 1.3;
+  stroke-opacity: 0.75;
+}
+.flow {
+  stroke-dasharray: 3 7;
+  animation: flow 2.2s linear infinite;
+}
+@keyframes flow {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+.pulse {
+  fill: none;
+  stroke: var(--white);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulse 2.6s ease-out infinite;
+}
+.pulse2 {
+  animation-delay: 1.3s;
+}
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(7);
+    opacity: 0;
+  }
+}
+.twinkle {
+  animation: twinkle 2.8s ease-in-out infinite;
+}
+.tw1 {
+  animation-delay: 0.7s;
+}
+.tw2 {
+  animation-delay: 1.4s;
+}
+.tw3 {
+  animation-delay: 2.1s;
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.ghost {
+  stroke-dasharray: 6 6;
+  animation: dash 2.4s linear infinite;
+}
+@keyframes dash {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+.ghostText {
+  font-family: var(--mono);
+  font-weight: 600;
+  fill: var(--red-text);
+}
+
+/* ───────────── Pierwszy ekran listy ───────────── */
+.heroA.heroA {
+  position: relative;
+  z-index: 2;
+  padding: 22px 0 64px;
+  background-image:
+    radial-gradient(circle at 60% 78%, rgba(255, 214, 201, 0.3) 0%, rgba(255, 214, 201, 0) 50%),
+    linear-gradient(160deg, var(--red-deep) 0%, var(--red) 55%, var(--red-glow) 100%);
+}
+.heroGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.heroText {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.heroTitle {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 38px;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+.heroLead {
+  font-size: 18px;
+  line-height: 1.45;
+  color: var(--on-red-soft);
+  max-width: 540px;
+}
+.heroLead strong {
+  color: var(--white);
+  font-weight: 700;
+}
+.heroSearch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.heroField {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 54px;
+  padding: 0 14px;
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--ink);
+  box-shadow: 0 18px 40px rgba(90, 10, 18, 0.35);
+}
+.heroField:focus-within {
+  box-shadow:
+    0 0 0 3px var(--lime),
+    0 18px 40px rgba(90, 10, 18, 0.35);
+}
+.heroField input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 17px;
+}
+.heroField input:focus-visible {
+  outline: none;
+}
+.heroField input::placeholder {
+  color: var(--placeholder);
+}
+.heroField input::-webkit-search-cancel-button {
+  display: none;
+}
+.heroCount {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.heroClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: -6px;
+  font-size: 22px;
+  line-height: 1;
+}
+.heroGo {
+  height: 52px;
+  padding: 0 22px;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--white);
+  font-weight: 600;
+  font-size: 17px;
+  white-space: nowrap;
+}
+.heroGo:hover {
+  background: var(--ink-body);
+}
+.heroModes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.mode {
+  flex: 1 1 0;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--white);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+.mode:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.mode[aria-pressed="true"] {
+  background: var(--white);
+  color: var(--red-text);
+}
+.heroCv {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--white);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.heroCv:hover {
+  color: var(--lime);
+}
+.heroMap {
+  margin: 6px -10px 0;
+}
+.mapDesk {
+  display: none;
+}
+.wave {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  display: block;
+  width: 100%;
+  height: 48px;
+  pointer-events: none;
+}
+
+/* ───────────── Lista pod pierwszym ekranem ───────────── */
+.listHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.listTitle {
+  flex-basis: 100%;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+.cityChips {
+  display: flex;
+  gap: 8px;
+  margin-right: -16px;
+  padding-right: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cityChip {
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  border: 1px solid var(--rule);
+  background: var(--white);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cityChip:hover {
+  border-color: var(--ink);
+}
+.cityChip[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--white);
+}
+
+/* Brak wyników (O-brak-wynikow): pusta kolumna na jasnej mapie i prośba o CV. */
+.emptyA {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+.emptyA h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+.emptyA p {
+  font-size: 17px;
+  color: var(--ink-soft);
+}
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.nearby {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+.nearby a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  text-decoration: none;
+}
+.nearby a:hover {
+  border-color: var(--red-text);
+  color: var(--red-text);
+}
+
+/* ───────────── Pierwszy ekran oferty ───────────── */
+.offerHero.offerHero {
+  padding: 14px 0 56px;
+  background-image:
+    radial-gradient(circle at 70% 36%, rgba(255, 214, 201, 0.28) 0%, rgba(255, 214, 201, 0) 46%),
+    linear-gradient(160deg, var(--red-deep) 0%, var(--red) 55%, var(--red-glow) 100%);
+}
+.offerGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.offerText {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--on-red-soft);
+  text-decoration: none;
+}
+.back:hover {
+  color: var(--white);
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tags li {
+  padding: 5px 9px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  font-family: var(--mono);
+  font-size: 16px;
+}
+.tags li:first-child {
+  border-color: var(--white);
+  background: var(--white);
+  color: var(--red-text);
+  font-weight: 600;
+}
+.offerTitle {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 46px;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
+}
+.offerTitleLong {
+  font-size: 34px;
+  line-height: 1.04;
+}
+.offerSummary {
+  font-size: 18px;
+  line-height: 1.45;
+  color: var(--on-red-soft);
+}
+.glassFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.glassFacts div {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.glassFacts dt {
+  font-size: 16px;
+  color: var(--on-red-soft);
+}
+.glassFacts dd {
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.offerWho {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fullLinkA {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--white);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.fullLinkA:hover {
+  color: var(--lime);
+}
+.offerAside {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.offerMap {
+  width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+/* ───────────── Projekt: opis, wymagania, zadania ───────────── */
+.project {
+  padding: 28px 0 64px;
+}
+.projectGrid {
+  display: grid;
+  gap: 28px;
+}
+.projectCol {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.projectH {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+.projectText p {
+  font-size: 17px;
+  line-height: 1.6;
+}
+.projectText p + p {
+  margin-top: 12px;
+}
+.projectText b {
+  font-weight: 700;
+}
+.reqCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--white);
+  box-shadow: 0 1px 0 var(--rule);
+}
+.reqCard h3 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 22px;
+}
+.reqCard h4 {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+}
+.reqList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+.reqList li {
+  display: flex;
+  gap: 10px;
+}
+.reqList li::before {
+  content: "";
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  margin-top: 7px;
+  background: var(--red);
+  transform: rotate(45deg);
+}
+.reqNice li::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--red);
+}
+.reqList small {
+  font-size: inherit;
+  color: var(--ink-soft);
+}
+.reqNote {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--red-text);
+}
+.taskList {
+  border-top: 2px solid var(--ink);
+}
+.taskList li {
+  display: flex;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 16px;
+  line-height: 1.45;
+}
+.taskList li > span {
+  flex-shrink: 0;
+  padding-top: 2px;
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--red-text);
+}
+
+/* ───────────── Proces: szklane stopnie ───────────── */
+.process.process {
+  padding: 40px 0 48px;
+  background-image: var(--red-tech);
+}
+.processH {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+.stairs {
+  margin-top: 20px;
+}
+.stairsSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.stairNum {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 26px;
+  fill: var(--white);
+}
+.stairNumOn {
+  fill: var(--red-text);
+}
+/* Na telefonie numery stopni byłyby za drobne — numeruje lista pod rysunkiem. */
+@media (max-width: 767px) {
+  .stairNum {
+    display: none;
+  }
+}
+.stairList {
+  display: grid;
+  gap: 0;
+  margin-top: 12px;
+}
+.stairList li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+.stairList strong {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 700;
+}
+.stairList span {
+  font-size: 16px;
+  color: var(--on-red-soft);
+}
+.stairList .stairIdx {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--on-red-soft);
+}
+
+/* ───────────── Aplikacja ───────────── */
+.applyA.applyA {
+  padding: 24px 0 56px;
+  background-image: var(--red-tech);
+}
+
+/* ───────────── Po wysłaniu ───────────── */
+.sentA.sentA {
+  padding: 24px 0 56px;
+  background-image: linear-gradient(160deg, var(--red-deep) 0%, var(--red) 55%, var(--red-glow) 100%);
+}
+.sentGrid {
+  display: grid;
+  gap: 22px;
+}
+.sentText {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--on-red-soft);
+}
+.badge > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--red-text);
+  font-family: var(--text);
+  font-weight: 700;
+}
+.sentTitle {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 46px;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+.sentLead {
+  font-size: 18px;
+  line-height: 1.45;
+  color: var(--on-red-soft);
+}
+.progress {
+  display: flex;
+  flex-direction: column;
+}
+.progress li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 16px;
+}
+.progress li > span {
+  color: var(--on-red-soft);
+  text-align: right;
+}
+.progress li.now > span {
+  color: var(--white);
+  font-weight: 600;
+}
+.receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.receipt h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+}
+.receipt dl {
+  display: grid;
+  gap: 8px;
+}
+.receipt dt {
+  font-size: 16px;
+  color: var(--on-red-soft);
+}
+.receipt dd {
+  font-size: 17px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.btnRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.btnGlass {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  color: var(--white);
+  font-weight: 600;
+  font-size: 17px;
+  text-decoration: none;
+}
+.btnGlass:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Podobne projekty pod „Wysłane” i obok zamkniętej */
+.alike {
+  padding: 28px 0 56px;
+}
+.alikeTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 20px;
+  margin-bottom: 14px;
+}
+.alikeTop h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+.alikeTop a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  color: var(--red-text);
+}
+
+/* ───────────── Zamknięta ───────────── */
+.closedA.closedA {
+  padding: 24px 0 56px;
+  background-image: linear-gradient(160deg, var(--red-deep) 0%, var(--red) 55%, var(--red-glow) 100%);
+}
+.closedGrid {
+  display: grid;
+  gap: 28px;
+}
+.closedMap {
+  max-width: 420px;
+}
+.othersCol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.othersCol h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 24px;
+}
+
+@media (min-width: 768px) {
+  .heroTitle {
+    font-size: 52px;
+  }
+  .heroSearch {
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding: 6px 6px 6px 18px;
+    border-radius: 6px;
+    background: var(--white);
+    box-shadow: 0 18px 40px rgba(90, 10, 18, 0.35);
+  }
+  .heroSearch:focus-within {
+    box-shadow:
+      0 0 0 3px var(--lime),
+      0 18px 40px rgba(90, 10, 18, 0.35);
+  }
+  .heroField,
+  .heroField:focus-within {
+    flex: 1;
+    height: 52px;
+    padding: 0 12px 0 0;
+    box-shadow: none;
+  }
+  .heroField input {
+    font-size: 18px;
+  }
+  .heroGo {
+    background: var(--red);
+    font-size: 17px;
+  }
+  .heroGo:hover {
+    background: var(--red-deep);
+  }
+  .mode {
+    flex: none;
+    padding: 0 18px;
+    font-size: 16px;
+  }
+  .heroCv {
+    margin-left: 12px;
+  }
+  .heroMap {
+    max-width: 560px;
+    margin: 6px auto 0;
+  }
+  .wave {
+    height: 64px;
+  }
+  .listTitle {
+    flex-basis: auto;
+    margin-right: 12px;
+    font-size: 28px;
+  }
+  .cityChips {
+    flex-wrap: wrap;
+    margin-right: 0;
+    padding-right: 0;
+    overflow: visible;
+  }
+  .cityChip {
+    height: 40px;
+    font-size: 15px;
+  }
+  .offerTitle {
+    font-size: 64px;
+  }
+  .offerTitleLong {
+    font-size: 44px;
+  }
+  .glassFacts div {
+    padding: 14px 16px;
+  }
+  .tags li {
+    padding: 6px 10px;
+    font-size: 15px;
+  }
+  .glassFacts dd {
+    font-size: 19px;
+  }
+  .projectH,
+  .processH {
+    font-size: 44px;
+  }
+  .reqCard {
+    padding: 26px 28px;
+  }
+  .reqCard h3 {
+    font-size: 26px;
+  }
+  .reqList {
+    font-size: 17px;
+  }
+  .projectText p {
+    font-size: 19px;
+  }
+  .taskList li {
+    gap: 20px;
+    padding: 16px 0;
+    font-size: 18px;
+  }
+  .stairList {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .stairList li {
+    border-top: 0;
+    padding: 0;
+  }
+  .stairList strong {
+    font-size: 20px;
+  }
+  .sentTitle {
+    font-size: 64px;
+  }
+  .emptyA {
+    grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+    align-items: center;
+    gap: 32px;
+  }
+  .emptyA h2 {
+    font-size: 40px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .heroA.heroA {
+    padding: 56px 0 96px;
+    background-image:
+      radial-gradient(circle at 74% 58%, rgba(255, 214, 201, 0.28) 0%, rgba(255, 214, 201, 0) 42%),
+      var(--red-tech);
+  }
+  .heroGrid {
+    display: grid;
+    grid-template-columns: minmax(0, 610px) minmax(0, 1fr);
+    align-items: center;
+    gap: 24px;
+  }
+  .heroText {
+    gap: 24px;
+  }
+  .heroTitle {
+    font-size: clamp(52px, 4.6vw, 66px);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+  }
+  .heroLead {
+    font-size: 21px;
+  }
+  .heroMap {
+    max-width: 680px;
+    margin: -40px -20px -60px 0;
+  }
+  .wave {
+    height: 80px;
+  }
+  .offerHero.offerHero {
+    padding: 36px 0 72px;
+    background-image:
+      radial-gradient(circle at 76% 30%, rgba(255, 214, 201, 0.28) 0%, rgba(255, 214, 201, 0) 40%),
+      var(--red-tech);
+  }
+  .offerGrid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+    align-items: start;
+    gap: 48px;
+  }
+  .offerTitle {
+    font-size: clamp(56px, 5.8vw, 84px);
+    line-height: 0.95;
+  }
+  .offerTitleLong {
+    font-size: clamp(40px, 3.6vw, 52px);
+  }
+  .offerSummary {
+    font-size: 21px;
+  }
+  .offerWho {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 28px;
+  }
+  .offerAside {
+    gap: 0;
+  }
+  .offerMap {
+    width: 100%;
+    max-width: 520px;
+    margin: -8px 0 -24px;
+  }
+  .project {
+    padding: 48px 0 96px;
+  }
+  .projectGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 72px;
+  }
+  .projectSolo {
+    grid-template-columns: minmax(0, 760px);
+  }
+  .projectH,
+  .processH {
+    font-size: 48px;
+  }
+  .process.process {
+    padding: 80px 0 72px;
+  }
+  .stairs {
+    margin-top: 28px;
+  }
+  .stairList {
+    margin-top: 16px;
+  }
+  .sentGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+    align-items: start;
+    gap: 56px;
+  }
+  .sentA.sentA,
+  .closedA.closedA {
+    padding: 56px 0 80px;
+    background-image: var(--red-tech);
+  }
+  .sentTitle {
+    font-size: 72px;
+  }
+  .closedGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+    align-items: start;
+    gap: 56px;
+  }
+}
+
+/* Mapa z drobnymi etykietami dopiero od 1280 px; węższa kolumna dostaje
+   mapę telefonu (cztery największe miasta, większe napisy), żeby żaden
+   napis nie spadł poniżej 13 px. */
+@media (min-width: 1280px) {
+  .mapPhone {
+    display: none;
+  }
+  .mapDesk {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow,
+  .pulse,
+  .twinkle,
+  .ghost {
+    animation: none;
+  }
+  .pulse {
+    opacity: 0;
+  }
+}
+
+/* Dopiski do ekranów stanów */
+.progress .stepName {
+  color: var(--white);
+}
+.closedLine {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--on-red-soft);
+}
+@media (min-width: 768px) {
+  .stairList .stairIdx {
+    display: none;
+  }
+}

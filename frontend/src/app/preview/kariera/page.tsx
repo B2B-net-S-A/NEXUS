@@ -192,12 +192,32 @@ const BOARD: CareerBoardResponse = {
   ],
 };
 
+/** Rozkład miast jak na tablicy 26.11.2026 (same liczby, oferty zmyślone) — do oglądania mapy przy dużych liczbach. */
+const CITY_SPREAD: [string, number][] = [
+  ["Warszawa", 77], ["Gdańsk", 42], ["Gdynia", 33], ["Łódź", 20],
+  ["Katowice", 5], ["Sopot", 5], ["Kraków", 4], ["Bydgoszcz", 1],
+];
+const BOARD_MANY: CareerBoardResponse = {
+  cv: BOARD.cv,
+  jobs: CITY_SPREAD.flatMap(([city, n]) =>
+    Array.from({ length: n }, (_, i) =>
+      BOARD_JOB(`oferta-${city.toLowerCase()}-${i}`, `Oferta ${i + 1} · ${city}`, null, city, "hybrid", "development", "grafit", "Marta"),
+    ),
+  ),
+};
+
+const REMOTE_JOB: CareerJobResponse = {
+  ...OPEN_JOB,
+  job: { ...OPEN_JOB.job, params: OPEN_JOB.job.params ? { ...OPEN_JOB.job.params, remote_policy: "remote", city: null } : null },
+};
 
 const STATES = [
   { id: "tablica", label: "tablica otwartych rekrutacji" },
+  { id: "tablica-miasta", label: "tablica — osiem miast" },
   { id: "tablica-pusta", label: "tablica bez rekrutacji" },
   { id: "tablica-awaria", label: "tablica — awaria API" },
   { id: "otwarta", label: "rekrutacja otwarta" },
+  { id: "oferta-zdalna", label: "oferta zdalna" },
   { id: "oferta-bledy", label: "oferta — formularz z błędami" },
   { id: "grafiki", label: "grafika posta" },
   { id: "dziekujemy", label: "podziękowanie" },
@@ -250,6 +270,12 @@ export default function CareerPreviewPage() {
         </SiteFrame>
       </State>
 
+      <State id="tablica-miasta" label="tablica — osiem miast">
+        <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
+          <CareerBoard data={BOARD_MANY} base={BASE} formPreview={{ disableSubmit: true }} />
+        </SiteFrame>
+      </State>
+
       <State id="tablica-pusta" label="tablica bez rekrutacji">
         <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
           <CareerBoard data={{ ...BOARD, jobs: [] }} base={BASE} formPreview={{ disableSubmit: true }} />
@@ -265,6 +291,16 @@ export default function CareerPreviewPage() {
       <State id="otwarta" label="rekrutacja otwarta">
         <OfferPage
           data={OPEN_JOB}
+          board={BOARD.jobs}
+          base={BASE}
+          formPreview={{ disableSubmit: true }}
+          quick={{ preview: { disableSubmit: true } }}
+        />
+      </State>
+
+      <State id="oferta-zdalna" label="oferta zdalna">
+        <OfferPage
+          data={REMOTE_JOB}
           board={BOARD.jobs}
           base={BASE}
           formPreview={{ disableSubmit: true }}
