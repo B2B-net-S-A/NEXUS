@@ -54,7 +54,10 @@ ustawiono 3 razy, a zamknięcie z powodem „wstrzymana” 6 razy. W 15 rekrutac
   wstrzymał?” i przycisk „Zgłoś DL-owi” (`POST /api/jobs/{id}/hold/report`,
   `Activity hold_reported`, dzwonek `job_hold_check` do DL, bez DL do HoR). Na
   wstrzymanej ten sam przycisk to „Zapytaj DL”. Jedno otwarte zgłoszenie na osobę
-  i rekrutację (409 `already_reported`).
+  i rekrutację (409 `already_reported`). `job_hold_check` (zgłoszenie,
+  odpowiedź DL, terminy) jest w kategorii imiennej, której nie da się wyciszyć,
+  bo na stagingu rekruterka z wyciszonymi „Przypomnieniami” nie dostała
+  odpowiedzi „DL potwierdził: szukamy”.
 - **Panel „Czy te rekrutacje nadal trwają?”** na pulpicie DL i w Daily
   (`GET /api/hold-checks`, do 10 pozycji). Pokazuje otwarte rekrutacje
   w „Szukamy” albo „Do przejrzenia” z sygnałem nowszym niż ostatnia odpowiedź DL.

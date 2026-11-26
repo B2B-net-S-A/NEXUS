@@ -290,7 +290,7 @@ def test_notification_types_are_registered_everywhere() -> None:
     from app.services.notification_substitution import CURRENT_WORK_TYPES
 
     assert CATEGORY_BY_TYPE[T.job_hold_changed] is NotificationCategory.mentions
-    assert CATEGORY_BY_TYPE[T.job_hold_check] is NotificationCategory.reminders
+    assert CATEGORY_BY_TYPE[T.job_hold_check] is NotificationCategory.mentions
     for ntype in (T.job_hold_changed, T.job_hold_check):
         assert ntype in NOTIFICATION_SECTION_BY_TYPE
         assert ntype in CURRENT_WORK_TYPES
@@ -749,3 +749,19 @@ async def test_planner_keeps_the_team_of_a_held_job_but_drops_proposals(
     mine = {(row.user_id, row.state) for row in live if row.job_id == seed["job_id"]}
     assert mine == {(other_id, "proposed")}
     assert out[seed["job_id"]] == "on_hold"
+
+
+def test_hold_check_is_a_named_bell_that_cannot_be_muted() -> None:
+    # Staging 26.11: rekruterka z wyciszonymi „Przypomnieniami” nie dostała
+    # „DL potwierdził: szukamy”, a DL z wyciszeniem nie dostałby zgłoszenia.
+    # Pytanie i odpowiedź są imienne — jak przydział i zamknięcie rekrutacji.
+    from app.models.notification import NotificationType
+    from app.services.notification_categories import (
+        NotificationCategory,
+        category_for,
+        is_mutable,
+    )
+
+    category = category_for(NotificationType.job_hold_check)
+    assert category is NotificationCategory.mentions
+    assert not is_mutable(category)

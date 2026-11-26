@@ -166,6 +166,11 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0793: rekrutacja, nad którą pracujesz, wstrzymana / wznowiona — imienne
     # (nie proponuj projektu kandydatom), nie do wyciszenia jak przydział.
     _T.job_hold_changed: _C.mentions,
+    # 0793: rekruter pyta DL, czy klient wstrzymał, i dostaje odpowiedź; DL
+    # dostaje też termin „Sprawdzę z klientem” — imienne pytanie, nie do
+    # wyciszenia (rekruterka z wyciszonymi przypomnieniami nie dostała
+    # odpowiedzi na stagingu 26.11).
+    _T.job_hold_check: _C.mentions,
     # 0635: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
     # zadanie: napisz do kandydata, potwierdź termin, zdecyduj o zamknięciu.
     _T.cpro_candidate_rejected: _C.mentions,
@@ -212,9 +217,6 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.job_p0_overdue: _C.reminders,
     # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
     _T.job_idle_reminder: _C.reminders,
-    # 0793: „Czy ta rekrutacja nadal trwa?” — zgłoszenie rekrutera i terminy
-    # wstrzymania dla Delivery Leada.
-    _T.job_hold_check: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
@@ -411,7 +413,6 @@ _SPLIT_GROUPS: dict[
             _T.job_p0_requested,
             _T.job_p0_overdue,
             _T.job_idle_reminder,
-            _T.job_hold_check,
             _T.request_allocation_proposals,
         ),
     ),
