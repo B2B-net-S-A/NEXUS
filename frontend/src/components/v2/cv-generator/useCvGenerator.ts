@@ -90,6 +90,8 @@ export interface CvGenerationResult {
   clientName: string | null;
   stageLabel: string | null;
   attachedToStage: boolean;
+  /** Etap wybrany w generatorze (wynik sprawdza, czy CV do niego trafiło). */
+  stageId: number | null;
 }
 
 export function useCvGenerator({
@@ -439,6 +441,7 @@ export function useCvGenerator({
         clientName,
         stageLabel: recruitment?.stage ?? null,
         attachedToStage: !!recruitment,
+        stageId: recruitment?.stage_id ?? null,
       });
       onEnqueued?.(data.id);
     },
