@@ -19,15 +19,20 @@
    "cv-3984-stanowiska-bez-naglowka-nie-w-jezykach",
    "cv-3984-jezyki-bez-myslnika-i-kody",
    "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji",
-   "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji-po"
+   "cv-3984-nazwisko-w-tytule-przy-myslniku-bez-spacji-po",
+   "cv-3984-poziom-nieokreslony-sam-kod"
   ],
   "lapie_poprawke": true,
-  "do_rozszerzenia": "cv_new_layout.page1.shown_language — „level not specified” / „poziom nieokreślony” bez poziomu na pastylce (jezyki); runner liczy poziom z lang_level, nie z pastylki"
+  "uwaga": "pastylka języka z page1.shown_language: „level not specified” = sam kod (\"\")"
  },
  {
   "poprawka": "9c16681ce #3982",
   "tytul": "fix(cv-qc): pusta linia stanowiska to stanowisko, uwaga „Każde stanowisko ma nazwę”",
-  "do_rozszerzenia": "cv_qc._role_title_check i dz_review._kept (bloki CV z edytora): pusta linia stanowiska to osobne stanowisko — nazwa (stanowisko), daty; runner nie woła cv_qc ani dz_review"
+  "przypadki": [
+   "cv-3982-pusta-linia-stanowiska-to-stanowisko"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "etap qc: bloki HTML edytora (dz_review.html_blocks) i role QC (cv_qc.cv_roles); bez_nazwy z uwagi _role_title_check — rewizja bez niej nie ma tego klucza"
  },
  {
   "poprawka": "73c46cbd8 #3978",
@@ -126,7 +131,7 @@
  {
   "poprawka": "4aab2cd3a #3002",
   "tytul": "fix(cv): backfill czyta Worda przez LibreOffice zamiast znacznika legacy_doc",
-  "do_rozszerzenia": "cv_text_backfill: tekst .doc/.docx w biegu masowym przez LibreOffice zamiast znacznika legacy_doc — wejście wszystkich pól (tekst CV)"
+  "do_rozszerzenia": "cv_text_backfill: binarny Word w biegu masowym przez LibreOffice zamiast znacznika legacy_doc — wejście wszystkich pól (tekst CV). Bez przypadku: LibreOffice jest na laptopie (/Applications/LibreOffice.app, CV_PDF_SOFFICE), ale nie w CI: strażnik korpusu biegnie w jobie „Pytest (marker static, bez bazy)” bez soffice (ci.yml), więc przypadek padałby w CI na braku narzędzia, nie czytnika"
  },
  {
   "poprawka": "b60f44e60 #3001",
@@ -151,7 +156,7 @@
  {
   "poprawka": "1d648608a #2979",
   "tytul": "fix(cv): Word bez tekstu z python-docx czytany przez LibreOffice",
-  "do_rozszerzenia": "cv_text_extractor: tekst Worda (.docx bez tekstu z python-docx) przez LibreOffice — wejście wszystkich pól (tekst CV); runner dostaje gotowy tekst"
+  "do_rozszerzenia": "cv_text_extractor: tekst Worda (.docx bez tekstu z python-docx) przez LibreOffice — wejście wszystkich pól (tekst CV). Bez przypadku: LibreOffice jest na laptopie (/Applications/LibreOffice.app, CV_PDF_SOFFICE), ale nie w CI: strażnik korpusu biegnie w jobie „Pytest (marker static, bez bazy)” bez soffice (ci.yml), więc przypadek padałby w CI na braku narzędzia, nie czytnika"
  },
  {
   "poprawka": "0421813e1 #2975",
@@ -265,7 +270,7 @@
  {
   "poprawka": "af951fc2b #3079",
   "tytul": "fix(kandydaci): nazwisko i telefon z grafiki nagłówka CV przez OCR pierwszej strony",
-  "do_rozszerzenia": "cv_text_extractor: OCR pierwszej strony, gdy imię i nazwisko są grafiką nagłówka — nazwa (imie, nazwisko); część cv_parser (_email_is_in_text) dotyczy e-maila, którego eval nie liczy"
+  "do_rozszerzenia": "cv_text_extractor: OCR pierwszej strony, gdy imię i nazwisko są grafiką nagłówka — nazwa (imie, nazwisko). Bez przypadku: tesseract i pdftoppm są w CI tylko w kroku „Native CV OCR acceptance” (shard 0, tests/test_cv_ocr_native.py), nie w jobie strażnika, a na laptopie nie ma tesseracta; część cv_parser (_email_is_in_text) dotyczy e-maila, którego eval nie liczy"
  },
  {
   "poprawka": "675f16b74 #3060",
@@ -280,7 +285,11 @@
  {
   "poprawka": "3741664a8 #3064",
   "tytul": "fix(kandydaci): nazwa z nagłówka CV i z pliku nie nazywa pustego profilu",
-  "do_rozszerzenia": "cv_parser._apply_contact_fallbacks: _name_from_header jako lista pól (first_name/last_name) — nazwa; runner zwraca tylko imie/nazwisko, a te się nie zmieniły"
+  "przypadki": [
+   "cv-3064-z-naglowka-tylko-brakujace-pole"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "z_naglowka = pola z _name_from_header; True z #3057 runner liczy jako całą nazwę, więc przed poprawką imię od modelu też jest „z nagłówka”"
  },
  {
   "poprawka": "512a05d6f #3063",
@@ -290,7 +299,11 @@
  {
   "poprawka": "ea446e76e #3061",
   "tytul": "fix(kandydaci): odczyt tekstu CV z plików ODT",
-  "do_rozszerzenia": "cv_text_extractor: odczyt tekstu z plików ODT — wejście wszystkich pól (tekst CV)"
+  "przypadki": [
+   "cv-3061-tekst-z-pliku-odt"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "odczyt z pliku (wejscie.odczyt.plik) przez extract_text; przed poprawką UnsupportedCvFormat = pusty tekst, jak przy wgraniu, więc pada na wartości"
  },
  {
   "poprawka": "f82a565d9 #3062",
@@ -300,12 +313,16 @@
    "cv-3062-naglowki-i-miasto-bez-nazwiska"
   ],
   "lapie_poprawke": true,
-  "uwaga": "w evalu przed poprawką pada AttributeError (finalize_claude_cv_output / normalize_cv_output powstały w #3110, 07.11.2026); z wejściem cv_parser z tamtej rewizji (to samo co parse_cv) przypadek pada na wartości: „Doświadczenie Zawodowe”, „Technical Skills” jako imię i nazwisko"
+  "uwaga": "przed #3110 (finalize_claude_cv_output / normalize_cv_output, 07.11.2026) runner składa odczyt z funkcji prywatnych cv_parser (_apply_contact_fallbacks, _with_linkedin_fallback, _normalize_cv_output), jak wtedy parse_cv; przed poprawką pada na wartości: „Doświadczenie Zawodowe”, „Technical Skills” jako imię i nazwisko"
  },
  {
   "poprawka": "5a5da2f73 #3057",
   "tytul": "fix(kandydaci): nazwa z samego nagłówka CV nie daje kwarantanny",
-  "do_rozszerzenia": "cv_parser._apply_contact_fallbacks: znacznik _name_from_header (imię i nazwisko z nagłówka, nie z modelu) dla bramki tożsamości — nazwa; runner zwraca tylko imie/nazwisko, a te się nie zmieniły"
+  "przypadki": [
+   "cv-3057-nazwa-z-naglowka-ma-znacznik"
+  ],
+  "lapie_poprawke": true,
+  "uwaga": "przed #3110 (finalize_claude_cv_output) runner składa odczyt z funkcji prywatnych cv_parser, jak wtedy parse_cv; przed poprawką pada na wartości (z_naglowka [])"
  },
  {
   "poprawka": "15cbcc785 #3059",
@@ -320,7 +337,7 @@
    "cv-3056-not-provided-bez-nazwy-w-cv"
   ],
   "lapie_poprawke": true,
-  "uwaga": "w evalu przed poprawką pada AttributeError (finalize_claude_cv_output / normalize_cv_output powstały w #3110, 07.11.2026); z wejściem cv_parser z tamtej rewizji (to samo co parse_cv) przypadek pada na wartości: „Not Provided”, „not provided / NOT PROVIDED” jako imię i nazwisko"
+  "uwaga": "przed #3110 (finalize_claude_cv_output / normalize_cv_output, 07.11.2026) runner składa odczyt z funkcji prywatnych cv_parser (_apply_contact_fallbacks, _with_linkedin_fallback, _normalize_cv_output), jak wtedy parse_cv; przed poprawką pada na wartości: „Not Provided”, „not provided / NOT PROVIDED” jako imię i nazwisko"
  },
  {
   "poprawka": "c962ce4dd #3055",

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "cv-3984-poziom-nieokreslony-sam-kod",
+    "poprawka": "4abf8d802 #3984",
+    "opis": "„English – level not specified” i „Polski – poziom nieokreślony” dawały na stronie 1 pastylkę z tym tekstem zamiast samego kodu języka",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "en",
+      "generator": {
+        "name": "Jan Korpusowy",
+        "position": "Data Engineer",
+        "languages": ["English – level not specified", "Polski – poziom nieokreślony", "German – B2"]
+      }
+    },
+    "oczekiwane": {
+      "jezyki": [
+        {"jezyk": "English", "kod": "EN", "pastylka": ""},
+        {"jezyk": "Polski", "kod": "PL", "pastylka": ""},
+        {"jezyk": "German", "kod": "DE", "pastylka": "B2"}
+      ],
+      "liczba_jezyki": 3
+    }
+  }
+]

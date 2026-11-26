@@ -1,0 +1,66 @@
+[
+ {
+  "id": "rozl-3876-tresc-maila-z-ts-gdy-w-watku-pisze-klient",
+  "poprawka": "9371d812f #3876",
+  "opis": "Konsultant przekazuje Time Sheet razem z odpowiedzią kierownika „Potwierdzam” (klient z regułą proof.excel_with_mail): czytnik zapisywał sam plik, bez treści maila, i kontrola pisała „Brak maila z akceptacją godzin”",
+  "dzis": "2026-10-05",
+  "klienci": {
+   "K1": {
+    "nazwa": "Bank Przykładowy",
+    "reguly": {"proof.excel_with_mail": {"level": "warn", "params": {"domain": "bank.example.com"}}}
+   }
+  },
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "K1"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "jan.korpusowy@example.com",
+    "temat": "Potwierdzenie godzin i faktura - wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "Timesheet wrzesien.pdf", "tekst": "%PDF-1.4 fikcyjny time sheet"}],
+    "eml": "From: jan.korpusowy@example.com\nSubject: Potwierdzenie godzin i faktura - wrzesień 2026\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPrzesyłam Time Sheet z akceptacją poniżej.\n\n*From:* Kierownik Testowy <kierownik@bank.example.com>\n*Sent:* Monday, October 5, 2026 11:02 AM\n*Subject:* ODP: Potwierdzenie godzin - wrzesień\n\nPotwierdzam\n"
+   },
+   {
+    "id": "m2",
+    "od": "jan.korpusowy@example.com",
+    "temat": "Faktura - wrzesień 2026",
+    "odebrano": "2026-10-05T09:00:00Z",
+    "pliki": [{"nazwa": "TS wrzesien 2.pdf", "tekst": "%PDF-1.4 inny time sheet"}],
+    "eml": "From: jan.korpusowy@example.com\nSubject: Faktura - wrzesień 2026\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nW załączniku TS.\n"
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Timesheet wrzesien.pdf", "osoba": "A", "okres": "2026-09"},
+   {"plik": "Potwierdzenie godzin i faktura - wrzesień 2026.eml", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "TS wrzesien 2.pdf", "osoba": "A"},
+   {"plik": "Faktura - wrzesień 2026.eml", "_brak": true}
+  ],
+  "liczba_dokumentow": 3
+ },
+ {
+  "id": "rozl-3876-akceptacja-ze-skrzynki-konsultanta-u-klienta",
+  "poprawka": "9371d812f #3876",
+  "opis": "Konsultant przekazuje akceptację kierownika ze swojej skrzynki u klienta, bez nazwiska w temacie („PD: akcept rozliczenia”): mail bez pliku czekał bez osoby, choć nadawca to adres z jego kontraktu",
+  "dzis": "2026-10-05",
+  "klienci": {
+   "K1": {
+    "nazwa": "Bank Przykładowy",
+    "reguly": {"proof.excel_with_mail": {"level": "warn", "params": {"domain": "bank.example.com"}}}
+   }
+  },
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@bank.example.com", "klient": "K1"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "jan.korpusowy@bank.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "PD: akcept rozliczenia",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "tresc": "Podsyłam akcept.",
+    "eml": "From: jan.korpusowy@bank.example.com\nTo: rozliczenia@firma.example.com\nSubject: PD: akcept rozliczenia\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPodsyłam akcept.\n\nOd: Kierownik <kierownik@bank.example.com>\nakceptuję\n"
+   }
+  ],
+  "oczekiwane": [{"plik": "PD: akcept rozliczenia.eml", "rodzaj": "report", "osoba": "A"}],
+  "liczba_dokumentow": 1
+ }
+]

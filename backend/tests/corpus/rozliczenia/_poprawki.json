@@ -54,9 +54,9 @@
  {
   "poprawka": "6b3fe814f #3953",
   "tytul": "czytnik skrzynki nie staje na złym ZIP-ie ani na mailu z domeny klienta",
-  "przypadki": ["rozl-3953-zip-z-zepsutym-plikiem"],
+  "przypadki": ["rozl-3953-zip-z-zepsutym-plikiem", "rozl-3953-kcp-konsultanta-z-domeny-klienta", "rozl-3953-mail-padajacy-porzucony-po-pieciu-biegach"],
   "lapie_poprawke": true,
-  "do_rozszerzenia": "mail z domeny klienta z regułą cl.client_acceptance (KCP konsultanta, odmowa) wymaga reguł rozliczeń klienta (ClientSettlementRuleSet); porzucenie maila po 5 biegach wymaga kilku przebiegów run_once"
+  "uwagi": "rozl-3953-mail-padajacy-porzucony-po-pieciu-biegach: atrapa skrzynki rzuca ValueError przy załącznikach maila (pole „wyjatek”), jak test poprawki; zepsuty ZIP łapie rozl-3953-zip-z-zepsutym-plikiem"
  },
  {
   "poprawka": "31bb164d0 #3945",
@@ -97,9 +97,8 @@
  {
   "poprawka": "5492ab276 #3909",
   "tytul": "podpisany arkusz zbiorczy klienta trafia do osoby i zastępuje mail z akceptacją godzin",
-  "przypadki": ["rozl-3909-arkusz-zbiorczy-b2b-jako-raport"],
-  "lapie_poprawke": true,
-  "do_rozszerzenia": "treść maila przy duplikacie Time Sheet zapisuje się przy regule proof.excel_with_mail: przypadek nie umie reguł rozliczeń klienta (ClientSettlementRuleSet)"
+  "przypadki": ["rozl-3909-arkusz-zbiorczy-b2b-jako-raport", "rozl-3909-akceptacja-kierownika-z-tym-samym-time-sheet"],
+  "lapie_poprawke": true
  },
  {
   "poprawka": "807c9022b #3885",
@@ -134,10 +133,11 @@
    "rozl-3876-nazwisko-po-zmianie",
    "rozl-3876-literowka-w-imieniu-u-klienta-dl",
    "rozl-3876-skrzynka-external-w-poddomenie-klienta",
-   "rozl-3876-numer-umowy-wykonawczej"
+   "rozl-3876-numer-umowy-wykonawczej",
+   "rozl-3876-tresc-maila-z-ts-gdy-w-watku-pisze-klient",
+   "rozl-3876-akceptacja-ze-skrzynki-konsultanta-u-klienta"
   ],
-  "lapie_poprawke": true,
-  "do_rozszerzenia": "treść maila z Time Sheet i akceptacja ze skrzynki konsultanta u klienta działają przy regułach proof.excel_with_mail/extra.mail_accept: przypadek nie umie reguł rozliczeń klienta (ClientSettlementRuleSet)"
+  "lapie_poprawke": true
  },
  {
   "poprawka": "2b33255d7 #3866",
@@ -175,9 +175,8 @@
  {
   "poprawka": "cc854f311 #3778",
   "tytul": "raport z poczty trafia do osoby — Gmail bez kropek, erste.pl, inicjał w odpowiedzi klienta, okres „MM RRRR”",
-  "przypadki": ["rozl-3778-gmail-bez-kropek", "rozl-3778-skrzynka-konsultanta-erste-pl", "rozl-3778-kcp-okres-mm-spacja-rrrr"],
-  "lapie_poprawke": true,
-  "do_rozszerzenia": "osoba z inicjałem w temacie naszego maila z Wysłanych („Potwierdzenie godzin R.Nazwisko”): atrapa skrzynki bez sent_messages"
+  "przypadki": ["rozl-3778-gmail-bez-kropek", "rozl-3778-skrzynka-konsultanta-erste-pl", "rozl-3778-kcp-okres-mm-spacja-rrrr", "rozl-3778-inicjal-imienia-w-temacie-naszego-maila", "rozl-3778-wszystko-sie-zgadza-to-akceptacja"],
+  "lapie_poprawke": true
  },
  {"poprawka": "528a89fc2 #3772", "tytul": "stawka dzienna zwykłego zamówienia jest stawką MD", "poza_czytnikiem": "stawka MD z zamówienia dziennego"},
  {
@@ -189,8 +188,9 @@
  {
   "poprawka": "b6d9aa354 #3755",
   "tytul": "odpowiedź klienta bez pliku bierze plik godzin z naszego maila z Wysłanych",
-  "przypadki": [],
-  "do_rozszerzenia": "Wysłane: atrapa skrzynki (_Box) nie ma sent_messages — przypadek potrzebuje naszego maila z Wysłanych (sentDateTime, adresaci, załącznik) obok odpowiedzi klienta bez pliku"
+  "przypadki": ["rozl-3755-odpowiedz-klienta-bierze-plik-z-wyslanych", "rozl-3755-odpowiedz-z-odmowa-nie-bierze-pliku"],
+  "lapie_poprawke": true,
+  "uwagi": "rozl-3755-odpowiedz-z-odmowa-nie-bierze-pliku to strażnik (przechodzi też przed poprawką): odmowa klienta nie przypisuje pliku z Wysłanych"
  },
  {
   "poprawka": "3dedc0d9f #3754",
@@ -249,10 +249,10 @@
    "rozl-3660-plik-z-zalaczonego-maila",
    "rozl-3660-nazwisko-w-temacie-od-adresu-firmy",
    "rozl-3660-rcp-bnp-ts-kp-karta-pracy",
-   "rozl-3660-okres-z-krotkich-form"
+   "rozl-3660-okres-z-krotkich-form",
+   "rozl-3660-akceptacja-przekazana-tresc-osobie-z-lancucha"
   ],
-  "lapie_poprawke": true,
-  "do_rozszerzenia": "akceptacja przekazana dalej (PKO) zapisuje treść maila osobie z łańcucha tylko przy regule proof.accept_has_hours: przypadek nie umie reguł rozliczeń klienta (ClientSettlementRuleSet)"
+  "lapie_poprawke": true
  },
  {
   "poprawka": "f0f725a81 #3625",
