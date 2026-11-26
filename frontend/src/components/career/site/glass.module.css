@@ -186,7 +186,7 @@
   background: transparent;
   font-size: 17px;
 }
-.site .heroField input:focus-visible {
+.heroField input:focus-visible {
   outline: none;
 }
 .heroField input::placeholder {
@@ -197,7 +197,7 @@
 }
 .heroCount {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 15px;
   color: var(--ink-soft);
   white-space: nowrap;
 }
@@ -413,7 +413,7 @@
   border-radius: 3px;
   border: 1px solid rgba(255, 255, 255, 0.6);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 16px;
 }
 .tags li:first-child {
   border-color: var(--white);
@@ -451,7 +451,7 @@
   border: 1px solid rgba(255, 255, 255, 0.35);
 }
 .glassFacts dt {
-  font-size: 14px;
+  font-size: 16px;
   color: var(--on-red-soft);
 }
 .glassFacts dd {
@@ -592,7 +592,7 @@
   flex-shrink: 0;
   padding-top: 2px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--red-text);
 }
 
@@ -654,7 +654,7 @@
 }
 .stairList .stairIdx {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--on-red-soft);
 }
 
@@ -684,7 +684,7 @@
   align-self: flex-start;
   gap: 10px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 16px;
   color: var(--on-red-soft);
 }
 .badge > span {
@@ -750,7 +750,7 @@
   gap: 8px;
 }
 .receipt dt {
-  font-size: 14px;
+  font-size: 16px;
   color: var(--on-red-soft);
 }
 .receipt dd {
@@ -902,6 +902,10 @@
   }
   .glassFacts div {
     padding: 14px 16px;
+  }
+  .tags li {
+    padding: 6px 10px;
+    font-size: 15px;
   }
   .glassFacts dd {
     font-size: 19px;
@@ -1092,7 +1096,7 @@
 }
 .closedLine {
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: 16px;
   color: var(--on-red-soft);
 }
 @media (min-width: 768px) {
