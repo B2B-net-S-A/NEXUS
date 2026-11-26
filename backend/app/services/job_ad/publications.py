@@ -114,7 +114,44 @@ def clean_url(value: Optional[str], portal: str) -> Optional[str]:
         )
     ):
         raise refusal
+    if portal == PORTAL_PRACUJ:
+        return _pracuj_public(text, host, parts.path)
     return text
+
+
+# Link z panelu pracodawcy Pracuj.pl: ten sam identyfikator co ``groupId``
+# publicznego ogłoszenia (sprawdzone na mailach Pracuj.pl 26.11.2026).
+_PRACUJ_PANEL_OFFER = re.compile(
+    r"/showjoboffer/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?",
+    re.IGNORECASE,
+)
+# Hosty panelu pracodawcy — strony za logowaniem do konta firmy.
+_PRACUJ_PANEL_HOSTS = ("publikacja.pracuj.pl", "strefa.pracuj.pl")
+
+
+def pracuj_public_url(group_id: str) -> str:
+    return f"https://www.pracuj.pl/praca?groupId={group_id.lower()}"
+
+
+def _pracuj_public(text: str, host: str, path: str) -> str:
+    """Link z panelu Pracuj.pl → publiczny; panel bez ogłoszenia = odmowa.
+
+    Pomiar 26.11.2026: 47 z 96 wklejonych linków prowadziło do panelu
+    pracodawcy (podgląd, lista kandydatów, nawet przekierowanie logowania
+    z kodem w adresie). Lista rekrutacji pokazuje je wszystkim jako
+    „Otwórz ogłoszenie”, a otworzy je tylko ktoś zalogowany na konto firmy.
+    """
+    if host not in _PRACUJ_PANEL_HOSTS:
+        return text
+    found = _PRACUJ_PANEL_OFFER.fullmatch(path)
+    if host == "publikacja.pracuj.pl" and found:
+        return pracuj_public_url(found.group(1))
+    raise ValueError(
+        "To link z panelu pracodawcy Pracuj.pl — bez logowania na nasze konto "
+        "nikt go nie otworzy. Wklej link z maila Pracuj.pl „Publikacja "
+        "ogłoszenia na …” (zaczyna się od https://www.pracuj.pl/) albo zostaw "
+        "pole puste."
+    )
 
 
 def _sorted(items: Iterable[Publication]) -> list[Publication]:

@@ -24,6 +24,14 @@ class JobAdPublicationOut(BaseModel):
     outdated: bool = False
 
 
+class AdPublicationMail(BaseModel):
+    """Mail Pracuj.pl, z którego NEXUS wziął link (26.11.2026)."""
+
+    email_id: int
+    subject: str
+    received_at: Optional[datetime] = None
+
+
 class AdPublicationRead(JobAdPublicationOut):
     """Stan portalu w oknie i w sekcji „Zespół i ogłoszenie”."""
 
@@ -31,6 +39,17 @@ class AdPublicationRead(JobAdPublicationOut):
     published_by_name: Optional[str] = None
     # Ustawione = zdjęte z portalu (wiersz zostaje jako ślad).
     removed_at: Optional[datetime] = None
+    # Link wzięty z maila „Publikacja ogłoszenia na …”; brak = wklejony ręcznie.
+    from_mail: Optional[AdPublicationMail] = None
+
+
+class PracujMailSuggestion(BaseModel):
+    """Mail Pracuj.pl, o który okno pyta: „To ta rekrutacja?” (26.11.2026)."""
+
+    email_id: int
+    subject: str
+    received_at: datetime
+    url: str
 
 
 class AdPublishRequest(BaseModel):
