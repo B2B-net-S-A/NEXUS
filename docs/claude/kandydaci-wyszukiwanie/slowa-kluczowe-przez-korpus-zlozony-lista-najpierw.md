@@ -45,5 +45,10 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
   identyfikatorach, liczba z okna `count(*) OVER()` na samych id (filtr raz — osobne `count(*)` liczyłoby regex dwa razy), pełne wiersze z relacjami tylko
   dla strony. Nie wracaj do `count(*) OVER()` na `select(Candidate)` — przepuszczał
   przez sortowanie wszystkie kolumny (bez filtra 385 ms, 170 MB na dysk
-  tymczasowy). `skills_manually_curated` zostaje nieodłożone (po zmianie liczy
+  tymczasowy). Okno liczy się w podzapytaniu, a `ORDER BY … LIMIT` stoi na
+  zewnątrz (`_page_ids_statement`, 26.11.2026): na jednym poziomie Postgres 16
+  brał przy „najnowsi”/„najstarsi” z filtrem `IN (… UNION …)` (tekst, słowa
+  kluczowe) pętlę po indeksie daty z filtrem złączenia — kopia: v2 „qa” 39 s,
+  v1 „java” 79 s; po zmianie 0,13 s i 1,1 s, te same wiersze. Bez filtra i przy
+  dobrym starym planie różnica ±30 ms. `skills_manually_curated` zostaje nieodłożone (po zmianie liczy
   się dla 50 osób; odłożenie = `MissingGreenlet` i inny odcisk weryfikacji).
