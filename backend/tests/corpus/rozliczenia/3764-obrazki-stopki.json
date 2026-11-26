@@ -1,0 +1,27 @@
+[
+ {
+  "id": "rozl-3764-obrazki-stopki-to-nie-dokumenty",
+  "poprawka": "782cd623e #3764",
+  "opis": "Ikona i logo stopki Outlooka (image00N poniżej 350 tys. px) szły jako raporty i faktury na kontraktach; zrzut tygodnia wklejony w treść zostaje",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Timesheet IX/2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {"nazwa": "image001.png", "plik": "pliki/3764-stopka-ikona-27x27.png"},
+     {"nazwa": "image003.png", "plik": "pliki/3764-stopka-logo-1125x282.png"},
+     {"nazwa": "image004.png", "plik": "pliki/3764-zrzut-tygodnia-1570x300.png"},
+     {"nazwa": "TS_2026_09_signed.pdf", "tekst": "%PDF-1.4 fikcyjny raport"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "TS_2026_09_signed.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "image004.png", "rodzaj": "report", "osoba": "A"}
+  ],
+  "liczba_dokumentow": 2
+ }
+]

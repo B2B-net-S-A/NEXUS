@@ -1,0 +1,34 @@
+[
+ {
+  "id": "rozl-3625-adres-firmowy-kcp",
+  "poprawka": "f0f725a81 #3625",
+  "opis": "Konsultant pisze z adresu firmowego imie.nazwisko@, kontrakt ma adres prywatny; „KCP 10/2026” bez słów raportu w nazwie pliku szła jako faktura bez osoby",
+  "dzis": "2026-11-03",
+  "osoby": {
+    "A": {"imie": "Łucja", "nazwisko": "Żółtańska", "email_kontraktu": "lucja.prywatna@example.com", "klient": "Bank Pocztowy Przykładowy"}
+  },
+  "maile": [
+    {"od": "lucja.zoltanska@firma.example.com", "do": ["rozliczenia@firma.example.com"], "temat": "KCP 10/2026", "odebrano": "2026-11-03T08:00:00Z",
+     "pliki": [{"nazwa": "Ł. Żółtańska.pdf", "tekst": "%PDF-1.4 fikcyjna karta KCP"}]}
+  ],
+  "oczekiwane": [
+    {"plik": "Ł. Żółtańska.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-10"}
+  ]
+ },
+ {
+  "id": "rozl-3625-arkusz-bez-slow-kluczy",
+  "poprawka": "f0f725a81 #3625",
+  "opis": "Arkusz godzin „BIK wrzesien.xlsx” z adresu firmowego bez słowa raportu szedł jako faktura bez osoby",
+  "dzis": "2026-10-02",
+  "osoby": {
+    "A": {"imie": "Łucja", "nazwisko": "Żółtańska", "email_kontraktu": "lucja.prywatna@example.com", "klient": "Biuro Informacji Przykładowe"}
+  },
+  "maile": [
+    {"od": "l.zoltanska@firma.example.com", "do": ["rozliczenia@firma.example.com"], "temat": "Dzień dobry", "odebrano": "2026-10-02T08:00:00Z",
+     "pliki": [{"nazwa": "BIK wrzesien.xlsx", "arkusz": {"Arkusz1": [["Imię i nazwisko", "Łucja Żółtańska"], ["Suma godzin", 168]]}}]}
+  ],
+  "oczekiwane": [
+    {"plik": "BIK wrzesien.xlsx", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}
+  ]
+ }
+]

@@ -87,6 +87,7 @@ def tree(sha: str) -> Path:
 
     target = TREES / sha
     if (target / "backend" / "app").is_dir():
+        os.utime(target)  # w użyciu: sprzątanie innego biegu go nie ruszy
         return target / "backend"
     TREES.mkdir(parents=True, exist_ok=True)
     partial = Path(tempfile.mkdtemp(prefix=f"{sha[:8]}-", dir=TREES))
@@ -104,14 +105,20 @@ def tree(sha: str) -> Path:
     return target / "backend"
 
 
-def _prune_trees(keep: int) -> None:
+def _prune_trees(keep: int, idle_hours: float = 3) -> None:
+    """Zostawia ``keep`` najnowszych drzew; starsze usuwa tylko, gdy nikt ich nie
+    używał od ``idle_hours`` (dwie sesje liczą eval naraz, a drzewo w użyciu
+    zniknęło w trakcie biegu: „No module named 'app.models.base'”)."""
+
+    cutoff = time.time() - idle_hours * 3600
     folders = sorted(
         (p for p in TREES.iterdir() if p.is_dir() and len(p.name) == 40),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     for old in folders[keep:]:
-        shutil.rmtree(old, ignore_errors=True)
+        if old.stat().st_mtime < cutoff:
+            shutil.rmtree(old, ignore_errors=True)
 
 
 def ensure_postgres() -> str:

@@ -702,9 +702,16 @@ async def _prepare_schema(url: str) -> None:
             ready = await conn.scalar(
                 text("SELECT to_regclass('public._eval_reader_ready')")
             )
+            # Znacznik ze starszego runnera nie ma kolumny ``fp``: baza od nowa.
+            has_fp = ready and await conn.scalar(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = '_eval_reader_ready' AND column_name = 'fp'"
+                )
+            )
             stored = (
                 await conn.scalar(text("SELECT fp FROM _eval_reader_ready LIMIT 1"))
-                if ready
+                if has_fp
                 else None
             )
         await probe.dispose()

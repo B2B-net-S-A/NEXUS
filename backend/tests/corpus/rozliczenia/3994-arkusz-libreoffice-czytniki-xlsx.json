@@ -1,0 +1,24 @@
+[
+ {
+  "id": "rozl-3994-faktura-xlsx-showzeroes-nie-wywraca-maila",
+  "poprawka": "dc9686467 #3994",
+  "opis": "Arkusz .xlsx z showZeroes nazwany jak faktura: sprawdzanie treści czytnikami XLSX w trybie read_only rzucało TypeError i wywracało cały mail (po #3985 poprawiony był tylko T4T)",
+  "dzis": "2026-08-03",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Fundacja Przykładowa"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Faktura lipiec 2026",
+    "odebrano": "2026-08-03T08:00:00Z",
+    "pliki": [
+     {"nazwa": "Faktura 07.2026.xlsx", "plik": "pliki/3994-faktura-showzeroes.xlsx"},
+     {"nazwa": "Raport godzin 07.2026.pdf", "tekst": "%PDF-1.4 fikcyjny raport"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura 07.2026.xlsx", "rodzaj": "invoice", "osoba": "A", "okres": "2026-07"},
+   {"plik": "Raport godzin 07.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-07"}
+  ]
+ }
+]

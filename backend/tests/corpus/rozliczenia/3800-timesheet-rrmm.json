@@ -18,13 +18,13 @@
  {
   "id": "rozl-3800-timesheet-rrmm-wrzesien",
   "poprawka": "75ddeef57 #3800",
-  "opis": "Szablon PKO „TimeSheet 2609 - …” sam niesie okres, choć mail jest z 1.10",
-  "dzis": "2026-10-01",
+  "opis": "Szablon PKO „TimeSheet 2609 - …” sam niesie okres; mail z 28.10 bez okresu w temacie dawał zgadnięty październik",
+  "dzis": "2026-10-28",
   "osoby": {
     "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
   },
   "maile": [
-    {"od": "jan.korpusowy@example.com", "temat": "Rozliczenie", "odebrano": "2026-10-01T08:00:00Z",
+    {"od": "jan.korpusowy@example.com", "temat": "Rozliczenie", "odebrano": "2026-10-28T08:00:00Z",
      "pliki": [{"nazwa": "TimeSheet 2609 - Korpusowy Jan.pdf", "pdf": "Time Sheet\nJan Korpusowy"}]}
   ],
   "oczekiwane": [
