@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+import { LESSON_SCREENS } from "./fixtures/lesson-screens";
 import SHELL from "./fixtures/poligon-shell.json";
 
 /**
@@ -29,7 +30,8 @@ import SHELL from "./fixtures/poligon-shell.json";
  * (warunek `move`) sprawdza ocena w `lessons.test.ts`.
  *
  * Uruchomienie jak `poligon-walk.spec.ts` (`--project=poligon-chromium`).
- * `LESSONS_E2E_ONLY=lekcja-a,lekcja-b` zawęża bieg do wybranych lekcji.
+ * `LESSONS_E2E_ONLY=lekcja-a,lekcja-b` zawęża bieg do wybranych lekcji,
+ * `LESSONS_E2E_SHOTS=1` zapisuje zrzut po każdym kroku pokazu (katalog wyników testu).
  */
 
 const API_ORIGIN = (process.env.E2E_API_ORIGIN || "http://localhost:8000").replace(/\/$/, "");
@@ -76,36 +78,64 @@ const NOVELTIES = new Map(
  * a poprawiona schodzi (test niżej pada na wpis, który już przechodzi).
  */
 const KNOWN_GAPS = new Set<string>([
-  // Element z zadania nie pokazuje się po drodze z pokazu.
-  "lekcja-dodani-do-rekrutacji", // DL: insights.team-activity.added
-  "lekcja-aneks-inna-zmiana", // DL: b2b-generator.annex-custom
-  "lekcja-szkolenia", // warunek „page” po drodze z pokazu nie spełniony
-  "lekcja-najwazniejsze-zadanie", // DL: champion.key-task
-  "lekcja-umowa-ramowa-doplata", // DL: contract.tabs.money
-  "lekcja-profil-klienta", // DL: clients.list.row
-  "lekcja-przygotowanie-przed-prepem-1", // dock.plan-preparation
-  "lekcja-pytania-z-rozmow", // jobs.question-bank.manager
-  // Zadanie wskazuje element, którego pokaz nie pokazuje.
-  "lekcja-stop-do-podpisu-przedwstepnej", // job.pre-contract.save
-  "lekcja-pytania-po-stanowisku", // jobs.question-bank.position
-  "lekcja-przegrane-przeglad-z-dl", // insights.lost.only-open
+  // DL: katalog typów aneksów z `/api/b2b-generator/document-types` i wybór umowy — brak w podstawionym backendzie.
+  "lekcja-aneks-inna-zmiana",
+  // HoR i admin: warunek „page” z pulpitu, droga przez menu, której pokaz nie pokazuje.
+  "lekcja-poligon-dla-nowych",
+  // Sprzedaż: ekrany czytają `/api/sales/*` (na Poligonie prawdziwe API), testu bez danych modułu.
+  "lekcja-firma-z-nip",
+  "lekcja-sprzedaz-boty-sprzedazy",
+  "lekcja-sprzedaz-dzwonienie-tabela-przypomnienia",
+  "lekcja-sprzedaz-karta-firmy-osoby",
+  "lekcja-sprzedaz-karta-firmy-uzupelnij-zapytaj",
+  "lekcja-sprzedaz-karta-rozmowy-haczyk-mail",
+  "lekcja-sprzedaz-leady-od-bota",
+  "lekcja-sprzedaz-lista-z-researchu",
+  "lekcja-sprzedaz-listy-do-dzwonienia",
+  "lekcja-sprzedaz-moj-dzien",
+  "lekcja-sprzedaz-oferty-do-decyzji",
+  // Kontrakty, klienci, Finanse: odczyty modułów (`/api/accounting/config`, `/api/finance/*/module`,
+  // `/api/finance/periods`) bez odpowiedzi w podstawionym backendzie. Na produkcji 26.11 zero furtek.
+  "lekcja-analityka-kontraktow",
+  "lekcja-dodatki-do-faktury",
+  "lekcja-finanse-korekta-kosztu",
+  "lekcja-karta-kontraktu",
+  "lekcja-konsultanci-klienta",
+  "lekcja-kontrola-miesiaca-rozbieznosci",
+  "lekcja-koszty-symfonia",
+  "lekcja-lista-klientow",
+  "lekcja-lista-kontraktow",
+  "lekcja-monit-platnosci",
+  "lekcja-nowy-kontrakt",
+  "lekcja-przebieg-miesiaca",
+  "lekcja-przebieg-miesiaca-odpowiedzi",
+  "lekcja-sprawy-rozliczen",
+  "lekcja-wymagania-klienta-do-faktury",
+  "lekcja-zajecia-i-spory",
 ]);
 
 /**
- * Role, które test przechodzi: rekruter i Delivery Lead mają różne ekrany
- * (bramki pól, przegląd DL), więc każda lekcja idzie każdą z nich osobno.
- * To ich porcja blokuje pracę co rano. Lekcje Finansów, Sprzedaży, kontraktów
- * i klientów (odbiorców wyznacza uprawnienie) potrzebują zestawu odpowiedzi
- * tych modułów w podstawionym backendzie — na produkcji 26.11 nikt nie
- * przechodził ich furtką.
+ * Role, które test przechodzi. Rekruter i Delivery Lead mają różne ekrany
+ * (bramki pól, przegląd DL), więc lekcja rekrutacji idzie każdą z nich osobno —
+ * to ich porcja blokuje pracę co rano. Lekcja bez tych ról (Finanse, Sprzedaż,
+ * kontrakty, klienci) idzie jedną rolą ze swoich odbiorców: Finanse, a gdy
+ * odbiorców wyznacza uprawnienie (wpis bez ról) — admin, który ma wszystkie.
  */
-const ROLES = ["recruiter", "delivery_lead"] as const;
+const ROLES = ["recruiter", "delivery_lead", "finance", "admin"] as const;
 type Role = (typeof ROLES)[number];
 
 function audienceRoles(lesson: LessonDef): Role[] {
   const roles = new Set<string>();
-  for (const id of lesson.novelties) NOVELTIES.get(id)?.audience?.roles?.forEach((r) => roles.add(r));
-  return ROLES.filter((r) => roles.has(r));
+  let everyone = false;
+  for (const id of lesson.novelties) {
+    const listed = NOVELTIES.get(id)?.audience?.roles;
+    if (!listed || listed.length === 0) everyone = true;
+    else listed.forEach((r) => roles.add(r));
+  }
+  const recruiting = (["recruiter", "delivery_lead"] as const).filter((r) => roles.has(r));
+  if (recruiting.length) return recruiting;
+  if (roles.has("finance")) return ["finance"];
+  return roles.has("admin") || everyone ? ["admin"] : [];
 }
 
 /** Kroki pokazu jak we froncie (`withSteps`): wpis bez kroków dostaje krok na kropce. */
@@ -119,18 +149,18 @@ function showSteps(novelty: NoveltyDef): Step[] {
  * Warunek `click`: kroki wpisu, w którym pokaz wskazał element z zadania,
  * do tego elementu. Element, którego pokaz nie wskazał, nie ma drogi (`null`).
  */
-function soloPath(lesson: LessonDef): string[] | null {
+function soloPath(lesson: LessonDef): Step[] | null {
   const novelties = lesson.novelties.map((id) => NOVELTIES.get(id)).filter((n): n is NoveltyDef => Boolean(n));
   if (lesson.check.kind === "click") {
     const anchor = lesson.check.anchor;
     for (const n of novelties) {
       const steps = showSteps(n);
       const at = steps.findIndex((s) => s.anchor === anchor);
-      if (at >= 0) return steps.slice(0, at).filter((s) => !s.ack).map((s) => s.anchor);
+      if (at >= 0) return steps.slice(0, at).filter((s) => !s.ack);
     }
     return null;
   }
-  return novelties.flatMap((n) => showSteps(n).filter((s) => !s.ack).map((s) => s.anchor));
+  return novelties.flatMap((n) => showSteps(n).filter((s) => !s.ack));
 }
 
 function person(role: Role) {
@@ -148,6 +178,11 @@ function person(role: Role) {
     has_password: true,
     skips_fill_gates: role === "delivery_lead",
     created_at: "2026-10-01T07:00:00+00:00",
+    // Delivery Lead widzi swoich klientów; Poligon dokleja do portfela klienta
+    // ćwiczebnego (`withPracticeClient`), więc portfel jest pusty, ale jest.
+    ...(role === "delivery_lead"
+      ? { data_scope: { kind: "delivery_clients", allowed_client_ids: [], finance_client_ids: [] } }
+      : {}),
   };
 }
 
@@ -160,6 +195,8 @@ function fakeJwt(user: ReturnType<typeof person>): string {
 /** Podstawiony backend: osoba, brak blokad, zapis etapów lekcji. Reszta = 404. */
 async function fakeBackend(page: Page, appOrigin: string, user: ReturnType<typeof person>) {
   const events: string[] = [];
+  /** Odczyty bez odpowiedzi (404) — w opisie porażki, bo zwykle to brak w podstawionym backendzie. */
+  const misses = new Set<string>();
   const cors = {
     "access-control-allow-origin": appOrigin,
     "access-control-allow-credentials": "true",
@@ -180,16 +217,21 @@ async function fakeBackend(page: Page, appOrigin: string, user: ReturnType<typeo
     if (req.method() !== "GET") return json(route, { detail: "lessons-e2e: zapis poza lekcją" }, 409);
     if (p === "/api/auth/me") return json(route, user);
     if (p in SHELL) return json(route, (SHELL as Record<string, unknown>)[p]);
+    if (p in LESSON_SCREENS) return json(route, LESSON_SCREENS[p]);
     if (p === "/api/novelties/start") return json(route, { enforced: false, items: [], done: 0, total: 0, poligon: null });
     if (p === "/api/novelties/daily") return json(route, { gate_on: false, enforced: false, items: [], lessons: [] });
+    misses.add(p);
     return json(route, {}, 404);
   });
-  return events;
+  return { events, misses };
 }
 
 /** Element kotwicy widoczny i nie zasłonięty — punkt do kliknięcia albo powód. */
-async function reach(page: Page, anchor: string): Promise<{ x: number; y: number } | string> {
+async function reach(page: Page, anchor: string, stepText = ""): Promise<{ x: number; y: number } | string> {
   const selector = `[data-tour="${anchor}"], [data-help="${anchor}"]`;
+  // Krok „Kliknij „Edytuj” przy …” na kotwicy całej karty: człowiek klika przycisk
+  // z tekstu kroku, nie środek karty.
+  const labels = [...stepText.matchAll(/„([^”]{1,40})”/g)].map((m) => m[1]);
   const deadline = Date.now() + 15_000;
   let why = "nie ma go na ekranie";
   while (Date.now() < deadline) {
@@ -197,8 +239,14 @@ async function reach(page: Page, anchor: string): Promise<{ x: number; y: number
     if ((await page.locator(selector).count()) > 0) {
       await first.scrollIntoViewIfNeeded({ timeout: 2_000 }).catch(() => {});
     }
-    const probe = await page.evaluate((sel) => {
-      for (const el of Array.from(document.querySelectorAll(sel))) {
+    const probe = await page.evaluate(({ sel, labels }) => {
+      for (const anchorEl of Array.from(document.querySelectorAll(sel))) {
+        const named = labels.length
+          ? Array.from(anchorEl.querySelectorAll("button, a, [role=button], [role=tab]")).find((b) =>
+              labels.some((l) => (b.textContent ?? "").trim().startsWith(l)),
+            )
+          : undefined;
+        const el = named ?? anchorEl;
         const r = el.getBoundingClientRect();
         if (r.width <= 0 || r.height <= 0) continue;
         if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
@@ -213,7 +261,7 @@ async function reach(page: Page, anchor: string): Promise<{ x: number; y: number
         return "coś go zasłania";
       }
       return document.querySelector(sel) ? "jest poza widokiem albo ma zerowy rozmiar" : "nie ma go na ekranie";
-    }, selector);
+    }, { sel: selector, labels });
     if (typeof probe !== "string") return probe;
     why = probe;
     // Człowiek zwija kartę zadania, gdy zasłania element (przycisk „Zwiń”).
@@ -248,7 +296,7 @@ test.describe("Lekcje nowości — etap „sam” drogą z pokazu", () => {
       await page.setViewportSize({ width: 1280, height: 720 });
       const user = person(role);
       const origin = new URL(baseURL ?? "http://localhost:3000");
-      const events = await fakeBackend(page, origin.origin, user);
+      const { events, misses } = await fakeBackend(page, origin.origin, user);
       const pageErrors: string[] = [];
       page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 300)));
 
@@ -302,15 +350,18 @@ test.describe("Lekcje nowości — etap „sam” drogą z pokazu", () => {
       const quiz = page.locator('[data-testid="lesson-quiz"]');
 
       const failures: string[] = [];
-      for (const anchor of route ?? []) {
+      for (const { anchor, text } of route ?? []) {
         if (await quiz.isVisible()) break;
-        const point = await reach(page, anchor);
+        const point = await reach(page, anchor, text);
         if (typeof point === "string") {
           failures.push(`krok pokazu „${anchor}”: ${point}`);
           break;
         }
         await page.mouse.click(point.x, point.y);
         await page.waitForTimeout(700);
+        if (process.env.LESSONS_E2E_SHOTS) {
+          await page.screenshot({ path: test.info().outputPath(`krok-${anchor}.png`) });
+        }
       }
       if (!failures.length && lesson.check.kind === "click" && !(await quiz.isVisible())) {
         const point = await reach(page, lesson.check.anchor);
@@ -324,7 +375,10 @@ test.describe("Lekcje nowości — etap „sam” drogą z pokazu", () => {
         expect(passed, `${where}: przechodzi już drogą z pokazu — usuń ją z KNOWN_GAPS`).toBe(false);
         return;
       }
-      expect(failures, `${where}: etapu „sam” nie da się przejść drogą z pokazu`).toEqual([]);
+      expect(
+        failures,
+        `${where}: etapu „sam” nie da się przejść drogą z pokazu. Odczyty bez odpowiedzi: ${[...misses].join(", ") || "—"}`,
+      ).toEqual([]);
       expect(events).toContain(`${lesson.id}:solo_passed`);
       expect(pageErrors, `${where}: błąd strony`).toEqual([]);
     });

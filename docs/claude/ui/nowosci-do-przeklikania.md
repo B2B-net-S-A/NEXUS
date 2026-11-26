@@ -82,6 +82,17 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
     potem element z zadania. Pada na lekcję, której tak nie da się przejść.
     `KNOWN_GAPS` w tym pliku to lekcje sprzed strażnika — lista tylko maleje
     (test pada na wpis, który już przechodzi), nowa lekcja na nią nie wchodzi.
+    Od 26.11.2026 (drugi PR) wszystkie lekcje rekrutera i DL-a przechodzą
+    poza „Aneksem — inna zmiana”; Finanse, Sprzedaż, kontrakty i klienci
+    idą rolą Finanse albo admin i na liście stoją z powodem „brak odczytów
+    modułu w podstawionym backendzie” (na produkcji zero furtek).
+  - ekran, który w lekcji czyta prawdziwe API, a nie zestaw Poligonu (bank
+    pytań, Insights, Szkolenia za bramką Kadr), dostaje fikcyjną odpowiedź
+    w `e2e/fixtures/lesson-screens.ts` (typy z aplikacji). Porażka strażnika
+    wypisuje odczyty, na które podstawiony backend dał 404 — od nich zaczynasz.
+    `LESSONS_E2E_SHOTS=1` zapisuje zrzut po każdym kroku pokazu;
+  - krok „Kliknij „Edytuj” przy …” na kotwicy całej karty: test klika przycisk
+    z cudzysłowu w tekście kroku, tak jak człowiek;
   - furtka „Coś nie działa — zalicz i dalej” jest przyciskiem, a od drugiego
     powrotu do pokazu w przebiegu (`soloTries`) przyciskiem głównym karty z
     jednym zdaniem wyjaśnienia (`BrokenButton prominent`).

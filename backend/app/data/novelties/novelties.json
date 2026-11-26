@@ -3532,8 +3532,21 @@
     "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
     "where": "Menu → Firma → Szkolenia",
     "href": "/trainings",
-    "practice_href": "/trainings?tab=recordings",
-    "dot_anchor": "trainings.library"
+    "practice_href": "/trainings",
+    "dot_anchor": "trainings.library",
+    "steps": [
+      {
+        "anchor": "trainings.tab.recordings",
+        "text": "Otwórz zakładkę „Nagrania”.",
+        "hint": "Nagrania szkoleń na żywo z Teams, z transkryptem i materiałami."
+      },
+      {
+        "anchor": "trainings.library",
+        "text": "Tu są nagrania ze szkoleń.",
+        "hint": "Każde nagranie ma transkrypt i materiały ze szkolenia.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "szkolenia-kalendarz-teams",
@@ -4918,6 +4931,12 @@
         "text": "„Zatrzymaj kartę do podpisu”: bez podpisu obu stron osoba nie pójdzie dalej.",
         "hint": "Blokada obowiązuje każdego, także Delivery Leada. Bez zaznaczenia brak umowy tylko ostrzega.",
         "ack": true
+      },
+      {
+        "anchor": "job.pre-contract.save",
+        "text": "„Zapisz” zapisuje ustawienie dla całej rekrutacji.",
+        "hint": "Na Poligonie zapis jest zablokowany — w pracy ustawienie obowiązuje od razu dla każdej karty.",
+        "ack": true
       }
     ]
   },
@@ -5203,7 +5222,19 @@
     "where": "Rekrutacje → Pytania z rozmów",
     "href": "/jobs/pytania",
     "section": "pipeline",
-    "dot_anchor": "jobs.question-bank.manager"
+    "dot_anchor": "jobs.question-bank.manager",
+    "steps": [
+      {
+        "anchor": "jobs.question-bank.client",
+        "text": "Wybierz klienta z listy.",
+        "hint": "Lista stanowisk zawęża się do tego klienta."
+      },
+      {
+        "anchor": "jobs.question-bank.manager",
+        "text": "Wybierz jednego z managerów klienta.",
+        "hint": "Zobaczysz pytania, które zadaje ta osoba na rozmowach."
+      }
+    ]
   },
   {
     "id": "nowe-cv-wyroznik",
@@ -5360,6 +5391,13 @@
     "href": "/jobs/pytania",
     "section": "pipeline",
     "dot_anchor": "jobs.question-bank.positions",
+    "steps": [
+      {
+        "anchor": "jobs.question-bank.position",
+        "text": "Kliknij dowolne stanowisko z listy.",
+        "hint": "Pytania z rozmów u klienta zebrane dla tego stanowiska, najnowsze na górze."
+      }
+    ],
     "used_anchor": "jobs.question-bank.position"
   },
   {
@@ -5380,6 +5418,14 @@
     "practice_href": "/insights?tab=przegrane",
     "section": "insights",
     "dot_anchor": "insights.tabs.lost",
+    "steps": [
+      {
+        "anchor": "insights.lost.only-open",
+        "text": "„Tylko bez odpowiedzi” zostawia rekrutacje, których nikt jeszcze nie omówił.",
+        "hint": "Tak przygotujesz listę na przegląd z Delivery Leadami.",
+        "ack": true
+      }
+    ],
     "used_anchor": "insights.lost.only-open"
   },
   {

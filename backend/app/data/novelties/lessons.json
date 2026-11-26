@@ -633,8 +633,8 @@
       "szkolenia-biblioteka-nagran",
       "szkolenia-kalendarz-teams"
     ],
-    "task": "Wejdź z menu do „Szkoleń” i otwórz nagrania ze szkoleń.",
-    "solo_href": "/dashboard",
+    "task": "W „Szkoleniach” przejdź z kalendarza do nagrań ze szkoleń.",
+    "solo_href": "/trainings",
     "check": {
       "kind": "page",
       "path_prefix": "/trainings",
@@ -1014,8 +1014,8 @@
       "najwazniejsze-zadanie-w-roli",
       "nowa-rekrutacja-mniej-decyzji"
     ],
-    "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
-    "solo_href": "/jobs/990001",
+    "task": "W Profilu Championa rekrutacji ćwiczebnej kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
+    "solo_href": "/jobs/990001?tab=champion",
     "check": {
       "kind": "click",
       "anchor": "champion.key-task.question"
@@ -1670,7 +1670,7 @@
       "kontakty-klienta-szukaj"
     ],
     "task": "U klienta ćwiczebnego znajdź listę jego kontaktów i wyszukaj osobę po kawałku stanowiska.",
-    "solo_href": "/clients/990501",
+    "solo_href": "/clients",
     "check": {
       "kind": "click",
       "anchor": "clients.contacts.search"
@@ -2602,8 +2602,8 @@
     "novelties": [
       "przygotowanie-przed-prepem-1"
     ],
-    "task": "Kandydat z rekrutacji ćwiczebnej ma już propozycje terminów od klienta. Otwórz jego panel i zaplanuj mu przygotowanie przed Prepem 1.",
-    "solo_href": "/jobs/990001",
+    "task": "Kandydat z rekrutacji ćwiczebnej ma już propozycje terminów od klienta. W jego panelu zaplanuj mu przygotowanie przed Prepem 1.",
+    "solo_href": "/jobs/990001?candidate=990115",
     "check": {
       "kind": "click",
       "anchor": "dock.plan-preparation"
