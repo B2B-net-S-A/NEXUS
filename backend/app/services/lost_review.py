@@ -372,12 +372,54 @@ def _local_midnight(d: date) -> datetime:
 # ── Odczyt modułu ───────────────────────────────────────────────────────────
 
 
+NO_DL = 0
+"""``dl_id`` filtra dla rekrutacji bez Delivery Leada."""
+
+
+def for_dl(rows: list[Closure], dl_id: Optional[int]) -> list[Closure]:
+    """Zamknięcia jednego DL (``NO_DL`` = bez DL); ``None`` = cała firma."""
+    if dl_id is None:
+        return rows
+    want = None if dl_id == NO_DL else dl_id
+    return [r for r in rows if r.dl_id == want]
+
+
+async def _dl_options(db: AsyncSession, rows: list[Closure]) -> list[dict[str, Any]]:
+    """DL z zamknięciami okresu — lista filtra na górze ekranu, zawsze z całej firmy."""
+    names = await _user_names(db, {r.dl_id for r in rows if r.dl_id})
+    tally: dict[Optional[int], dict[str, int]] = {}
+    for r in rows:
+        t = tally.setdefault(r.dl_id, {"won": 0, "lost": 0})
+        t[r.group] += 1
+    out = [
+        {
+            "id": dl_id if dl_id else NO_DL,
+            "name": names.get(dl_id, "—") if dl_id else "bez DL",
+            **t,
+        }
+        for dl_id, t in tally.items()
+    ]
+    out.sort(key=lambda d: (d["id"] == NO_DL, d["name"].casefold()))
+    return out
+
+
 async def compute(
-    db: AsyncSession, *, start: datetime, end: datetime, now: Optional[datetime] = None
+    db: AsyncSession,
+    *,
+    start: datetime,
+    end: datetime,
+    now: Optional[datetime] = None,
+    dl_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Cała zawartość zakładki dla okna [start, end)."""
+    """Cała zawartość zakładki dla okna [start, end), opcjonalnie jednego DL.
+
+    Filtr DL zawęża fakty, wykresy, trend i klientów; wnioski ze spotkań
+    (zasady klienta) i ich „czy pomogło” zostają wspólne dla firmy.
+    """
     now = now or datetime.now(timezone.utc)
-    rows = await closures(db, start=start, end=end)
+    all_rows = await closures(db, start=start, end=end)
+    dls = await _dl_options(db, all_rows)
+    rows = for_dl(all_rows, dl_id)
     won = [r for r in rows if r.group == "won"]
     lost = [r for r in rows if r.group == "lost"]
     facts = await job_facts(db, [r.job_id for r in rows])
@@ -440,7 +482,7 @@ async def compute(
     lessons = await active_lessons(db)
     lesson_clients = await _client_names(db, {lesson.client_id for lesson in lessons})
     clients = await _clients(db, rows, facts, jobs, lessons, now=now)
-    trend = await _trend(db, end=end, now=now)
+    trend = await _trend(db, end=end, now=now, dl_id=dl_id)
     counts = {
         "won": len(won),
         "lost": len(lost),
@@ -449,6 +491,8 @@ async def compute(
     }
     payload = {
         "since": competition_history.cutover_utc().isoformat(),
+        "dl_id": dl_id,
+        "dls": dls,
         "counts": counts,
         "hit_ratio": _hit(len(won), len(lost)),
         "known": known,
@@ -570,7 +614,7 @@ async def _clients(
 
 
 async def _trend(
-    db: AsyncSession, *, end: datetime, now: datetime
+    db: AsyncSession, *, end: datetime, now: datetime, dl_id: Optional[int] = None
 ) -> list[dict[str, Any]]:
     """Wygrane / przegrane per miesiąc: do ``TREND_MONTHS`` miesięcy do końca okna."""
     last_day = _local(min(end, now) - timedelta(seconds=1))
@@ -578,10 +622,13 @@ async def _trend(
         _add_months(_month_start(last_day), -(TREND_MONTHS - 1)),
         _month_start(_local(competition_history.cutover_utc())),
     )
-    rows = await closures(
-        db,
-        start=_local_midnight(first),
-        end=_local_midnight(_add_months(_month_start(last_day), 1)),
+    rows = for_dl(
+        await closures(
+            db,
+            start=_local_midnight(first),
+            end=_local_midnight(_add_months(_month_start(last_day), 1)),
+        ),
+        dl_id,
     )
     months: list[dict[str, Any]] = []
     m = first

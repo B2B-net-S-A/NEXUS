@@ -18,10 +18,12 @@ const mocks = vi.hoisted(() => ({
   clientQuestion: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  pushUrl: vi.fn(),
+  search: "",
 }));
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mocks.search),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/insights",
 }));
@@ -32,6 +34,10 @@ vi.mock("@/components/insights/useInsightsPeriod", () => ({
 
 vi.mock("@/components/insights/PeriodPicker", () => ({
   PeriodPicker: () => <div data-testid="period-picker" />,
+}));
+
+vi.mock("@/lib/url-selection", () => ({
+  useUrlWriter: () => ({ pushUrl: mocks.pushUrl, replaceUrl: vi.fn() }),
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -72,6 +78,11 @@ const DATA: LostReviewResponse = {
   period: { kind: "month", start: "2026-11-01T00:00:00+01:00", end: "2026-12-01T00:00:00+01:00" },
   period_label: "listopad 2026",
   since: "2026-10-11T22:00:00+00:00",
+  dl_id: null,
+  dls: [
+    { id: 6, name: "DL Drugi", won: 0, lost: 1 },
+    { id: 5, name: "DL Pierwszy", won: 1, lost: 1 },
+  ],
   counts: { won: 1, lost: 2, competitor: 1, idle: 1 },
   hit_ratio: 33.3,
   known: 1,
@@ -155,6 +166,7 @@ function renderView() {
 describe("PrzegraneView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.search = "";
     mocks.get.mockResolvedValue(DATA);
     mocks.saveWhy.mockResolvedValue({ job_id: 101, why: ["competitor_cheaper"], source: null });
   });
@@ -211,13 +223,34 @@ describe("PrzegraneView", () => {
     });
   });
 
-  it("filtr DL zawęża listę", async () => {
+  it("Delivery Lead z góry ekranu trafia do adresu, a strona liczy się dla tej osoby", async () => {
     renderView();
     await screen.findAllByTestId("lost-review-job");
-    fireEvent.click(screen.getByRole("button", { name: "DL Drugi" }));
-    const cards = screen.getAllByTestId("lost-review-job");
-    expect(cards).toHaveLength(1);
-    expect(cards[0]).toHaveTextContent("Tester testowy");
+    expect(mocks.get).toHaveBeenLastCalledWith({ period: "month", offset: 0 }, null);
+    fireEvent.change(screen.getByLabelText("Delivery Lead"), { target: { value: "6" } });
+    expect(mocks.pushUrl).toHaveBeenCalledWith(expect.stringMatching(/[?&]dl=6(&|$)/));
+  });
+
+  it("DL z adresu: zapytanie z dl_id i jego nazwa w nagłówku", async () => {
+    mocks.search = "tab=przegrane&dl=6&job=101";
+    mocks.get.mockResolvedValue({ ...DATA, dl_id: 6, jobs: [DATA.jobs[1]] });
+    renderView();
+    expect(await screen.findByText(/Listopad 2026 · DL Drugi\. Przegrana/)).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith({ period: "month", offset: 0 }, 6);
+    expect(screen.getByLabelText("Delivery Lead")).toHaveValue("6");
+    fireEvent.change(screen.getByLabelText("Delivery Lead"), { target: { value: "" } });
+    const href = mocks.pushUrl.mock.calls.at(-1)?.[0] as string;
+    expect(href).toContain("tab=przegrane");
+    expect(href).not.toMatch(/dl=|job=/);
+  });
+
+  it("DL bez zamknięć w okresie zostaje wybrany w polu", async () => {
+    mocks.search = "dl=9";
+    mocks.get.mockResolvedValue({ ...DATA, dl_id: 9, jobs: [], counts: { won: 0, lost: 0, competitor: 0, idle: 0 } });
+    renderView();
+    await screen.findByText("W tym okresie nie ma przegranych rekrutacji.");
+    expect(screen.getByLabelText("Delivery Lead")).toHaveValue("9");
+    expect(screen.getByRole("option", { name: /brak zamknięć w okresie/ })).toBeInTheDocument();
   });
 
   it("awaria odczytu nie wygląda jak okres bez przegranych", async () => {

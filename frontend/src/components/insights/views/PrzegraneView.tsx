@@ -7,9 +7,9 @@
  * rady. Reguła: `docs/claude/finanse-insights/przegrane-przeglad-z-dl.md`.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { SectionError, LoadingSpinner } from "@/components/insights/sections/_shared";
@@ -17,17 +17,20 @@ import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useUrlWriter } from "@/lib/url-selection";
 import type { InsightsPeriodParams } from "@/lib/insights-api";
 import {
+  LOST_NO_DL,
   LOST_STAGES,
   lostReviewApi,
   lostReviewKeys,
   plNumber,
   type LostReviewClient,
+  type LostReviewDl,
+  type LostReviewDlFilter,
   type LostReviewLesson,
   type LostReviewResponse,
 } from "@/lib/lost-review";
-import { cn } from "@/lib/utils";
 
 import { LostReviewAiPanel } from "../lost-review/LostReviewAiPanel";
 import {
@@ -43,12 +46,40 @@ import { Tile, TileRow, ViewHeader } from "./ViewKit";
 
 const DEFAULT_PERIOD: InsightsPeriodParams = { period: "month", offset: 0 };
 
+/**
+ * Filtr DL z góry ekranu w adresie (`?dl=5`, `dl=0` = bez DL): link do strony
+ * jednego DL da się wysłać, a „Wstecz” cofa wybór.
+ */
+function useDlFilter(): { dl: LostReviewDlFilter; setDl: (next: LostReviewDlFilter) => void } {
+  const searchParams = useSearchParams();
+  const { pushUrl } = useUrlWriter();
+  const raw = searchParams.get("dl");
+  const parsed = raw === null || raw === "" ? NaN : Number(raw);
+  const dl = Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  const setDl = useCallback(
+    (next: LostReviewDlFilter) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === null) params.delete("dl");
+      else params.set("dl", String(next));
+      params.delete("job");
+      const path = typeof window === "undefined" ? "/insights" : window.location.pathname;
+      pushUrl(`${path}?${params.toString()}`);
+    },
+    [pushUrl, searchParams],
+  );
+  return { dl, setDl };
+}
+
 export function PrzegraneView() {
   const { period, setPeriod } = useInsightsPeriod(DEFAULT_PERIOD);
+  const { dl, setDl } = useDlFilter();
   const query = useQuery({
-    queryKey: lostReviewKeys.review(period),
-    queryFn: () => lostReviewApi.get(period),
+    queryKey: lostReviewKeys.review(period, dl),
+    queryFn: () => lostReviewApi.get(period, dl),
+    // Lista DL w nagłówku zostaje na miejscu, gdy liczy się strona innej osoby.
+    placeholderData: keepPreviousData,
   });
+  const dlName = dl === null ? null : (query.data?.dls.find((d) => d.id === dl)?.name ?? null);
 
   return (
     <div className="space-y-6">
@@ -56,16 +87,60 @@ export function PrzegraneView() {
         question="Przegrane — przegląd z Delivery Leadami"
         lede={
           query.data
-            ? `${capitalize(query.data.period_label)}. Przegrana = rekrutację wzięła inna firma albo NEXUS zamknął ją po 28 dniach bez ruchu.`
+            ? `${capitalize(query.data.period_label)}${dl === null ? "" : dl === LOST_NO_DL ? " · rekrutacje bez DL" : ` · ${dlName ?? "wybrany DL"}`}. Przegrana = rekrutację wzięła inna firma albo NEXUS zamknął ją po 28 dniach bez ruchu.`
             : "Gdzie i dlaczego przegrywamy rekrutacje, ogólnie i u każdego klienta, i co zmieniamy."
         }
         actions={<PeriodPicker value={period} onChange={setPeriod} defaultValue={DEFAULT_PERIOD} hideHistoryNote />}
       />
+      <DlSelect value={dl} options={query.data?.dls ?? []} onChange={setDl} />
       {query.isPending ? <LoadingSpinner /> : null}
       {query.isError ? (
         <SectionError label="Przegrane" error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.isSuccess ? <Body data={query.data} period={period} /> : null}
+      {query.isSuccess ? <Body data={query.data} period={period} dl={dl} /> : null}
+    </div>
+  );
+}
+
+function DlSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: LostReviewDlFilter;
+  options: LostReviewDl[];
+  onChange: (next: LostReviewDlFilter) => void;
+}) {
+  const id = useId();
+  // Wybrany DL bez zamknięć w nowym okresie nadal stoi w liście — inaczej
+  // pole pokazałoby „Wszyscy DL”, a strona liczyłaby jedną osobę.
+  const missing = value !== null && !options.some((o) => o.id === value);
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+      <label htmlFor={id} className="shrink-0 text-xs font-medium text-muted-foreground">
+        Delivery Lead
+      </label>
+      <select
+        id={id}
+        value={value === null ? "" : String(value)}
+        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        className="h-8 min-w-0 max-w-[20rem] rounded-md border border-border bg-card px-2 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <option value="">Wszyscy DL</option>
+        {options.map((o) => (
+          <option key={o.id} value={String(o.id)}>
+            {o.name} · {o.lost} przegr. / {o.won} wygr.
+          </option>
+        ))}
+        {missing ? (
+          <option value={String(value)}>{value === LOST_NO_DL ? "bez DL" : "wybrany DL"} · brak zamknięć w okresie</option>
+        ) : null}
+      </select>
+      <span className="text-xs text-muted-foreground">
+        {value === null
+          ? "Cała firma. Wybierz osobę, a cała strona policzy się tylko dla jej rekrutacji."
+          : "Cała strona tylko dla rekrutacji tej osoby. Zasady ze spotkań są wspólne dla firmy."}
+      </span>
     </div>
   );
 }
@@ -74,22 +149,23 @@ function capitalize(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-function Body({ data, period }: { data: LostReviewResponse; period: InsightsPeriodParams }) {
+function Body({
+  data,
+  period,
+  dl,
+}: {
+  data: LostReviewResponse;
+  period: InsightsPeriodParams;
+  dl: LostReviewDlFilter;
+}) {
   const searchParams = useSearchParams();
   const focusJob = Number(searchParams.get("job")) || null;
-  const [dl, setDl] = useState<string>("all");
   const [onlyOpen, setOnlyOpen] = useState(false);
   const { counts, compare } = data;
   const lostTotal = counts.lost;
 
-  const dls = useMemo(
-    () => [...new Set(data.jobs.map((j) => j.dl_name ?? "bez DL"))].sort((a, b) => a.localeCompare(b, "pl")),
-    [data.jobs],
-  );
   const jobs = data.jobs.filter(
-    (j) =>
-      (dl === "all" || (j.dl_name ?? "bez DL") === dl) &&
-      (!onlyOpen || (j.why.length === 0 && j.source !== "client") || j.source === "unknown"),
+    (j) => !onlyOpen || (j.why.length === 0 && j.source !== "client") || j.source === "unknown",
   );
 
   useEffect(() => {
@@ -119,7 +195,11 @@ function Body({ data, period }: { data: LostReviewResponse; period: InsightsPeri
         />
       </TileRow>
 
-      <LostReviewAiPanel key={JSON.stringify(period)} period={period} findings={data.findings} hasLosses={lostTotal > 0} />
+      <LostReviewAiPanel
+        key={JSON.stringify([period, dl])}
+        period={period}
+        dl={dl}
+        findings={data.findings} hasLosses={lostTotal > 0} />
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
         <Panel title="Na którym etapie przegrywamy" lede="Najdalszy etap, do którego doszła nasza osoba.">
@@ -201,22 +281,6 @@ function Body({ data, period }: { data: LostReviewResponse; period: InsightsPeri
             />
             Tylko bez odpowiedzi
           </label>
-        </div>
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Delivery Lead">
-          {["all", ...dls].map((d) => (
-            <button
-              key={d}
-              type="button"
-              aria-pressed={dl === d}
-              onClick={() => setDl(d)}
-              className={cn(
-                "rounded-full border px-2.5 py-1 text-xs",
-                dl === d ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-muted",
-              )}
-            >
-              {d === "all" ? "Wszyscy DL" : d}
-            </button>
-          ))}
         </div>
         {jobs.length === 0 ? (
           <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">

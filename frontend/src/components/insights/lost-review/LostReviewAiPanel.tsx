@@ -12,21 +12,23 @@ import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { InsightsPeriodParams } from "@/lib/insights-api";
-import { lostReviewApi, type LostReviewAiSummary } from "@/lib/lost-review";
+import { lostReviewApi, type LostReviewAiSummary, type LostReviewDlFilter } from "@/lib/lost-review";
 
 import { Panel } from "./LostReviewCharts";
 
 export function LostReviewAiPanel({
   period,
+  dl = null,
   findings,
   hasLosses,
 }: {
   period: InsightsPeriodParams;
+  dl?: LostReviewDlFilter;
   findings: string[];
   hasLosses: boolean;
 }) {
   const ai = useMutation<LostReviewAiSummary, unknown, boolean>({
-    mutationFn: (refresh) => lostReviewApi.aiSummary(period, refresh),
+    mutationFn: (refresh) => lostReviewApi.aiSummary(period, refresh, dl),
   });
   const data = ai.data;
 

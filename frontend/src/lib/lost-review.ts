@@ -130,10 +130,24 @@ export interface LostReviewTrendMonth {
   hit_ratio: number | null;
 }
 
+/** DL z zamknięciami okresu (lista filtra na górze); `id` 0 = rekrutacje bez DL. */
+export interface LostReviewDl {
+  id: number;
+  name: string;
+  won: number;
+  lost: number;
+}
+
+/** Filtr DL z góry ekranu: `null` = cała firma, 0 = rekrutacje bez DL. */
+export type LostReviewDlFilter = number | null;
+export const LOST_NO_DL = 0;
+
 export interface LostReviewResponse {
   period: { kind: string; start: string; end: string };
   period_label: string;
   since: string;
+  dl_id: LostReviewDlFilter;
+  dls: LostReviewDl[];
   counts: { won: number; lost: number; competitor: number; idle: number };
   hit_ratio: number | null;
   known: number;
@@ -159,8 +173,9 @@ export interface LostReviewAiSummary {
   cached: boolean;
 }
 
-function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
+function periodQuery(p: InsightsPeriodParams, dl: LostReviewDlFilter = null): Record<string, string | number> {
   const q: Record<string, string | number> = { period: p.period };
+  if (dl !== null) q.dl_id = dl;
   if (p.offset !== undefined) q.offset = p.offset;
   if (p.anchor) q.anchor = p.anchor;
   if (p.date_from) q.date_from = p.date_from;
@@ -170,20 +185,20 @@ function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
 
 export const lostReviewKeys = {
   all: ["insights", "lost-review"] as const,
-  review: (p: InsightsPeriodParams) => ["insights", "lost-review", p] as const,
+  review: (p: InsightsPeriodParams, dl: LostReviewDlFilter = null) => ["insights", "lost-review", p, dl] as const,
   ai: (p: InsightsPeriodParams) => ["insights", "lost-review", "ai", p] as const,
   clientRules: (clientId: number) => ["insights", "lost-review", "client-rules", clientId] as const,
 };
 
 export const lostReviewApi = {
-  get: (p: InsightsPeriodParams) =>
+  get: (p: InsightsPeriodParams, dl: LostReviewDlFilter = null) =>
     api
-      .get<LostReviewResponse>("/api/insights/lost-review", { params: periodQuery(p) })
+      .get<LostReviewResponse>("/api/insights/lost-review", { params: periodQuery(p, dl) })
       .then((r) => r.data),
-  aiSummary: (p: InsightsPeriodParams, refresh = false) =>
+  aiSummary: (p: InsightsPeriodParams, refresh = false, dl: LostReviewDlFilter = null) =>
     api
       .post<LostReviewAiSummary>("/api/insights/lost-review/ai-summary", null, {
-        params: { ...periodQuery(p), ...(refresh ? { refresh: true } : {}) },
+        params: { ...periodQuery(p, dl), ...(refresh ? { refresh: true } : {}) },
       })
       .then((r) => r.data),
   saveWhy: (jobId: number, body: { why: LostWhyKey[]; source: LostWhySource | null }) =>

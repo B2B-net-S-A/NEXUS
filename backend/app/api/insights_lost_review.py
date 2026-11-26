@@ -95,14 +95,18 @@ def period_label(p: Period) -> str:
     return f"{first:%d.%m.%Y}–{last:%d.%m.%Y}"
 
 
-async def _payload(db: AsyncSession, p: Period) -> dict[str, Any]:
-    payload = await service.compute(db, start=p.start, end=p.end)
+async def _payload(
+    db: AsyncSession, p: Period, dl_id: Optional[int] = None
+) -> dict[str, Any]:
+    payload = await service.compute(db, start=p.start, end=p.end, dl_id=dl_id)
     payload["period"] = p.as_payload()
     payload["period_label"] = period_label(p)
     return payload
 
 
 PeriodQuery = Annotated[str, Query(pattern="^(day|week|month|quarter|year|custom)$")]
+# Filtr na górze ekranu: cała strona dla jednego DL; 0 = rekrutacje bez DL.
+DlQuery = Annotated[Optional[int], Query(ge=0)]
 
 
 @router.get("/lost-review")
@@ -114,12 +118,15 @@ async def lost_review(
     anchor: Optional[date] = Query(None),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
+    dl_id: DlQuery = None,
 ) -> dict[str, Any]:
     """Przegrane i wygrane okresu z faktami, wykresami i wnioskami z reguł.
 
     Bez cache: wybory „Co zdecydowało?” i wnioski widać od razu po zapisie.
     """
-    return await _payload(db, _period(period, offset, anchor, date_from, date_to))
+    return await _payload(
+        db, _period(period, offset, anchor, date_from, date_to), dl_id
+    )
 
 
 @router.post("/lost-review/ai-summary")
@@ -132,6 +139,7 @@ async def lost_review_ai_summary(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     refresh: bool = Query(False),
+    dl_id: DlQuery = None,
 ) -> dict[str, Any]:
     """Wnioski, rady i pytania na spotkanie od modelu (F56).
 
@@ -139,8 +147,8 @@ async def lost_review_ai_summary(
     wybór „Co zdecydowało?” albo wniosek zmienia dane, więc liczy się od nowa.
     """
     p = _period(period, offset, anchor, date_from, date_to)
-    payload = await _payload(db, p)
-    key = f"insights:lost-review:ai:v1:{p.cache_suffix}:{service.input_hash(service.model_input(payload))}"
+    payload = await _payload(db, p, dl_id)
+    key = f"insights:lost-review:ai:v1:{p.cache_suffix}:dl{dl_id}:{service.input_hash(service.model_input(payload))}"
     if not refresh:
         cached = await cache_get(key)
         if cached is not None:

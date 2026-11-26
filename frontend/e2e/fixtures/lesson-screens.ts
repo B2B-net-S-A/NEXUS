@@ -68,6 +68,8 @@ const LOST_REVIEW: LostReviewResponse = {
   period: { kind: "month", start: "2026-11-01", end: "2026-11-30" },
   period_label: "listopad 2026",
   since: "2026-11-01",
+  dl_id: null,
+  dls: [{ id: 5, name: "DL Przykładowy", won: 1, lost: 2 }],
   counts: { won: 1, lost: 2, competitor: 1, idle: 1 },
   hit_ratio: 0.33,
   known: 1,
