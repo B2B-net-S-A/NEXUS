@@ -201,6 +201,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.legal_redline: ("F59", "claude-sonnet-5-5"),
     # F60 — 25.11.2026: asystent prawny, zgodność z umową ramową klienta (model F59).
     AIFeatureKey.legal_client_fit: ("F60", "claude-sonnet-5-5"),
+    # F61 — 26.11.2026: propozycja wyróżnika Nowego CV (model F4 i zdań strony 1).
+    AIFeatureKey.cv_page1_highlight: ("F61", "gpt-6.1-sol"),
 }
 
 

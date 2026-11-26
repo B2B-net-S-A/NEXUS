@@ -82,6 +82,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F58 | legal_template_draft             | claude-sonnet-5-5 (z 5)  |
 | F59 | legal_redline                    | claude-sonnet-5-5 (z 5)  |
 | F60 | legal_client_fit                 | claude-sonnet-5-5 (z 5)  |
+| F61 | cv_page1_highlight               | gpt-6.1-sol (z Opus 4.8) |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -731,6 +732,18 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z tekstem fragmentu (ustalenie bez pokrycia odpada), paragrafy liczy z układu "
         "dokumentu. Dodatek: bez modelu ekran mówi „sprawdzenie niedostępne”, nic nie "
         "udaje zgodności.",
+    ),
+    AIFeatureKey.cv_page1_highlight: ModelChoice(
+        default=GPT_SOL,
+        env_vars=("CV_PAGE1_HIGHLIGHT_MODEL",),
+        fallbacks=("claude-opus-4-8",),
+        rationale="F61 (decyzja Artura 26.11.2026, POZA badaniem 16.09). Propozycja wyróżnika "
+        "pod nazwiskiem w Nowym CV (nagroda, wyróżnienie, certyfikat z MUST) z dosłownym "
+        "cytatem z CV — to samo „znajdź i zacytuj” na tej samej treści co najmocniejszy "
+        "wynik strony 1 (model F4, pomiar 22.11: 0 z 72 propozycji odrzuconych przez kod), "
+        "więc model i zapas generatora bez osobnego pomiaru. Kod sprawdza cytat, liczby "
+        "i MUST. Dodatek: bez modelu wyróżnik to praca u klienta albo wpis rekrutera, "
+        "a propozycja trafia do CV dopiero po przyjęciu.",
     ),
 }
 

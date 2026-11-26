@@ -541,15 +541,21 @@ def _dispatch_after_commit(session: Session) -> None:
     pending = session.info.pop(_PENDING_KEY, None)
     if not pending or not layout_service.enabled():
         return
-    if not api_key_configured(model_for(FEATURE)):
-        logger.warning("[cv_page1_result] no API key — background run skipped")
-        return
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return
+    # Propozycja wyróżnika (26.11.2026) liczy się przy tych samych wyzwalaczach,
+    # we własnej sesji i pod własnym kluczem AI.
+    from app.services.cv_page1_highlight import spawn_background as spawn_highlight
+
+    results_key = api_key_configured(model_for(FEATURE))
+    if not results_key:
+        logger.warning("[cv_page1_result] no API key — background run skipped")
     for csv_id in sorted(pending):
-        _spawn(csv_id)
+        if results_key:
+            _spawn(csv_id)
+        spawn_highlight(csv_id)
 
 
 @event.listens_for(Session, "after_soft_rollback")

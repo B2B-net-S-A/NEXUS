@@ -97,4 +97,29 @@ describe("poligon: edytor „Strona 1” Nowego CV (lekcja „Nowe CV: strona 1�
     expect(custom.data.page1_extras?.highlight).toMatchObject({ mode: "custom", label: "Atut" });
     expect(page1(store, entry, { highlight: { mode: "custom", label: "", text: "" } }).status).toBe(422);
   });
+
+  it("propozycja AI wyróżnika (26.11.2026): „Poszukaj w CV”, przyjęcie i odrzucenie w pamięci", () => {
+    const { store } = setup();
+    const entry = entryOf(showId);
+    const found = store.handle({ method: "post", url: `/api/candidates/stages/${entry}/cv/page1/highlight` }) as {
+      status: number;
+      data: { highlight_proposals: Record<string, unknown>[] };
+    };
+    expect(found.status).toBe(200);
+    expect(found.data.highlight_proposals).toHaveLength(1);
+    expect(found.data.highlight_proposals[0]).toMatchObject({ kind: "certificate", verified: true });
+    // Bez przyjęcia wyróżnik zostaje automatem.
+    expect(branded(store, entry).data.page1_extras).not.toHaveProperty("highlight.mode", "ai");
+    const key = found.data.highlight_proposals[0].key;
+    const accepted = page1(store, entry, { highlight: { mode: "ai", proposal: key } });
+    expect(accepted.data.page1_extras?.highlight).toMatchObject({ mode: "ai", label: "Certyfikat PRINCE2 Practitioner" });
+    expect(page1(store, entry, { highlight: { mode: "ai", proposal: "nie-ma-takiej" } }).status).toBe(422);
+    const rejected = page1(store, entry, { highlight_reject: key });
+    expect(rejected.data.page1_extras?.highlight).toBeNull();
+    expect(rejected.data.page1_extras?.highlight_proposals).toEqual([]);
+    const again = store.handle({ method: "post", url: `/api/candidates/stages/${entry}/cv/page1/highlight` }) as {
+      data: { highlight_proposals: unknown[] };
+    };
+    expect(again.data.highlight_proposals).toEqual([]);
+  });
 });

@@ -195,18 +195,23 @@ def looks_like_certificate(requirement: str) -> bool:
     )
 
 
-def required_by_client(ctx: Ctx, c: Cert) -> bool:
-    """Certyfikat z wymagań MUST klienta: wymaganie jest certyfikatem i wszystkie jego
-    słowa (bez „lub”) stoją w nazwie certyfikatu, np. MUST „PRINCE2 Practitioner” ↔
+def must_certificate(name: str, must_have: Sequence[str]) -> Optional[str]:
+    """Wymaganie MUST (jedna z opcji „A lub B”), które jest certyfikatem i którego
+    wszystkie słowa stoją w nazwie certyfikatu, np. MUST „PRINCE2 Practitioner” ↔
     „PRINCE2 Practitioner – Axelos”, MUST „ISTQB” ↔ „ISTQB Foundation Level”.
-    Umiejętność („UX Design”) nie wciąga kursu na początek listy (staging 23.11.2026)."""
-    name = _words(c.name)
-    for must in ctx.doc.must_have:
+    Umiejętność („UX Design”) nie pasuje do kursu (staging 23.11.2026)."""
+    words = _words(name)
+    for must in must_have:
         for option in re.split(r"\s+(?:lub|or)\s+|/", must, flags=re.I):
             need = _words(option)
-            if need and looks_like_certificate(option) and need <= name:
-                return True
-    return False
+            if need and looks_like_certificate(option) and need <= words:
+                return option.strip()
+    return None
+
+
+def required_by_client(ctx: Ctx, c: Cert) -> bool:
+    """Certyfikat z wymagań MUST klienta (`must_certificate`) — stoi pierwszy."""
+    return must_certificate(c.name, ctx.doc.must_have) is not None
 
 
 def _more(ctx: Ctx, key: str, n: int) -> str:

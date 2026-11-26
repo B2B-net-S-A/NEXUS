@@ -153,6 +153,8 @@ class TestFeatureKeyEnum:
             "legal_redline",
             # 0791: asystent prawny — zgodność umów B2B z umową ramową klienta.
             "legal_client_fit",
+            # 0792: Nowe CV — propozycja wyróżnika pod nazwiskiem (F61).
+            "cv_page1_highlight",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

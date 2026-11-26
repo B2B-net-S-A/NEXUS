@@ -5220,8 +5220,8 @@
       },
       {
         "anchor": "cv-editor.page1.highlight",
-        "text": "Sekcja „Wyróżnik”: Automatycznie, Własny albo Bez wyróżnika.",
-        "hint": "Automatycznie pokazuje wcześniejszą pracę u klienta tej rekrutacji. Własny to etykieta, znak w wieńcu i jedno zdanie.",
+        "text": "Sekcja „Wyróżnik”: Automatycznie, Propozycja AI, Własny albo Bez wyróżnika.",
+        "hint": "Automatycznie = praca u klienta tej rekrutacji. Propozycja AI = nagroda albo certyfikat z CV, do CV dopiero po „Przyjmij”. Własny = Twój wpis.",
         "ack": true
       }
     ]
