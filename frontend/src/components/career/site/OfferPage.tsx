@@ -1,7 +1,7 @@
 import type { CareerBoardJob, CareerJobResponse } from "@/lib/career/api";
 import { careerHref, type CareerBase } from "@/lib/career/host";
 import { offerMapMode, officeNote } from "@/lib/career/polandMap";
-import { bigWord, boardCardFor, facetCounts, jobCities, similarJobs } from "@/lib/career/site";
+import { bigWord, boardCardFor, facetCounts, jobCities, offerTags, similarJobs } from "@/lib/career/site";
 
 import { mockJob } from "../layouts/jobModel";
 import { ApplyDock } from "./ApplyDock";
@@ -16,21 +16,6 @@ import g from "./glass.module.css";
 import { OfferCityMap, RemoteMap } from "./GlassMap";
 
 const TASKS_HEADING = /^czym si[eę] zajmiesz$/i;
-/** Najwięcej technologii nad tytułem i najdłuższa nazwa, która się tam mieści. */
-const TAGS = 3;
-const TAG_MAX = 24;
-
-/** Technologie nad tytułem: najpierw słowo oferty (białe), potem krótkie umiejętności z tablicy. */
-export function offerTags(word: string | null, must: readonly string[]): string[] {
-  const out = word ? [word] : [];
-  for (const t of must) {
-    const name = t.trim();
-    if (out.length >= TAGS) break;
-    if (name && name.length <= TAG_MAX && !out.includes(name)) out.push(name);
-  }
-  return out;
-}
-
 const STEP_WORDS = ["", "Jeden krok", "Dwa kroki", "Trzy kroki", "Cztery kroki", "Pięć kroków", "Sześć kroków"];
 /** „Cztery kroki do startu” — liczba kroków z procesu rekrutacji. */
 export function stepsHeading(n: number): string {

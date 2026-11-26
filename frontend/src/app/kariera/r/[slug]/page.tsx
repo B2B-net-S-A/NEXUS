@@ -6,6 +6,7 @@ import { fetchCareerBoard, fetchCareerJob } from "@/lib/career/server";
 import { paramsSummary } from "@/lib/career/format";
 import { primaryCareerHost } from "@/lib/career/host";
 import { jobPostingJsonLd, jsonLdString } from "@/lib/career/jobPosting";
+import { OG_SITE_NAME, offerOgDescription, offerOgTitle } from "@/lib/career/ogText";
 
 import { careerRequestContext } from "../../_context";
 
@@ -44,6 +45,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     status === "closed"
       ? "Ta rekrutacja została zakończona."
       : job.subtitle || paramsSummary(job.params) || "Rekrutacja IT — B2Bnetwork";
+  const shown = { ...job, params: job.show?.params !== false ? job.params : null };
+  const ogTitle = status === "closed" ? `${job.title} · ${OG_SITE_NAME}` : offerOgTitle(shown);
+  const ogDescription = status === "closed" ? description : (offerOgDescription(shown) ?? description);
   return {
     title: job.title,
     description,
@@ -53,8 +57,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       status === "open" ? { index: true, follow: true } : { index: false, follow: true },
     // Kilka linków jednej rekrutacji = jedna oferta w Google: canonical na link z tablicy.
     alternates: { canonical: canonicalUrl(result.data.canonical_slug ?? slug) },
-    openGraph: { title: job.title, description, type: "website", locale: "pl_PL" },
-    twitter: { card: "summary_large_image", title: job.title, description },
+    // Podgląd linku (język A, 26.11.2026): miejsce i tryb w tytule, zdanie
+    // o projekcie z dopiskiem B2B / zdalnie w opisie. Parametry ukryte
+    // przełącznikiem „pokaż” nie trafiają do podglądu.
+    openGraph: {
+      title: ogTitle,
+      description: ogDescription,
+      url: canonicalUrl(result.data.canonical_slug ?? slug),
+      siteName: OG_SITE_NAME,
+      type: "website",
+      locale: "pl_PL",
+    },
+    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription },
   };
 }
 

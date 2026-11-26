@@ -208,3 +208,18 @@ export function facetCounts(jobs: readonly Pick<CareerBoardJob, "city">[]): Face
   }
   return [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pl"));
 }
+
+/** Najwięcej technologii nad tytułem i najdłuższa nazwa, która się tam mieści. */
+const TAGS = 3;
+const TAG_MAX = 24;
+
+/** Technologie nad tytułem: najpierw słowo oferty (białe), potem krótkie umiejętności z tablicy. */
+export function offerTags(word: string | null, must: readonly string[]): string[] {
+  const out = word ? [word] : [];
+  for (const t of must) {
+    const name = t.trim();
+    if (out.length >= TAGS) break;
+    if (name && name.length <= TAG_MAX && !out.includes(name)) out.push(name);
+  }
+  return out;
+}

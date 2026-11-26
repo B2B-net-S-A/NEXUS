@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import "@/components/career/layouts/brandFonts.css";
 import { OgCard, type OgFact } from "@/components/career/ogCard";
+import { OgOfferCard, type OgOfferMap } from "@/components/career/ogMapCard";
 
 /**
  * Podgląd posta na LinkedInie — miniatura grafiki Open Graph strony kariery.
@@ -37,6 +38,11 @@ export interface LinkedInPreviewCardProps {
   host: string;
   /** Wielkie słowo grafiki (krótka umiejętność z tablicy), jak w grafice OG. */
   word?: string | null;
+  /**
+   * Grafika oferty w języku A (od 26.11.2026 rysuje ją `r/[slug]/opengraph-image`):
+   * gdy jest, podgląd pokazuje ten kadr zamiast `OgCard`.
+   */
+  offer?: { tags: string[]; title: string; line: string | null; sub: string | null; map: OgOfferMap } | null;
 }
 
 export function LinkedInPreviewCard({
@@ -49,6 +55,7 @@ export function LinkedInPreviewCard({
   cardTitle,
   host,
   word,
+  offer,
 }: LinkedInPreviewCardProps) {
   const frame = useRef<HTMLDivElement>(null);
   // Skala kadru 1200×630 do szerokości karty; bez ResizeObserver (jsdom) — typowa szerokość okna.
@@ -80,16 +87,20 @@ export function LinkedInPreviewCard({
           className="absolute left-0 top-0 origin-top-left"
           style={{ width: OG_WIDTH, height: OG_HEIGHT, transform: `scale(${scale})` }}
         >
-          <OgCard
-            word={word}
-            status={status}
-            kicker={kicker}
-            title={headline}
-            facts={facts}
-            person={person}
-            foot={foot}
-            host={host}
-          />
+          {offer ? (
+            <OgOfferCard tags={offer.tags} title={offer.title} line={offer.line} sub={offer.sub} map={offer.map} host={host} />
+          ) : (
+            <OgCard
+              word={word}
+              status={status}
+              kicker={kicker}
+              title={headline}
+              facts={facts}
+              person={person}
+              foot={foot}
+              host={host}
+            />
+          )}
         </div>
       </div>
       <figcaption className="px-3 py-2.5">
