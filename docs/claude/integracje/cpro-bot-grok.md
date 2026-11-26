@@ -121,20 +121,28 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 ## Co bot wpisuje (reguły z nagrań, `cpro_bot/offer_text.py`)
 
 - **Offered rate** = stawka do Cpro z akceptacji DL-a, PLN za godzinę.
-- **Available from:** data z NEXUSA w przyszłości (profil albo koniec umowy) →
-  ta data; inaczej okres wypowiedzenia z karty od dziś (tygodnie, miesiące);
-  bez danych → dziś („od zaraz”, jak w kolejce).
+- **Available from:** karta screeningu wygrywa z datą z NEXUSA (osoba od Cpro
+  26.11.2026: profil 25.12 przy „2 tyg wypowiedzenia” dawał złą datę).
+  Z karty: ASAP → dziś; okres wypowiedzenia od dziś; data albo miesiąc
+  („od grudnia” → 01.12) → ta data. Bez dostępności w karcie data z NEXUSA
+  w przyszłości (profil albo koniec umowy), inaczej dziś.
+- **Wypowiedzenie:** 1–4 tygodnie, „30 dni” i **każdy „1 miesiąc”, także UoP**
+  → `a N-week notice period` (1 miesiąc = `a 4-week notice period`, data dziś +
+  28 dni) — osoba od Cpro i decyzja Artura 26.11.2026. Dłuższe okresy:
+  `a N-month notice period`.
 - **Physical location** („ściągawka” Sandry): `<miasto>, willing to come to the
   Nordea office in <biuro> <N>x/week, <dostępność>`, gdzie dostępność to
-  `available ASAP`, `available from DD.MM.RRRR`, `a 4-week notice period`
-  albo `a 1-month notice period`; na końcu `a former employee at Nordea` albo
-  `a former consultant at Nordea`. Biuro = miasto osoby, gdy rekrutacja je
-  wymienia (Trójmiasto → Gdynia/Gdańsk z rekrutacji), inaczej pierwsze miasto
-  rekrutacji. Dni z `jobs.onsite_days_per_week`, domyślnie 3. Praca zdalna →
-  `working remotely`.
+  `available ASAP`, `available from DD.MM.RRRR` albo `a N-week notice period`;
+  na końcu `a former employee at Nordea` albo `a former consultant at Nordea`.
+  Biuro = miasto osoby, gdy rekrutacja je wymienia (Trójmiasto → Gdynia/Gdańsk
+  z rekrutacji), inaczej pierwsze miasto rekrutacji. **Dni z karty kandydata**
+  („2 dni w tygodniu w biurze” → `2x/week`, 26.11.2026), bez nich
+  z `jobs.onsite_days_per_week`, domyślnie 3. Praca zdalna → `working remotely`.
 - **Former employee / consultant:** z karty „Czy pracował u Klienta” (UoP =
-  pracownik, B2B = konsultant, „nie” = oba No); samo „tak” albo brak → bot
-  rozstrzyga z CV.
+  pracownik, B2B = konsultant, „nie” = oba No). Od 26.11.2026 samo „tak” bez
+  rodzaju umowy nie liczy się jako wypełnione pole karty (`has_value`), a
+  Nordea ma to pole i „Narodowość” w minimum przed „Zweryfikowany” (karta
+  klienta) — bot nie staje już na „do rozstrzygnięcia ręcznie”.
 - **Motivation** i opis nowego profilu = punkty „Why our candidate?” z HTML
   zatwierdzonej wersji CV (`data-cv-section="why_points"`), każdy od myślnika,
   bez pustych linii.

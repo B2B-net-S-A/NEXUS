@@ -246,7 +246,9 @@ def build_payload(
         work_mode.get("office_city") or location.get("raw") or profile_city,
         job_location,
     )
-    days = onsite_days_per_week or work_mode.get("onsite_days_per_week")
+    # Dni z karty (co kandydat przyjął) przed dniami rekrutacji — osoba od Cpro
+    # 26.11.2026: „2 dni w tygodniu w biurze” dawało „3x/week”.
+    days = work_mode.get("onsite_days_per_week") or onsite_days_per_week
     points = list(cv.why_points)
     payload = {
         "ref": stage_id,

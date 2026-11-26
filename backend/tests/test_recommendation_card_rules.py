@@ -415,3 +415,15 @@ def test_carried_values_respect_the_age_limit_the_skip_list_and_missing_dates():
         }
     ]
     assert rules.carried_values(cards, now=NOW, skip={"nationality"}) == {}
+
+
+def test_worked_at_client_counts_only_with_contract_type() -> None:
+    """Samo „tak” bez UoP/B2B to brak (decyzja Artura 26.11.2026)."""
+
+    has = rules.has_value
+    assert has("worked_at_client", {"raw": "nie", "value": "no"})
+    assert has("worked_at_client", {"raw": "tak, na B2B", "value": "b2b"})
+    assert has("worked_at_client", {"raw": "tak, UoP", "value": "uop"})
+    assert not has("worked_at_client", {"raw": "tak", "value": "yes"})
+    assert not has("worked_at_client", {"raw": "pracował w 2019"})
+    assert has("location", {"raw": "Gdańsk"})

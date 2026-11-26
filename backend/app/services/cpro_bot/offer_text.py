@@ -3,7 +3,10 @@
 Reguły z nagrania Sandry (28.10.2026, przekazane 17.11.2026):
 
 * **Available from**: ASAP → dziś; okres wypowiedzenia w tygodniach albo
-  miesiącach → dziś + okres; konkretna data → ta data.
+  miesiącach → dziś + okres; konkretna data albo miesiąc („od grudnia”) → ta
+  data. Karta screeningu wygrywa z datą z profilu (26.11.2026).
+* **Wypowiedzenie** 1–4 tygodnie, „30 dni” i „1 miesiąc” → „a N-week notice
+  period” (1 miesiąc = 4 tygodnie, także UoP — osoba od Cpro i Artur 26.11.2026).
 * **Physical location** to jedna z trzech „ściągawek”:
   ``"<miasto>, willing to come to the Nordea office in <biuro> 3x/week, available ASAP"``,
   ``"…, a 4-week notice period"`` albo ``"…, a 1-month notice period"``,
@@ -130,6 +133,80 @@ class Availability:
     phrase: str
 
 
+#: Miesiące w karcie („od grudnia”, „od Stycznia”) → numer miesiąca.
+_MONTHS: tuple[tuple[str, int], ...] = (
+    ("stycz", 1),
+    ("lut", 2),
+    ("marz", 3),
+    ("marc", 3),
+    ("kwie", 4),
+    ("maj", 5),
+    ("czerw", 6),
+    ("lip", 7),
+    ("sierp", 8),
+    ("wrze", 9),
+    ("pazdz", 10),
+    ("listop", 11),
+    ("grud", 12),
+)
+_MONTH_RE = re.compile(r"\b(?:od|from|w|in)\s+(\w+)")
+_DATE_IN_TEXT_RE = re.compile(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b")
+_ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def _next_date(
+    day: int, month: int, year: Optional[int], today: date
+) -> Optional[date]:
+    """Data z karty; bez roku — najbliższa nie wcześniejsza niż dziś."""
+
+    if year is not None and year < 100:
+        year += 2000
+    try:
+        found = date(year or today.year, month, day)
+    except ValueError:
+        return None
+    if year is None and found < today:
+        found = date(today.year + 1, month, day)
+    return found
+
+
+def card_start_date(text: Optional[str], today: date) -> Optional[date]:
+    """Termin z tekstu karty: „01.12.2026”, „1.12”, „2026-12-01”, „od grudnia”."""
+
+    folded = fold(text)
+    if not folded:
+        return None
+    if match := _ISO_DATE_RE.search(folded):
+        return _next_date(int(match[3]), int(match[2]), int(match[1]), today)
+    if match := _DATE_IN_TEXT_RE.search(folded):
+        year = int(match[3]) if match[3] else None
+        return _next_date(int(match[1]), int(match[2]), year, today)
+    for match in _MONTH_RE.finditer(folded):
+        word = match[1]
+        for stem, month in _MONTHS:
+            if word.startswith(stem):
+                return _next_date(1, month, None, today.replace(day=1))
+    return None
+
+
+def _notice_weeks(value: int, unit: str) -> Optional[int]:
+    """Okres w tygodniach, gdy osoba od Cpro wpisuje „N-week notice period”.
+
+    1–4 tygodnie; „30 dni” i „1 miesiąc” (także UoP — decyzja Artura
+    26.11.2026) to 4 tygodnie. Dłuższe okresy zostają w miesiącach.
+    """
+
+    if unit == "weeks" and 1 <= value <= 4:
+        return value
+    if unit == "months" and value == 1:
+        return 4
+    if unit == "days" and value % 7 == 0 and 7 <= value <= 28:
+        return value // 7
+    if unit == "days" and 28 <= value <= 31:
+        return 4
+    return None
+
+
 def availability(
     *,
     today: date,
@@ -138,20 +215,28 @@ def availability(
 ) -> Availability:
     """Data do pola „Available from” i końcówka „ściągawki”.
 
-    Data z NEXUSA (profil albo koniec umowy) wygrywa, gdy jest w przyszłości.
-    Bez niej okres wypowiedzenia z karty liczy się od dziś. Brak danych
-    znaczy „od zaraz” — tak samo pokazuje to kolejka Cpro.
+    Karta screeningu wygrywa z datą z NEXUSA (profil albo koniec umowy): to
+    najświeższe słowo rekrutera (osoba od Cpro 26.11.2026 — data z profilu dawała
+    „available from 25.12.2026” przy „2 tyg wypowiedzenia”). Okres
+    wypowiedzenia liczy się od dziś. Bez karty data z NEXUSA w przyszłości,
+    a bez niej — „od zaraz”, tak samo jak w kolejce Cpro.
     """
 
-    if available_date is not None and available_date > today:
-        return Availability(available_date, f"available from {available_date:%d.%m.%Y}")
-    notice = (card_value or {}).get("notice") if card_value else None
-    if isinstance(notice, Mapping) and not (card_value or {}).get("asap"):
+    card = card_value or {}
+    if card.get("asap"):
+        return Availability(today, "available ASAP")
+    notice = card.get("notice")
+    if isinstance(notice, Mapping):
         try:
             value = int(notice.get("value") or 0)
         except (TypeError, ValueError):
             value = 0
         unit = str(notice.get("unit") or "")
+        weeks = _notice_weeks(value, unit) if value > 0 else None
+        if weeks is not None:
+            return Availability(
+                today + timedelta(weeks=weeks), f"a {weeks}-week notice period"
+            )
         if value > 0 and unit == "months":
             return Availability(
                 add_months(today, value), f"a {value}-month notice period"
@@ -164,6 +249,15 @@ def availability(
             return Availability(
                 today + timedelta(days=value), f"a {value}-day notice period"
             )
+    start = card_start_date(card.get("date_text"), today) or card_start_date(
+        card.get("raw"), today
+    )
+    if start is not None:
+        if start > today:
+            return Availability(start, f"available from {start:%d.%m.%Y}")
+        return Availability(today, "available ASAP")
+    if available_date is not None and available_date > today:
+        return Availability(available_date, f"available from {available_date:%d.%m.%Y}")
     return Availability(today, "available ASAP")
 
 

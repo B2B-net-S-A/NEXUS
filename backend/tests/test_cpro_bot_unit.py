@@ -167,15 +167,57 @@ def test_location_cheat_sheet_matches_the_recording() -> None:
             "a 4-week notice period",
             TODAY + timedelta(weeks=4),
         ),
+        # „1 miesiąc” (także UoP) = 4 tygodnie — decyzja Artura 26.11.2026.
         (
-            {"notice": {"value": 1, "unit": "months"}},
+            {"raw": "1 miesiąc jak na UoP", "notice": {"value": 1, "unit": "months"}},
             None,
-            "a 1-month notice period",
-            date(2026, 12, 17),
+            "a 4-week notice period",
+            TODAY + timedelta(weeks=4),
         ),
-        # Data z NEXUSA w przyszłości wygrywa z okresem z karty.
         (
-            {"notice": {"value": 1, "unit": "months"}},
+            {"notice": {"value": 30, "unit": "days"}},
+            None,
+            "a 4-week notice period",
+            TODAY + timedelta(weeks=4),
+        ),
+        (
+            {"notice": {"value": 3, "unit": "months"}},
+            None,
+            "a 3-month notice period",
+            date(2027, 2, 17),
+        ),
+        # Karta wygrywa z datą z profilu (26.11: „2 tyg wypowiedzenia”,
+        # profil 25.12 → było „available from 25.12.2026”).
+        (
+            {"raw": "2 tyg wypowiedzenia", "notice": {"value": 2, "unit": "weeks"}},
+            date(2026, 12, 25),
+            "a 2-week notice period",
+            TODAY + timedelta(weeks=2),
+        ),
+        (
+            {"raw": "ASAP", "asap": True},
+            date(2026, 12, 25),
+            "available ASAP",
+            TODAY,
+        ),
+        # „od Grudnia” (karta z 26.11) było „available ASAP”.
+        ({"raw": "od Grudnia"}, None, "available from 01.12.2026", date(2026, 12, 1)),
+        ({"raw": "od stycznia"}, None, "available from 01.01.2027", date(2027, 1, 1)),
+        (
+            {"raw": "dostępny od 15.12"},
+            None,
+            "available from 15.12.2026",
+            date(2026, 12, 15),
+        ),
+        (
+            {"raw": "od 2027-01-04", "date_text": "2027-01-04"},
+            None,
+            "available from 04.01.2027",
+            date(2027, 1, 4),
+        ),
+        # Bez okresu i daty w karcie zostaje data z NEXUSA.
+        (
+            {"raw": "do ustalenia"},
             date(2027, 1, 4),
             "available from 04.01.2027",
             date(2027, 1, 4),
@@ -543,3 +585,25 @@ def test_mixed_run_keeps_a_separate_account_on_every_item() -> None:
         ),
     ]
     assert "cpro_account" not in body
+
+
+def test_office_days_from_the_card_beat_the_recruitment() -> None:
+    """Karta z 26.11: „2 dni w tygodniu w biurze w Gdańsku” dawało „3x/week”."""
+
+    _, payload = _payload(
+        card={
+            "location": {"raw": "Gdańsk"},
+            "nationality": {"raw": "Polska"},
+            "work_mode": {
+                "raw": "2 dni w tygodniu w biurze",
+                "onsite_days_per_week": 2,
+            },
+            "availability": {"raw": "ASAP", "asap": True},
+        },
+        available_date=None,
+    )
+    assert "Gdansk 2x/week, available ASAP" in payload["offer"]["physical_location"]
+    _, payload = _payload(
+        card={"location": {"raw": "Gdynia"}, "nationality": {"raw": "PL"}}
+    )
+    assert "3x/week" in payload["offer"]["physical_location"]
