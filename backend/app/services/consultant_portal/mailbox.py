@@ -72,6 +72,7 @@ from app.services.consultant_portal import (
     forwarded,
     identity,
     portal_settings,
+    templates,
     zip_files,
 )
 from app.services.consultant_portal.auth import PortalError
@@ -839,7 +840,24 @@ async def _ingest_message(
                 by_file[from_sheet.id] = from_sheet
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
-        if owner is None and kind == "report" and not guessed:
+        by_template = None
+        if kind == "report":
+            by_template = await _by_template(
+                db,
+                content,
+                name,
+                owner_id=owner,
+                sender=sender,
+                period=None if guessed else (year, month),
+                state=state,
+                today=today,
+            )
+        if by_template is not None:
+            # Wzór klienta rozstrzyga sam: bez dalszych domysłów z miesiąca i T4T.
+            owner = by_template.contract.id if by_template.contract else None
+            if by_template.contract is not None:
+                by_file[owner] = by_template.contract
+        elif owner is None and kind == "report" and not guessed:
             # Adres wskazuje dwa kontrakty osoby po zmianie klienta: raport z okresem
             # w nazwie albo temacie idzie do jedynego, który działa w tym miesiącu
             # (próba IX–X 2026, VeloBank 466 i 467). Okres z daty maila nie
@@ -852,7 +870,12 @@ async def _ingest_message(
             if in_month is not None:
                 owner = in_month.id
                 by_file[in_month.id] = in_month
-        if owner is None and report_owner is not None and kind == "report":
+        if (
+            owner is None
+            and by_template is None
+            and report_owner is not None
+            and kind == "report"
+        ):
             # Drugi kontrakt jest u klienta z raportem T4T: raport godzin z poczty
             # należy do tego kontraktu, faktura czeka na człowieka (próba IX–X 2026).
             owner = report_owner.id
@@ -902,6 +925,42 @@ async def _ingest_message(
             now=now,
         )
     return created + time_report.versions + client_report, skipped
+
+
+async def _by_template(
+    db: AsyncSession,
+    content: bytes,
+    name: str,
+    *,
+    owner_id: Optional[int],
+    sender: str,
+    period: Optional[tuple[int, int]],
+    state: portal_settings.PortalSettings,
+    today: date,
+) -> Optional[identity.TemplateChoice]:
+    """Kontrakt ze wzoru dokumentu (``templates``) dla osoby u dwóch klientów.
+
+    ``None`` = zwykła ścieżka. Plik czytamy dopiero wtedy, gdy osoba ma kontrakty
+    u dwóch klientów. Miesiąc z pliku, a bez niego okres z nazwy albo tematu
+    (``period``; ``None``, gdy zgadnięty z daty maila).
+    """
+
+    contracts = await identity.contracts_at_several_clients(
+        db, owner_id=owner_id, sender=sender, settings=state, today=today
+    )
+    if not contracts:
+        return None
+    template = await asyncio.to_thread(templates.recognize, content, name)
+    if template is None:
+        return None
+    return await identity.resolve_by_template(
+        db,
+        contracts,
+        client_key=template.client_key,
+        person=template.person,
+        month=template.month or period,
+        owner_id=owner_id,
+    )
 
 
 async def _agreement_contract(
