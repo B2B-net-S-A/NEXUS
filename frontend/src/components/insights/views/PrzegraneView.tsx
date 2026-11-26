@@ -116,10 +116,7 @@ function DlSelect({
   // pole pokazałoby „Wszyscy DL”, a strona liczyłaby jedną osobę.
   const missing = value !== null && !options.some((o) => o.id === value);
   return (
-    <div
-      className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
-      data-tour="insights.lost.dl"
-    >
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
       <label htmlFor={id} className="shrink-0 text-xs font-medium text-muted-foreground">
         Delivery Lead
       </label>
