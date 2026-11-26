@@ -8,12 +8,14 @@ błędem — liczy się wtedy jako nietrafiony, a nie wywraca przebiegu.
 Czytniki:
 * ``cv`` — odczyt treści „Nowego CV”: HTML edytora i zapis generatora
   (``cv_json_from_editor_html``, ``restore_experience_dates``,
-  ``NewCvDocument.from_cv_json``, ``parse_dates``, ``split_degree``, ``lang_parts``).
-  Bez bazy.
-* ``rozliczenia`` — czytnik poczty rozliczeń end-to-end: ``mailbox.run_once`` na
-  atrapie skrzynki, z osobami, klientami i zamówieniami z przypadku w czystej bazie
-  (schemat z ``Base.metadata`` tej rewizji). Wynik to zapisane ``CpDocument``:
-  rodzaj, kontrakt osoby, okres.
+  ``NewCvDocument.from_cv_json``, ``parse_dates``, ``split_degree``, ``lang_parts``,
+  ``page1.shown_language``), odczyt pliku (``cv_text_extractor``, ``cv_parser``)
+  i stanowiska w QC (``dz_review.html_blocks``, ``cv_qc.cv_roles``). Bez bazy.
+* ``rozliczenia`` — czytnik poczty rozliczeń end-to-end: ``mailbox.run_once`` (raz albo
+  kilka razy z rzędu) na atrapie skrzynki z folderem Wysłane, z osobami, klientami,
+  regułami rozliczeń klientów i zamówieniami z przypadku w czystej bazie (schemat
+  z ``Base.metadata`` tej rewizji). Wynik to zapisane ``CpDocument``: rodzaj,
+  kontrakt osoby, okres.
 
 Wynik: JSON z listą jednostek ``{id, pole, ok, oczekiwane, jest}`` w ``--wynik``.
 """
@@ -104,6 +106,20 @@ def _cv_document(case: dict):
     return NewCvDocument.from_cv_json(data), today
 
 
+_HEADER_FIELDS = {"first_name": "imie", "last_name": "nazwisko"}
+
+
+def _header_fields(marker: Any) -> list[str]:
+    """Pola nazwy wzięte z nagłówka CV, nie od modelu (``_name_from_header``):
+    lista pól od #3064, wcześniej (#3057) ``True`` dla całej nazwy."""
+
+    if marker is True:
+        return ["imie", "nazwisko"]
+    if isinstance(marker, (list, tuple)):
+        return sorted(_HEADER_FIELDS.get(str(f), str(f)) for f in marker)
+    return []
+
+
 def _parsed_fields(case: dict) -> dict[str, list[dict]]:
     """Etap odczytu pliku CV (``cv_parser``): wynik modelu z przypadku (zapisany
     przy odczycie) przechodzi tę samą obróbkę co u rekrutera; bez wyniku modelu
@@ -113,11 +129,32 @@ def _parsed_fields(case: dict) -> dict[str, list[dict]]:
 
     spec = case["wejscie"]["odczyt"]
     text = spec.get("tekst") or ""
+    if spec.get("plik"):
+        # Tekst z pliku CV (ODT, Word, PDF) tak jak przy wgraniu: ``extract_text``.
+        from app.services import cv_text_extractor
+
+        path = Path(case["_katalog"]) / spec["plik"]
+        try:
+            text = cv_text_extractor.extract_text(str(path), path.name)
+        except cv_text_extractor.UnsupportedCvFormat:
+            # Wgranie zapisuje wtedy CV bez tekstu (``unsupported_format``).
+            text = ""
     model = spec.get("model")
+    # ``finalize_claude_cv_output`` i ``normalize_cv_output`` są od #3110 (07.11.2026);
+    # wcześniej ``parse_cv`` składał te same kroki z funkcji prywatnych.
+    normalize = getattr(cv_parser, "normalize_cv_output", None) or (
+        cv_parser._normalize_cv_output
+    )
     if model is None:
-        out = cv_parser.normalize_cv_output(cv_parser._regex_fallback(text))
-    else:
+        out = normalize(cv_parser._regex_fallback(text))
+    elif hasattr(cv_parser, "finalize_claude_cv_output"):
         out = cv_parser.finalize_claude_cv_output(copy.deepcopy(model), text)
+    else:
+        out = normalize(
+            cv_parser._apply_contact_fallbacks(
+                cv_parser._with_linkedin_fallback(copy.deepcopy(model), text), text
+            )
+        )
     roles = [
         {
             "od": job.get("start"),
@@ -139,7 +176,13 @@ def _parsed_fields(case: dict) -> dict[str, list[dict]]:
     return {
         "daty": roles,
         "edukacja": schools,
-        "nazwa": [{"imie": out.get("first_name"), "nazwisko": out.get("last_name")}],
+        "nazwa": [
+            {
+                "imie": out.get("first_name"),
+                "nazwisko": out.get("last_name"),
+                "z_naglowka": _header_fields(out.get("_name_from_header")),
+            }
+        ],
         "jezyki": [
             {"jezyk": x} if isinstance(x, str) else x
             for x in out.get("languages") or []
@@ -147,9 +190,60 @@ def _parsed_fields(case: dict) -> dict[str, list[dict]]:
     }
 
 
+def _qc_fields(case: dict) -> dict[str, list[dict]]:
+    """Stanowiska, które widzi QC w HTML-u edytora (``dz_review.html_blocks`` →
+    ``cv_qc.cv_roles``): firma i linia stanowiska po kolei, a w ``nazwa``
+    stanowiska i to, czy uwaga „Każde stanowisko ma nazwę” (``_role_title_check``)
+    wskazuje je jako bez nazwy. Rewizja bez tej uwagi nie ma klucza ``bez_nazwy``."""
+
+    from app.services import cv_qc
+    from app.services import dz_review as dz
+
+    blocks = dz.html_blocks(case["wejscie"]["qc"]["html"])
+    roles = cv_qc.cv_roles(blocks, [])
+    check = getattr(cv_qc, "_role_title_check", None)
+    flagged = None
+    if check is not None:
+        flagged = {
+            item.get("role_index") for item in check(blocks, roles).get("items") or []
+        }
+    names = []
+    for index, role in enumerate(roles):
+        entry = {"stanowisko_roli": role.role.title}
+        if flagged is not None:
+            entry["bez_nazwy"] = index in flagged
+        names.append(entry)
+    return {
+        "daty": [
+            {"firma": role.role.company, "stanowisko": role.role.title}
+            for role in roles
+        ],
+        "edukacja": [],
+        "nazwa": names,
+        "jezyki": [],
+    }
+
+
+_MISSING = object()
+
+
+def _pill(level: str, language: str) -> Any:
+    """Pastylka języka na stronie 1 (``page1.shown_language``): etykieta poziomu,
+    ``""`` = sam kod, ``None`` = bez pastylki. Rewizja bez tej funkcji: brak klucza."""
+
+    try:
+        from app.services.cv_new_layout import page1
+    except ImportError:
+        return _MISSING
+    shown = getattr(page1, "shown_language", None)
+    return _MISSING if shown is None else shown(level, language)
+
+
 def _cv_fields(case: dict) -> dict[str, list[dict]]:
     if (case.get("wejscie") or {}).get("odczyt") is not None:
         return _parsed_fields(case)
+    if (case.get("wejscie") or {}).get("qc") is not None:
+        return _qc_fields(case)
     from app.services.cv_new_layout import facts
 
     doc, today = _cv_document(case)
@@ -182,14 +276,16 @@ def _cv_fields(case: dict) -> dict[str, list[dict]]:
     for entry in doc.languages:
         name, level = facts.lang_parts(entry)
         rank, label = facts.lang_level(level, language)
-        languages.append(
-            {
-                "jezyk": name,
-                "kod": facts.lang_code(name),
-                "poziom": label,
-                "stopien": rank,
-            }
-        )
+        entry = {
+            "jezyk": name,
+            "kod": facts.lang_code(name),
+            "poziom": label,
+            "stopien": rank,
+        }
+        pill = _pill(level, language)
+        if pill is not _MISSING:
+            entry["pastylka"] = pill
+        languages.append(entry)
     return {
         "daty": roles,
         "edukacja": schools,
@@ -340,6 +436,18 @@ async def _seed(db, case: dict, today: date) -> dict[str, int]:
         clients[key] = row.id
         for address in spec.get("kontakty") or []:
             add(Contact, client_id=row.id, name=address.split("@")[0], email=address)
+        if spec.get("reguly"):
+            # Reguły rozliczeń klienta: od nich zależy, czy czytnik zapisuje treść
+            # maila (``proof.excel_with_mail``, ``proof.accept_has_hours``) i czy
+            # domena klienta jest domeną akceptacji (``cl.client_acceptance``).
+            from app.models.client_settlement import ClientSettlementRuleSet
+
+            add(
+                ClientSettlementRuleSet,
+                client_id=row.id,
+                effective_from=spec.get("reguly_od", "2020-01"),
+                rules=spec["reguly"],
+            )
         if spec.get("dl"):
             from app.models.team_structure import DeliveryLeadClientAssignment
 
@@ -611,12 +719,41 @@ def _from_eml(raw: bytes, mid: str) -> tuple[dict, list[dict]]:
     return graph, files
 
 
+def _sent_message(mail: dict, index: int, folder: str) -> tuple[dict, list[dict]]:
+    """Nasz mail z Wysłanych w kształcie Graph (``sentDateTime``, adresaci, pliki)."""
+
+    mid = mail.get("id") or f"w{index + 1}"
+    files = [_attachment(f, folder) for f in mail.get("pliki") or []]
+    message = {
+        "id": mid,
+        "subject": mail.get("temat", ""),
+        "hasAttachments": bool(files),
+        "from": {"emailAddress": {"address": mail.get("od", "")}},
+        "toRecipients": [
+            {"emailAddress": {"address": a}} for a in mail.get("do") or []
+        ],
+        "ccRecipients": [
+            {"emailAddress": {"address": a}} for a in mail.get("dw") or []
+        ],
+        "sentDateTime": mail["wyslano"],
+        "conversationId": mail.get("watek", mid),
+    }
+    return message, files
+
+
 class _Box:
     def __init__(self, case: dict) -> None:
         self.messages: list[dict] = []
         self.files: dict[str, list[dict]] = {}
         self.raw: dict[str, bytes] = {}
+        # Maile, których odczyt pada przy każdym biegu (``"wyjatek"``), i Wysłane.
+        self.broken: dict[str, str] = {}
+        self.sent: list[dict] = []
         folder = case["_katalog"]
+        for index, mail in enumerate(case.get("wyslane") or []):
+            message, files = _sent_message(mail, index, folder)
+            self.sent.append(message)
+            self.files[message["id"]] = files
         for index, mail in enumerate(case.get("maile") or []):
             mid = mail.get("id") or f"m{index + 1}"
             if mail.get("eml_plik"):
@@ -649,11 +786,21 @@ class _Box:
             self.files[mid] = files
             if mail.get("eml"):
                 self.raw[mid] = mail["eml"].encode()
+            if mail.get("wyjatek"):
+                self.broken[mid] = str(mail["wyjatek"])
 
     async def list_messages(self, since):
         return self.messages
 
+    async def sent_messages(self, since):
+        def moment(item: dict) -> datetime:
+            return datetime.fromisoformat(item["sentDateTime"].replace("Z", "+00:00"))
+
+        return [m for m in self.sent if moment(m) >= since]
+
     async def attachments(self, message_id):
+        if message_id in self.broken:
+            raise ValueError(self.broken[message_id])
         return self.files.get(message_id, [])
 
     async def mime(self, message_id):
@@ -841,10 +988,14 @@ async def _read_mail(case: dict, today: date, moment: datetime, engine):
                     )
                     contracts = await _seed(db, case, today)
                 await db.commit()
-                outcome = await mailbox.run_once(db, mailbox=_Box(case), now=moment)
-                await db.commit()
-                if outcome.get("status") not in ("ok", "partial"):
-                    raise RuntimeError(f"czytnik nie ruszył: {outcome}")
+                box = _Box(case)
+                # Kilka biegów z rzędu (co 15 min na produkcji): stan skrzynki
+                # (znacznik, licznik porażek maila) przechodzi z biegu na bieg.
+                for _ in range(int(case.get("przebiegi") or 1)):
+                    outcome = await mailbox.run_once(db, mailbox=box, now=moment)
+                    await db.commit()
+                    if outcome.get("status") not in ("ok", "partial"):
+                        raise RuntimeError(f"czytnik nie ruszył: {outcome}")
                 documents = list(
                     (await db.scalars(select(CpDocument).order_by(CpDocument.id))).all()
                 )
@@ -862,9 +1013,16 @@ def _score_documents(
     used: set[int] = set()
     for index, want in enumerate(case.get("oczekiwane") or []):
         document = _match(documents, want, used)
+        label = want.get("plik") or want.get("plik_zawiera") or f"dok{index + 1}"
+        if want.get("_brak"):
+            # Pliku nie może być wcale (np. plik z Wysłanych po odmowie klienta).
+            got_name = None if document is None else document.file_name
+            units.append(
+                _unit(case, "rodzaj", document is None, None, got_name, key=label)
+            )
+            continue
         if document is not None:
             used.add(document.id)
-        label = want.get("plik") or want.get("plik_zawiera") or f"dok{index + 1}"
         got = (
             None
             if document is None

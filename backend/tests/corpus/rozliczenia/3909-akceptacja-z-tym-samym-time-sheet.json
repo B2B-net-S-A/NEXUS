@@ -1,0 +1,38 @@
+[
+ {
+  "id": "rozl-3909-akceptacja-kierownika-z-tym-samym-time-sheet",
+  "poprawka": "5492ab276 #3909",
+  "opis": "Konsultant wysyła Time Sheet 30.09, a 13.10 przekazuje akceptację kierownika z tym samym plikiem: plik był duplikatem, więc treść maila z akceptacją (reguła proof.excel_with_mail) przepadała i kontrola pisała „Brak maila z akceptacją godzin”",
+  "dzis": "2026-10-13",
+  "klienci": {
+   "K1": {
+    "nazwa": "Bank Przykładowy",
+    "reguly": {"proof.excel_with_mail": {"level": "warn", "params": {"domain": "bank.example.com"}}}
+   }
+  },
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "K1"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "jan.korpusowy@example.com",
+    "temat": "Time Sheet - wrzesień 2026",
+    "odebrano": "2026-09-30T15:00:00Z",
+    "pliki": [{"nazwa": "Timesheet wrzesien.pdf", "tekst": "%PDF-1.4 fikcyjny time sheet"}],
+    "eml": "From: jan.korpusowy@example.com\nSubject: Time Sheet - wrzesień 2026\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nW załączniku TS.\n"
+   },
+   {
+    "id": "m2",
+    "od": "jan.korpusowy@example.com",
+    "temat": "Fwd: FW: Time Sheet - wrzesień 2026",
+    "odebrano": "2026-10-13T08:00:00Z",
+    "pliki": [{"nazwa": "Timesheet wrzesien.pdf", "tekst": "%PDF-1.4 fikcyjny time sheet"}],
+    "eml": "From: jan.korpusowy@example.com\nSubject: Fwd: FW: Time Sheet - wrzesień 2026\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPrzesyłam Time Sheet z akceptacją poniżej.\n\n*From:* Kierownik Testowy <kierownik@bank.example.com>\n*Sent:* Tuesday, October 13, 2026 9:02 AM\n*Subject:* ODP: Time Sheet - wrzesień 2026\n\nPotwierdzam\n"
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Timesheet wrzesien.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "Fwd: FW: Time Sheet - wrzesień 2026.eml", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}
+  ],
+  "liczba_dokumentow": 2
+ }
+]

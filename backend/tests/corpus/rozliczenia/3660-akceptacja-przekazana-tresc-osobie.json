@@ -1,0 +1,27 @@
+[
+ {
+  "id": "rozl-3660-akceptacja-przekazana-tresc-osobie-z-lancucha",
+  "poprawka": "64d8c7702 #3660",
+  "opis": "Koordynator przekazuje dalej mail konsultanta z Time Sheet i akceptacją kierownika (klient z regułą proof.accept_has_hours, PKO): treść maila z akceptacją nie trafiała do osoby z łańcucha, więc brakowało dowodu godzin",
+  "dzis": "2026-10-05",
+  "klienci": {"K1": {"nazwa": "Bank Przykładowy", "reguly": {"proof.accept_has_hours": {"level": "warn"}}}},
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "K1"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "FW: Time Sheet wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "tresc": "Przesyłam.\n\nFrom: Konsultant <jan.korpusowy@example.com>\nSent: piątek\n",
+    "pliki": [{"nazwa": "Time Sheet 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny time sheet"}],
+    "eml": "From: koordynator@firma.example.com\nTo: rozliczenia@firma.example.com\nSubject: FW: Time Sheet wrzesień 2026\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPrzesyłam.\n\nFrom: Konsultant <jan.korpusowy@example.com>\nSent: piątek\nSubject: Time Sheet wrzesień 2026\n\nW załączniku Time Sheet z akceptacją.\n\nFrom: Kierownik <kierownik@bank.example.com>\nSent: czwartek\n\nAkceptuję 20 dni za wrzesień.\n"
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Time Sheet 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "FW: Time Sheet wrzesień 2026.eml", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}
+  ],
+  "liczba_dokumentow": 2
+ }
+]

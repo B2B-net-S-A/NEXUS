@@ -1,0 +1,61 @@
+[
+ {
+  "id": "rozl-3953-kcp-konsultanta-z-domeny-klienta",
+  "poprawka": "6b3fe814f #3953",
+  "opis": "Konsultant ze skrzynką w domenie banku z regułą cl.client_acceptance wysyła KCP: mail nie był akceptacją klienta, ale czytnik kończył go jako (0, 0) i karta pracy przepadała bez śladu",
+  "dzis": "2026-10-05",
+  "klienci": {
+   "K1": {
+    "nazwa": "Bank Pocztowy Przykładowy",
+    "reguly": {"cl.client_acceptance": {"level": "warn", "params": {"email": "rozliczenia@bank-pocztowy.example.com"}}}
+   }
+  },
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@bank-pocztowy.example.com", "klient": "K1"}},
+  "maile": [
+   {
+    "id": "m1",
+    "od": "jan.korpusowy@bank-pocztowy.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "KCP wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "tresc": "W załączniku przesyłam KCP.",
+    "pliki": [{"nazwa": "KCP Korpusowy Jan 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjna karta KCP"}],
+    "eml": "From: jan.korpusowy@bank-pocztowy.example.com\nTo: rozliczenia@firma.example.com\nSubject: KCP wrzesień 2026\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nW załączniku przesyłam KCP.\n"
+   }
+  ],
+  "oczekiwane": [{"plik": "KCP Korpusowy Jan 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}],
+  "liczba_dokumentow": 1
+ },
+ {
+  "id": "rozl-3953-mail-padajacy-porzucony-po-pieciu-biegach",
+  "poprawka": "6b3fe814f #3953",
+  "opis": "Mail, którego odczyt rzuca wyjątek w każdym biegu (u nas zepsuty ZIP), zatrzymywał znacznik skrzynki na zawsze: nowszy protokół nie wchodził; po 5 biegach mail ma zostać kartą do ręcznego przypisania, a czytnik iść dalej",
+  "uwaga": "atrapa skrzynki rzuca ValueError przy pobraniu załączników maila „zly” (pole „wyjatek”), jak w teście poprawki; wejścia, które dziś nadal wywraca czytnik, nie znamy — zepsuty ZIP z tej poprawki łapie rozl-3953-zip-z-zepsutym-plikiem",
+  "dzis": "2026-10-05",
+  "przebiegi": 5,
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "id": "zly",
+    "od": "jan.korpusowy@example.com",
+    "temat": "Dokumenty",
+    "odebrano": "2026-10-05T07:00:00Z",
+    "pliki": [{"nazwa": "Dokumenty.zip", "tekst": "PK fikcyjny"}],
+    "wyjatek": "mail, którego czytnik nie umie przeczytać",
+    "eml": "From: jan.korpusowy@example.com\nSubject: Dokumenty\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nW załączniku dokumenty.\n"
+   },
+   {
+    "id": "dobry",
+    "od": "jan.korpusowy@example.com",
+    "temat": "Protokół wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "Protokol odbioru 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol"}]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Protokol odbioru 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "Dokumenty.eml", "rodzaj": "report", "osoba": null}
+  ],
+  "liczba_dokumentow": 2
+ }
+]
