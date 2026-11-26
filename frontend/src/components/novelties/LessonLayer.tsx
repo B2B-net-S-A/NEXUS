@@ -379,8 +379,10 @@ export function LessonLayer() {
 }
 
 /**
- * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): zawsze widoczne wyjście
- * z lekcji, w której coś jest zepsute. Serwer zalicza ją od razu i zapisuje ślad.
+ * „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026): wyjście z lekcji,
+ * w której coś jest zepsute. Serwer zalicza ją od razu i zapisuje ślad. Stoi
+ * w zadaniu „sam” i w pytaniu, nie w pokazie (26.11.2026: od pierwszego kroku
+ * pokazu służyło do pomijania całych porcji).
  */
 export function BrokenButton({ run }: { run: LessonRun }) {
   const [sending, setSending] = useState(false);

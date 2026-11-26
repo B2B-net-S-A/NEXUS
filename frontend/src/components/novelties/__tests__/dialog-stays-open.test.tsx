@@ -207,3 +207,40 @@ describe("karta lekcji nad otwartym oknem", () => {
     expect(screen.getByRole("dialog", { name: "Co zmienił klient?" })).toBeInTheDocument();
   });
 });
+
+describe("pokaz w lekcji", () => {
+  // 26.11.2026: „Coś nie działa — zalicz i dalej” od pierwszego kroku pokazu
+  // służyło do pomijania całych porcji (4 osoby, po 5 lekcji). Furtka stoi
+  // dopiero w zadaniu „sam” i w pytaniu (`lesson-page-check.test.tsx`).
+  it("karta kroku pokazu nie ma „Coś nie działa”, ma „Przerwij”", async () => {
+    const run: LessonRun = {
+      lesson: {
+        id: "lekcja-klient-cos-zmienil",
+        title: "Klient coś zmienił",
+        task: "Zadanie",
+        solo_href: "/jobs/990001",
+        check: { kind: "click", anchor: "champion.client-change.propose" },
+        questions: [{ q: "Po co?", options: ["a", "b", "c"], answer: 0, explain: "e" }],
+      },
+      show: [CLIENT_CHANGE],
+      stage: "show",
+      showIndex: 0,
+      review: false,
+      origin: "daily",
+      question: 0,
+      wrongStreak: 0,
+    };
+    writeRun(run);
+    writeTour({ noveltyId: "klient-cos-zmienil", step: 1 });
+    render(
+      <>
+        <ClientChangeDialog onOpenChange={vi.fn()} />
+        <NoveltyLayer />
+      </>,
+    );
+    await settle();
+    expect(tourCard()).toHaveTextContent("Lekcja · pokaz");
+    expect(within(tourCard()).getByRole("button", { name: "Przerwij", hidden: true })).toBeInTheDocument();
+    expect(within(tourCard()).queryByRole("button", { name: "Coś nie działa — zalicz i dalej", hidden: true })).toBeNull();
+  });
+});
