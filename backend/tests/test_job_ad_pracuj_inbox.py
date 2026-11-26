@@ -140,3 +140,23 @@ def test_without_a_fitting_request_nothing_happens(candidates):
     match = decide("Starszy Analityk Danych (k/m/x)", candidates)
     assert match.auto is None
     assert match.suggested == ()
+
+
+def test_a_mail_that_fits_a_marked_recruitment_is_not_offered_elsewhere():
+    # Staging 26.11.2026: po „To nie to ogłoszenie” przy „Tester” wróciła
+    # propozycja starszego maila „Tester Automatyczny” — rekrutacji oznaczonej
+    # już innym mailem. Ten mail należy do niej, nie do najbliższej podobnej.
+    match = decide(
+        "Tester Automatyczny (k/m/x)",
+        [
+            Candidate(240, ("Tester Automatyczny",), available=False),
+            Candidate(227, ("Tester",)),
+        ],
+    )
+    assert match.auto is None
+    assert match.suggested == ()
+
+
+def test_half_of_the_words_is_not_similar_enough():
+    match = decide("Tester Automatyczny (k/m/x)", [Candidate(227, ("Tester",))])
+    assert match.suggested == ()

@@ -55,9 +55,10 @@ REJECTED = "job_ad_pracuj_mail_rejected"
 REQUEST_WINDOW = timedelta(days=14)
 # Pętla przegląda maile z tylu dni — pierwszy przebieg łapie zaległe.
 SCAN_WINDOW = timedelta(days=21)
-# Podobieństwo tytułów (wspólne słowa), przy którym jedyna prośba osoby
-# staje się propozycją.
-_SIMILAR_MIN = 0.5
+# Podobieństwo tytułów (wspólne słowa), POWYŻEJ którego jedyna prośba osoby
+# staje się propozycją. Połowa słów to za mało: „Tester” i „Tester
+# Automatyczny” to dwie różne rekrutacje (staging 26.11.2026).
+_SIMILAR_ABOVE = 0.5
 
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _GROUP_ID = re.compile(r"groupId=(" + _UUID + r")(?![0-9a-fA-F-])")
@@ -117,8 +118,12 @@ class PracujMail:
 
 @dataclass(frozen=True)
 class Candidate:
+    """Rekrutacja z prośbą tej osoby. ``available=False`` = już oznaczona albo
+    zamknięta: nie dostanie linku, ale jej tytuł „zajmuje” pasujący mail."""
+
     job_id: int
     titles: tuple[str, ...]
+    available: bool = True
 
 
 @dataclass(frozen=True)
@@ -131,15 +136,24 @@ class Match:
 
 def decide(mail_title_text: str, candidates: Iterable[Candidate]) -> Match:
     """Reguła dopasowania — czysta funkcja, testowana bez bazy."""
-    pool = list(candidates)
+    everyone = list(candidates)
+    pool = [c for c in everyone if c.available]
     key = title_key(mail_title_text)
-    exact = [c.job_id for c in pool if key and key in {title_key(t) for t in c.titles}]
+
+    def same_title(c: Candidate) -> bool:
+        return bool(key) and key in {title_key(t) for t in c.titles}
+
+    exact = [c.job_id for c in pool if same_title(c)]
     if len(exact) == 1:
         return Match(auto=exact[0], suggested=())
     if exact:
         return Match(auto=None, suggested=tuple(exact))
+    # Mail z tytułem rekrutacji już oznaczonej (np. starsza publikacja tego
+    # samego ogłoszenia) należy do niej — nie szukamy mu podobnej.
+    if any(same_title(c) for c in everyone):
+        return Match(auto=None, suggested=())
     if len(pool) == 1 and any(
-        _similarity(key, title_key(t)) >= _SIMILAR_MIN for t in pool[0].titles
+        _similarity(key, title_key(t)) > _SIMILAR_ABOVE for t in pool[0].titles
     ):
         return Match(auto=None, suggested=(pool[0].job_id,))
     return Match(auto=None, suggested=())
@@ -215,7 +229,8 @@ async def _used_urls(db: AsyncSession, urls: list[str]) -> set[str]:
 
 
 async def candidates_for(db: AsyncSession, mail: PracujMail) -> list[Candidate]:
-    """Otwarte rekrutacje z prośbą tej osoby przed mailem, bez oznaczenia Pracuj.pl."""
+    """Rekrutacje z prośbą tej osoby przed mailem; dostępne są tylko otwarte
+    i bez oznaczenia Pracuj.pl."""
     requested = (
         select(Activity.entity_id)
         .where(
@@ -233,12 +248,18 @@ async def candidates_for(db: AsyncSession, mail: PracujMail) -> list[Candidate]:
         JobAdPublication.removed_at.is_(None),
     )
     rows = await db.execute(
-        select(Job.id, Job.title, JobAd.content)
+        select(
+            Job.id,
+            Job.title,
+            JobAd.content,
+            # Tylko otwarte: „wisi” przy zamkniętej rekrutacji tylko by
+            # przypominało o zdjęciu ogłoszenia, którego nikt nie potwierdził.
+            ((Job.status == JobStatus.published) & Job.id.not_in(active)).label(
+                "available"
+            ),
+        )
         .join(requested, requested.c.entity_id == Job.id)
         .join(JobAd, JobAd.job_id == Job.id)
-        # Tylko otwarte: „wisi” przy zamkniętej rekrutacji tylko by przypominało
-        # o zdjęciu ogłoszenia, którego nikt z NEXUSA nie potwierdził.
-        .where(Job.status == JobStatus.published, Job.id.not_in(active))
     )
     return [
         Candidate(
@@ -248,8 +269,9 @@ async def candidates_for(db: AsyncSession, mail: PracujMail) -> list[Candidate]:
                 for t in (title, (content or {}).get("title"))
                 if isinstance(t, str) and t.strip()
             ),
+            available=bool(available),
         )
-        for job_id, title, content in rows
+        for job_id, title, content, available in rows
     ]
 
 
@@ -269,8 +291,9 @@ async def plan(db: AsyncSession, mails: list[PracujMail]) -> list[Planned]:
             continue
         pool = [
             c
-            for c in await candidates_for(db, mail)
             if (c.job_id, mail.email_id) not in rejected
+            else Candidate(c.job_id, (), available=False)
+            for c in await candidates_for(db, mail)
         ]
         match = decide(mail.title, pool)
         if match.auto is not None or match.suggested:

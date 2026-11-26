@@ -36,8 +36,12 @@ Kod: `services/job_ad/pracuj_inbox.py`, pętla `tasks/pracuj_mail_links.py`
   Automatyczny” 20.11 i 24.11 do jednej rekrutacji). Okno pokazuje najwyżej
   jedną propozycję na rekrutację.
 - **Reszta to propozycja w oknie** (`pracuj_mail_suggestions`): kilka
-  rekrutacji z tym samym tytułem, jedyna prośba z podobnym tytułem albo
-  treść z blokadą. „To ta rekrutacja” oznacza (blokada = 409), „Nie” zapisuje
+  rekrutacji z tym samym tytułem, jedyna prośba z tytułem podobnym w więcej
+  niż połowie słów albo treść z blokadą. Mail, którego tytuł dokładnie pasuje
+  do innej rekrutacji tej osoby (już oznaczonej albo zamkniętej), należy do
+  niej i nie jest proponowany nigdzie indziej — ścieżka na stagingu 26.11
+  pokazała po „To nie to ogłoszenie” przy „Tester” propozycję starszego maila
+  „Tester Automatyczny” (strażnik w `test_job_ad_pracuj_inbox.py`). „To ta rekrutacja” oznacza (blokada = 409), „Nie” zapisuje
   odrzucenie. Rekruter widzi propozycję bez przycisków.
 - **„To nie to ogłoszenie”** przy linku z maila usuwa wiersz oznaczenia
   (nikt go nie potwierdzał, przypomnienia wracają) i zapisuje odrzucenie pary
