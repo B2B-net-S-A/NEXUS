@@ -161,6 +161,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         # Formularz warunków kandydata z linku w mailu (17.11.2026).
         "warunki",
         "wypis",
+        # Raport kompetencji: zmiana warunków i wypis z linku w mailu (25.11.2026).
+        "raport",
         # Wtyczka i harnessy.
         "extension",
         "preview",

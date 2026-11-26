@@ -31,6 +31,16 @@ Strona pokazuje kandydatowi błąd przy każdej odpowiedzi innej niż 2xx, więc
 albo LinkedIn, imię i nazwisko przy ofercie, plik CV). Pole opcjonalne, które
 się nie czyta (stawka spoza zakresu, „dostępny od” jako tekst), zostaje jako
 surowa wartość w zgłoszeniu i nie blokuje przyjęcia.
+
+Raport kompetencji (decyzje Artura 25.11.2026): ``baza`` z ``report=1`` niesie
+warunki z nowego formularza (``current_rate``, ``contract``, powtarzane
+``work_mode`` i ``office_city``, ``office_days_max``, ``start``). Te pola strona
+wybiera z list, więc zła wartość to błąd strony i dostaje 422; ``report=1``
+wymaga CV i stawki. Warunki idą do profilu przez writery
+(``website_application_terms``) — u osoby już w bazie też, ale bez pól, które
+rekruter zmienił w ostatnich 14 dniach — a raport czeka na odczyt CV
+(``competence_report_store``). Raport to jedyny mail NEXUSA do kandydata ze
+strony.
 """
 
 from __future__ import annotations
@@ -39,7 +49,7 @@ import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Optional
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile
@@ -61,6 +71,9 @@ from app.models.candidate_consent import (
 )
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.services.candidate_name_rules import without_name_markers
+from app.services.competence_report_schema import ReportConditions
+from app.services.competence_report_store import create_report_for_application
+from app.services.website_application_terms import WebsiteTerms, apply_terms
 from app.services.public_apply import (
     PLACEHOLDER_NAME,
     RATE_MAX,
@@ -96,6 +109,15 @@ _WORK_MODES = {
     "onsite": "onsite",
     "any": "any",
 }
+_MODE_ORDER = ("remote", "hybrid", "onsite")
+
+# Pola raportu kompetencji (kontrakt strony z 25.11.2026).
+CONTRACTS = ("b2b", "uop", "any")
+STARTS = ("now", "1m", "2-3m", "browsing")
+REPORT_RATE_MAX = 2000  # jak ``ReportConditions.rate``
+OFFICE_DAYS_MAX = 5
+MAX_OFFICE_CITIES = 10
+OFFICE_CITY_MAX = 120  # jak ``office_cities`` w ``schemas/candidate.py``
 
 _EMAIL = TypeAdapter(EmailStr)
 
@@ -116,6 +138,29 @@ class WebsiteApplication:
     work_mode: Optional[str]
     # Surowe pola z formularza (także te, których nie dało się odczytać).
     raw: dict[str, Optional[str]]
+    # Tryby pracy w kolejności remote → hybrid → onsite (``any`` = wszystkie).
+    modes: tuple[str, ...] = ()
+    current_rate: Optional[int] = None
+    contract: Optional[str] = None
+    office_days_max: Optional[int] = None
+    office_cities: tuple[str, ...] = ()
+    start: Optional[str] = None
+    # Warunki raportu kompetencji — są tylko przy ``report=1``.
+    conditions: Optional[ReportConditions] = None
+
+    @property
+    def report(self) -> bool:
+        return self.conditions is not None
+
+    def terms(self) -> WebsiteTerms:
+        return WebsiteTerms(
+            rate_hourly=self.rate_hourly,
+            contract=self.contract,
+            modes=self.modes,
+            office_days_max=self.office_days_max,
+            cities=self.office_cities,
+            start=self.start,
+        )
 
 
 def _text(value: Any, field_name: str, max_len: int) -> Optional[str]:
@@ -153,6 +198,110 @@ def _iso_date(raw: Optional[str]) -> Optional[date]:
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _whole(rate: Decimal) -> int:
+    return int(rate.to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _strict_int(form: Any, name: str, low: int, high: int) -> Optional[int]:
+    """Liczba z listy strony: brak = ``None``, poza zakresem albo tekst = 422."""
+    raw = _text(form.get(name), name, SHORT_MAX)
+    if raw is None:
+        return None
+    message = f"Podaj liczbę od {low} do {high}."
+    try:
+        value = Decimal(raw.replace(" ", "").replace(",", "."))
+    except InvalidOperation:
+        raise field_error(name, message, raw) from None
+    if not value.is_finite() or value < low or value > high:
+        raise field_error(name, message, raw)
+    return _whole(value)
+
+
+def _choice(form: Any, name: str, allowed: tuple[str, ...]) -> Optional[str]:
+    raw = _text(form.get(name), name, SHORT_MAX)
+    if raw is None:
+        return None
+    if raw.lower() not in allowed:
+        raise field_error(name, "Nieznana wartość pola.", raw)
+    return raw.lower()
+
+
+def _modes(values: list[Any], *, strict: bool) -> tuple[str, ...]:
+    """Powtarzane ``work_mode``: wartości techniczne albo dawna etykieta strony.
+
+    Bez raportu nieznana etykieta tylko przepada (dawny formularz); przy
+    ``report=1`` to błąd strony — 422.
+    """
+    picked: set[str] = set()
+    for value in values:
+        label = _text(value, "work_mode", SHORT_MAX)
+        if label is None:
+            continue
+        mode = _WORK_MODES.get(label.lower())
+        if mode is None:
+            if strict:
+                raise field_error("work_mode", "Nieznany tryb pracy.", label)
+            continue
+        picked |= set(_MODE_ORDER) if mode == "any" else {mode}
+    return tuple(m for m in _MODE_ORDER if m in picked)
+
+
+def _office_cities(values: list[Any]) -> tuple[str, ...]:
+    """Miasta biura jak ``office_cities`` profilu: przycięte, bez powtórek."""
+    seen: set[str] = set()
+    cities: list[str] = []
+    for value in values:
+        city = _text(value, "office_city", OFFICE_CITY_MAX)
+        if city is None or city.casefold() in seen:
+            continue
+        seen.add(city.casefold())
+        cities.append(city)
+    if len(cities) > MAX_OFFICE_CITIES:
+        raise field_error("office_city", f"Podaj najwyżej {MAX_OFFICE_CITIES} miast.")
+    return tuple(cities)
+
+
+def _report_flag(form: Any, source: str) -> bool:
+    raw = _text(form.get("report"), "report", 5)
+    if raw is None or raw == "0":
+        return False
+    if raw != "1":
+        raise field_error("report", "Nieznana wartość pola.", raw)
+    if source != "baza":
+        raise field_error("report", "Raport jest tylko w formularzu bazy.", source)
+    return True
+
+
+def _report_conditions(
+    *,
+    rate: Optional[Decimal],
+    raw_rate: Optional[str],
+    current_rate: Optional[int],
+    contract: Optional[str],
+    modes: tuple[str, ...],
+    office_days_max: Optional[int],
+    office_cities: tuple[str, ...],
+    start: Optional[str],
+) -> ReportConditions:
+    if rate is None or rate > REPORT_RATE_MAX:
+        if raw_rate is None:
+            raise field_error("rate", "Podaj oczekiwaną stawkę (zł/h netto).")
+        raise field_error(
+            "rate", f"Podaj stawkę od 1 do {REPORT_RATE_MAX} zł/h.", raw_rate
+        )
+    fields: dict[str, Any] = {
+        "rate": _whole(rate),
+        "current_rate": current_rate,
+        "modes": modes,
+        "office_days_max": office_days_max,
+        "office_cities": office_cities,
+        "start": start,
+    }
+    if contract is not None:
+        fields["contract"] = contract
+    return ReportConditions(**fields)
 
 
 def parse_form(form: Any) -> WebsiteApplication:
@@ -194,14 +343,43 @@ def parse_form(form: Any) -> WebsiteApplication:
     if len(consents) > MAX_CONSENTS:
         raise field_error("consent", "Za dużo zgód w jednym zgłoszeniu.")
 
+    report = _report_flag(form, source)
+    mode_values = list(form.getlist("work_mode"))
+    modes = _modes(mode_values, strict=report)
+    current_rate = _strict_int(form, "current_rate", 1, REPORT_RATE_MAX)
+    contract = _choice(form, "contract", CONTRACTS)
+    office_days_max = _strict_int(form, "office_days_max", 0, OFFICE_DAYS_MAX)
+    office_cities = _office_cities(list(form.getlist("office_city")))
+    start = _choice(form, "start", STARTS)
+
+    mode_labels = [
+        label
+        for label in (_text(v, "work_mode", SHORT_MAX) for v in mode_values)
+        if label is not None
+    ]
     raw = {
         "rate": _text(form.get("rate"), "rate", SHORT_MAX),
         "available_from": _text(
             form.get("available_from"), "available_from", SHORT_MAX
         ),
         "city": _text(form.get("city"), "city", SHORT_MAX),
-        "work_mode": _text(form.get("work_mode"), "work_mode", SHORT_MAX),
+        "work_mode": ", ".join(mode_labels) or None,
     }
+    rate_hourly = _rate(raw["rate"])
+    conditions = (
+        _report_conditions(
+            rate=rate_hourly,
+            raw_rate=raw["rate"],
+            current_rate=current_rate,
+            contract=contract,
+            modes=modes,
+            office_days_max=office_days_max,
+            office_cities=office_cities,
+            start=start,
+        )
+        if report
+        else None
+    )
     return WebsiteApplication(
         source=source,
         email=email,
@@ -211,11 +389,20 @@ def parse_form(form: Any) -> WebsiteApplication:
         offer_title=offer_title,
         linkedin=_text(form.get("linkedin"), "linkedin", LINKEDIN_MAX),
         consents=tuple(consents),
-        rate_hourly=_rate(raw["rate"]),
+        rate_hourly=rate_hourly,
         availability_date=_iso_date(raw["available_from"]),
         city=raw["city"],
-        work_mode=_WORK_MODES.get((raw["work_mode"] or "").lower()),
+        work_mode=(
+            _WORK_MODES.get(mode_labels[0].lower()) if len(mode_labels) == 1 else None
+        ),
         raw=raw,
+        modes=modes,
+        current_rate=current_rate,
+        contract=contract,
+        office_days_max=office_days_max,
+        office_cities=office_cities,
+        start=start,
+        conditions=conditions,
     )
 
 
@@ -262,6 +449,16 @@ def _details_line(app: WebsiteApplication) -> Optional[str]:
         parts.append(f"miasto: {app.raw['city']}")
     if app.raw.get("work_mode"):
         parts.append(f"tryb: {app.raw['work_mode']}")
+    if app.current_rate is not None:
+        parts.append(f"obecna stawka: {app.current_rate} zł/h")
+    if app.contract is not None:
+        parts.append(f"forma: {app.contract}")
+    if app.office_days_max is not None:
+        parts.append(f"najwięcej dni w biurze: {app.office_days_max}")
+    if app.office_cities:
+        parts.append(f"miasta biura: {', '.join(app.office_cities)}")
+    if app.start is not None:
+        parts.append(f"start: {app.start}")
     if not parts:
         return None
     line = "; ".join(parts)
@@ -271,7 +468,13 @@ def _details_line(app: WebsiteApplication) -> Optional[str]:
 def queue_message(app: WebsiteApplication, *, duplicate: bool, has_cv: bool) -> str:
     """Opis wpisu w kolejce „Zgłoszenia” — rekruter widzi go na karcie."""
     head = f"Strona WWW, {_where(app)}."
-    if duplicate:
+    if duplicate and app.report:
+        body = (
+            "Ten adres był już w bazie — CV nie zmienia profilu, a warunki "
+            "z formularza zapisaliśmy w profilu (bez pól, które rekruter zmienił "
+            "w ostatnich 14 dniach). Zdecyduj: połącz, scal, utwórz albo odrzuć."
+        )
+    elif duplicate:
         body = (
             "Ten adres był już w bazie — profil bez zmian. Zdecyduj: połącz, "
             "scal, utwórz albo odrzuć."
@@ -281,8 +484,11 @@ def queue_message(app: WebsiteApplication, *, duplicate: bool, has_cv: bool) -> 
             ", CV w profilu." if has_cv else ", bez CV (podany LinkedIn)."
         )
         body += " „Połącz” zamyka wpis."
+    report = (
+        "Prośba o raport kompetencji — wyślemy go w 24 godziny." if app.report else None
+    )
     details = _details_line(app)
-    return " ".join(part for part in (head, body, details) if part)
+    return " ".join(part for part in (head, body, report, details) if part)
 
 
 def _payload(app: WebsiteApplication) -> dict[str, Any]:
@@ -306,6 +512,15 @@ def _payload(app: WebsiteApplication) -> dict[str, Any]:
         ),
         "city": app.city,
         "work_mode": app.work_mode,
+        "work_modes": list(app.modes),
+        # Obecna stawka nie jest oczekiwaniem — klucz inny niż
+        # ``expected_rate_hourly``, który czyta historia stawek.
+        "current_rate_hourly": app.current_rate,
+        "contract": app.contract,
+        "office_days_max": app.office_days_max,
+        "office_cities": list(app.office_cities),
+        "start": app.start,
+        "report": app.report,
         "raw": dict(app.raw),
         "consent": {
             "kinds": [consent_kind(app, i) for i in range(len(app.consents))],
@@ -388,6 +603,15 @@ async def _record_duplicate(
     db.add(submission)
     await db.flush()
     db.add_all(_consent_rows(app, application_submission_id=submission.id))
+    if app.conditions is not None:
+        # Decyzja Artura 26.11.2026 (zastępuje regułę z 25.11): osoba w bazie
+        # dostaje raport liczony z nowych warunków, ale profil ich nie dostaje.
+        # Warunki leżą w zgłoszeniu (``raw_payload``) i w raporcie; do profilu
+        # trafiają dopiero, gdy osoba zapisze je przez link z raportu
+        # (``public_competence_report``). CV też czeka w zgłoszeniu.
+        await create_report_for_application(
+            db, existing, submission, app.conditions, app.email
+        )
     db.add(
         Activity(
             entity_type="candidate",
@@ -400,6 +624,7 @@ async def _record_duplicate(
                 "offer_slug": app.offer_slug,
                 "was_duplicate": True,
                 "submission_id": submission.id,
+                "report": app.report,
             },
         )
     )
@@ -431,11 +656,6 @@ async def _create_candidate(
             "expected_rate_currency": "PLN",
             "profile_rate_updated_at": now,
         }
-    remote_modes = (
-        ["remote", "hybrid", "onsite"]
-        if app.work_mode == "any"
-        else ([app.work_mode] if app.work_mode else None)
-    )
     candidate = Candidate(
         name=without_name_markers(app.first_name)
         if app.first_name
@@ -450,12 +670,17 @@ async def _create_candidate(
         created_by=None,
         city=app.city,
         availability_date=app.availability_date,
-        preferences={"remote_modes": remote_modes} if remote_modes else {},
+        preferences={},
         **rate_fields,
     )
     db.add(candidate)
     await db.flush()
     candidate_id = candidate.id
+    # Tryb, dni, miasta, forma i start przez writery profilu (jak formularz
+    # warunków); stawka jest już w konstruktorze.
+    terms = await apply_terms(
+        db, candidate, app.terms(), now=now, protect=False, write_rate=False
+    )
     # Savepoint — awaria intencji indeksu nie cofa zgłoszenia.
     try:
         async with db.begin_nested():
@@ -490,14 +715,18 @@ async def _create_candidate(
         record_recreated_after_erasure(
             db, candidate_id, user_id=None, via=VIA_SELF_APPLICATION
         )
-    db.add(
-        _submission(
-            app,
-            matched_candidate_id=candidate_id,
-            duplicate=False,
-            has_cv=cv is not None,
-        )
+    submission = _submission(
+        app,
+        matched_candidate_id=candidate_id,
+        duplicate=False,
+        has_cv=cv is not None,
     )
+    db.add(submission)
+    if app.conditions is not None:
+        await db.flush()
+        await create_report_for_application(
+            db, candidate, submission, app.conditions, app.email
+        )
     db.add(
         Activity(
             entity_type="candidate",
@@ -509,6 +738,8 @@ async def _create_candidate(
                 "source": app.source,
                 "offer_slug": app.offer_slug,
                 "was_duplicate": False,
+                "report": app.report,
+                "terms": terms,
             },
         )
     )
@@ -516,9 +747,11 @@ async def _create_candidate(
 
 
 def require_cv_or_linkedin(app: WebsiteApplication, has_cv: bool) -> None:
-    """Oferta wymaga CV; „baza” przyjmuje CV albo sam LinkedIn."""
+    """Oferta i raport wymagają CV; „baza” bez raportu przyjmuje sam LinkedIn."""
     if has_cv:
         return
+    if app.report:
+        raise field_error("cv", "Dołącz CV — bez niego nie przygotujemy raportu.")
     if app.source == "oferta":
         raise field_error("cv", "Dołącz CV.")
     if app.linkedin is None:
