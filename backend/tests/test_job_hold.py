@@ -62,14 +62,14 @@ def test_check_with_on_hold_runs_after_the_0371_check_in_entrypoint() -> None:
 
 
 def test_migration_follows_0792_and_reads_the_single_source() -> None:
-    migration = (ROOT / "alembic/versions/0793_job_hold.py").read_text()
-    assert 'down_revision = "0792_cv_page1_highlight_ai"' in migration
+    migration = (ROOT / "alembic/versions/0794_job_hold.py").read_text()
+    assert 'down_revision = "0793_pracuj_public_links"' in migration
     assert "COLUMN_STATEMENTS" in migration and "ENUM_STATEMENTS" in migration
     others = [
         p.name
         for p in (ROOT / "alembic/versions").glob("*.py")
-        if 'down_revision = "0792_cv_page1_highlight_ai"' in p.read_text()
-        and p.name != "0793_job_hold.py"
+        if 'down_revision = "0793_pracuj_public_links"' in p.read_text()
+        and p.name != "0794_job_hold.py"
     ]
     assert others == [], others
 

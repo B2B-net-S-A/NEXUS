@@ -344,7 +344,7 @@ class JobResponse(BaseModel):
     # `request_work_state.visible_state` (champion przy „Szukamy”).
     work_state: str = "to_review"
     visible_work_state: Optional[str] = None
-    # 0793 (26.11.2026): „Wstrzymana” (work_state = on_hold) — powód, termin
+    # 0794 (26.11.2026): „Wstrzymana” (work_state = on_hold) — powód, termin
     # „Sprawdzę z klientem”, od kiedy (= ``work_state_changed_at``) i kto.
     # Od kiedy i kto wypełniają lista i ``GET /api/jobs/{id}``.
     hold_reason: Optional[str] = None
