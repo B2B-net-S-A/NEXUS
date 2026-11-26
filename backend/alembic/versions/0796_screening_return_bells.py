@@ -1,7 +1,7 @@
 """Karty bez śladu: dzwonek „wróciły do Nowych” i ostrzeżenie dzień wcześniej.
 
-Revision ID: 0795_screening_return_bells
-Revises: 0794_competence_reports
+Revision ID: 0796_screening_return_bells
+Revises: 0795_job_hold
 
 Rekruter zgłosił 26.11.2026, że osoby znikają ze „Screeningu”. Dzwonek
 o powrocie szedł typem ``candidate_claim_taken`` po każdym przebiegu (najwyżej
@@ -12,8 +12,8 @@ w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0795_screening_return_bells"
-down_revision = "0794_competence_reports"
+revision = "0796_screening_return_bells"
+down_revision = "0795_job_hold"
 branch_labels = None
 depends_on = None
 
