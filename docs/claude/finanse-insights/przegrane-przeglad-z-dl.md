@@ -15,6 +15,11 @@ od przegranych; różniło je przejście z CV do rozmowy (83% vs 37% w listopadz
 - **Miejsce i dostęp:** zakładka „Przegrane” przed „Wnioskami”, widzą admin, Head
   of Recruitment i Delivery Lead (`VIEWER_ROLES`, lustro `LOST_REVIEW_ROLES`
   w `lib/insights-roles.ts`). DL widzi całą firmę, bo spotkanie jest wspólne.
+- **Filtr DL na górze (26.11.2026, prośba Artura):** pole „Delivery Lead” obok
+  okresu liczy całą stronę dla jednej osoby (`?dl=<id>`, `dl=0` = rekrutacje bez
+  DL; API `dl_id`): kafelki, etapy, porównanie, trend, klientów, listę, wnioski
+  z liczb i rady AI. Lista osób (`dls`) zawsze z całej firmy w okresie. Zasady ze
+  spotkań i ich „czy pomogło” zostają firmowe. Chipy DL nad listą zastąpił ten filtr.
 - **Okres:** `PeriodPicker`, domyślnie bieżący miesiąc. Okno nie sięga przed
   12.10.2026 (`competition_history.cutover_utc`) — wcześniej zamknięcia nie miały
   powodów. Trend: do 6 miesięcy do końca okresu.

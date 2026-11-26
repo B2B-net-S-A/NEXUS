@@ -65,6 +65,29 @@ def test_loss_stage_is_the_furthest_stage(facts: service.JobFacts, stage: str) -
     assert service.loss_stage(facts) == stage
 
 
+def _closure(job_id: int, dl_id: int | None, group: str = "lost") -> service.Closure:
+    return service.Closure(
+        job_id=job_id,
+        title="t",
+        client_id=1,
+        client_name="K",
+        dl_id=dl_id,
+        close_reason="competitor",
+        close_notes=None,
+        closed_at=datetime(2026, 11, 2, tzinfo=timezone.utc),
+        opened_at=None,
+        group=group,
+    )
+
+
+def test_dl_filter_keeps_one_dl_or_jobs_without_dl() -> None:
+    rows = [_closure(1, 7), _closure(2, 8), _closure(3, None), _closure(4, 7, "won")]
+    assert service.for_dl(rows, None) == rows
+    assert [r.job_id for r in service.for_dl(rows, 7)] == [1, 4]
+    assert [r.job_id for r in service.for_dl(rows, service.NO_DL)] == [3]
+    assert service.for_dl(rows, 999) == []
+
+
 def test_client_pattern_prefers_earlier_stage_on_tie() -> None:
     assert (
         service.client_pattern(
@@ -365,6 +388,28 @@ async def test_close_saves_what_decided_and_module_shows_it(
     assert row["source"] == "client"
     assert row["client_verdicts"] == ["Za mało doświadczenia"]
     assert body["period_label"]
+    assert body["dl_id"] is None
+    assert any(d["id"] == (row["dl_id"] or 0) for d in body["dls"])
+
+    # Filtr DL z góry ekranu: cudzy DL nie widzi tej rekrutacji w niczym,
+    # a lista DL do wyboru zostaje z całej firmy.
+    other = await app_client.get(
+        "/api/insights/lost-review",
+        params={"period": "month", "offset": 0, "dl_id": 2_000_000_000},
+        headers=app_auth_headers,
+    )
+    assert other.status_code == 200, other.text
+    filtered = other.json()
+    assert filtered["dl_id"] == 2_000_000_000
+    assert filtered["jobs"] == [] and filtered["counts"]["lost"] == 0
+    assert filtered["dls"] == body["dls"]
+    own = await app_client.get(
+        "/api/insights/lost-review",
+        params={"period": "month", "offset": 0, "dl_id": row["dl_id"] or 0},
+        headers=app_auth_headers,
+    )
+    assert any(j["job_id"] == job_id for j in own.json()["jobs"])
+    assert all(j["dl_id"] == row["dl_id"] for j in own.json()["jobs"])
 
     # Spotkanie: zmiana na „Nie wiemy” przez moduł, potem szkic pytania do HM.
     put = await app_client.put(
