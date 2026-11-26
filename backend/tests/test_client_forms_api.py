@@ -388,6 +388,40 @@ async def test_score_sheet_is_a_second_template_filled_with_points(
 
 
 @pytest.mark.asyncio
+async def test_points_follow_the_legend_of_the_score_template(
+    app_client, app_auth_headers, storage, model
+):
+    """CEZ 26.11.2026: jedyny „Szczegółowy opis oceny” w rekrutacji to Excel
+    oznaczony jako tabela punktowa, z zasadami w kolumnie „Legenda”. Bez
+    osobnego pliku z zasadami punkty mają iść według legendy wzoru."""
+    from tests._client_score_xlsx import score_xlsx_unheaded_maximum
+
+    job_id, stage_id = await _pair()
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/files",
+        files={
+            "file": (
+                "Zal 5 Szczegolowy opis oceny Tester.xlsx",
+                score_xlsx_unheaded_maximum(),
+                "application/octet-stream",
+            )
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["client_form_kind"] == "score"
+
+    model.append(
+        {"fields": [{"id": "s0.r12.c4", "value": 2, "quote": "07.2023 – obecnie"}]}
+    )
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    filled = await app_client.post(f"{url}/fill?kind=score", headers=app_auth_headers)
+    assert filled.status_code == 200, filled.text
+    values = {item["id"]: item["value"] for item in filled.json()["fields"]}
+    assert values["s0.r12.c4"] == "2"
+
+
+@pytest.mark.asyncio
 async def test_pdf_or_other_files_cannot_be_templates(
     app_client, app_auth_headers, storage
 ):

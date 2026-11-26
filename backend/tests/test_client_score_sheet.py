@@ -78,6 +78,21 @@ def test_maximum_in_unheaded_column_result_under_points_header() -> None:
     assert score.max_points_total(structure) == 11
 
 
+def test_rules_come_from_the_legend_column_of_the_sheet() -> None:
+    """CEZ 26.11.2026: zasady punktacji stoją w kolumnie „Legenda” samego wzoru
+    (zał. 5 „Szczegółowy opis oceny” to ten Excel), osobnego PDF-a nie ma —
+    bez nich kod odrzucał każde pole punktów (0 z 8 w „Testerze ePP”)."""
+    text = score.rules_text(score_xlsx_unheaded_maximum())
+    assert (
+        "Doświadczenie w pracy z wtyczką do Jira Xray: 0 pkt - brak, 1 pkt za każdy rok."
+        in text
+    )
+    assert "Konsultant musi spełniać wymaganie." in text
+    assert "=SUM" not in text
+    # Wzór bez legendy nie ma zasad — same nazwy wierszy nie odblokują punktów.
+    assert score.rules_text(score_xlsx()) == ""
+
+
 def test_summary_and_format() -> None:
     structure = _structure()
     assert structure["format"] == "xlsx"

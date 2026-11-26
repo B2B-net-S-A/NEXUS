@@ -385,3 +385,29 @@ Zostały prawdziwe luki: wydział, rok studiów, data i wystawca certyfikatu.
 - **Staging nie ma pliku wzoru 789225** (uploady sprzed 18.11). „Wypełnij”
   przez API kończy się tam 404 „Pliku nie ma już w magazynie”. Pomiar szedł
   skryptem na strukturze z bazy, bez zapisu.
+
+## Zasady oceny z legendy tabeli punktowej (26.11.2026)
+
+DL CEZ 26.11.2026: „NEXUS nadal wypełnia tylko 50% CV do CEZ”. Pomiar na
+stagingu (kopia z 26.11, 5 rekrutacji CEZ, 21 formularzy i 14 tabel): w tabelach
+punktowych „Testera ePP” i „Testera Automatycznego” puste zostawały wszystkie
+pola punktów (8 i 7), a w formularzu Word pole „ponad minimalne wymagania”
+nie miało minimum. Przyczyna: w żadnej z 5 rekrutacji nie ma osobnego PDF-a
+ani Worda z zasadami — „Szczegółowy opis oceny” to sam Excel oznaczony jako
+wzór tabeli, z zasadami w kolumnie „Legenda (punktacja)”. `scoring_rules_text`
+pomijał oznaczone wzory, więc zasady były puste, prompt F36 nie dostawał pól
+punktów, a kod odrzucał każdą liczbę.
+
+- **Bez osobnego pliku zasady idą z legendy wzoru**
+  (`client_score_structure.rules_text`, `job_files._score_template_legend`):
+  wiersz „<oceniany element>: <legenda>” z kolumn, których nagłówek ma
+  „legend”, „punktacj”, „zasad” albo „sposób oceny”. Osobny plik z zasadami
+  dalej wygrywa. Wzór bez legendy daje pusty tekst — same nazwy wierszy nie
+  są zasadami i nie odblokują punktów.
+- Te same zasady trafiają do wypełnienia formularza Word, więc minimum do
+  „ponad minimalne wymagania” bierze się z legendy („1 pkt – więcej niż 3 lata”).
+- **Reszta braków to w większości brak danych w źródłach**, nie błąd modelu:
+  lata kompetencji bez roli, która ją opisuje (Xray, rejestry publiczne,
+  służba zdrowia), wiersz „Test sprawdzający wiedzę” (wypełnia klient po
+  teście), data i wystawca certyfikatu. U jednej osoby z 789225 „CV” w
+  profilu to certyfikat PRINCE2 — z niego formularz nic nie wyczyta.

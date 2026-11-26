@@ -462,7 +462,8 @@ async def scoring_rules_text(db: AsyncSession, job_id: int) -> str:
     """Tekst zasad oceny z Plików rekrutacji (np. zał. 5 „Szczegółowy opis oceny”).
 
     Źródło punktów tabeli punktowej. PDF albo Word z „ocen”/„kryter”/„punkt”
-    w nazwie, który nie jest oznaczonym wzorem; brak = pusty tekst (punkty
+    w nazwie, który nie jest oznaczonym wzorem; bez niego legenda tabeli
+    punktowej (``_score_template_legend``); brak obu = pusty tekst (punkty
     zostają do wpisania ręcznie). Odczyt przez ``cv_text_extractor`` — PDF
     czyta osobny proces z limitem.
     """
@@ -489,4 +490,22 @@ async def scoring_rules_text(db: AsyncSession, job_id: int) -> str:
             continue
         if text.strip():
             return text
-    return ""
+    return await _score_template_legend(db, job_id)
+
+
+async def _score_template_legend(db: AsyncSession, job_id: int) -> str:
+    """Zasady z kolumny „Legenda” tabeli punktowej, gdy osobnego pliku nie ma.
+
+    CEZ 26.11.2026: „Szczegółowy opis oceny” to sam wzór Excela, więc zasad
+    nie było nigdzie i kod odrzucał każde pole punktów, a „ponad minimalne
+    wymagania” zostawało bez minimum.
+    """
+    row = await client_form_of_job(db, job_id, KIND_SCORE)
+    if row is None:
+        return ""
+    try:
+        content = await run_in_threadpool(read_template, row)
+        return await run_in_threadpool(client_score_structure.rules_text, content)
+    except (JobFileRefused, client_form_structure.FormRejected):
+        logger.info("job_files: nie udało się odczytać legendy wzoru %d", row.id)
+        return ""

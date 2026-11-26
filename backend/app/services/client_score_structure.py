@@ -277,6 +277,53 @@ def read_structure(content: bytes) -> dict[str, Any]:
     }
 
 
+_LEGEND_HEADER = re.compile(r"legend|punktacj|zasad|spos[oó]b\s+oceny", re.IGNORECASE)
+
+
+def rules_text(content: bytes) -> str:
+    """Zasady oceny z kolumny „Legenda” wzoru: „<oceniany element>: <legenda>”.
+
+    W rekrutacjach CEZ „Szczegółowy opis oceny” (zał. 5) to ten sam Excel, który
+    jest tabelą punktową — osobnego PDF-a z zasadami nie ma (staging 26.11.2026:
+    0 z 5 rekrutacji). Bez legendy pusty tekst: same nazwy wierszy nie są
+    zasadami i nie mogą odblokować punktów.
+    """
+    workbook = open_workbook(content)
+    lines: list[str] = []
+    for sheet in workbook.worksheets[:MAX_SHEETS]:
+        if sheet.sheet_state != "visible":
+            continue
+        width = min(sheet.max_column or 0, MAX_COLS)
+        legend_cols: list[int] = []
+        element_col: Optional[int] = None
+        for row in range(1, min(sheet.max_row or 0, MAX_ROWS) + 1):
+            values = dict(_row_values(sheet, row, width))
+            texts = {
+                col: str(value).strip()
+                for col, value in values.items()
+                if _clean(value) and not _is_formula(value)
+            }
+            if any(_LP.match(text) for text in texts.values()) and len(texts) >= 2:
+                legend_cols = [
+                    col for col, text in texts.items() if _LEGEND_HEADER.search(text)
+                ]
+                element_col = next(
+                    (
+                        col
+                        for col, text in texts.items()
+                        if _ELEMENT_HEADER.search(text)
+                    ),
+                    None,
+                )
+                continue
+            element = _clean(texts.get(element_col)) if element_col else ""
+            for col in legend_cols:
+                legend = texts.get(col)
+                if legend:
+                    lines.append(f"{element}: {legend}" if element else legend)
+    return "\n".join(lines)
+
+
 def max_points_total(structure: dict[str, Any]) -> int:
     return sum(
         int(item.get("max_points") or 0) for item in structure.get("fields") or []
