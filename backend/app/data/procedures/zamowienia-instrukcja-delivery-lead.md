@@ -220,7 +220,8 @@ założy szkic.
 **Okresowe** — otworzy się formularz **„Nowy kontraktor / zamówienie"**, który
 zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 
-* **Kandydat \*** — wyszukiwarka po imieniu, e-mailu, umiejętności
+* **Kandydat \*** — wyszukiwarka po imieniu, e-mailu, umiejętności; na górze
+  osoby, których imię, nazwisko albo e-mail pasuje do wpisanego tekstu
 * **Rekrutacja (opcjonalnie)** — musi być rekrutacją **tego klienta**;
   rekrutacji innego klienta system nie przyjmie (tak samo przy przedłużeniu
   i edycji zamówienia)
