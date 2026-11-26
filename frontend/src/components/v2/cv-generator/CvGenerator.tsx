@@ -78,6 +78,7 @@ function CvGeneratorForm({ prefillCandidateId, prefillCandidateName, prefillJobI
       <CvResultLive
         mainId={g.result.id}
         candidateId={g.candidate.id}
+        stageId={g.result.stageId}
         jobId={g.result.jobId}
         fallbackTitle={{ candidateName: g.result.candidateName, jobTitle: g.result.jobTitle, clientName: g.result.clientName }}
         attachedStage={g.result.attachedToStage ? g.result.stageLabel : null}
