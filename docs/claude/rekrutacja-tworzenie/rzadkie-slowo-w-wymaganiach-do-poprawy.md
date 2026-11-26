@@ -25,10 +25,17 @@ otwarciu, więc istniejące rekrutacje pokazuje DL-owi pulpit.
   heurystyki rzadkości: pulpit ma mówić to, co DL zobaczy po otwarciu edytora.
 - **Koszt i pamięć.** Pomiar 27.10.2026 na kopii z 22.10: 673 wiersze w 202 otwartych
   rekrutacjach to ok. 7 min liczenia (rzadkie słowo ≤ 0,5 s, popularne do 2,7 s nawet
-  z `LIMIT`). Liczby trzyma pamięć procesu (jeden uvicorn) przez 24 h; pętla
+  z `LIMIT`). Liczby trzyma pamięć procesu przez 24 h; pętla
   `requirement_row_counts` (`app/tasks/`, na stagingu dozwolona) dolicza co godzinę
   brakujące i bliskie wygaśnięcia. Pulpit i okno propozycji liczą same tylko nowe
   wiersze, w limicie 1,5 s; brak liczby = brak powodu, nie zgadywanie.
+- **Kopia wspólna w `app_settings` (`requirement_row_counts`, 26.11.2026).** Pamięć jest
+  per proces, a procesy web wstają na nowo po każdym padnięciu, nie tylko po wdrożeniu:
+  na produkcji zapytanie liczące szło ok. 28 tys. razy w 23 h (ok. 6 580 s bazy) przy
+  ok. 540 wierszach na obrót (kopia 26.11: 171 otwartych rekrutacji, 542 wiersze, drugi
+  obrót w tym samym procesie 0). Pętla wczytuje kopię zaraz po starcie procesu i przed
+  każdym obrotem, a policzone zapisuje co 2 min (`load_shared` / `save_shared`, dłuższe
+  życie wpisu wygrywa, wygasłe znikają). Trasy kopii nie czytają — tylko pamięć procesu.
 - **Decyzje.** „Odrzuć” chowa propozycję do zmiany profilu, jak dotąd. „Zatwierdź”
   starej propozycji nie chowa `rare_word` (na kopii z 22.10 23 z 24 decyzji na
   otwartych rekrutacjach to zatwierdzenia sprzed tego powodu); po zatwierdzeniu

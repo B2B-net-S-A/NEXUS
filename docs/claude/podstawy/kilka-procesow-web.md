@@ -229,10 +229,10 @@ na zmianę zamiast raz na minutę.
 ## Świadomie per proces
 
 - Pamięci podręczne z TTL bez unieważnienia (liczniki wymagań, embeddingi, słowniki, tokeny
-  M365): podwójne rozgrzanie, poza tym bez skutku. Najdroższe jest `requirement_row_counts`:
-  po starcie każdy proces web liczy ok. 7 min zapytań (pomiar 27.10), potem odświeża wpisy
-  raz na dobę. Do rozgrzania pulpit może w jednym procesie pokazać powód `rare_word`,
-  a w drugim jeszcze nie.
+  M365): podwójne rozgrzanie, poza tym bez skutku. Wyjątek: `requirement_row_counts`
+  (ok. 540 zapytań na obrót, liczenie od zera po każdym starcie procesu dawało ok. 28 tys.
+  zapytań w 23 h) ma od 26.11.2026 kopię wspólną w `app_settings`, którą czyta i pisze
+  tylko pętla (`rekrutacja-tworzenie/rzadkie-slowo-w-wymaganiach-do-poprawy.md`).
 - `cache_single_flight`: ten sam drogi snapshot może się policzyć raz w każdym procesie.
 - Semafory (LibreOffice, wątki modeli): w kontenerze 2× więcej naraz.
 - „Kto jest online” dla maila z czatu (`get_connected_user_ids`): drugi proces nadrabia
