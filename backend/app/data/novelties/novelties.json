@@ -5136,6 +5136,19 @@
     "href": "/porcja",
     "section": "pipeline",
     "dot_anchor": "review-batch.return-group",
+    "steps": [
+      {
+        "anchor": "review-batch.tab-close",
+        "text": "Otwórz zakładkę „Do domknięcia”.",
+        "hint": "Tu czekają screeningi z rekrutacji, które nie są już Twoim P0."
+      },
+      {
+        "anchor": "review-batch.return-group",
+        "text": "„Oddaj … do Nowych” przy rekrutacji, która nie jest Twoim P0.",
+        "hint": "Screeningi wracają do „Nowych” bez odrzucenia i bez wpisu w historii osoby.",
+        "ack": true
+      }
+    ],
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {

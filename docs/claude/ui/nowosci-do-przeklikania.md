@@ -62,6 +62,29 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   zmianie samego query (zakładki robią `replaceState`) i dopiero na
   `solo_href` po przeładowaniu — pokaz kończący się na ekranie z warunku nie
   zalicza „sam”.
+- **Etap „sam” przechodzi się drogą z pokazu — pilnuje tego CI (26.11.2026).**
+  Na produkcji 26.11 „Wysyłkę do podpisu”, „Porcję: kartę”, „Arkusz rozmowy”,
+  „CV do klienta” i „Karty bez śladu” zaliczało furtką 4–6 osób, „Oddaj do
+  Nowych” 3 z 3, a Delivery Lead sześć razy w minutę wracał do pokazu i nie
+  mógł pracować. Każda poprawka łatała jedną lekcję, a nowe wchodziły co dzień
+  bez sprawdzenia etapu „sam”. Zasady:
+  - `solo_href` = ekran, na którym pokaz wskazał element z zadania
+    (`practice_href` tego wpisu). „Sam” u innej osoby albo na gołej Tablicy
+    wymaga kroków, których pokaz nie pokazał (panel osoby, „Rozwiń”, zwinięta
+    sekcja CV);
+  - element z warunku `click` jest krokiem pokazu (choćby `ack`); droga do
+    niego (zakładka „Do domknięcia”, „Edytuj CV”) też — wpis bez kroków
+    dostaje kroki;
+  - `e2e/lessons-solo.spec.ts` (projekt `poligon-chromium`, kolejka merge'ów)
+    przechodzi każdą lekcję rekrutera i DL-a obiema rolami przy 1280 × 720:
+    start na `solo_href`, kroki pokazu po kolei (widoczne, nie zasłonięte,
+    nie wyłączone; wolno przewinąć, zwinąć kartę zadania i wpisać treść),
+    potem element z zadania. Pada na lekcję, której tak nie da się przejść.
+    `KNOWN_GAPS` w tym pliku to lekcje sprzed strażnika — lista tylko maleje
+    (test pada na wpis, który już przechodzi), nowa lekcja na nią nie wchodzi.
+  - furtka „Coś nie działa — zalicz i dalej” jest przyciskiem, a od drugiego
+    powrotu do pokazu w przebiegu (`soloTries`) przyciskiem głównym karty z
+    jednym zdaniem wyjaśnienia (`BrokenButton prominent`).
 - **Najwyżej 5 lekcji dziennie** (Olaf: „nie chcę mieć z rana 40 funkcji, kiedy
   muszę wejść na daily”); reszta przechodzi na kolejne dni, nic nie przepada.
   Zaliczenie lekcji nie wciąga następnej tego samego dnia. To zastępuje „porcja
