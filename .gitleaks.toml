@@ -51,6 +51,10 @@ paths = [
 ]
 regexes = [
   '''change-me''',
+  # Klucz dźwigni w teście maila z raportem kompetencji (26.11.2026) — nazwa pola,
+  # nie sekret; w pliku ma ``gitleaks:allow``, ale skan zakresu PR-a #4040 widzi
+  # pierwszy commit. Dokładna wartość.
+  '''office_days_plus1''',
   '''your-[a-z-]+-key-here''',
   '''change-me-to-a-strong-password''',
   # CI-only test creds (clearly marked, no prod secret value)
@@ -263,10 +267,6 @@ regexes = [
   # zera; w pliku mają już ``gitleaks:allow``, ale skan zakresu PR-a #3348 widzi
   # pierwszy commit. Dokładne wartości.
   '''00000000-0000-0000-0000-00000000000[12]''',
-  # Klucz dźwigni w teście maila z raportem kompetencji (26.11.2026) — nazwa pola,
-  # nie sekret; w pliku ma ``gitleaks:allow``, ale skan zakresu PR-a #4040 widzi
-  # pierwszy commit. Dokładna wartość.
-  '''office_days_plus1''',
 ]
 
 [[rules]]
