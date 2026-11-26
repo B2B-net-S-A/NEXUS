@@ -1,0 +1,45 @@
+[
+ {
+  "id": "rozl-4053-wykaz-dwoch-osob-jeden-rozpoznany-kontrakt",
+  "poprawka": "18bf9d210 #4053",
+  "opis": "Wykaz godzin dwóch osób od kierownika klienta grupy, gdy numeru drugiej nie ma w NEXUS-ie, nie trafiał do żadnego kontraktu; rozpoznany kontrakt go dostaje, a jedna kopia czeka na przypisanie",
+  "dzis": "2026-07-01",
+  "klienci": {
+   "TV": {"nazwa": "Grupa Przykładowa TV", "nip": "7961810732"},
+   "TEL": {"nazwa": "Grupa Przykładowa Telekom", "nip": "5271037727"}
+  },
+  "osoby": {
+   "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "TV"},
+   "B": {"imie": "Anna", "nazwisko": "Przykładowa", "email_kontraktu": "anna.przykladowa@example.com", "klient": "TEL"}
+  },
+  "zamowienia": [{"numer": "CP Z990101001", "klient": "TV", "osoby": ["A"]}],
+  "przebiegi": 2,
+  "maile": [
+   {
+    "od": "kierownik.projektu@plus.pl",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Rozliczenie za 06.2026",
+    "odebrano": "2026-07-01T08:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "B2B czerwiec 2026.xlsx",
+      "arkusz": {
+       "Arkusz1": [
+        ["Opis", "Dostawca", "Konsultant", "Zamówienie", 2026],
+        [null, null, null, null, "czerwiec"],
+        [null, null, null, null, null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
+        ["PROJEKT ALFA", "B2B", "Przykładowa Anna", "4500000002", 16, 8, 8],
+        ["PROJEKT ALFA", "B2B", "Korpusowy Jan", "Z990101001", 24, 8, 8, 8]
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "B2B czerwiec 2026.xlsx", "rodzaj": "report", "osoba": null, "okres": "2026-06"},
+   {"plik": "B2B czerwiec 2026.xlsx", "rodzaj": "report", "osoba": "A", "okres": "2026-06"}
+  ],
+  "liczba_dokumentow": 2
+ }
+]

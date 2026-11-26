@@ -218,6 +218,22 @@ async def _same_file(
     return None
 
 
+async def stored_from_mail(
+    db: AsyncSession, graph_message_id: str, content: bytes
+) -> bool:
+    """Ten plik z tego maila już leży w dokumentach. Czytnik wraca do świeżych maili,
+    a identyfikator maila razem z plikiem może nosić tylko jeden dokument."""
+
+    existing = await _same_file(
+        db,
+        contract_id=None,
+        kind="report",
+        digest=hashlib.sha256(content).hexdigest(),
+        graph_message_id=graph_message_id,
+    )
+    return existing is not None
+
+
 async def store(
     db: AsyncSession,
     *,
