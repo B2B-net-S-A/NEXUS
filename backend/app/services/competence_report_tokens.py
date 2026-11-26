@@ -16,7 +16,14 @@ from app.services.candidate_terms import new_token, token_hash
 
 TOKEN_TTL = timedelta(days=60)
 
-__all__ = ["TOKEN_TTL", "ReportUrls", "new_token", "report_urls", "token_expiry", "token_hash"]
+__all__ = [
+    "TOKEN_TTL",
+    "ReportUrls",
+    "new_token",
+    "report_urls",
+    "token_expiry",
+    "token_hash",
+]
 
 
 @dataclass(frozen=True)
@@ -37,5 +44,7 @@ def report_urls(raw_token: str) -> ReportUrls:
     return ReportUrls(
         edit_conditions_url=f"{base}/raport/{raw_token}",
         unsubscribe_url=f"{base}/raport/{raw_token}?wypis=1",
-        one_click_unsubscribe_url=f"{api}/api/public/competence-report/{raw_token}/opt-out" if api else None,
+        one_click_unsubscribe_url=f"{api}/api/public/competence-report/{raw_token}/opt-out"
+        if api
+        else None,
     )

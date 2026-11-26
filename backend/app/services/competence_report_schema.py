@@ -46,7 +46,9 @@ class ReportConditions(_Frozen):
 class ReportProfile(_Frozen):
     """Jak odczytaliśmy CV: pokazujemy to w nagłówku maila, żeby kandydat mógł poprawić."""
 
-    role_label: str = Field(description="np. „Java”, „Tester”, kategoria kompetencji albo główna technologia")
+    role_label: str = Field(
+        description="np. „Java”, „Tester”, kategoria kompetencji albo główna technologia"
+    )
     years: Optional[int] = None
     city: Optional[str] = None
 
@@ -55,7 +57,9 @@ class MarketGroup(_Frozen):
     role_label: str
     years_bucket: Optional[str] = Field(default=None, description="np. „8+”, „5–8”")
     city: Optional[str] = None
-    widened: bool = Field(default=False, description="grupa poszerzona, bo węższa miała < MIN_GROUP osób")
+    widened: bool = Field(
+        default=False, description="grupa poszerzona, bo węższa miała < MIN_GROUP osób"
+    )
 
 
 class MarketRate(_Frozen):
@@ -68,7 +72,9 @@ class MarketRate(_Frozen):
 
 class RatePosition(_Frozen):
     expected: int
-    expected_vs_median_pct: int = Field(description="zaokrąglone, ujemne = poniżej mediany")
+    expected_vs_median_pct: int = Field(
+        description="zaokrąglone, ujemne = poniżej mediany"
+    )
     current: Optional[int] = None
     current_vs_median_pct: Optional[int] = None
 
@@ -82,7 +88,9 @@ class FunnelStep(_Frozen):
 class Lever(_Frozen):
     """Jedna zmiana warunku i ile projektów by dodała (pokazujemy tylko gain >= 1)."""
 
-    key: Literal["office_days_plus1", "extra_city", "rate_to_median", "remote_to_hybrid"]
+    key: Literal[
+        "office_days_plus1", "extra_city", "rate_to_median", "remote_to_hybrid"
+    ]
     label: str
     hint: Optional[str] = None
     gain: int = Field(ge=1)
@@ -102,13 +110,21 @@ class MissingTech(_Frozen):
 
 
 class ReportJob(_Frozen):
-    job_id: int = Field(description="tylko do kolejki rekrutera; mail i strona tokenu go nie pokazują")
+    job_id: int = Field(
+        description="tylko do kolejki rekrutera; mail i strona tokenu go nie pokazują"
+    )
     title: str = Field(description="publiczny tytuł, bez nazwy klienta")
-    budget_max: Optional[int] = Field(default=None, description="zaokrąglony w dół do 5 zł")
+    budget_max: Optional[int] = Field(
+        default=None, description="zaokrąglony w dół do 5 zł"
+    )
     skills: tuple[str, ...] = ()
-    place: Optional[str] = Field(default=None, description="np. „Kraków, 2 dni w biurze” albo „zdalnie”")
+    place: Optional[str] = Field(
+        default=None, description="np. „Kraków, 2 dni w biurze” albo „zdalnie”"
+    )
     meets: bool
-    miss_reason: Optional[str] = Field(default=None, description="np. „o 1 dzień w biurze za dużo”")
+    miss_reason: Optional[str] = Field(
+        default=None, description="np. „o 1 dzień w biurze za dużo”"
+    )
 
 
 class ReportOwner(_Frozen):
