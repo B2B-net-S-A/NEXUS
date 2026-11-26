@@ -256,7 +256,7 @@ function ProjectStatusCell({
         </span>
         {hired ? (
           <span
-            className={cn(CALM_SUBLINE, "max-w-[240px] truncate text-success-muted-foreground")}
+            className={cn(CALM_SUBLINE, "max-w-[180px] truncate text-success-muted-foreground")}
             title={hired}
           >
             {hired}
@@ -270,7 +270,7 @@ function ProjectStatusCell({
     <>
       <StatusDot tone={status.tone}>{status.label}</StatusDot>
       {note ? (
-        <span className={cn(CALM_SUBLINE, "max-w-[240px] truncate")} title={note}>
+        <span className={cn(CALM_SUBLINE, "max-w-[180px] truncate")} title={note}>
           {note}
         </span>
       ) : null}
