@@ -218,9 +218,30 @@ async def _hand_primary_back(
     wybór głównego CV i wskaźnik `cv_filename`, a profil dostaje znacznik, po
     którym ekran mówi, że wgrane CV nie zasiliło danych.
     """
+    await restore_previous_primary(
+        db, candidate=candidate, rejected=quarantined, replaced=replaced
+    )
+    _raw = candidate.cv_extracted_data
+    extracted = dict(_raw) if isinstance(_raw, dict) else {}
+    extracted["_identity_quarantine_source"] = {"kind": source_kind, "id": source_id}
+    candidate.cv_extracted_data = extracted
+
+
+async def restore_previous_primary(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    rejected: CandidateDocument,
+    replaced: ReplacedPrimaryCv,
+) -> None:
+    """Główne CV i `cv_filename` wracają do pliku sprzed wgrania ``rejected``.
+
+    Wspólne dla kwarantanny tożsamości i certyfikatu wgranego jako CV
+    (`cv_certificate`, 26.11.2026). ``rejected.is_primary`` zdejmuje wołający.
+    """
     previous = None
     if replaced.document_id is not None:
-        # Flaga musi zejść z pliku w kwarantannie, zanim dostanie ją poprzedni:
+        # Flaga musi zejść z odrzuconego pliku, zanim dostanie ją poprzedni:
         # `ux_candidate_documents_active_primary_cv` pozwala na jedno główne
         # CV, a jeden flush wysłałby oba UPDATE-y w kolejności id.
         await db.flush()
@@ -235,20 +256,14 @@ async def _hand_primary_back(
         )
     if previous is not None:
         previous.is_primary = True
-    if candidate.cv_filename == quarantined.filename:
+    if candidate.cv_filename == rejected.filename:
         # Upload przejął wskaźnik pliku. Stara nazwa równa nowej oznacza, że
         # kopia na dysku jest już nadpisana — wtedy wskaźnika nie ma do czego
         # przywrócić.
         restored = previous.filename if previous is not None else replaced.cv_filename
         candidate.cv_filename = (
-            restored
-            if previous is not None or restored != quarantined.filename
-            else None
+            restored if previous is not None or restored != rejected.filename else None
         )
-    _raw = candidate.cv_extracted_data
-    extracted = dict(_raw) if isinstance(_raw, dict) else {}
-    extracted["_identity_quarantine_source"] = {"kind": source_kind, "id": source_id}
-    candidate.cv_extracted_data = extracted
 
 
 async def _restore_stage_copies(

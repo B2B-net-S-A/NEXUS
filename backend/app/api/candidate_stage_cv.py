@@ -948,6 +948,8 @@ async def set_original_cv_from_document(
         document=document,
         actor_user_id=current_user.id,
         replaced_primary=replaced_primary,
+        # Plik z profilu wybrany świadomie — bez sprawdzania certyfikatu.
+        certificate_check=False,
     )
     if plan.durable_id is not None:
         from app.services.cv_generator_b2b.durable_jobs import execute_job
