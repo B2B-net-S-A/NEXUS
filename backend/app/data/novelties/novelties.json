@@ -2098,7 +2098,14 @@
     "href": "/contracts",
     "practice_href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.order-after-end"
+    "dot_anchor": "contracts.order-after-end",
+    "steps": [
+      {
+        "anchor": "contracts.order-after-end",
+        "text": "Kliknij pigułkę „Zamówione po końcu”.",
+        "hint": "Lista pokaże osoby, u których klient zamówił okres po końcu współpracy."
+      }
+    ]
   },
   {
     "id": "karta-przed-cv-do-klienta",
@@ -3466,7 +3473,21 @@
     },
     "where": "Sprzedaż → Leady → Boty",
     "href": "/sales/bots",
-    "dot_anchor": "sales.bots.list"
+    "dot_anchor": "sales.bots.list",
+    "practice_href": "/sales/leads",
+    "steps": [
+      {
+        "anchor": "sales.subviews",
+        "text": "Kliknij „Boty”.",
+        "hint": "Nad listą leadów przełączasz widok Sprzedaży."
+      },
+      {
+        "anchor": "sales.bots.list",
+        "text": "Boty Sprzedaży i godziny ich pracy.",
+        "hint": "Przy każdym bocie: co robi i kiedy pracuje.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-listy",
@@ -3532,8 +3553,21 @@
     "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
     "where": "Menu → Firma → Szkolenia",
     "href": "/trainings",
-    "practice_href": "/trainings?tab=recordings",
-    "dot_anchor": "trainings.library"
+    "practice_href": "/trainings",
+    "dot_anchor": "trainings.library",
+    "steps": [
+      {
+        "anchor": "trainings.tab.recordings",
+        "text": "Otwórz zakładkę „Nagrania”.",
+        "hint": "Nagrania szkoleń na żywo z Teams, z transkryptem i materiałami."
+      },
+      {
+        "anchor": "trainings.library",
+        "text": "Tu są nagrania ze szkoleń.",
+        "hint": "Każde nagranie ma transkrypt i materiały ze szkolenia.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "szkolenia-kalendarz-teams",
@@ -3595,7 +3629,20 @@
     "href": "/clients",
     "practice_href": "/clients?state=working",
     "section": "delivery",
-    "dot_anchor": "clients.attention"
+    "dot_anchor": "clients.attention",
+    "steps": [
+      {
+        "anchor": "clients.attention.row",
+        "text": "Kliknij „Umowa kończy się” w kolumnie „Wymaga uwagi”.",
+        "hint": "Link prowadzi prosto do umowy ramowej klienta."
+      },
+      {
+        "anchor": "clients.attention",
+        "text": "Kolumna „Wymaga uwagi” zbiera to, czym trzeba się zająć u klienta.",
+        "hint": "Kończące się umowy, zamówienia bez kontynuacji i relacje bez kontaktu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "stawki-ramowe-raport-kwartalny",
@@ -3679,7 +3726,21 @@
     "audience": { "roles": ["admin", "head_of_recruitment"] },
     "where": "Ustawienia → Nowości — kto już umie → Poligon NEXUSA dla nowych osób",
     "href": "/settings/nowosci",
-    "dot_anchor": "settings.nowosci.poligon-gate"
+    "dot_anchor": "settings.nowosci.poligon-gate",
+    "practice_href": "/settings?area=team",
+    "steps": [
+      {
+        "anchor": "settings.item.novelties",
+        "text": "Otwórz „Nowości — kto już umie”.",
+        "hint": "W Ustawieniach, w obszarze „Zespół”."
+      },
+      {
+        "anchor": "settings.nowosci.poligon-gate",
+        "text": "Tu widzisz, czy Poligon dla nowych osób jest obowiązkowy.",
+        "hint": "Ten sam przełącznik zdejmuje blokadę, gdy ćwiczenie przestanie się zaliczać.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "kto-ilu-dodal-w-zespole",
@@ -4132,9 +4193,16 @@
     },
     "where": "Finanse → Rozjazdy stawek → Do korekty po zmianie stawki",
     "href": "/finance",
-    "practice_href": "/finance?view=rate-divergences",
+    "practice_href": "/finance?view=order-changes",
     "section": "finance",
-    "dot_anchor": "finance.rate-divergences"
+    "dot_anchor": "finance.rate-divergences",
+    "steps": [
+      {
+        "anchor": "finance.rate-divergences",
+        "text": "Otwórz „Rozjazdy stawek”.",
+        "hint": "Zamówienia, których koszt nie zgadza się z obecną stawką Partnera."
+      }
+    ]
   },
   {
     "id": "jeden-slownik-powodow-zamkniecia",
@@ -4705,6 +4773,19 @@
     "where": "Wyszukiwarka u góry (⌘K) → wpisz NIP",
     "href": "/sales/companies",
     "dot_anchor": "topbar.search",
+    "steps": [
+      {
+        "anchor": "topbar.search",
+        "text": "Kliknij wyszukiwarkę u góry (⌘K).",
+        "hint": "Ta sama wyszukiwarka znajduje kandydatów, rekrutacje i klientów."
+      },
+      {
+        "anchor": "palette.sales-nip",
+        "text": "Po wpisaniu NIP-u: „Załóż firmę z NIP”.",
+        "hint": "Gdy firmy z tym NIP-em jeszcze nie ma, NEXUS założy ją z danymi z rejestru.",
+        "ack": true
+      }
+    ],
     "used_anchor": "palette.sales-nip"
   },
   {
@@ -4917,6 +4998,12 @@
         "anchor": "pre-contract.rule.stop",
         "text": "„Zatrzymaj kartę do podpisu”: bez podpisu obu stron osoba nie pójdzie dalej.",
         "hint": "Blokada obowiązuje każdego, także Delivery Leada. Bez zaznaczenia brak umowy tylko ostrzega.",
+        "ack": true
+      },
+      {
+        "anchor": "job.pre-contract.save",
+        "text": "„Zapisz” zapisuje ustawienie dla całej rekrutacji.",
+        "hint": "Na Poligonie zapis jest zablokowany — w pracy ustawienie obowiązuje od razu dla każdej karty.",
         "ack": true
       }
     ]
@@ -5203,7 +5290,19 @@
     "where": "Rekrutacje → Pytania z rozmów",
     "href": "/jobs/pytania",
     "section": "pipeline",
-    "dot_anchor": "jobs.question-bank.manager"
+    "dot_anchor": "jobs.question-bank.manager",
+    "steps": [
+      {
+        "anchor": "jobs.question-bank.client",
+        "text": "Wybierz klienta z listy.",
+        "hint": "Lista stanowisk zawęża się do tego klienta."
+      },
+      {
+        "anchor": "jobs.question-bank.manager",
+        "text": "Wybierz jednego z managerów klienta.",
+        "hint": "Zobaczysz pytania, które zadaje ta osoba na rozmowach."
+      }
+    ]
   },
   {
     "id": "nowe-cv-wyroznik",
@@ -5360,6 +5459,13 @@
     "href": "/jobs/pytania",
     "section": "pipeline",
     "dot_anchor": "jobs.question-bank.positions",
+    "steps": [
+      {
+        "anchor": "jobs.question-bank.position",
+        "text": "Kliknij dowolne stanowisko z listy.",
+        "hint": "Pytania z rozmów u klienta zebrane dla tego stanowiska, najnowsze na górze."
+      }
+    ],
     "used_anchor": "jobs.question-bank.position"
   },
   {
@@ -5380,6 +5486,14 @@
     "practice_href": "/insights?tab=przegrane",
     "section": "insights",
     "dot_anchor": "insights.tabs.lost",
+    "steps": [
+      {
+        "anchor": "insights.lost.only-open",
+        "text": "„Tylko bez odpowiedzi” zostawia rekrutacje, których nikt jeszcze nie omówił.",
+        "hint": "Tak przygotujesz listę na przegląd z Delivery Leadami.",
+        "ack": true
+      }
+    ],
     "used_anchor": "insights.lost.only-open"
   },
   {
@@ -5442,7 +5556,7 @@
     },
     "where": "Finanse → Rozliczenia klientów → Sprawy",
     "href": "/finance",
-    "practice_href": "/finance?view=settlements",
+    "practice_href": "/finance?view=settlements&stSub=cases",
     "section": "finance",
     "dot_anchor": "settlements.cases.overdue"
   },
@@ -5496,7 +5610,20 @@
     "href": "/finance",
     "practice_href": "/finance?view=settlements",
     "section": "finance",
-    "dot_anchor": "clients.settlement-extras.add"
+    "dot_anchor": "clients.settlement-extras.add",
+    "steps": [
+      {
+        "anchor": "clients.settlement-person",
+        "text": "Kliknij nazwisko osoby w tabeli.",
+        "hint": "Otworzy się jej rozliczenie za miesiąc."
+      },
+      {
+        "anchor": "clients.settlement-extras.add",
+        "text": "„Dodaj dodatek” dopisuje do faktury np. szkolenie.",
+        "hint": "Dodatek trafia na fakturę do klienta razem z godzinami osoby.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "kandydaci-zwijane-wyszukiwanie",

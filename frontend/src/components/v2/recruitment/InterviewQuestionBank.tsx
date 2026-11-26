@@ -131,6 +131,8 @@ export function InterviewQuestionBank() {
           Klient
           <select
             aria-label="Klient"
+            // Krok lekcji „Pytania z rozmów” (novelties.json): najpierw klient, potem manager.
+            data-tour="jobs.question-bank.client"
             value={filters.clientId ?? ""}
             onChange={(e) => set({ clientId: e.target.value ? Number(e.target.value) : null, manager: null })}
             className={cn(CONTROL, "w-52")}

@@ -716,7 +716,8 @@ export function ClientsList() {
                       <TableCell className="whitespace-nowrap tabular-nums">
                         <FrameworkCell item={item} />
                       </TableCell>
-                      <TableCell className="min-w-[200px]">
+                      {/* Krok lekcji „Lista klientów” (novelties.json): z kolumny prosto do umowy. */}
+                      <TableCell className="min-w-[200px]" data-tour="clients.attention.row">
                         <AttentionCell
                           items={rowAttention(item, attention.byClient.get(item.client_id) ?? [])}
                           failed={attention.failed}

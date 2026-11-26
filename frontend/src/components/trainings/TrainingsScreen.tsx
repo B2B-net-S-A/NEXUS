@@ -270,7 +270,8 @@ function SignTab() {
 function tabsFor(me: TrainingsMe | undefined, pendingCount: number): TabbedNavItem[] {
   const tabs: TabbedNavItem[] = [
     { value: "calendar", label: "Kalendarz" },
-    { value: "recordings", label: "Nagrania" },
+    // Krok lekcji „Szkolenia w NEXUSIE” (novelties.json): z Kalendarza do nagrań.
+    { value: "recordings", label: "Nagrania", "data-tour": "trainings.tab.recordings" },
     // Lekcje nowości do powtórki na Poligonie (Igor i Artur, 23.11.2026).
     { value: "nowosci", label: "Nowości w NEXUSIE" },
   ];
