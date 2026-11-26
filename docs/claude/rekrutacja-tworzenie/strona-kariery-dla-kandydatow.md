@@ -603,3 +603,23 @@ w tekście CV). Telefon z CV trafia do profilu.
 - Odpowiedź 201 niesie `first_name` i `email` z CV dla ekranu „Dziękujemy”.
 - **Zgoda na tę rekrutację zostaje obowiązkowa** (decyzja D z 19.10.2026);
   zmiana tylko po decyzji IOD.
+
+## Bez zaślepek szkicu AI (26.11.2026)
+
+Oferta `/r/team-leasing-oracle-kcjy` pokazywała kandydatom w rozdziale
+„Projekt” zdanie modelu „Brak szczegółowych informacji o projekcie
+w materiale źródłowym” — szkic dostał w materiale same „brak” i opisał ten
+brak, a opis zatwierdzono. Takie zdanie mówi o materiale NEXUSA, nie
+o projekcie.
+
+- `public_profile_lint.drop_placeholders` wycina zdania-zaślepki („… w
+  materiale źródłowym”, „Brak informacji / danych / opisu …”, „source
+  material”). Wzorce są wąskie: „Brak nadgodzin” i „materiały szkoleniowe”
+  zostają.
+- Działa przy zapisie (szkic AI `_parse_draft`, PUT `/public-profile`,
+  przepisanie z ogłoszenia `job_ad.career.career_text`, `approve_profile`
+  przed liczeniem skrótu) i w projekcji publicznej `public_job_payload`
+  (strona, portale, grafika OG) — także dla opisów zatwierdzonych wcześniej.
+- `about: null` chowa rozdział „Projekt” (`OfferPage.tsx`, `hasProject`).
+- Prompt szkicu każe przy braku opisu projektu zwrócić pusty opis.
+- Strażnik: `test_career_links_api.py::test_public_page_never_shows_a_placeholder_about`.
