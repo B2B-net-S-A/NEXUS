@@ -18,7 +18,7 @@ from app.services.order_pdf_parser import (
 from app.services.order_policies.registry import policy_by_key
 from tests.test_order_mail_gate_and_planner import _gate_input, _row
 
-TEXT = """Imię i nazwisko: Krzysztof Pala – Specjalista DevOps
+TEXT = """Imię i nazwisko: Krzysztof Testala – Specjalista DevOps
 Stawka za jedną Roboczogodzinę (zgodna z Ofertą Wykonawcy): 147,60 zł brutto
 Data rozpoczęcia wykonywania Prac przez Specjalistę: 01.09.2031
 Okres realizacji Prac przez Specjalistę: 80 RBH / mies.
@@ -26,7 +26,7 @@ Termin wykonania Prac 30.09.2031r. z możliwością przedłużenia.
 """
 
 
-def person(cid=1, name="Krzysztof", lastname="Pala"):
+def person(cid=1, name="Krzysztof", lastname="Testala"):
     return RosterPerson(
         cid, name, lastname, (RosterContract(cid * 10, "active", None, None),)
     )
@@ -35,11 +35,11 @@ def person(cid=1, name="Krzysztof", lastname="Pala"):
 @pytest.mark.parametrize(
     "name",
     [
-        "Krzysztof Pala",
-        " PALA\u00a0  krzysztof\n",
-        "Krzysztof Pa\u200bla",
-        "Krzysztof Pa\u00adla",
-        "Krzysztof\tPala",
+        "Krzysztof Testala",
+        " TESTALA\u00a0  krzysztof\n",
+        "Krzysztof Tes\u200btala",
+        "Krzysztof Tes\u00adtala",
+        "Krzysztof\tTestala",
     ],
 )
 def test_reported_person_has_exact_unique_identity(name):
@@ -69,7 +69,7 @@ def test_unicode_hyphen_is_equivalent_to_ascii_hyphen():
 
 
 def test_collisions_identify_records_and_remain_manual():
-    resolved = resolve_rows([_row("PALA KRZYSZTOF")], [person(), person(2)])[0]
+    resolved = resolve_rows([_row("TESTALA KRZYSZTOF")], [person(), person(2)])[0]
     assert resolved.match_kind == "ambiguous"
     assert resolved.candidate_id is None
     assert resolved.candidate_ids == (1, 2)
@@ -79,7 +79,7 @@ def test_collisions_identify_records_and_remain_manual():
 
 
 @pytest.mark.parametrize(
-    "name", ["Pala", "Krzysztof Pala 123", "Krzysztof Pala i Jan Nowak"]
+    "name", ["Testala", "Krzysztof Testala 123", "Krzysztof Testala i Jan Nowak"]
 )
 def test_partial_names_or_unexplained_extra_identifiers_are_not_exact(name):
     assert resolve_rows([_row(name)], [person()])[0].match_kind != "exact"
@@ -87,12 +87,12 @@ def test_partial_names_or_unexplained_extra_identifiers_are_not_exact(name):
 
 def test_pfron_label_evidence_uses_person_and_own_rate():
     rows = policy_by_key("pfron").extract_rows(TEXT)
-    assert rows[0].consultant_name == "Krzysztof Pala"
+    assert rows[0].consultant_name == "Krzysztof Testala"
     assert rows[0].rate_client == Decimal("120.00")
     assert rows[0].rate_client_gross == Decimal("147.60")
     assert rows[0].rate_unit == "hour" and not rows[0].uncertain
     assert rows[0].end_date == "2031-09-30"
-    assert len(pfron_extract_rows(TEXT + TEXT.replace("Pala", "Nowak"))) == 2
+    assert len(pfron_extract_rows(TEXT + TEXT.replace("Testala", "Nowak"))) == 2
 
 
 @pytest.mark.parametrize(
@@ -100,7 +100,7 @@ def test_pfron_label_evidence_uses_person_and_own_rate():
     [
         TEXT.replace("Stawka za jedną", "Opłata za jedną"),
         TEXT + "Imię i nazwisko: Jan Nowak\nNieczytelna stawka",
-        "Krzysztof Pala\n147,60 zł brutto",
+        "Krzysztof Testala\n147,60 zł brutto",
     ],
 )
 def test_missing_or_incomplete_label_evidence_never_confirms_model(text):
@@ -116,7 +116,7 @@ def test_pfron_md_quantity_warning_removed_without_hiding_other_uncertainty():
             "Sprawdź datę początku",
         ],
     )
-    apply_pfron_order_policy(ex, TEXT, filename="Zlecenie nr 31 Krzysztof Pala.pdf")
+    apply_pfron_order_policy(ex, TEXT, filename="Zlecenie nr 31 Krzysztof Testala.pdf")
     assert ex.uncertain_reasons == [
         "Nieczytelna stawka md_total",
         "Sprawdź datę początku",
@@ -165,7 +165,7 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
         apply_policies,
     )
 
-    rows = [_row("PALA Krzysztof", "120", "hour", "2031-09-01", "2031-09-30")]
+    rows = [_row("TESTALA Krzysztof", "120", "hour", "2031-09-01", "2031-09-30")]
     extraction = OrderExtraction(
         consultant_rows=rows,
         source="claude",
@@ -177,7 +177,7 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
     # #1730 (FIN-MAIL-05) bramka widzi tylko reguły, które naprawdę zadziałały.
     extraction, applied = apply_policies(
         extraction,
-        PolicyContext(document_text=TEXT, filename="Zlecenie nr 31 Krzysztof Pala.pdf"),
+        PolicyContext(document_text=TEXT, filename="Zlecenie nr 31 Krzysztof Testala.pdf"),
         active_policies(122),
     )
     assert applied == ["PFRON"]
@@ -227,7 +227,7 @@ def test_pfron_contradictory_marking_keeps_gross_rule_but_goes_to_review(marking
     result = apply_pfron_order_policy(
         OrderExtraction(rate_client=Decimal("147.60"), rate_unit="hour"),
         text,
-        filename="Zlecenie nr 31 Krzysztof Pala.pdf",
+        filename="Zlecenie nr 31 Krzysztof Testala.pdf",
     )
     assert result.consultant_rows[0].uncertain
     assert result.rate_client == Decimal("120.00")
@@ -255,7 +255,7 @@ def test_pfron_explicit_net_rate_is_not_divided(text):
     result = apply_pfron_order_policy(
         OrderExtraction(rate_client=Decimal("147.60"), rate_unit="hour"),
         text,
-        filename="Zlecenie nr 31 Krzysztof Pala.pdf",
+        filename="Zlecenie nr 31 Krzysztof Testala.pdf",
     )
     assert result.rate_client == Decimal("147.60")
     assert result.rate_client_gross is None
@@ -285,7 +285,7 @@ def test_pfron_net_word_in_an_unknown_notation_goes_to_review():
     result = apply_pfron_order_policy(
         OrderExtraction(rate_client=Decimal("147.60"), rate_unit="hour"),
         text,
-        filename="Zlecenie nr 31 Krzysztof Pala.pdf",
+        filename="Zlecenie nr 31 Krzysztof Testala.pdf",
     )
     assert result.consultant_rows[0].uncertain
 

@@ -26,7 +26,7 @@ function change(overrides: Partial<OrderChangeItem>): OrderChangeItem {
     contract_id: 1,
     client_id: 10,
     client_name: "Nordea Bank Abp",
-    consultant_name: "Axel Gocan",
+    consultant_name: "Axel Wzorcan",
     order_number: "286139",
     item_key: "chg:ev:1",
     order_start: "2026-10-01",
@@ -123,9 +123,9 @@ describe("karta zamówienia", () => {
         orderNumber: "286139",
         orderStart: "2026-10-01",
         orderEnd: "2026-12-31",
-        consultantName: "Axel Gocan",
+        consultantName: "Axel Wzorcan",
       }),
-    ).toBe("Zam. 286139 · 01.10.2026 – 31.12.2026 · Axel Gocan");
+    ).toBe("Zam. 286139 · 01.10.2026 – 31.12.2026 · Axel Wzorcan");
     expect(
       cardTitle({
         orderNumber: "1",
@@ -183,7 +183,7 @@ describe("karta zamówienia", () => {
     );
     const cards = buildCards(items, "all");
     expect(cards).toHaveLength(2);
-    const gocan = cards.find((card) => card.consultantName === "Axel Gocan")!;
+    const gocan = cards.find((card) => card.consultantName === "Axel Wzorcan")!;
     expect(gocan.items).toHaveLength(2);
     expect(gocan.labels).toEqual(["extension", "rate_revenue"]);
     const rate = gocan.items.find((item) => item.label === "rate_revenue")!;
@@ -400,7 +400,7 @@ describe("liczniki i klienci", () => {
     const cards = buildCards(items, "todo");
     const { open, finished } = splitCards(cards, "todo");
     expect(open).toHaveLength(3);
-    expect(finished.map((card) => card.consultantName)).toEqual(["Axel Gocan"]);
+    expect(finished.map((card) => card.consultantName)).toEqual(["Axel Wzorcan"]);
   });
 
   it("odhaczenie zmienia dane od razu (bez ponownego odczytu)", () => {

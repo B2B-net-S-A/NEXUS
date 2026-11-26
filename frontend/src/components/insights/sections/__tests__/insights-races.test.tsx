@@ -75,7 +75,7 @@ function renderWithClient(ui: React.ReactElement) {
 function recEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
   return {
     user_id: 1,
-    name: "Martyna Gołębska",
+    name: "Martyna Testębska",
     metric_value: 42,
     rank: 1,
     excluded: false,
@@ -98,7 +98,7 @@ function recEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
 function placEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
   return {
     user_id: 9,
-    name: "Marlena Rosół",
+    name: "Marlena Testół",
     metric_value: 4,
     rank: 1,
     excluded: false,
@@ -356,7 +356,7 @@ describe("InsightsRaces", () => {
     respond({ [RACES]: racesPayload() });
     renderWithClient(<InsightsRaces month="2020-01" />);
 
-    expect(await screen.findByText("Martyna Gołębska")).toBeInTheDocument();
+    expect(await screen.findByText("Martyna Testębska")).toBeInTheDocument();
     expect(
       screen.getByText(
         "Za mało weryfikacji · Za niska skuteczność rekomendacji",
@@ -390,7 +390,7 @@ describe("InsightsRaces", () => {
     });
     renderWithClient(<InsightsRaces month="2020-01" />);
 
-    expect(await screen.findByText("Martyna Gołębska")).toBeInTheDocument();
+    expect(await screen.findByText("Martyna Testębska")).toBeInTheDocument();
     expect(screen.getByText(/Lider kwartału/)).toHaveTextContent("zasada do 05.11.2026");
   });
 
@@ -409,7 +409,7 @@ describe("InsightsRaces", () => {
     });
     renderWithClient(<InsightsRaces month="2020-01" />);
 
-    expect(await screen.findByText("Martyna Gołębska")).toBeInTheDocument();
+    expect(await screen.findByText("Martyna Testębska")).toBeInTheDocument();
     expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
   });
 
@@ -449,7 +449,7 @@ describe("InsightsRaces", () => {
     });
     renderWithClient(<InsightsRaces month="2020-01" />);
 
-    expect(await screen.findByText("Marlena Rosół")).toBeInTheDocument();
+    expect(await screen.findByText("Marlena Testół")).toBeInTheDocument();
     expect(screen.getAllByText("Brak wyników w tym miesiącu")).toHaveLength(1);
   });
 
@@ -620,9 +620,9 @@ describe("InsightsHallOfFame", () => {
     period: "all_time",
     top3: [],
     full_ranking: [
-      { user_id: 1, name: "Marlena Rosół", metric_value: 23, is_active: true },
-      { user_id: 2, name: "Michał Walasek", metric_value: 22, is_active: true },
-      { user_id: 3, name: "Elza Grabińska", metric_value: 6, is_active: false },
+      { user_id: 1, name: "Marlena Testół", metric_value: 23, is_active: true },
+      { user_id: 2, name: "Michał Testasek", metric_value: 22, is_active: true },
+      { user_id: 3, name: "Elza Testińska", metric_value: 6, is_active: false },
     ],
     scope: {
       ranked_placements: 167,
@@ -645,7 +645,7 @@ describe("InsightsHallOfFame", () => {
     });
     renderWithClient(<InsightsHallOfFame />);
 
-    expect(await screen.findByText("Marlena Rosół")).toBeInTheDocument();
+    expect(await screen.findByText("Marlena Testół")).toBeInTheDocument();
     expect(
       screen.getByText(/To NIE jest lista zwycięzców/),
     ).toBeInTheDocument();
@@ -675,7 +675,7 @@ describe("InsightsHallOfFame", () => {
     // osiągnął. Wycięcie wiersza kasowałoby dorobek wstecz, a wiersz bez
     // chipa sugerowałby, że ta osoba wciąż tu pracuje. Ta sama reguła co
     // w tabeli „Performance per osoba" dwie sekcje wyżej.
-    expect(await screen.findByText("Elza Grabińska")).toBeInTheDocument();
+    expect(await screen.findByText("Elza Testińska")).toBeInTheDocument();
     expect(screen.getByText("był(a) w zespole")).toBeInTheDocument();
   });
 
@@ -689,7 +689,7 @@ describe("InsightsHallOfFame", () => {
     // Bez tego zdania TOP 5 czyta się jako całość bazy. Po przejściu na
     // atrybucję D2 poza rankingiem zostaje WIĘKSZOŚĆ placementów — domknięta
     // przez konta administracyjne, które nie rekrutują.
-    await screen.findByText("Marlena Rosół");
+    await screen.findByText("Marlena Testół");
     expect(screen.getByText("147")).toBeInTheDocument();
     expect(
       screen.getByText(/domkniętych spoza tych ról/),
@@ -708,7 +708,7 @@ describe("InsightsHallOfFame", () => {
 
     // Zero to nie jest informacja — zdanie „poza rankingiem: 0" dokładałoby
     // szumu tam, gdzie nie ma czego wyjaśniać.
-    await screen.findByText("Marlena Rosół");
+    await screen.findByText("Marlena Testół");
     expect(
       screen.queryByText(/domkniętych spoza tych ról/),
     ).toBeNull();
@@ -740,7 +740,7 @@ describe("InsightsHallOfFame", () => {
               {
                 rank: 1,
                 user_id: 5,
-                user_name: "Wiktoria Deneka",
+                user_name: "Wiktoria Testeka",
                 metric_value: 39,
                 points: null,
                 prize_pln: 1500,
@@ -755,7 +755,7 @@ describe("InsightsHallOfFame", () => {
 
     expect(await screen.findByText("Sierpień 2026")).toBeInTheDocument();
     const row = screen
-      .getByText("Wiktoria Deneka")
+      .getByText("Wiktoria Testeka")
       .closest("li") as HTMLElement;
     expect(within(row).getByText(/1500|1 500/)).toBeInTheDocument();
   });
@@ -764,7 +764,7 @@ describe("InsightsHallOfFame", () => {
     respond({ [CURRENT]: allTime, [HISTORY]: httpError(500) });
     renderWithClient(<InsightsHallOfFame />);
 
-    expect(await screen.findByText("Marlena Rosół")).toBeInTheDocument();
+    expect(await screen.findByText("Marlena Testół")).toBeInTheDocument();
     expect(
       screen.getByText(
         /Nie udało się pobrać danych sekcji .Hall of Fame — zamknięte okresy/,

@@ -31,19 +31,19 @@ def test_collect_empty_when_no_tokens() -> None:
 
 def test_render_replaces_known_token_with_name() -> None:
     out = render_traffit_mentions(
-        "<div><p>$$user_40$$&nbsp;</p></div>", {"40": "Klaudia Uliasz"}
+        "<div><p>$$user_40$$&nbsp;</p></div>", {"40": "Klaudia Wzoriasz"}
     )
-    assert out == "<div><p>@Klaudia Uliasz&nbsp;</p></div>"
+    assert out == "<div><p>@Klaudia Wzoriasz&nbsp;</p></div>"
     assert "$$user_40$$" not in out
 
 
 def test_render_handles_multiple_tokens_in_json_wrapper() -> None:
     raw = '{"content":"<p>$$user_205$$ napisał do $$user_40$$</p>","state":{"id":1}}'
     out = render_traffit_mentions(
-        raw, {"205": "Ignacy Kotecki", "40": "Klaudia Uliasz"}
+        raw, {"205": "Ignacy Makietecki", "40": "Klaudia Wzoriasz"}
     )
     assert out == (
-        '{"content":"<p>@Ignacy Kotecki napisał do @Klaudia Uliasz</p>","state":{"id":1}}'
+        '{"content":"<p>@Ignacy Makietecki napisał do @Klaudia Wzoriasz</p>","state":{"id":1}}'
     )
 
 
@@ -56,8 +56,8 @@ def test_render_unknown_id_falls_back_to_generic_label() -> None:
 
 def test_render_leaves_native_email_mentions_untouched() -> None:
     raw = "rozmowa z @jan.kowalski@b2bnetwork.pl o $$user_40$$"
-    out = render_traffit_mentions(raw, {"40": "Klaudia Uliasz"})
-    assert out == "rozmowa z @jan.kowalski@b2bnetwork.pl o @Klaudia Uliasz"
+    out = render_traffit_mentions(raw, {"40": "Klaudia Wzoriasz"})
+    assert out == "rozmowa z @jan.kowalski@b2bnetwork.pl o @Klaudia Wzoriasz"
 
 
 def test_render_passthrough_for_empty_and_none() -> None:

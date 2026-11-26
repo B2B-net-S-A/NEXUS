@@ -41,7 +41,7 @@ const AT_CLIENT: ChampionConsultantSuggestion[] = Array.from({ length: 24 }, (_,
   since: null,
 })).concat({
   candidate_id: 200,
-  name: "Piotr Studziński",
+  name: "Piotr Wzorziński",
   job_title: "Analityk",
   since: null,
 });
@@ -79,13 +79,13 @@ describe("ConsultantPicker", () => {
     expect(await screen.findAllByTestId("consultant-picker-option")).toHaveLength(25);
     expect(screen.getByText(/Nasi konsultanci u tego klienta · 25/)).toBeInTheDocument();
 
-    await user.type(screen.getByTestId("consultant-picker-search"), "studzin");
+    await user.type(screen.getByTestId("consultant-picker-search"), "wzorzin");
     const options = screen.getAllByTestId("consultant-picker-option");
     expect(options).toHaveLength(1);
     await user.click(options[0]);
 
-    expect(lastChoice).toEqual({ candidateId: 200, name: "Piotr Studziński", detail: "Analityk" });
-    expect(screen.getByTestId("consultant-picker-selected")).toHaveTextContent("Piotr Studziński");
+    expect(lastChoice).toEqual({ candidateId: 200, name: "Piotr Wzorziński", detail: "Analityk" });
+    expect(screen.getByTestId("consultant-picker-selected")).toHaveTextContent("Piotr Wzorziński");
   });
 
   it("osobę spoza listy klienta znajduje w całej bazie, bez dubli z listy", async () => {
@@ -93,7 +93,7 @@ describe("ConsultantPicker", () => {
     getMock.mockResolvedValue({
       data: {
         items: [
-          { id: 200, name: "Piotr", lastname: "Studziński", email: "ps@example.com" },
+          { id: 200, name: "Piotr", lastname: "Wzorziński", email: "ps@example.com" },
           { id: 900, name: "Marek", lastname: "Spozalisty", email: "ms@example.com" },
         ],
       },

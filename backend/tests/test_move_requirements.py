@@ -238,7 +238,7 @@ def test_nordea_recruiter_hands_over_to_the_delivery_lead() -> None:
         nordea=True,
         cpro_stage_def_id=44,
         qc_stage_def_id=41,
-        cpro_sender_name="Kinga Sordyl",
+        cpro_sender_name="Kinga Testyl",
     )
     result = build_requirements(facts, "cv_sent")
     assert result["primary"] == {
@@ -249,7 +249,7 @@ def test_nordea_recruiter_hands_over_to_the_delivery_lead() -> None:
     }
     assert "dl_acceptance" in _keys(result)
     assert "client_rate" not in _keys(result)
-    assert "Kinga Sordyl" in result["owner_note"]
+    assert "Kinga Testyl" in result["owner_note"]
     # Ze „Zweryfikowanego” przekazanie = ruch na etap QC CV szablonu, a wynik
     # QC (liczony dopiero w „QC CV”) nie blokuje przekazania.
     from_verified = build_requirements(
@@ -267,7 +267,7 @@ def test_nordea_delivery_lead_accepts_to_the_cpro_queue() -> None:
         qc_status="passed",
         nordea=True,
         cpro_stage_def_id=44,
-        cpro_sender_name="Kinga Sordyl",
+        cpro_sender_name="Kinga Testyl",
         is_client_sender=True,
     )
     result = build_requirements(facts, "cv_sent")
@@ -279,7 +279,7 @@ def test_nordea_delivery_lead_accepts_to_the_cpro_queue() -> None:
     rate = _item(result, "client_rate")
     assert rate["label"] == "Stawka do Cpro" and rate["blocking"] is False
     assert rate["action"]["kind"] == "set_client_rate"
-    assert "Kinga Sordyl" in result["owner_note"]
+    assert "Kinga Testyl" in result["owner_note"]
     # QC blokuje akceptację do Cpro.
     failed = build_requirements(replace(facts, qc_status="failed"), "cv_sent")
     assert failed["primary"]["kind"] == "blocked"
@@ -297,7 +297,7 @@ def test_nordea_delivery_lead_before_qc_moves_the_card_to_qc_first() -> None:
         nordea=True,
         cpro_stage_def_id=44,
         qc_stage_def_id=41,
-        cpro_sender_name="Kinga Sordyl",
+        cpro_sender_name="Kinga Testyl",
         is_client_sender=True,
     )
     result = build_requirements(facts, "cv_sent")
@@ -316,11 +316,11 @@ def test_nordea_card_already_in_the_queue_moves_only_for_the_sender() -> None:
         qc_status="passed",
         nordea=True,
         on_cpro_stage=True,
-        cpro_sender_name="Kinga Sordyl",
+        cpro_sender_name="Kinga Testyl",
     )
     blocked = build_requirements(facts, "cv_sent")
     assert blocked["primary"]["kind"] == "blocked"
-    assert blocked["owner_note"] == "Do Cpro wrzuca Kinga Sordyl."
+    assert blocked["owner_note"] == "Do Cpro wrzuca Kinga Testyl."
     sender = build_requirements(replace(facts, can_send_to_cpro=True), "cv_sent")
     assert sender["primary"] == {
         "kind": "move",
@@ -339,7 +339,7 @@ def test_cpro_queue_upload_is_not_blocked_by_qc(qc_status: str) -> None:
         nordea=True,
         on_cpro_stage=True,
         can_send_to_cpro=True,
-        cpro_sender_name="Kinga Sordyl",
+        cpro_sender_name="Kinga Testyl",
     )
     result = build_requirements(facts, "cv_sent")
     qc_item = _item(result, "cv_qc")

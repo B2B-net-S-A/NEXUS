@@ -310,7 +310,7 @@ async def test_second_active_flag_of_same_type_is_refused(
     assert second.status_code == 409, second.text
 
     # Inny typ przy tej samej osobie jest w porządku — DynaReporter pokazuje
-    # obie plakietki naraz (Zuzanna Gruszczyńska).
+    # obie plakietki naraz (Zuzanna Wzorczyńska).
     other = await pflag_client.post(
         _BASE,
         headers=admin_headers,

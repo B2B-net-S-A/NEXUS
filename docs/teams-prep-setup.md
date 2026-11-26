@@ -14,7 +14,7 @@ konfigurację; dowód nagrania i importu wymaga zakończonego spotkania z mową.
   `Calendars.ReadWrite` w Entra.
 - Exchange App RBAC przyznał `Application Calendars.ReadWrite` przez zakres
   `NEXUS-TeamsPrep-Calendar-Scope` i grupę `NEXUS-Meetings-Scope`. Test dla
-  `ewa.kalata@b2bnetwork.pl` zwrócił `InScope=True`, a dla
+  `ewa.wzorata@b2bnetwork.pl` zwrócił `InScope=True`, a dla
   `artur.twardowski@b2bnetwork.pl` `InScope=False`.
 - Teams `Microsoft Graph access` dla transkryptów jest włączony. Polityka
   aplikacji `NEXUS-TeamsPrep-ApplicationAccess` i polityka spotkań
@@ -23,7 +23,7 @@ konfigurację; dowód nagrania i importu wymaga zakończonego spotkania z mową.
   `AllowCloudRecording=True`, `AllowTranscription=True` i
   `ExplicitRecordingConsent=Enabled`. W porównaniu z ich poprzednią polityką
   globalną zmieniła się tylko wymagana zgoda uczestnika.
-- Adres Wiktorii Deneki to `wiktoria.deneka@b2bnetwork.pl`. Wstępne
+- Adres Wiktorii Testeki to `wiktoria.testeka@b2bnetwork.pl`. Wstępne
   sprawdzenie błędnego adresu `wiktoria.denka@...` dało fałszywy brak skrzynki;
   poprawny adres rozwiązuje się do `UserMailbox`.
 - Sekrety obu osobnych aplikacji zapisano w GitHub Actions i Coolify.
@@ -266,7 +266,7 @@ transkryptu.
 ## Odczyt kontrolnego prepu z 26.09.2026
 
 Akcja `teams-prep-session-audit` w Coolify Ops działa tylko z `main` i tylko
-odczytuje nazwany test właściciela w kalendarzu Klaudii Uliasz. Weryfikuje
+odczytuje nazwany test właściciela w kalendarzu Klaudii Wzoriasz. Weryfikuje
 unikalność wydarzenia, kontrolnych uczestników, opcje nagrywania i rzeczywistą
 treść transkryptu. Dodatnia kontrola kalendarza dotyczy organizatora tego
 konkretnego testu (Klaudii), a ujemna nadal wykluczonej skrzynki systemowej.
