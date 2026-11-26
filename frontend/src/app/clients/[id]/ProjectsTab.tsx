@@ -279,6 +279,7 @@ function ProjectStatusCell({
           <button
             type="button"
             onClick={() => onFillOutcome(job)}
+            aria-label={`Uzupełnij wynik: ${job.title}`}
             className="block text-xs font-medium text-primary hover:underline"
           >
             Uzupełnij wynik
@@ -369,6 +370,7 @@ function ProjectsSection({
   renderActions,
   grouped = false,
   onFillOutcome,
+  stale = false,
 }: {
   total: number;
   items: ProjectJob[];
@@ -380,6 +382,8 @@ function ProjectsSection({
   /** Aktywne projekty w grupach (bez rekrutera · w toku · szkice). */
   grouped?: boolean;
   onFillOutcome?: (job: ProjectJob) => void;
+  /** Stara lista widoczna, dopóki nie przyjdzie nowa (zmiana chipa wyniku). */
+  stale?: boolean;
 }) {
   const truncated = total > items.length;
   const showActions = Boolean(renderActions);
@@ -408,7 +412,10 @@ function ProjectsSection({
     );
   }
   return (
-    <div className="space-y-2">
+    <div
+      className={cn("space-y-2 transition-opacity", stale && "opacity-60")}
+      aria-busy={stale || undefined}
+    >
       <Table density="compact" className="min-w-[820px]">
         <TableHeader>
           <TableRow>
@@ -760,6 +767,7 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
             searching={searching || outcomeFilter !== "all"}
             emptyLabel="Brak zamkniętych projektów."
             onFillOutcome={canCloseLost ? setFillOutcomeFor : undefined}
+            stale={closedQuery.isPlaceholderData}
           />
         </div>
       )}

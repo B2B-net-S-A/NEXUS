@@ -181,7 +181,7 @@ describe("ProjectsTab — wynik zamkniętych projektów", () => {
   it("„Uzupełnij wynik” otwiera zmianę powodu zamknięcia", async () => {
     const user = await openClosed();
     const row = rowOf("Analityk IT 161");
-    await user.click(within(row).getByRole("button", { name: "Uzupełnij wynik" }));
+    await user.click(within(row).getByRole("button", { name: "Uzupełnij wynik: Analityk IT 161" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("change: Analityk IT 161");
     expect(mocks.dialogProps).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: 12, clientId: 35 }),
@@ -192,7 +192,7 @@ describe("ProjectsTab — wynik zamkniętych projektów", () => {
     mocks.canCloseLost = false;
     await openClosed();
     const row = rowOf("Analityk IT 161");
-    expect(within(row).queryByRole("button", { name: "Uzupełnij wynik" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: /Uzupełnij wynik/ })).toBeNull();
     expect(within(row).getByText("Bez powodu zamknięcia")).toBeInTheDocument();
   });
 });
