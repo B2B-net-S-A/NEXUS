@@ -1766,6 +1766,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <button
  type="button"
  data-testid="card-advance"
+ data-tour={boardKey === "cv_sent" ? "jobs.board.advance-from-cv-sent" : undefined}
  data-gap={forwardGap ? "true" : "false"}
  onClick={stopThen(() => v5.onAdvance(item))}
  aria-label={`Przesuń ${fullName} na następny etap`}

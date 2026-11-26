@@ -4601,7 +4601,25 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "move.client-interview.mode",
-    "practice_href": "/jobs/990001"
+    "practice_href": "/jobs/990001",
+    "steps": [
+      {
+        "anchor": "jobs.board.advance-from-cv-sent",
+        "text": "Na karcie w kolumnie „CV wysłane” kliknij strzałkę „Dalej”.",
+        "hint": "Strzałka prowadzi na „Rozmowa u klienta”. Na Poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "move.next.primary",
+        "text": "Kliknij „Przesuń”.",
+        "hint": "Okno pokazuje, czego brakuje przed ruchem. Tu wymagań nie ma."
+      },
+      {
+        "anchor": "move.client-interview.mode",
+        "text": "Okno „Kiedy rozmowa u klienta?”: co wiesz o terminie.",
+        "hint": "„Klient podał terminy” i wklejony mail klienta: rekruter od razu dostaje dzwonek i mail „Ustal termin z kandydatem”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-dzwonienie-zaproszenie-teams",

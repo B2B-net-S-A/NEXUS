@@ -391,6 +391,7 @@ export function MoveNextDialog({
           {primary && !waiting && (
             <Button
               data-testid="move-next-primary"
+              data-tour="move.next.primary"
               onClick={runPrimary}
               disabled={primaryDisabled}
               aria-describedby={primaryHint ? "move-next-primary-hint" : undefined}
