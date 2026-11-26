@@ -39,6 +39,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   pytania”; pytanie trzeba zaliczyć. Ta sama zasada co „Nie mam tego — dalej”:
   nikt nie może utknąć na zawsze (30.10.2026). Lepiej dobrać warunek, który
   zrobi cała grupa odbiorców.
+- **„Coś nie działa — zalicz i dalej” (Artur 25.11.2026, zawężone 26.11.2026).**
+  Każda lekcja i każde ćwiczenie Poligonu ma wyjście, które zalicza mimo
+  usterki (zdarzenie `broken`: log + Sentry „Coś nie działa”). W lekcji stoi
+  w zadaniu „sam” i w pytaniu, nie w pokazie; na Poligonie po 30 s na
+  ćwiczeniu (`BROKEN_AFTER_MS`). Bo 26.11 do 13:00 30 z 82 zaliczeń poszło
+  furtką, z czego 20 to cztery osoby pomijające całą porcję od pierwszego
+  kroku pokazu. Zepsuty krok pokazu ratuje „Nie mam tego — dalej”.
 - **Element z zadania nie może zależeć od prawdziwych danych osoby (25.11.2026).**
   Test wszystkich lekcji na stagingu (kopia produkcji, 6 ról, 1280 × 720)
   znalazł lekcje do zaliczenia tylko furtką: „Pracuj po kolei” (DL i TCM bez

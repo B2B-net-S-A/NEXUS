@@ -33,7 +33,6 @@ import {
   LESSON_RUN_EVENT,
   leaveLesson,
   readRun,
-  skipBrokenLesson,
   type LessonRun,
 } from "@/lib/novelties/lessons";
 import { DAILY_PATH, withSteps } from "@/lib/novelties/daily";
@@ -299,7 +298,6 @@ function TourStepCard({
   onAck,
   onStop,
   onReveal,
-  onBroken,
 }: {
   novelty: Novelty;
   state: TourState;
@@ -310,8 +308,6 @@ function TourStepCard({
   onAck: () => void;
   onStop: () => void;
   onReveal: () => void;
-  /** Pokaz w lekcji: „Coś nie działa — zalicz i dalej” (Artur, 25.11.2026). */
-  onBroken?: () => void;
 }) {
   const step = novelty.steps[state.step];
   const nextAnchor = novelty.steps[state.step + 1]?.anchor ?? null;
@@ -406,15 +402,9 @@ function TourStepCard({
           Przerwij
         </button>
       </div>
-      {onBroken ? (
-        <button
-          type="button"
-          onClick={onBroken}
-          className="mt-2 block text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          Coś nie działa — zalicz i dalej
-        </button>
-      ) : null}
+      {/* Bez „Coś nie działa” w pokazie (Artur, 26.11.2026): przycisk od
+          pierwszego kroku służył do pomijania całych porcji. Zepsuty krok
+          ratuje „Nie mam tego — dalej”, a furtka czeka w zadaniu i pytaniu. */}
     </div>
   );
 }
@@ -636,14 +626,6 @@ export function NoveltyLayer() {
               : null
           }
           onStop={stopTour}
-          onBroken={
-            showing && showing.show[showing.showIndex]?.id === touring.id
-              ? () => {
-                  writeTour(null);
-                  void skipBrokenLesson(showing);
-                }
-              : undefined
-          }
           onReveal={() => revealAnchor(touring.steps[tour.step].anchor)}
           onAck={() => {
             const next = acknowledgeStep(touring, tour);
