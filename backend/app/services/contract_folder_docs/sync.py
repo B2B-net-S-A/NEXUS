@@ -72,7 +72,9 @@ PUSH_MAX_ATTEMPTS = 5
 # Zamówienia (PDF zamówienia klienta) nie są dokumentami pracownika.
 _NOT_PUSHED_TYPES = (ContractDocumentType.order,)
 
-PUSH_SKIP_EXCLUDED = "Filip Jabłoński — dokumenty tej osoby obsługuje człowiek."
+PUSH_SKIP_EXCLUDED = (
+    "Dwie różne osoby o tym imieniu i nazwisku — dokumenty obsługuje człowiek."
+)
 PUSH_SKIP_AMBIGUOUS = (
     "Kilka pasujących folderów w SharePoincie — przenieś plik ręcznie."
 )

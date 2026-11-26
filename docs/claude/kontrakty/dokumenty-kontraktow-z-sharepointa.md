@@ -14,8 +14,9 @@ stary `/settings/contract-docs-sharepoint` przekierowuje; `ContractDocsSharePoin
   mówi „dokończ konfigurację w Azure”. Linku udostępnienia nie trzymamy w repo
   (publiczne) — admin wkleja go w panelu (`app_settings['contract_docs_sharepoint']`).
 - **Punktem wyjścia jest NEXUS:** folder bez kontraktu niczego nie zakłada.
-  Osoba z kilkoma kontraktami dostaje pliki na każdym. Filip Jabłoński
-  (`is_excluded_person`) jest pomijany w obu kierunkach. Dopasowanie
+  Osoba z kilkoma kontraktami dostaje pliki na każdym. Imiennicy — dwie różne
+  osoby o tym samym imieniu i nazwisku (`is_excluded_person`,
+  `imiennicy-tylko-jako-skrot.md`) — są pomijani w obu kierunkach. Dopasowanie
   (`matching.py`) po zbiorze słów bez polskich znaków: `sure` / `uncertain`
   (polskie znaki, drugie imię/człon nazwiska, literówka, dwa rekordy kandydata)
   / `ambiguous` (kilka folderów — nie zgadujemy) / `none`.

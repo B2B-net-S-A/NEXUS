@@ -28,7 +28,7 @@ from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import Integer, String, literal, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -47,6 +47,11 @@ from app.models.contract import (
 )
 from app.models.job import Job
 from app.core.scheduling import business_today
+from app.services.contractor_identity import (
+    contractor_identity_key,
+    contractor_identity_sql_expression,
+)
+from tests._namesake_pair import fictional_namesakes  # noqa: F401 (fixture)
 
 pytestmark = pytest.mark.asyncio
 
@@ -343,26 +348,27 @@ async def test_list_metadata_deduplicates_duplicate_oskar_profiles(
     assert body["contracts_total"] == 2
 
 
-async def test_list_metadata_keeps_two_filip_jablonski_emails_separate(
+@pytest.mark.usefixtures("fictional_namesakes")
+async def test_list_metadata_keeps_two_namesake_emails_separate(
     app_client, app_auth_headers
 ):
-    marker = f"CntFilip{uuid.uuid4().hex[:6]}"
-    filip_a = await _seed_candidate(
+    marker = f"CntNamesake{uuid.uuid4().hex[:6]}"
+    namesake_a = await _seed_candidate(
         marker,
         email=f"first-{marker.lower()}@example.com",
-        first_name="Filip",
-        last_name="Jabłoński",
+        first_name="Józef",
+        last_name="Przykładowy",
     )
-    filip_b = await _seed_candidate(
+    namesake_b = await _seed_candidate(
         marker,
         email=f"second-{marker.lower()}@example.com",
-        first_name=" FILIP ",
-        last_name="JABLONSKI",
+        first_name=" JÓZEF ",
+        last_name="PRZYKLADOWY",
     )
     client_a = await _seed_client(f"A {marker}")
     client_b = await _seed_client(f"B {marker}")
-    await _seed_contract(filip_a, client_a)
-    await _seed_contract(filip_b, client_b)
+    await _seed_contract(namesake_a, client_a)
+    await _seed_contract(namesake_b, client_b)
 
     response = await app_client.get(
         "/api/contracts",
@@ -380,6 +386,48 @@ async def test_list_metadata_keeps_two_filip_jablonski_emails_separate(
     assert body["total"] == 2
     assert body["contractors_total"] == 2
     assert body["contracts_total"] == 2
+
+
+@pytest.mark.usefixtures("fictional_namesakes")
+async def test_identity_sql_expression_mirrors_the_python_key():
+    """Postgres liczy ten sam klucz co Python, także skrót pary imienników."""
+    cases = [
+        (1, "  JÓZEF ", "Przy-kładowy", " One@Example.com "),
+        (2, "Jozef", "PRZYKŁADOWY", None),
+        (3, "ØSKAR", "Test-owy", "three@example.com"),
+        (4, "Przykładowy", "Józef", "four@example.com"),
+        (5, "?", "?", None),
+    ]
+    expected = [
+        "name_email:jozef:przykladowy:one@example.com",
+        "name_email_missing:jozef:przykladowy:2",
+        "name:oskar:testowy",
+        # Odwrócone pola to w liczeniu inna para — jak w Pythonie.
+        "name:przykladowy:jozef",
+        "candidate:5",
+    ]
+
+    async with AsyncSessionLocal() as db:
+        keys = [
+            await db.scalar(
+                select(
+                    contractor_identity_sql_expression(
+                        literal(first, String),
+                        literal(last, String),
+                        literal(email, String),
+                        literal(candidate_id, Integer),
+                    )
+                )
+            )
+            for candidate_id, first, last, email in cases
+        ]
+
+    assert keys == expected
+    python_keys = [
+        contractor_identity_key(first, last, email, fallback_id=candidate_id)
+        for candidate_id, first, last, email in cases
+    ]
+    assert [key[0] for key in python_keys] == [key.split(":")[0] for key in keys]
 
 
 async def test_list_metadata_deduplicates_non_latin_names(app_client, app_auth_headers):

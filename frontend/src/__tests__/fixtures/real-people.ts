@@ -29,6 +29,9 @@ export function personDigest(text: string): string {
 export const REAL_PEOPLE_DIGESTS: ReadonlySet<string> = new Set([
   // Testy kontraktorów i naprawy 0274 (26.11.2026).
   "173e3143bc97bdc1",
+  // Imiennicy z liczenia kontraktorów (26.11.2026), obie kolejności zapisu;
+  // pierwszy to początek skrótu z `NAMESAKE_NAME_DIGESTS` w backendzie.
+  "f53ec585b3897e2d", "3b87a1ba2acde30f",
   // Audyt harnessów, runda 10 (27.09.2026).
   "0eb66ae8ba2c32dc", "15e09dda0edeb63c", "230f04ff252dee24", "2543a8d94734c911",
   "322562b6af49461f", "352255b6447cb58d", "3930af4e98091bd9", "3b16dc1e11ce563d",
