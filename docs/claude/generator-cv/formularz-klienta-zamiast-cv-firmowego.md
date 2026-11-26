@@ -405,6 +405,11 @@ punktów, a kod odrzucał każdą liczbę.
   Osobny plik z zasadami dalej wygrywa. Wzór bez legendy daje pusty tekst —
   same nazwy wierszy nie są zasadami i nie odblokują punktów. Pomiar: tabela
   „Testera ePP” 43 % → 86 %, „Testera Automatycznego” 50 % → 93 %.
+- **Punkty w wierszu „ponad minimalne wymagania” nie czekają na minimum**
+  (`client_form_years.build`, ścieżka na stagingu 26.11.2026). Progi z legendy
+  mówią o całym stażu („1 pkt - więcej niż 3 lata”), a kod ustawiał
+  „minimum nieznane” każdemu polu z „ponad minim” w nazwie wiersza, także
+  polu punktów. Minimum odejmuje się dalej tylko w polu lat formularza Word.
 - **Formularz Word legendy nie dostaje.** Z nią wypełniał się gorzej (para
   z „Testera ePP”, 6 biegów: średnio 70 % bez legendy, 62 % z nią — model
   pomijał więcej lat i opisów), a zyskiwał tylko minimum w jednym wierszu

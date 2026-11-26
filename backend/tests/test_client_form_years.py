@@ -342,6 +342,45 @@ def test_over_minimum_without_a_known_minimum_stays_empty() -> None:
         assert entry["years"]["minimum_unknown"] is True
 
 
+def test_points_over_minimum_follow_thresholds_of_the_whole_tenure() -> None:
+    """Tabela „Testera ePP” CEZ (staging 26.11.2026): legenda wiersza „Staż ponad
+    minimalne wymagania” daje progi całego stażu („1 pkt - więcej niż 3 lata”),
+    więc minimum nie jest potrzebne. Kod zostawiał pole puste z „minimum
+    nieznane”, bo minimum liczył tylko dla pól lat w formularzu Word."""
+    structure = {
+        "fields": [
+            {
+                "id": "s0.r12.c4",
+                "kind": "cell",
+                "label": "Liczba punktów (0–5 pkt)",
+                "row_label": (
+                    "Staż pracy liczony w latach ponad minimalne wymagania opisane "
+                    "w OPZ - doświadczenie w testowaniu oprogramowania."
+                ),
+                "max_points": 5,
+            }
+        ]
+    }
+    rules = (
+        "1 pkt - więcej niż 3 lata doświadczenia\n"
+        "2 pkt - więcej niż 4 lata doświadczenia\n"
+        "3 pkt - więcej niż 5 lat doświadczenia"
+    )
+    answer = _over_minimum_answer(
+        thresholds=[
+            {"years": 3, "points": 1},
+            {"years": 4, "points": 2},
+            {"years": 5, "points": 3},
+        ],
+        rules_quote=rules,
+    )
+    answer["years"][0]["id"] = "s0.r12.c4"
+    entry = _parse(answer, structure, rules)["fields"]["s0.r12.c4"]
+    # 71 mies. (5 lat 11 mies.) → próg 5 lat.
+    assert entry["value"] == "3"
+    assert entry["years"]["minimum_unknown"] is False
+
+
 def test_without_model_answer_there_is_no_grid() -> None:
     result = fill.check_parse(
         "",
