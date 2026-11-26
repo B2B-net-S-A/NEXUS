@@ -50,6 +50,8 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.sql import operators
+from sqlalchemy.sql.elements import UnaryExpression
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -1910,12 +1912,27 @@ def _apply_candidate_sort(
     sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
     (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
     trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd."""
+    return query.order_by(
+        *_candidate_sort_clauses(filters, q_any_groups, pool_order=pool_order)
+    )
+
+
+def _candidate_sort_clauses(
+    filters: CandidateFilterSpec,
+    q_any_groups,
+    *,
+    pool_order: Optional[list[int]] = None,
+) -> list:
+    """Klauzule ``ORDER BY`` listy (`_apply_candidate_sort`) jako lista."""
     preferred_rank, unknown_rank = _sort_prefix_exprs(filters)
+    clauses: list = []
     if preferred_rank is not None:
-        query = query.order_by(preferred_rank.desc())
+        clauses.append(preferred_rank.desc())
     if unknown_rank is not None:
-        query = query.order_by(unknown_rank.asc())
-    return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
+        clauses.append(unknown_rank.asc())
+    return clauses + _requested_sort_clauses(
+        filters, q_any_groups, pool_order=pool_order
+    )
 
 
 def _preferred_rank(filters: CandidateFilterSpec):
@@ -2016,27 +2033,26 @@ def order_by_id_list(query, ids: list[int]):
     )
 
 
-def _apply_requested_sort(
-    query,
+def _requested_sort_clauses(
     filters: CandidateFilterSpec,
     q_any_groups,
     *,
     pool_order: Optional[list[int]] = None,
-):
+) -> list:
     if pool_order is not None and filters.sort == "relevance":
         # Tryb semantyczny: kolejność retrievalu (RRF / reranker) — ta sama
         # co w wyszukiwarce; `id` tylko jako stabilny tie-break.
-        return query.order_by(
+        return [
             func.array_position(
                 literal(pool_order, type_=ARRAY(Integer)), Candidate.id
             ).asc(),
             Candidate.id.asc(),
-        )
+        ]
     # „Najnowsi” / „Najstarsi” po „w bazie od” (0437), nie po chwili wstawienia
     # do NEXUSA — 43 tys. osób z Traffita ma tam dzień importu. Wyrażenie jest
     # dokładnie tym z indeksu `ix_candidates_added_to_base_id`.
     if filters.sort == "oldest":
-        return query.order_by(added_to_base_sql(Candidate).asc(), Candidate.id.asc())
+        return [added_to_base_sql(Candidate).asc(), Candidate.id.asc()]
     if filters.sort == "name":
         # Etykieta w UI brzmi „Nazwisko (A-Z)", więc kluczem wiodącym jest
         # NAZWISKO — dotąd sortowaliśmy po imieniu i lista tylko wyglądała na
@@ -2046,12 +2062,12 @@ def _apply_requested_sort(
         # Placeholdery na KONIEC: „?" sortuje się przed literami, więc rekordy
         # bez nazwiska okupowały stronę 1 listy alfabetycznej.
         unknown_last = case((last_key.in_(_NAME_SORT_PLACEHOLDERS), 1), else_=0)
-        return query.order_by(
+        return [
             unknown_last.asc(),
             last_key.asc(),
             first_key.asc(),
             Candidate.id.asc(),
-        )
+        ]
     if filters.sort == "relevance":
         terms: list[str] = []
         if filters.q:
@@ -2091,8 +2107,8 @@ def _apply_requested_sort(
                     else_=1,
                 )
                 ordering.insert(0, exact_email.asc())
-            return query.order_by(*ordering)
-    return query.order_by(added_to_base_sql(Candidate).desc(), Candidate.id.desc())
+            return ordering
+    return [added_to_base_sql(Candidate).desc(), Candidate.id.desc()]
 
 
 async def _list_page_ids_first(
@@ -2119,14 +2135,15 @@ async def _list_page_ids_first(
         db, filters, semantic_pool_ids=pool_ids
     )
     ids_query = query.with_only_columns(Candidate.id)
-    page_query = _apply_candidate_sort(
-        ids_query, filters, q_any_groups, pool_order=pool_ids
-    )
     rows = (
         await db.execute(
-            _with_window_counts(page_query, filters)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+            _page_ids_statement(
+                ids_query,
+                _candidate_sort_clauses(filters, q_any_groups, pool_order=pool_ids),
+                filters,
+                offset=(page - 1) * page_size,
+                limit=page_size,
+            )
         )
     ).all()
     if not rows:
@@ -2158,6 +2175,64 @@ async def _list_page_ids_first(
         q_any_groups,
         _known_count_from_row(rows[0]),
     )
+
+
+_ORDER_MODIFIERS = {
+    operators.asc_op: lambda column: column.asc(),
+    operators.desc_op: lambda column: column.desc(),
+    operators.nulls_first_op: lambda column: column.nulls_first(),
+    operators.nulls_last_op: lambda column: column.nulls_last(),
+}
+
+
+def _ordering_parts(clause):
+    """``(wyrażenie, [modyfikatory od zewnętrznego])`` z klauzuli ``ORDER BY``."""
+    modifiers = []
+    while isinstance(clause, UnaryExpression) and clause.modifier in _ORDER_MODIFIERS:
+        modifiers.append(clause.modifier)
+        clause = clause.element
+    return clause, modifiers
+
+
+def _page_ids_statement(
+    ids_query,
+    sort_clauses: list,
+    filters: CandidateFilterSpec,
+    *,
+    offset: int,
+    limit: int,
+):
+    """Strona identyfikatorów z ``total_count``: okno w podzapytaniu, kolejność
+    i ``LIMIT`` na zewnątrz — te same wiersze, w tej samej kolejności.
+
+    Przy ``count(*) OVER ()`` z ``ORDER BY … LIMIT`` na jednym poziomie Postgres 16
+    wycenia okno tak, jakby oddawało wiersze strumieniem, choć liczy je dopiero
+    po przeczytaniu wszystkich. Przy kolejności z indeksu („najnowsi”, „najstarsi”
+    — `ix_candidates_added_to_base_id`) i filtrze `IN (… UNION …)` (tekst, słowa
+    kluczowe) wybierał więc pętlę zagnieżdżoną po indeksie z filtrem złączenia na
+    całej sumie identyfikatorów. Kopia produkcji 26.11.2026: „qa”, 15 wierszy —
+    690 mln odrzuconych porównań, 83 s. Zewnętrzne ``ORDER BY`` każe planować
+    podzapytanie na pełny odczyt (złączenie haszowe), a stronę tnie sortowanie
+    top-N wyliczonych kluczy.
+    """
+    inner = _with_window_counts(ids_query.order_by(None), filters)
+    outer_order = []
+    for index, clause in enumerate(sort_clauses):
+        expression, modifiers = _ordering_parts(clause)
+        name = f"sort_{index}"
+        inner = inner.add_columns(expression.label(name))
+        outer_order.append((name, modifiers))
+    page = inner.subquery("page")
+    columns = [page.c.id, page.c.total_count]
+    if "known_count" in page.c:
+        columns.append(page.c.known_count)
+    ordering = []
+    for name, modifiers in outer_order:
+        key = page.c[name]
+        for modifier in reversed(modifiers):
+            key = _ORDER_MODIFIERS[modifier](key)
+        ordering.append(key)
+    return select(*columns).order_by(*ordering).offset(offset).limit(limit)
 
 
 def _with_window_counts(query, filters: CandidateFilterSpec):
@@ -4314,7 +4389,7 @@ async def export_candidates_v2(
                 ),
             )
         # „Dopasowanie” (runda 6 audytu): plik ma kolejność ekranu — ta sama
-        # funkcja co lista (`_list_page_match`). `_apply_requested_sort` nie
+        # funkcja co lista (`_list_page_match`). `_requested_sort_clauses` nie
         # zna „match”, więc eksport wychodził od najnowszych. Brak wektora
         # albo przełącznik OFF = „najnowsi”, jak na liście.
         match_ids = None

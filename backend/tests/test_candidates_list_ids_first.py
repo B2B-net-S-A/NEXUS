@@ -4,14 +4,22 @@ Audyt szybkości (25.09.2026): ``count(*) OVER()`` na pełnych wierszach
 przepuszczał przez sortowanie cały wynik ze wszystkimi kolumnami. Nowa ścieżka
 liczy i sortuje same identyfikatory — musi dawać DOKŁADNIE te same osoby,
 w tej samej kolejności i z tą samą liczbą, co stara, dla każdego sortowania.
+
+26.11.2026: okno liczy się w podzapytaniu, a ``ORDER BY … LIMIT`` stoi na
+zewnątrz. Na jednym poziomie Postgres 16 brał przy „najnowsi” z filtrem
+``IN (… UNION …)`` pętlę zagnieżdżoną po indeksie daty z filtrem złączenia
+(kopia produkcji: 690 mln porównań, 83 s).
 """
 
 from __future__ import annotations
 
+import re
 import uuid
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
+from sqlalchemy import event
 
 NONCE = "zi" + "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:10])
 _SEEDED: list[int] = []
@@ -65,7 +73,11 @@ async def _page(client, headers, monkeypatch, ids_first: bool, **params: Any):
     resp = await client.get("/api/candidates", params=query, headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    return [item["id"] for item in body["items"]], body["total"]
+    return (
+        [item["id"] for item in body["items"]],
+        body["total"],
+        body.get("known_match_count"),
+    )
 
 
 @pytest.mark.asyncio
@@ -78,7 +90,10 @@ async def _page(client, headers, monkeypatch, ids_first: bool, **params: Any):
         {"sort": "name", "page_size": 50},
         {"sort": "relevance", "page_size": 50},
         {"q_any_group": "java", "page_size": 50},
+        {"q_any_group": "java", "sort": "oldest", "page_size": 1, "page": 2},
+        {"q_any_group": "java", "sort": "name", "page_size": 50},
         {"skills_preferred": "kotlin", "page_size": 50},
+        {"max_rate": 200, "page_size": 50},
         {"page_size": 2, "page": 9},
     ],
     ids=[
@@ -88,7 +103,10 @@ async def _page(client, headers, monkeypatch, ids_first: bool, **params: Any):
         "name",
         "relevance",
         "keyword",
+        "keyword-oldest-page-2",
+        "keyword-name",
         "preferred-rank",
+        "known-count",
         "page-past-end",
     ],
 )
@@ -106,8 +124,50 @@ async def test_page_past_end_still_reports_the_total(
     app_client, app_auth_headers, monkeypatch
 ):
     await _seed()
-    ids, total = await _page(
+    ids, total, _known = await _page(
         app_client, app_auth_headers, monkeypatch, True, page_size=2, page=9
     )
     assert ids == []
     assert total == len(_SEEDED)
+
+
+@contextmanager
+def _capture_sql():
+    from app.core.database import engine
+
+    seen: list[str] = []
+
+    def _on(conn, cursor, statement, parameters, context, executemany):
+        seen.append(" ".join(statement.split()))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _on)
+    try:
+        yield seen
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _on)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sort", ["newest", "oldest", "relevance"])
+async def test_window_count_runs_in_a_subquery_under_the_page_limit(
+    app_client, app_auth_headers, monkeypatch, sort
+):
+    """Okno ``count(*) OVER ()`` w podzapytaniu, a kolejność i ``LIMIT`` na
+    zewnątrz: zewnętrzne ``ORDER BY`` każe Postgresowi planować filtr na pełny
+    odczyt, więc ``LIMIT`` nie wybiera już pętli po indeksie daty."""
+    await _seed()
+    with _capture_sql() as seen:
+        await _page(
+            app_client,
+            app_auth_headers,
+            monkeypatch,
+            True,
+            q_any_group="java",
+            sort=sort,
+            page_size=15,
+        )
+    [page] = [sql for sql in seen if "count(*) OVER ()" in sql]
+    assert re.search(
+        r"FROM \(SELECT candidates\.id(?: AS id)?, count\(\*\) OVER \(\)", page
+    )
+    assert re.search(r"\) AS page ORDER BY page\.sort_0 .* LIMIT", page)
