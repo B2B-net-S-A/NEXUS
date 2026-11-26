@@ -4855,6 +4855,26 @@
     "dot_anchor": "board.screening-groups"
   },
   {
+    "id": "tablica-wrocily-od-ciebie",
+    "pr": 4089,
+    "title": "„Wróciły od Ciebie” — osoby, które wróciły ze Screeningu, na górze „Nowych”",
+    "why": "Twoje karty, które wróciły ze „Screeningu”, stoją 5 dni roboczych na górze „Nowych” z „Weź z powrotem”. Pasek nad „Screeningiem” mówi, kto wróci jutro.",
+    "tier": "dot",
+    "shipped_on": "2026-11-27",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → kolumna „Nowi”, grupa „Wróciły od Ciebie”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.returned-mine"
+  },
+  {
     "id": "przelewy-zajecia-i-spory",
     "pr": 3816,
     "title": "Zajęcia wierzytelności i spór przy płatności kontraktora",

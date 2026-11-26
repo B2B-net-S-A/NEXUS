@@ -1997,7 +1997,7 @@ function NewColumnSectionHeader({
  return (
  <div
  data-testid={`new-column-section-${section}`}
- data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : section === "returned_mine" ? "board.returned-mine" : undefined}
  className="px-0.5 pt-1 text-[11px] leading-tight"
  >
  <div
@@ -2351,7 +2351,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {...dragProvided.dragHandleProps}
  // Kropkę nowości zalicza klik w osobę z grupy, nie w sam napis nagłówka
  // (14.11.2026: kotwica tylko na nagłówku = 24 widzących, 0 zaliczeń).
- data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : section === "returned_mine" ? "board.returned-mine" : undefined}
  className={cn("transition-shadow",
  dragSnapshot.isDragging &&"relative z-20 shadow-md rotate-1 opacity-90"
  )}
