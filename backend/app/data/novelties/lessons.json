@@ -2073,8 +2073,8 @@
       "arkusz-rozmowy-na-lewej-polowie",
       "arkusz-rozmowy-obok-cv"
     ],
-    "task": "Na rekrutacji ćwiczebnej otwórz osobę ze „Screeningu”, rozwiń panel i włącz „Tryb rozmowy”. Kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
-    "solo_href": "/jobs/990001",
+    "task": "W panelu osoby ze „Screeningu” włącz „Tryb rozmowy” i kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
+    "solo_href": "/jobs/990001?candidate=990106&panel=screening",
     "check": {
       "kind": "click",
       "anchor": "screening.sheet.gaps"
@@ -2754,8 +2754,8 @@
       "nowe-cv-wyroznik-propozycja-ai",
       "nowe-cv-zdania-strony-1"
     ],
-    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
-    "solo_href": "/jobs/990001?candidate=990109",
+    "task": "W panelu Jakuba otwórz edytor CV i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
+    "solo_href": "/jobs/990001?candidate=990108",
     "check": {
       "kind": "click",
       "anchor": "cv-editor.page1.refresh"

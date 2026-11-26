@@ -668,6 +668,7 @@ function BatchWorkspace({
                 type="button"
                 role="tab"
                 aria-selected={tab === item.value}
+                data-tour={item.value === "close" ? "review-batch.tab-close" : undefined}
                 onClick={() => setTab(item.value)}
                 className={cn(
                   "flex-1 rounded-md px-2 py-1 text-xs font-medium",

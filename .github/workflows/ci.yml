@@ -1061,8 +1061,10 @@ jobs:
             curl -sf -o /dev/null http://localhost:3000/login && break
             sleep 1
           done
-          npx playwright test --project=poligon-chromium --reporter=list || {
-            echo "::error::Poligon NEXUSA: ścieżka onboardingu nie przechodzi. Brak w zestawie = nagraj ekran jeszcze raz (docs/claude/ui/poligon-nexusa-onboarding.md)."
+          # Od 26.11.2026 także etap „sam” każdej lekcji nowości rekrutera i DL-a
+          # (`e2e/lessons-solo.spec.ts`, ok. 50 niezależnych biegów — stąd 3 workery).
+          npx playwright test --project=poligon-chromium --reporter=list --workers=3 || {
+            echo "::error::Poligon NEXUSA albo lekcja nowości nie przechodzi. Brak w zestawie = nagraj ekran jeszcze raz (docs/claude/ui/poligon-nexusa-onboarding.md); etap „sam” lekcji = docs/claude/ui/nowosci-do-przeklikania.md."
             tail -50 "$RUNNER_TEMP/next.log"
             exit 1
           }
