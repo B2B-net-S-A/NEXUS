@@ -1,0 +1,23 @@
+{
+  "id": "cv-3978-jezyk-z-myslnikiem-bez-spacji",
+  "poprawka": "73c46cbd8 #3978",
+  "opis": "„Polish-fluent.” bez spacji przy myślniku dawało pastylkę „PO” bez poziomu; „Serbo-Croatian” ma zostać w całości",
+  "dzis": "2026-11-25",
+  "wejscie": {
+    "jezyk": "en",
+    "generator": {
+      "name": "Marta Korpusowa",
+      "position": "Business Analyst",
+      "languages": ["Polish-fluent.", "English - C1", "polski-ojczysty", "Serbo-Croatian"]
+    }
+  },
+  "oczekiwane": {
+    "jezyki": [
+      {"jezyk": "Polish", "kod": "PL", "poziom": "fluent"},
+      {"jezyk": "English", "kod": "EN", "poziom": "C1", "stopien": 5},
+      {"jezyk": "polski", "kod": "PL", "stopien": 6},
+      {"jezyk": "Serbo-Croatian", "poziom": ""}
+    ],
+    "liczba_jezyki": 4
+  }
+}

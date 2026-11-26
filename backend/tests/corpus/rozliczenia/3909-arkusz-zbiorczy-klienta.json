@@ -1,0 +1,24 @@
+[
+ {
+  "id": "rozl-3909-arkusz-zbiorczy-b2b-jako-raport",
+  "poprawka": "5492ab276 #3909",
+  "opis": "Arkusz zbiorczy klienta z drugiego strumienia („B2B_09_2026.pdf”, temat „[BL] Rozliczenie …”) szedł jako faktura i nikt nie czytał podpisu klienta",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "FW: [BL] Rozliczenie 09.2026 [ABC] [B2B]",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "B2B_09_2026.pdf",
+      "pdf": "Dostawca B2B\nNazwisko Imie Stanowisko Okres od: Okres do: MD.\nKORPUSOWY JAN INZYNIER TESTOW 2026-09-01 2026-09-30 20,00\nSuma koncowa 2026-09-01 2026-09-30 20,00"
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [{"plik": "B2B_09_2026.pdf", "rodzaj": "report", "okres": "2026-09"}]
+ }
+]

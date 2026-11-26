@@ -1,0 +1,18 @@
+[
+ {
+  "id": "rozl-3985-arkusz-showzeroes-nie-wywraca-t4t",
+  "poprawka": "c45c59365 #3985",
+  "opis": "Arkusz .xlsx z LibreOffice (atrybut widoku showZeroes) wywracał odczyt T4T błędem TypeError: mail był ponawiany i porzucany, raport godzin nie trafiał do osoby",
+  "dzis": "2026-08-03",
+  "osoby": {"A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Fundacja Przykładowa"}},
+  "maile": [
+   {
+    "od": "jan.korpusowy@example.com",
+    "temat": "Raport godzin lipiec 2026",
+    "odebrano": "2026-08-03T08:00:00Z",
+    "pliki": [{"nazwa": "Raport godzin 07.2026.xlsx", "plik": "pliki/3985-raport-godzin-showzeroes.xlsx"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "Raport godzin 07.2026.xlsx", "rodzaj": "report", "osoba": "A", "okres": "2026-07"}]
+ }
+]

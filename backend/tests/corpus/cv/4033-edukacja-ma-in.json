@@ -1,0 +1,25 @@
+{
+  "id": "cv-4033-ma-in-economics",
+  "poprawka": "697c9117a #4033",
+  "opis": "Edukacja rozdziela stopień i kierunek w „MA in …”, „Master's degree, …”, „Studia inżynierskie, …”",
+  "dzis": "2026-11-25",
+  "wejscie": {
+    "jezyk": "en",
+    "generator": {
+      "name": "Anna Korpusowa",
+      "position": "Data Analyst",
+      "education": [
+        {"dates": "2015 - 2017", "degree": "MA in Economics", "institution": "Uniwersytet Przykładowy"},
+        {"dates": "2011 - 2015", "degree": "Master's degree, Computer Science", "institution": "Politechnika Przykładowa"},
+        {"dates": "2008 - 2011", "degree": "Studia inżynierskie, Informatyka", "institution": "Akademia Przykładowa"}
+      ]
+    }
+  },
+  "oczekiwane": {
+    "edukacja": [
+      {"kierunek": "Economics", "stopien": "MA", "rok": "2017"},
+      {"kierunek": "Computer Science", "stopien": "Master's degree", "rok": "2015"},
+      {"kierunek": "Informatyka", "stopien": "Studia inżynierskie", "rok": "2011"}
+    ]
+  }
+}

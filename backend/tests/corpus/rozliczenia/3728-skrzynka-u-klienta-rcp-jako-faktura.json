@@ -1,0 +1,42 @@
+[
+ {
+  "id": "rozl-3728-skrzynka-od-klienta",
+  "poprawka": "663d52cf1 #3728",
+  "opis": "Konsultant pisze ze skrzynki, którą zakłada mu klient (imie.nazwisko@external.<klient>), kontrakt ma adres prywatny: RCP czekało bez osoby",
+  "dzis": "2026-10-05",
+  "ustawienia": {"CONSULTANT_PORTAL_PERSONAL_DOMAINS": "external.klient.example.com"},
+  "osoby": {"A": {"imie": "Ada", "nazwisko": "Malinowska", "email_kontraktu": "ada.prywatna@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "ada.malinowska@external.klient.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "RCP wrzesień 2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [{"nazwa": "RCP_09_2026.pdf", "tekst": "%PDF-1.4 fikcyjne rcp"}]
+   }
+  ],
+  "oczekiwane": [{"plik": "RCP_09_2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}]
+ },
+ {
+  "id": "rozl-3728-rcp-bnp-nazwane-jak-faktura",
+  "poprawka": "663d52cf1 #3728",
+  "opis": "RCP BNP przysłane jako „2026-09.pdf” pod tematem „faktura 09/2026” szło do faktur; treść rozpoznana odczytem RCP to raport, faktura obok zostaje fakturą",
+  "dzis": "2026-10-05",
+  "osoby": {"A": {"imie": "Ada", "nazwisko": "Malinowska", "email_kontraktu": "ada.malinowska@example.com", "klient": "Bank Przykładowy"}},
+  "maile": [
+   {
+    "od": "ada.malinowska@example.com",
+    "temat": "faktura 09/2026",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "2026-09.pdf",
+      "pdf": "Rozliczenie czasu pracy\nRozliczenie 2026-09-01 Ilość dni przepracowanych 21,0\nCheck OK\nNazwa firmy B2B Network\nNazwisko Malinowska\nImię Ada\nRola Devops Engineer\nNumer zamówienia\nDANE WPISANE W DOKUMENCIE TRAKTUJEMY JAKO PODSTAWĘ DO ROZLICZENIA FAKTURY\n1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 Total MD's\nGodziny w tygodniu 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 168,0 21,0\nSUMA 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 168,0 21,0\nOPIS PRAC MDs No ID PRODUCT Kod aplikacji CMDB Koszty wyjazdu służbowego\nPrace DevOps 21,0000 ORD SX01929\nSUMA: 21,0000\nCyfrowy podpis Przełożonego"
+     },
+     {"nazwa": "FV_1_09_2026.pdf", "pdf": "Faktura VAT nr 1/09/2026\nNabywca: Firma Przykładowa\nRazem do zapłaty: 1 000,00 PLN"}
+    ]
+   }
+  ],
+  "oczekiwane": [{"plik": "2026-09.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}, {"plik": "FV_1_09_2026.pdf", "rodzaj": "invoice", "osoba": "A"}]
+ }
+]
