@@ -31,3 +31,34 @@ def test_is_free_sees_listening_socket():
         s.bind(("127.0.0.1", 0))
         s.listen()
         assert not fp.is_free(s.getsockname()[1])
+
+
+def test_skips_pair_with_branch_database_or_container():
+    """26.11.2026: sesja kopiowała bazę do nexus_branch_8104, zanim zajęła port,
+    a następna dostała 8104 i jej migracja czekała na blokadę za pg_dump."""
+    busy = fp.ports_from_names(
+        [
+            "nexus_branch_8101",
+            "nexus-staging-backend-branch-8102",
+            "nexus_branch_s4",
+            "nexus",
+        ]
+    )
+    assert busy == {8101, 8102}
+    assert fp.free_pair(lambda p: True, busy) == (3103, 8103)
+
+
+def test_without_docker_only_sockets_count(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(fp.subprocess, "run", missing)
+    assert fp.staging_busy() == frozenset()
+
+
+def test_failed_command_counts_as_nothing_busy(monkeypatch):
+    class Failed:
+        returncode, stdout = 1, "nexus_branch_8101\n"
+
+    monkeypatch.setattr(fp.subprocess, "run", lambda *a, **k: Failed())
+    assert fp.staging_busy() == frozenset()
