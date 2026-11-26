@@ -116,6 +116,7 @@ import {
   withoutQuarantinedCv,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
+import { cvDownloadsWithoutMenu, cvFileFormat } from "@/lib/cv-file-format";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import type { StageCvOption } from "@/lib/stage-cv-options";
 import { useElementWidth } from "@/lib/use-element-width";
@@ -406,6 +407,11 @@ function CvTab({
   const companyDownloadable =
     stageId != null && branded.query.isSuccess && brandedStatus === "ready" && !(canAct && changing);
   const companyConsentMissing = companyDownloadable && branded.query.data?.consent_missing === true;
+  // Kolejność jak w doku: plik z reguły klienta pierwszy (25.11.2026).
+  const companyDownloadOrder = cvDownloadsWithoutMenu(
+    cvFileFormat(branded.query.data?.client_file_format),
+    branded.query.data?.cv_layout === "new" ? "new" : "classic",
+  );
   const [downloadingCv, setDownloadingCv] = useState<"docx" | "pdf" | null>(null);
   const downloadCompanyCv = async (format: "docx" | "pdf") => {
     if (cvStageId == null) return;
@@ -755,32 +761,36 @@ function CvTab({
             data-testid="preview-cv-download"
             title={companyConsentMissing ? "Bez zrzutu zgody RODO nie pobierzesz CV — dołącz go w karcie „CV do klienta”." : undefined}
           >
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-label="Pobierz Word"
-              onClick={() => void downloadCompanyCv("docx")}
-              disabled={downloadingCv != null || companyConsentMissing}
-              loading={downloadingCv === "docx"}
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden />
-              <span>
-                <span className="hidden @min-[56rem]/cvsources:inline">Pobierz </span>Word
-              </span>
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-label="Pobierz PDF"
-              onClick={() => void downloadCompanyCv("pdf")}
-              disabled={downloadingCv != null || companyConsentMissing}
-              loading={downloadingCv === "pdf"}
-            >
-              <FileDown className="hidden h-3.5 w-3.5 @min-[56rem]/cvsources:block" aria-hidden />
-              PDF
-            </Button>
+            {companyDownloadOrder.map((format, index) => {
+              const label = format === "docx" ? "Word" : "PDF";
+              return (
+                <Button
+                  key={format}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  aria-label={`Pobierz ${label}`}
+                  onClick={() => void downloadCompanyCv(format)}
+                  disabled={downloadingCv != null || companyConsentMissing}
+                  loading={downloadingCv === format}
+                >
+                  {index === 0 ? (
+                    <>
+                      <Download className="h-3.5 w-3.5" aria-hidden />
+                      <span>
+                        <span className="hidden @min-[56rem]/cvsources:inline">Pobierz </span>
+                        {label}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="hidden h-3.5 w-3.5 @min-[56rem]/cvsources:block" aria-hidden />
+                      {label}
+                    </>
+                  )}
+                </Button>
+              );
+            })}
           </div>
         ) : null}
         {canUpload ? (

@@ -39,6 +39,7 @@ import api, { type CVBrandedState } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
+import { cvDownloadPlan, cvFileFormat } from "@/lib/cv-file-format";
 import { cvToClientRowsQueryKey, stageBrandedQueryKey, stageCvOrigin } from "@/lib/cv-to-client";
 import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
@@ -263,9 +264,20 @@ export function StageCvPreview({
     setFindResult({ current: next + 1, total, pending: false });
   };
 
-  const download = async () => {
+  // Plik z reguły klienta na wierzchu (25.11.2026). Bez wymagań — jak dotąd
+  // jeden przycisk: PDF przy Nowym CV, inaczej Word. „Oba” = Word i PDF.
+  // Miejsce nie ma menu, więc „Word (klasyczne)” zostaje w karcie „CV do klienta”.
+  const stageFormat = cvFileFormat(branded?.client_file_format);
+  const stagePlan = cvDownloadPlan(stageFormat, pdfLayout ? "new" : "classic");
+  const downloadKinds: ("docx" | "pdf")[] = fromStage
+    ? (stageFormat ? stagePlan.primary : stagePlan.primary.slice(0, 1)).filter(
+        (kind): kind is "docx" | "pdf" => kind !== "docx_classic",
+      )
+    : ["docx"];
+
+  const download = async (kind: "docx" | "pdf") => {
     try {
-      if (pdfLayout) {
+      if (fromStage && kind === "pdf") {
         const file = await fetchStageCvPdf(cvStageId as number, { download: "preview" });
         downloadBlob(file.blob, file.filename || "CV.pdf");
         return;
@@ -409,10 +421,14 @@ export function StageCvPreview({
         {/* Jaki plik dostanie klient (22.11.2026): przegląd DL i panel osoby. */}
         {fromStage ? <CvLayoutBadge branded={branded} /> : null}
         {!hideDownload && !stageConsentMissing && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
-            <Download className="h-3.5 w-3.5" />
-            {pdfLayout ? "Pobierz PDF" : "Pobierz DOCX"}
-          </Button>
+          <div className="ml-auto flex items-center gap-1.5">
+            {downloadKinds.map((kind) => (
+              <Button key={kind} size="sm" variant="outline" onClick={() => void download(kind)}>
+                <Download className="h-3.5 w-3.5" />
+                {kind === "pdf" ? "Pobierz PDF" : "Pobierz DOCX"}
+              </Button>
+            ))}
+          </div>
         ) : null}
       </header>
       {stageConsentMissing ? (

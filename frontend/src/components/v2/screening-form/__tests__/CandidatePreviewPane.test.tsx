@@ -1318,6 +1318,23 @@ describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
     await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_firmowe.pdf"));
   });
 
+  it("CV firmowe u klienta z PDF w regule: PDF pierwszy, Word obok (25.11.2026)", async () => {
+    mocks.branded.mockResolvedValue({
+      data: { status: "draft", from_generator: true, client_file_format: "pdf", cv_layout: "new" },
+    });
+    const user = userEvent.setup();
+    mountPane();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    await screen.findByTestId("stage-cv-preview");
+    const buttons = within(screen.getByTestId("preview-cv-download")).getAllByRole("button");
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Pobierz PDF", "Pobierz Word"]);
+    // Bez menu „Więcej” — „Word (klasyczne)” zostaje w karcie „CV do klienta”.
+    expect(screen.queryByRole("button", { name: /klasyczne/ })).toBeNull();
+
+    await user.click(buttons[0]);
+    expect(mocks.stageCvPdf).toHaveBeenCalledWith(901, { download: "preview" });
+  });
+
   it("CV firmowe pary z poprzedniego wiersza etapu pobiera się z wiersza, na którym leży", async () => {
     mocks.branded.mockImplementation((stageId: number) =>
       Promise.resolve({
