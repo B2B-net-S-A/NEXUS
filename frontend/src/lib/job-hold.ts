@@ -191,7 +191,7 @@ export function hasHoldFormErrors(errors: HoldFormErrors): boolean {
   return Boolean(errors.reason || errors.reviewOn);
 }
 
-/** „Malwina J.” z pełnego imienia i nazwiska. */
+/** „Anna K.” z pełnego imienia i nazwiska. */
 export function shortName(name: string | null | undefined): string | null {
   if (!name) return null;
   return shortenPersonName(name) ?? name;
@@ -237,7 +237,7 @@ export function holdViewOf(
   };
 }
 
-/** „od 26.11 · ustawił(a) Igor T.” — nagłówek pasa i dymka. */
+/** „od 26.11 · ustawił(a) Jan N.” — nagłówek pasa i dymka. */
 export function holdSinceText(view: HoldView): string {
   const parts: string[] = [];
   if (view.since) parts.push(`od ${formatDayMonthPl(view.since)}`);
