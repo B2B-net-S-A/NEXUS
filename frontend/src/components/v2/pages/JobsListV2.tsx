@@ -1047,6 +1047,9 @@ export function JobsListV2({
       : scope === "category"
         ? undefined
         : quickCounts?.request_stage;
+  // Bez liczb (zakres „Moja kategoria”) pigułki są węższe i mieszczą się wszystkie.
+  const holdChipShown =
+    stages.includes("on_hold") || stageCounts == null || (stageCounts.on_hold ?? 0) > 0;
   const scopeCounts: Record<JobScope, number | null | undefined> = {
     mine: quickCounts?.mine,
     category: categoryCount,
@@ -1371,8 +1374,19 @@ export function JobsListV2({
             aria-label="Stan requestu"
             data-help="jobs.list.status"
           >
-            <span className="mr-1 text-xs text-muted-foreground">Stan requestu</span>
-            {REQUEST_STAGE_CHIPS.map((value) => {
+            {/* „Wstrzymane” (26.11.2026) tylko przy wstrzymanych albo włączonym
+                filtrze: dziewiąta pigułka zawijała rząd przy 1280 × 720 i spychała
+                tabelę poniżej połowy okna. Gdy jest, podpis rzędu chowa się poniżej
+                2xl (grupa ma `aria-label`). */}
+            <span
+              className={cn(
+                "mr-1 text-xs text-muted-foreground",
+                holdChipShown && "hidden 2xl:inline",
+              )}
+            >
+              Stan requestu
+            </span>
+            {REQUEST_STAGE_CHIPS.filter((value) => value !== "on_hold" || holdChipShown).map((value) => {
               const on = stages.includes(value);
               const count = stageCounts?.[value];
               return (
