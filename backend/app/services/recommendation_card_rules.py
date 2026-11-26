@@ -66,6 +66,8 @@ CARRIED_FIELDS: dict[str, int] = {
 # „-” albo „brak” w red flags znaczy „brak uwag”; w pozostałych polach wpis
 # bez litery i cyfry („-”, „.”, „?”) nie jest wartością (pomiar 21.10.2026).
 _PLACEHOLDER_IS_VALUE = frozenset({"red_flags"})
+# „Czy pracował u Klienta” z rodzajem umowy albo „nie” (26.11.2026).
+_WORKED_AT_CLIENT_KNOWN = frozenset({"no", "uop", "b2b"})
 # Imię i nazwisko bierzemy z profilu kandydata, nie z notatki.
 _NOT_STORED = frozenset({"name"})
 _MULTILINE = frozenset({"recommendation", "motivation", "red_flags"})
@@ -209,6 +211,11 @@ def has_value(key: str, value: Any) -> bool:
     raw = str(value.get("raw") or "").strip()
     if key in _PLACEHOLDER_IS_VALUE:
         return bool(raw)
+    if key == "worked_at_client":
+        # Samo „tak” bez rodzaju umowy nie wystarcza: Cpro Nordei pyta osobno
+        # o byłego pracownika (UoP) i konsultanta (B2B) — bot stawał na
+        # dwóch kartach Nordei (decyzja Artura 26.11.2026).
+        return value.get("value") in _WORKED_AT_CLIENT_KNOWN
     return any(char.isalnum() for char in raw)
 
 
