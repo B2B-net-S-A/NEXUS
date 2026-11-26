@@ -39,7 +39,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.job_ad import JobAd
 from app.models.job_ad_publication import JobAdPublication
 from app.models.m365 import Email, EmailDirection
@@ -172,10 +172,12 @@ def _mail_filter():
 async def recent_mails(
     db: AsyncSession, *, now: datetime, user_ids: Optional[Iterable[int]] = None
 ) -> list[PracujMail]:
+    """Maile Pracuj.pl od najnowszego: ponowna publikacja ma nowy ``groupId``,
+    a wisi ta ostatnia — pętla łączy ją pierwszą, starsza wypada z kandydatów."""
     stmt = select(Email).where(*_mail_filter(), Email.received_at >= now - SCAN_WINDOW)
     if user_ids is not None:
         stmt = stmt.where(Email.user_id.in_(list(set(user_ids))))
-    rows = await db.scalars(stmt.order_by(Email.received_at, Email.id))
+    rows = await db.scalars(stmt.order_by(Email.received_at.desc(), Email.id.desc()))
     return [mail for row in rows if (mail := _mail(row)) is not None]
 
 
@@ -213,7 +215,7 @@ async def _used_urls(db: AsyncSession, urls: list[str]) -> set[str]:
 
 
 async def candidates_for(db: AsyncSession, mail: PracujMail) -> list[Candidate]:
-    """Rekrutacje z prośbą tej osoby przed mailem i bez oznaczenia Pracuj.pl."""
+    """Otwarte rekrutacje z prośbą tej osoby przed mailem, bez oznaczenia Pracuj.pl."""
     requested = (
         select(Activity.entity_id)
         .where(
@@ -234,7 +236,9 @@ async def candidates_for(db: AsyncSession, mail: PracujMail) -> list[Candidate]:
         select(Job.id, Job.title, JobAd.content)
         .join(requested, requested.c.entity_id == Job.id)
         .join(JobAd, JobAd.job_id == Job.id)
-        .where(Job.id.not_in(active))
+        # Tylko otwarte: „wisi” przy zamkniętej rekrutacji tylko by przypominało
+        # o zdjęciu ogłoszenia, którego nikt z NEXUSA nie potwierdził.
+        .where(Job.status == JobStatus.published, Job.id.not_in(active))
     )
     return [
         Candidate(
@@ -284,11 +288,12 @@ async def suggestions_for_job(
     mails = await recent_mails(
         db, now=now or datetime.now(timezone.utc), user_ids=[request.sent_by]
     )
+    # Jedna propozycja na rekrutację — najnowszy pasujący mail.
     return [
         p.mail
         for p in await plan(db, mails)
         if job_id in p.match.suggested or p.match.auto == job_id
-    ]
+    ][:1]
 
 
 def log_linked(

@@ -67,7 +67,9 @@ async def _open_with_request(job_id: int, lead_id: int, *, hours_ago: int = 30) 
         return (ad.content or {}).get("title") or job.title
 
 
-async def _pracuj_mail(user_id: int, title: str, gid: str) -> int:
+async def _pracuj_mail(
+    user_id: int, title: str, gid: str, *, hours_ago: int = 2
+) -> int:
     async with AsyncSessionLocal() as db:
         row = Email(
             user_id=user_id,
@@ -79,7 +81,7 @@ async def _pracuj_mail(user_id: int, title: str, gid: str) -> int:
                 '<p>Twoje ogłoszenie jest już aktywne.</p><a href="https://www.pracuj.pl/'
                 f'praca?groupId={gid}">Zobacz ogłoszenie</a>'
             ),
-            received_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            received_at=datetime.now(timezone.utc) - timedelta(hours=hours_ago),
             direction=EmailDirection.received,
         )
         db.add(row)
@@ -278,3 +280,30 @@ async def test_the_0793_data_fix_rewrites_panel_links(api: AsyncClient, monkeypa
     assert after[ids[1]] is None
     assert after[ids[2]] is None
     assert after[ids[3]] == urls[3]
+
+
+async def test_the_newest_publication_mail_wins(api: AsyncClient, monkeypatch):
+    _recruiter, lead, lead_id, job_id = await _job_with_lead(api, monkeypatch)
+    title = await _open_with_request(job_id, lead_id)
+    older, newer = _gid(), _gid()
+    await _pracuj_mail(lead_id, title, older, hours_ago=20)
+    await _pracuj_mail(lead_id, title, newer, hours_ago=3)
+
+    await pracuj_mail_links.run_once()
+    marked = _pracuj(await _state(api, lead, job_id))
+    assert marked["url"] == f"https://www.pracuj.pl/praca?groupId={newer}"
+    assert await _linked_count(job_id) == 1
+
+
+async def test_a_closed_recruitment_is_not_marked(api: AsyncClient, monkeypatch):
+    _recruiter, lead, lead_id, job_id = await _job_with_lead(api, monkeypatch)
+    title = await _open_with_request(job_id, lead_id)
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, job_id)).status = JobStatus.closed
+        await db.commit()
+    await _pracuj_mail(lead_id, title, _gid())
+
+    await pracuj_mail_links.run_once()
+    state = await _state(api, lead, job_id)
+    assert _pracuj(state) is None
+    assert state["pracuj_mail_suggestions"] == []

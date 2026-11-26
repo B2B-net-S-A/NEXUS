@@ -26,12 +26,15 @@ Kod: `services/job_ad/pracuj_inbox.py`, pętla `tasks/pracuj_mail_links.py`
   („… kończy się za 2 dni?”) mają link `,oferta,<nr>`, ale nie potwierdzają
   publikacji — nie bierz ich.
 - **Oznacza sam tylko pewne dopasowanie:** mail w skrzynce osoby, która
-  z NEXUSA wysłała prośbę do opiekuna najwyżej 14 dni wcześniej, rekrutacja
-  bez aktywnego oznaczenia Pracuj.pl i dokładnie jedna taka rekrutacja z tym
+  z NEXUSA wysłała prośbę do opiekuna najwyżej 14 dni wcześniej, OTWARTA
+  rekrutacja bez aktywnego oznaczenia Pracuj.pl i dokładnie jedna taka rekrutacja z tym
   samym tytułem po `title_key` (bez dopisku płci „(k/m/x)”, liczby wakatów
   „x4”, rodzaju myślnika i spacji przy „/”). Tytuł porównuje się z nazwą
   rekrutacji i z tytułem ogłoszenia. Treść z blokującym znaleziskiem nie
-  oznacza się sama.
+  oznacza się sama. Maile idą od najnowszego: ponowna publikacja ma nowy
+  `groupId`, więc wygrywa ostatni mail (staging 26.11: dwa maile „Tester
+  Automatyczny” 20.11 i 24.11 do jednej rekrutacji). Okno pokazuje najwyżej
+  jedną propozycję na rekrutację.
 - **Reszta to propozycja w oknie** (`pracuj_mail_suggestions`): kilka
   rekrutacji z tym samym tytułem, jedyna prośba z podobnym tytułem albo
   treść z blokadą. „To ta rekrutacja” oznacza (blokada = 409), „Nie” zapisuje
