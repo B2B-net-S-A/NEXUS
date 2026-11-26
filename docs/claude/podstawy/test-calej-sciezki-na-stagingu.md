@@ -80,6 +80,12 @@ klient) — to też są kroki.
 
   Backend z gałęzi ma rolę `web` (`web-i-worker-osobno.md`), więc pętle w tle zostają
   w głównym workerze. Na własnej bazie dopisz `-e NEXUS_PROCESS_ROLE=all`.
+  Rolę `web` daje compose z worktree (`-f docker-compose.staging.yml` względnie do
+  katalogu, z którego uruchamiasz komendę). Nie podmieniaj go na
+  `$W/docker-compose.staging.yml`: tamten jest starszy i nie ustawia
+  `NEXUS_PROCESS_ROLE`, więc backend dostaje rolę `all`, jego pętle stoją w standby
+  lidera, `keyword_corpus_backfill` nie włącza korpusu złożonego i lista szuka
+  podłańcuchem (26.11.2026: v2 „qa” 5–33 s zamiast 0,3 s).
 
   Baza główna zmienia się co noc (`staging-na-laptopie.md`), a zapisy z testu
   zostają na starej kopii. Po teście `docker stop nexus-staging-backend-branch-$BACKEND_PORT`.
