@@ -702,6 +702,14 @@ export function CandidatesListV2(props: CandidatesListV2Props = {}) {
 
 function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
   const router = useRouter();
+  // Lista (nie okno „Szukaj ręcznie”): wyszukiwanie zwija się samo po
+  // „Szukaj”, a fragmenty CV pod osobą są za przełącznikiem w „Kolumnach”
+  // (prośba rekrutera z 26.11.2026, makiety: artefakt EevocZtyQjuBTfnBR9B1TZ).
+  const searchCollapsedPref = useUiStore((s) => s.candidatesSearchCollapsed);
+  const setSearchCollapsed = useUiStore((s) => s.setCandidatesSearchCollapsed);
+  const snippetsVisiblePref = useUiStore((s) => s.candidatesSnippetsVisible);
+  const setSnippetsVisible = useUiStore((s) => s.setCandidatesSnippetsVisible);
+  const snippetsVisible = embed ? true : snippetsVisiblePref;
   const { showSuccess, showError } = useToast();
   const routeSearchParams = useSearchParams();
   // W trybie osadzonym stan startuje z filtrów rekrutacji — nie z adresu
@@ -1208,6 +1216,7 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
  previousRows: string[][];
  } | null>(null);
  const runSearch = async () => {
+ if (!embed) setSearchCollapsed(true);
  let text = searchDraft;
  let rows = qAny;
  setConvertedText(null);
@@ -1567,7 +1576,7 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
  return (
  rowHeight +
  RECENT_FACTS_LINE_HEIGHT +
- (hasSearchTerms ? snippetAreaFor(c) : 0) +
+ (hasSearchTerms && snippetsVisible ? snippetAreaFor(c) : 0) +
  (index === unknownDividerAt ? UNKNOWN_DIVIDER_HEIGHT : 0)
  );
  },
@@ -1580,7 +1589,7 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
  // świeżą tablicą co render → pętla re-measure).
  useEffect(() => {
  virtualizer.measure();
- }, [virtualizer, data, hasSearchTerms]);
+ }, [virtualizer, data, hasSearchTerms, snippetsVisible]);
  // Powrót z profilu do okna rekrutacji: lista staje na ostatnio otwartej osobie.
  const scrolledToLastRef = useRef(false);
  useEffect(() => {
@@ -2250,6 +2259,10 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
 
   const filterBar = (
     <CandidateFilterBar
+      // Bez ustawionych kryteriów pasek zawsze rozwinięty — zwinięty nie
+      // miałby czego streszczać.
+      collapsed={!embed && searchCollapsedPref && totalActiveFilters > 0}
+      onCollapsedChange={embed ? undefined : setSearchCollapsed}
       filters={filtersSnapshot}
       onPatch={patchFiltersFromFields}
       currentUserId={currentUser?.id ?? null}
@@ -2564,7 +2577,13 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
               </Select>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="md" aria-label="Wybierz kolumny tabeli" data-help="candidates.list.columns">
+                  <Button
+                    variant="outline"
+                    size="md"
+                    aria-label="Wybierz kolumny tabeli"
+                    data-help="candidates.list.columns"
+                    data-tour="candidates.columns"
+                  >
                     <Columns3 className="h-4 w-4" aria-hidden />
                     Kolumny
                   </Button>
@@ -2587,6 +2606,18 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
                       {col.label}
                     </DropdownMenuCheckboxItem>
                   ))}
+                  {!embed && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuCheckboxItem
+                        checked={snippetsVisiblePref}
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={(checked) => setSnippetsVisible(checked === true)}
+                      >
+                        Fragmenty CV pod osobą
+                      </DropdownMenuCheckboxItem>
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => clearColumnPreference(columnPrefsKey)}>
                     Przywróć domyślne
@@ -2710,8 +2741,8 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
                         Date.parse(candidate.created_at) > newSinceTs);
                     const position = (resultsPage - 1) * pageSize + virtualRow.index + 1;
                     const openDetail = () => openDetailAt(candidate.id);
-                    const snippet = hasSearchTerms ? candidate.match_snippet : null;
-                    const fieldSnippets = hasSearchTerms ? candidate.match_snippets ?? [] : [];
+                    const snippet = hasSearchTerms && snippetsVisible ? candidate.match_snippet : null;
+                    const fieldSnippets = hasSearchTerms && snippetsVisible ? candidate.match_snippets ?? [] : [];
                     const jobTitle = getCurrentTitle(candidate);
                     const company = getCurrentCompany(candidate);
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);

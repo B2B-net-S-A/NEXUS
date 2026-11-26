@@ -94,7 +94,8 @@ import {
   recruitmentMode,
   type RecruitmentMode,
 } from "@/lib/recruitment-filter";
-import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
+import { cleanRows, describeKeywordSearch, requirementRows } from "@/lib/keyword-requirements";
+import { CollapsedSearchSummary } from "@/components/v2/candidates/CollapsedSearchSummary";
 import {
   StageFilterPanel,
   type StageFilterValue,
@@ -150,6 +151,12 @@ export interface CandidateFilterBarProps {
    */
   rejectionFacets?: RejectionFacets | null | undefined;
   showRejectionFilter?: boolean;
+  /**
+   * Pasek zwinięty do jednej linii (`CollapsedSearchSummary`). Bez
+   * `onCollapsedChange` pasek się nie zwija (okno „Szukaj ręcznie”).
+   */
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   className?: string;
 }
 
@@ -355,6 +362,8 @@ export function CandidateFilterBar({
   keywordsSourceNote,
   rejectionFacets,
   showRejectionFilter = false,
+  collapsed = false,
+  onCollapsedChange,
   className,
 }: CandidateFilterBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -387,6 +396,29 @@ export function CandidateFilterBar({
     filters.openTo.length +
     (filters.hideUnknown ? 1 : 0);
 
+  if (collapsed && onCollapsedChange) {
+    const parts = [rateSummary(filters), locationSummary(filters), remoteSummary(filters)].filter(
+      (part): part is string => part !== null,
+    );
+    const otherFilters =
+      counts.history + counts.rejection + counts.skills + counts.skillYears + counts.availability + counts.more;
+    return (
+      <CollapsedSearchSummary
+        sentence={describeKeywordSearch({
+          rows: keywordRows,
+          exclude: filters.qNone,
+          scopeLabel: null,
+        })}
+        parts={parts}
+        moreCount={otherFilters}
+        onExpand={() => onCollapsedChange(false)}
+        onSearch={onSearch}
+        pendingCount={pendingCount}
+        className={className}
+      />
+    );
+  }
+
   return (
     <section aria-label="Filtry kandydatów" className={cn("space-y-2 text-sm", className)} data-help="candidates.list.filters">
       <button
@@ -413,6 +445,7 @@ export function CandidateFilterBar({
         onSearch={onSearch}
         pendingCount={pendingCount}
         className={keywordsOpen ? undefined : "max-md:hidden"}
+        onCollapse={onCollapsedChange ? () => onCollapsedChange(true) : undefined}
       />
 
       <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 md:flex-wrap md:overflow-visible md:pb-0">
