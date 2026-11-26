@@ -309,7 +309,9 @@ async def fill_client_form(
     )
     # Tabela punktowa liczy punkty według zasad oceny z Plików (zał. 5 CEZ);
     # formularz bierze z nich minimum stażu („ponad minimalne wymagania”).
-    rules = await job_files.scoring_rules_text(db, job.id)
+    rules = await job_files.scoring_rules_text(
+        db, job.id, score_legend=kind == KIND_SCORE
+    )
     sources = client_form_fill.Sources(
         cv=candidate.raw_cv_text or "", notes=notes or "", rules=rules
     )
