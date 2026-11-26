@@ -64,7 +64,11 @@ from app.services.career_slugs import (
     suggest_recruiter_slug,
 )
 from app.services.job_ad.text import visible
-from app.services.public_profile_lint import lint_internal_codes, lint_public_texts
+from app.services.public_profile_lint import (
+    drop_placeholders,
+    lint_internal_codes,
+    lint_public_texts,
+)
 from app.services.public_apply import link_key
 
 
@@ -682,9 +686,10 @@ async def put_public_profile(
         title = " ".join(visible(data.public_title or "").split())
         profile.public_title = title[: jpp.PUBLIC_TITLE_MAX] or None
     if "subtitle" in fields:
-        profile.subtitle = visible(data.subtitle or "").strip() or None
+        profile.subtitle = drop_placeholders(visible(data.subtitle or ""))
     if "about" in fields:
-        profile.about = visible(data.about or "").strip() or None
+        # Zaślepki szkicu AI („Brak … w materiale źródłowym”) nie zapisujemy.
+        profile.about = drop_placeholders(visible(data.about or ""))
     if "sections" in fields and data.sections is not None:
         # Migawka zatwierdzenia zostaje — zmiana przełączników i tak zmienia
         # skrót treści (szkic), a ten sam zestaw nie może zgubić migawki.
