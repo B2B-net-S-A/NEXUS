@@ -84,6 +84,21 @@
         "Admin",
         "Delivery Lead"
       ]
+    },
+    "pomoc": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/pomoc.md",
+      "sciezki": [
+        "frontend/src/app/help/**",
+        "frontend/src/components/v2/pages/Help*",
+        "frontend/src/components/client-playbook/**",
+        "backend/app/api/help_materials.py",
+        "backend/app/services/help_*"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead",
+        "Admin"
+      ]
     }
   }
 }
