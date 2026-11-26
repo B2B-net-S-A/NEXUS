@@ -1,23 +1,79 @@
-{
-  "id": "cv-3970-currently-w-datach",
-  "poprawka": "80d878d9e #3970",
-  "opis": "„currently” na końcu zakresu dat stanowiska to „do dziś”, nie jeden miesiąc",
-  "dzis": "2026-11-25",
-  "wejscie": {
-    "jezyk": "en",
-    "generator": {
-      "name": "Jan Korpusowy",
-      "position": "Java Developer",
-      "experience": [
-        {"dates": "03.2023 – currently", "company": "Firma Przykładowa", "position": "Senior Java Developer"},
-        {"dates": "01.2020 - 02.2023", "company": "Inna Firma", "position": "Java Developer"}
+[
+  {
+    "id": "cv-3970-currently-w-datach",
+    "poprawka": "80d878d9e #3970",
+    "opis": "„do dzisiaj” w oryginale to „do dziś”: model wpisał bieżący miesiąc jako koniec, a przywracanie dat z oryginału nie znało tego słowa; „currently” w zapisie generatora liczy staż do dziś",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "en",
+      "generator": {
+        "name": "Jan Korpusowy",
+        "position": "Java Developer",
+        "experience": [
+          {
+            "dates": "03.2023 – currently",
+            "company": "Firma Przykładowa",
+            "position": "Senior Java Developer"
+          },
+          {
+            "dates": "06.2021 - 11.2026",
+            "company": "Fundacja Przykładowa",
+            "position": "Mentor programowania"
+          },
+          {
+            "dates": "01.2020 - 02.2023",
+            "company": "Inna Firma",
+            "position": "Java Developer"
+          }
+        ]
+      },
+      "zrodlo": "Jan Korpusowy\nDOŚWIADCZENIE\nSenior Java Developer\nFirma Przykładowa\n03.2023 – currently\nMentor programowania (wolontariat)\nFundacja Przykładowa\n06.2021 – do dzisiaj\nJava Developer\nInna Firma\n01.2020 - 02.2023"
+    },
+    "oczekiwane": {
+      "daty": [
+        {
+          "daty": "03.2023 – currently",
+          "staz": "3 years 9 mo."
+        },
+        {
+          "daty": "06.2021 - obecnie"
+        },
+        {
+          "daty": "01.2020 - 02.2023",
+          "staz": "3 years 2 mo."
+        }
       ]
     }
   },
-  "oczekiwane": {
-    "daty": [
-      {"staz": "3 years 9 mo."},
-      {"staz": "3 years 2 mo."}
-    ]
+  {
+    "id": "cv-3970-aktualnie-w-szkicu-bez-znacznikow",
+    "poprawka": "80d878d9e #3970",
+    "opis": "W starszym szkicu edytora bez znaczników linia „Stanowisko 03.2023 - aktualnie” nie była stanowiskiem, bo lista dat w cv_approved_docx nie znała „aktualnie”; rola znikała z Nowego CV",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {
+        "name": "Jan Korpusowy",
+        "position": "Java Developer"
+      },
+      "html": "<h1>Java Developer – Jan Korpusowy</h1><h2>DOŚWIADCZENIE</h2><p><strong>Senior Java Developer</strong> 03.2023 - aktualnie</p><p>Firma Przykładowa</p><ul><li>Rozwój systemu rozliczeń.</li></ul><p><strong>Java Developer</strong> 01.2020 - 02.2023</p><p>Inna Firma</p><ul><li>Utrzymanie aplikacji.</li></ul>"
+    },
+    "oczekiwane": {
+      "daty": [
+        {
+          "daty": "03.2023 - aktualnie",
+          "staz": "3 lata 9 mies.",
+          "firma": "Firma Przykładowa",
+          "stanowisko": "Senior Java Developer"
+        },
+        {
+          "daty": "01.2020 - 02.2023",
+          "staz": "3 lata 2 mies.",
+          "firma": "Inna Firma",
+          "stanowisko": "Java Developer"
+        }
+      ],
+      "liczba_daty": 2
+    }
   }
-}
+]

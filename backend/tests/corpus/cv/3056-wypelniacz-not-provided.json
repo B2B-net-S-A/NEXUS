@@ -1,0 +1,49 @@
+[
+  {
+    "id": "cv-3056-not-provided-od-modelu-to-nie-nazwisko",
+    "poprawka": "fed52a43d #3056",
+    "opis": "Model zwracał tekst pustego pola („Not” / „Provided”) jako imię i nazwisko, zamiast nazwy z nagłówka CV",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Anna Korpusowa\nanna.korpusowa@example.com\nJava Developer\n2020 - 2024 Firma Przykładowa",
+        "model": {
+          "first_name": "Not",
+          "last_name": "Provided",
+          "email": "anna.korpusowa@example.com",
+          "experience": []
+        }
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [
+        {
+          "imie": "Anna",
+          "nazwisko": "Korpusowa"
+        }
+      ]
+    }
+  },
+  {
+    "id": "cv-3056-not-provided-bez-nazwy-w-cv",
+    "poprawka": "fed52a43d #3056",
+    "opis": "CV bez imienia i nazwiska: fraza „not provided” od modelu i z pierwszej linii nie może zostać nazwą osoby",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Not Provided\n10 years of backend work\nSenior Backend Developer",
+        "model": {
+          "first_name": "not provided",
+          "last_name": "NOT PROVIDED",
+          "experience": []
+        }
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [
+        {
+          "imie": null,
+          "nazwisko": null
+        }
+      ]
+    }
+  }
+]
