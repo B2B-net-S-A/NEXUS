@@ -80,7 +80,9 @@ export function MoveRequirementList({
         const warning = isDealBreakerWarning(req) || isPreContractWarning(req);
         return (
           <li
-            key={req.key}
+            // Klucz z kolumną: ten sam brak bywa w dwóch kolumnach drogi
+            // (`client_form` w „QC CV” i „CV wysłane”, 26.11.2026).
+            key={`${req.column ?? ""}:${req.key}`}
             data-requirement={req.key}
             data-status={req.status}
             data-tone={warning ? "warning" : undefined}
