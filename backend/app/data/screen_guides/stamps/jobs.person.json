@@ -3,7 +3,7 @@
   "guide": "jobs.person",
   "sources": {
     "frontend/src/components/v2/jobs/DockContractSteps.tsx": "ecdb65d74db8ce979ba9d5f86f499b3398578d81026701c7f4b39d2ba4ce12e3",
-    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "75262325caa8c17e709bd715aff33146d157e3fb0319762a522ec266416a02eb",
+    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "d9b0557a7e0f19d0650384bf4c4217fe886dc1ca462c201c07d47c3b232e7cbc",
     "frontend/src/components/v2/screening-form/ScreeningFullForm.tsx": "2b8df690c6f9e6026acbf09140010acf1d258f26cde8adcada56eccdb6a12331"
   }
 }
