@@ -166,6 +166,10 @@ export interface ContractWithOrdersRead {
   /** Karta „szkicu": żywy kontrakt bez zamówień poza szkicami (serwer liczy).
    *  Da się ją usunąć („Usuń szkic"), a u CeZ przypisać do zamówienia. */
   draft_card?: boolean;
+  /** Liczy front (`filterMaterializedContractorShells`), nie serwer: osoba
+   *  pracuje dalej na linii zamówienia MD/kosztowego tej umowy, a ta karta
+   *  niesie już tylko historię zamówień okresowych (KIR 25.11.2026). */
+  history_only?: boolean;
   /** Zamówienie okresowe kończące się w 30 dni BEZ kontynuacji — liczy serwer
    *  (`services/order_continuation`, audyt 24.09.2026). Pigułka „Bez
    *  kontynuacji 30d" czyta to pole zamiast liczyć regułę sama. */

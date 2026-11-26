@@ -21,7 +21,7 @@ import { Printer, AlertCircle, Sparkles } from "lucide-react";
 import { useFitFrameHeight, withMobileCvStyle } from "../_lib/cv-frame";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 interface PublicCVView {
   package_documents?: { language: string; filename: string; cv_html: string }[];

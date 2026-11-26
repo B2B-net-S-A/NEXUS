@@ -1,0 +1,1179 @@
+{
+ "graphql": {
+  "GdzieJestOstatnie|{\"merged\": \"repo:B2B-net-S-A/NEXUS is:pr is:merged merged:>=2026-11-25T22:44:44Z\", \"open\": \"repo:B2B-net-S-A/NEXUS is:pr is:open updated:>=2026-11-25T22:44:44Z\"}": {
+   "data": {
+    "open": {
+     "nodes": [
+      {
+       "number": 4042,
+       "title": "feat(sciezka): wolna para portów per worktree i strażnik w CI w paragonie",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4042",
+       "state": "OPEN",
+       "isDraft": false,
+       "mergedAt": null,
+       "mergeable": "MERGEABLE",
+       "changedFiles": 6,
+       "mergeCommit": null,
+       "autoMergeRequest": null,
+       "mergeQueueEntry": {
+        "state": "AWAITING_CHECKS",
+        "position": 4,
+        "enqueuedAt": "2026-11-25T23:41:29Z"
+       },
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/tests/test_impact_map.py"
+         },
+         {
+          "path": "backend/tests/test_staging_free_ports.py"
+         },
+         {
+          "path": "docs/claude/podstawy/test-calej-sciezki-na-stagingu.md"
+         },
+         {
+          "path": "docs/claude/ui/makiety-na-stagingu.md"
+         },
+         {
+          "path": "scripts/impact_map.py"
+         },
+         {
+          "path": "scripts/staging/free_ports.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T23:41:30Z"
+         }
+        ]
+       }
+      },
+      {
+       "number": 4041,
+       "title": "feat(nowosci): lekcja asystenta prawnego — pismo na kontrakcie i zadania asystenta",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4041",
+       "state": "OPEN",
+       "isDraft": false,
+       "mergedAt": null,
+       "mergeable": "MERGEABLE",
+       "changedFiles": 13,
+       "mergeCommit": null,
+       "autoMergeRequest": {
+        "enabledAt": "2026-11-25T23:35:15Z"
+       },
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/app/data/novelties/lessons.json"
+         },
+         {
+          "path": "backend/app/data/novelties/novelties.json"
+         },
+         {
+          "path": "backend/scripts/poligon_client_practice.py"
+         },
+         {
+          "path": "docs/claude/asystent-prawny/pismo-na-kontrakcie-i-zadania-asystenta.md"
+         },
+         {
+          "path": "frontend/src/components/legal-assistant/letters/LegalTasksStrip.tsx"
+         },
+         {
+          "path": "frontend/src/components/legal-assistant/letters/LetterPanelView.tsx"
+         },
+         {
+          "path": "frontend/src/lib/poligon/__tests__/legal-letter.test.ts"
+         },
+         {
+          "path": "frontend/src/lib/poligon/amounts.ts"
+         },
+         {
+          "path": "frontend/src/lib/poligon/dataset.json"
+         },
+         {
+          "path": "frontend/src/lib/poligon/legal-letter.ts"
+         },
+         {
+          "path": "frontend/src/lib/poligon/meta.json"
+         },
+         {
+          "path": "frontend/src/lib/poligon/store.ts"
+         },
+         {
+          "path": "frontend/src/lib/poligon/tools.ts"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "PENDING"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": []
+       }
+      },
+      {
+       "number": 4040,
+       "title": "feat: raport kompetencji w 24 godziny dla kandydatów ze strony",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4040",
+       "state": "OPEN",
+       "isDraft": false,
+       "mergedAt": null,
+       "mergeable": "MERGEABLE",
+       "changedFiles": 62,
+       "mergeCommit": null,
+       "autoMergeRequest": {
+        "enabledAt": "2026-11-25T23:24:24Z"
+       },
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/alembic/versions/0792_competence_reports.py"
+         },
+         {
+          "path": "backend/app/api/competence_reports.py"
+         },
+         {
+          "path": "backend/app/api/public_competence_report.py"
+         },
+         {
+          "path": "backend/app/core/config.py"
+         },
+         {
+          "path": "backend/app/core/staging.py"
+         },
+         {
+          "path": "backend/app/main.py"
+         },
+         {
+          "path": "backend/app/models/__init__.py"
+         },
+         {
+          "path": "backend/app/models/competence_report.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_ddl.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_email.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_engine.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_queue.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_schema.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_send.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_store.py"
+         },
+         {
+          "path": "backend/app/services/competence_report_tokens.py"
+         },
+         {
+          "path": "backend/app/services/job_public_profile.py"
+         },
+         {
+          "path": "backend/app/services/market_rates.py"
+         },
+         {
+          "path": "backend/app/services/notification_delivery.py"
+         },
+         {
+          "path": "backend/app/services/notification_email_prefs.py"
+         },
+         {
+          "path": "backend/app/services/website_application_terms.py"
+         },
+         {
+          "path": "backend/app/services/website_applications.py"
+         },
+         {
+          "path": "backend/app/tasks/competence_report_sender.py"
+         },
+         {
+          "path": "backend/entrypoint.sh"
+         },
+         {
+          "path": "backend/tests/data/authz_golden/competence_reports.json"
+         },
+         {
+          "path": "backend/tests/data/authz_golden/public_competence_report.json"
+         },
+         {
+          "path": "backend/tests/test_competence_report_email.py"
+         },
+         {
+          "path": "backend/tests/test_competence_report_engine.py"
+         },
+         {
+          "path": "backend/tests/test_competence_report_intake.py"
+         },
+         {
+          "path": "backend/tests/test_competence_report_sender.py"
+         },
+         {
+          "path": "backend/tests/test_competence_reports_api.py"
+         },
+         {
+          "path": "backend/tests/test_market_rates.py"
+         },
+         {
+          "path": "backend/tests/test_notification_email_prefs.py"
+         },
+         {
+          "path": "backend/tests/test_public_competence_report.py"
+         },
+         {
+          "path": "backend/tests/test_public_surface_hardening.py"
+         },
+         {
+          "path": "backend/tests/test_route_authz_contract.py"
+         },
+         {
+          "path": "docs/claude/integracje/strona-www-aplikacje-kandydatow.md"
+         },
+         {
+          "path": "frontend/src/__tests__/competence-report.test.ts"
+         },
+         {
+          "path": "frontend/src/__tests__/middleware.test.ts"
+         },
+         {
+          "path": "frontend/src/app/candidates/website-reports/page.tsx"
+         },
+         {
+          "path": "frontend/src/app/raport/[token]/page.tsx"
+         },
+         {
+          "path": "frontend/src/app/settings/opiekunowie-raportow/page.tsx"
+         },
+         {
+          "path": "frontend/src/components/competence-report/ReportConditionsPage.tsx"
+         },
+         {
+          "path": "frontend/src/components/competence-report/raport.css"
+         },
+         {
+          "path": "frontend/src/components/competence-reports/ConditionsForm.tsx"
+         },
+         {
+          "path": "frontend/src/components/competence-reports/ReportDetailSheet.tsx"
+         },
+         {
+          "path": "frontend/src/components/competence-reports/ReportOwnersSettings.tsx"
+         },
+         {
+          "path": "frontend/src/components/competence-reports/ReportQueue.tsx"
+         },
+         {
+          "path": "frontend/src/components/competence-reports/tones.ts"
+         },
+         {
+          "path": "frontend/src/components/v2/pages/__tests__/candidate-timeline-labels.test.ts"
+         },
+         {
+          "path": "frontend/src/components/v2/pages/candidate-timeline-labels.ts"
+         },
+         {
+          "path": "frontend/src/components/v2/shell/AppShellV2.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/shell/BreadcrumbV2.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/shell/__tests__/BreadcrumbV2.test.tsx"
+         },
+         {
+          "path": "frontend/src/lib/__tests__/nav-registry.test.ts"
+         },
+         {
+          "path": "frontend/src/lib/competence-report.ts"
+         },
+         {
+          "path": "frontend/src/lib/competence-reports/__tests__/logic.test.ts"
+         },
+         {
+          "path": "frontend/src/lib/competence-reports/api.ts"
+         },
+         {
+          "path": "frontend/src/lib/competence-reports/logic.ts"
+         },
+         {
+          "path": "frontend/src/lib/nav-registry.ts"
+         },
+         {
+          "path": "frontend/src/lib/settings-registry.ts"
+         },
+         {
+          "path": "frontend/src/middleware.ts"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "FAILURE"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": []
+       }
+      },
+      {
+       "number": 4039,
+       "title": "feat(rozliczenia): komunikaty do konsultanta na adres, z którego sam pisze do rozliczeń",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4039",
+       "state": "OPEN",
+       "isDraft": false,
+       "mergedAt": null,
+       "mergeable": "UNKNOWN",
+       "changedFiles": 4,
+       "mergeCommit": null,
+       "autoMergeRequest": null,
+       "mergeQueueEntry": {
+        "state": "AWAITING_CHECKS",
+        "position": 2,
+        "enqueuedAt": "2026-11-25T23:19:23Z"
+       },
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/app/services/client_settlements/cases.py"
+         },
+         {
+          "path": "backend/app/services/client_settlements/feedback.py"
+         },
+         {
+          "path": "backend/app/services/client_settlements/reminders.py"
+         },
+         {
+          "path": "backend/tests/test_consultant_portal_company_address.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T23:19:23Z"
+         }
+        ]
+       }
+      },
+      {
+       "number": 4038,
+       "title": "fix(csp): przeładowanie starej karty po zmianie domeny API i usunięcie dynaminds z frontu",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4038",
+       "state": "OPEN",
+       "isDraft": false,
+       "mergedAt": null,
+       "mergeable": "UNKNOWN",
+       "changedFiles": 15,
+       "mergeCommit": null,
+       "autoMergeRequest": null,
+       "mergeQueueEntry": {
+        "state": "AWAITING_CHECKS",
+        "position": 3,
+        "enqueuedAt": "2026-11-25T23:25:44Z"
+       },
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "frontend/src/app/cv/[token]/page.tsx"
+         },
+         {
+          "path": "frontend/src/app/cv/i/[token]/page.tsx"
+         },
+         {
+          "path": "frontend/src/app/engagement/[token]/page.tsx"
+         },
+         {
+          "path": "frontend/src/app/preview/__tests__/b2b-documents-harness.test.ts"
+         },
+         {
+          "path": "frontend/src/components/AppVersionGuard.tsx"
+         },
+         {
+          "path": "frontend/src/components/__tests__/AppVersionGuard.test.tsx"
+         },
+         {
+          "path": "frontend/src/components/candidate-terms/TermsPage.tsx"
+         },
+         {
+          "path": "frontend/src/lib/__tests__/legacy-api-host.test.ts"
+         },
+         {
+          "path": "frontend/src/lib/__tests__/telemetry-capability.test.ts"
+         },
+         {
+          "path": "frontend/src/lib/api/clientPanel.ts"
+         },
+         {
+          "path": "frontend/src/lib/api/clientTeamPanel.ts"
+         },
+         {
+          "path": "frontend/src/lib/api/publicBooking.ts"
+         },
+         {
+          "path": "frontend/src/lib/public-paths.ts"
+         },
+         {
+          "path": "frontend/src/lib/telemetry-capability.ts"
+         },
+         {
+          "path": "frontend/src/middleware.ts"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T23:25:44Z"
+         }
+        ]
+       }
+      },
+      {
+       "number": 4037,
+       "title": "feat(sciezka): mapa wpływu — inne miejsca z tą samą informacją przed ścieżką",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4037",
+       "state": "OPEN",
+       "isDraft": false,
+       "mergedAt": null,
+       "mergeable": "UNKNOWN",
+       "changedFiles": 3,
+       "mergeCommit": null,
+       "autoMergeRequest": null,
+       "mergeQueueEntry": {
+        "state": "AWAITING_CHECKS",
+        "position": 1,
+        "enqueuedAt": "2026-11-25T23:14:27Z"
+       },
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/tests/test_impact_map.py"
+         },
+         {
+          "path": "docs/claude/podstawy/test-calej-sciezki-na-stagingu.md"
+         },
+         {
+          "path": "scripts/impact_map.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T23:14:28Z"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "merged": {
+     "nodes": [
+      {
+       "number": 4036,
+       "title": "fix(cpro): po Upload robot czeka, aż nowe CV pojawi się na liście oferty",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4036",
+       "state": "MERGED",
+       "isDraft": false,
+       "mergedAt": "2026-11-25T23:36:50Z",
+       "mergeable": "UNKNOWN",
+       "changedFiles": 1,
+       "mergeCommit": {
+        "oid": "5f4c23ff1cd520ac5f38b8f7f0639df1c77c016f"
+       },
+       "autoMergeRequest": null,
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/cpro_robot/portal.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T22:57:49Z"
+         },
+         {
+          "__typename": "RemovedFromMergeQueueEvent",
+          "createdAt": "2026-11-25T23:36:50Z",
+          "reason": "merged"
+         }
+        ]
+       }
+      },
+      {
+       "number": 4035,
+       "title": "fix(staging): nocna kopia bierze z produkcji wszystkie flagi *_ENABLED poza zakazanymi",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4035",
+       "state": "MERGED",
+       "isDraft": false,
+       "mergedAt": "2026-11-25T23:22:31Z",
+       "mergeable": "UNKNOWN",
+       "changedFiles": 4,
+       "mergeCommit": {
+        "oid": "467995771f4e8015063ccc6cabb0d0a7092f4813"
+       },
+       "autoMergeRequest": null,
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/tests/test_staging_nightly_sync.py"
+         },
+         {
+          "path": "docker-compose.staging.yml"
+         },
+         {
+          "path": "docs/claude/podstawy/staging-na-laptopie.md"
+         },
+         {
+          "path": "scripts/staging/nightly_sync.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T22:23:18Z"
+         },
+         {
+          "__typename": "RemovedFromMergeQueueEvent",
+          "createdAt": "2026-11-25T22:52:33Z",
+          "reason": "manual"
+         },
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T22:57:41Z"
+         },
+         {
+          "__typename": "RemovedFromMergeQueueEvent",
+          "createdAt": "2026-11-25T23:22:31Z",
+          "reason": "merged"
+         }
+        ]
+       }
+      },
+      {
+       "number": 4034,
+       "title": "docs(sciezka): ścieżka na stagingu przed każdym PR-em z ekranem",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4034",
+       "state": "MERGED",
+       "isDraft": false,
+       "mergedAt": "2026-11-25T22:55:35Z",
+       "mergeable": "UNKNOWN",
+       "changedFiles": 6,
+       "mergeCommit": {
+        "oid": "5d9a855a649836e7dcbe6e78443822485c9e3578"
+       },
+       "autoMergeRequest": null,
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "CLAUDE.md"
+         },
+         {
+          "path": "backend/tests/test_staging_compare_flags.py"
+         },
+         {
+          "path": "docs/claude/podstawy/sciezki/mapa-rol.json"
+         },
+         {
+          "path": "docs/claude/podstawy/test-calej-sciezki-na-stagingu.md"
+         },
+         {
+          "path": "docs/claude/ui/makiety-na-stagingu.md"
+         },
+         {
+          "path": "scripts/staging/compare_flags.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T22:23:04Z"
+         },
+         {
+          "__typename": "RemovedFromMergeQueueEvent",
+          "createdAt": "2026-11-25T22:55:34Z",
+          "reason": "merged"
+         }
+        ]
+       }
+      },
+      {
+       "number": 4033,
+       "title": "fix(nowe-cv): Edukacja rozdziela stopień i kierunek w „MA in …”, „Master's degree, …”, „Studia inżynierskie, …”",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4033",
+       "state": "MERGED",
+       "isDraft": false,
+       "mergedAt": "2026-11-25T22:47:42Z",
+       "mergeable": "UNKNOWN",
+       "changedFiles": 2,
+       "mergeCommit": {
+        "oid": "697c9117ad24bf244e67943a2cabb7e04c80b116"
+       },
+       "autoMergeRequest": null,
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/app/services/cv_new_layout/facts.py"
+         },
+         {
+          "path": "backend/tests/test_cv_new_layout_text.py"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T22:14:16Z"
+         },
+         {
+          "__typename": "RemovedFromMergeQueueEvent",
+          "createdAt": "2026-11-25T22:47:41Z",
+          "reason": "merged"
+         }
+        ]
+       }
+      },
+      {
+       "number": 3991,
+       "title": "feat(cv): Word „Nowego CV” — strona 1 jak w PDF, stanowiska do edycji, osadzony Poppins (etap 2)",
+       "url": "https://github.com/B2B-net-S-A/NEXUS/pull/3991",
+       "state": "MERGED",
+       "isDraft": false,
+       "mergedAt": "2026-11-25T22:47:42Z",
+       "mergeable": "UNKNOWN",
+       "changedFiles": 26,
+       "mergeCommit": {
+        "oid": "2ba610c19065e7cfddfdcd03ef4269555a094897"
+       },
+       "autoMergeRequest": null,
+       "mergeQueueEntry": null,
+       "labels": {
+        "nodes": []
+       },
+       "files": {
+        "nodes": [
+         {
+          "path": "backend/app/api/candidate_stage_cv.py"
+         },
+         {
+          "path": "backend/app/api/cv_pdf_preview.py"
+         },
+         {
+          "path": "backend/app/data/screen_guides/stamps/jobs.person.json"
+         },
+         {
+          "path": "backend/app/services/client_panel.py"
+         },
+         {
+          "path": "backend/app/services/client_panel_stamp.py"
+         },
+         {
+          "path": "backend/app/services/cv_layout.py"
+         },
+         {
+          "path": "backend/app/services/cv_new_layout/docx_fonts.py"
+         },
+         {
+          "path": "backend/app/services/cv_new_layout/docx_render.py"
+         },
+         {
+          "path": "backend/app/services/cv_new_pdf.py"
+         },
+         {
+          "path": "backend/app/services/pdfium.py"
+         },
+         {
+          "path": "backend/tests/test_cv_new_layout_docx.py"
+         },
+         {
+          "path": "backend/tests/test_cv_new_word_routes_db.py"
+         },
+         {
+          "path": "docs/claude/generator-cv/nowe-cv-drugi-uklad-obok-klasycznego.md"
+         },
+         {
+          "path": "frontend/src/components/cv-rules/CvRuleFileFormatField.tsx"
+         },
+         {
+          "path": "frontend/src/components/cv-rules/CvRuleLayoutField.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/cv-generator/ClientCvRuleBanner.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/cv-generator/CvGenerator.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/cv-generator/LayoutChoice.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/cv-generator/useCvGenerator.ts"
+         },
+         {
+          "path": "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/modals/CVBrandedEditModal.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/recruitment/CvToClientCard.tsx"
+         },
+         {
+          "path": "frontend/src/components/v2/recruitment/__tests__/CvToClientCard.test.tsx"
+         },
+         {
+          "path": "frontend/src/lib/__tests__/cv-file-format.test.ts"
+         },
+         {
+          "path": "frontend/src/lib/cv-file-format.ts"
+         },
+         {
+          "path": "frontend/src/lib/stage-cv-file.ts"
+         }
+        ]
+       },
+       "commits": {
+        "nodes": [
+         {
+          "commit": {
+           "statusCheckRollup": {
+            "state": "SUCCESS"
+           }
+          }
+         }
+        ]
+       },
+       "timelineItems": {
+        "nodes": [
+         {
+          "__typename": "AddedToMergeQueueEvent",
+          "createdAt": "2026-11-25T22:18:55Z"
+         },
+         {
+          "__typename": "RemovedFromMergeQueueEvent",
+          "createdAt": "2026-11-25T22:47:41Z",
+          "reason": "merged"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "rest": {
+  "repos/B2B-net-S-A/NEXUS/actions/workflows/deploy.yml/runs?branch=main&per_page=20": {
+   "workflow_runs": [
+    {
+     "id": 45723125048,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "in_progress",
+     "conclusion": null,
+     "head_sha": "5f4c23ff1cd520ac5f38b8f7f0639df1c77c016f",
+     "created_at": "2026-11-25T23:40:12Z",
+     "updated_at": "2026-11-25T23:40:29Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45723125048"
+    },
+    {
+     "id": 45721357215,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "467995771f4e8015063ccc6cabb0d0a7092f4813",
+     "created_at": "2026-11-25T23:26:21Z",
+     "updated_at": "2026-11-25T23:36:27Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45721357215"
+    },
+    {
+     "id": 45717775663,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "5d9a855a649836e7dcbe6e78443822485c9e3578",
+     "created_at": "2026-11-25T22:59:32Z",
+     "updated_at": "2026-11-25T23:11:12Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45717775663"
+    },
+    {
+     "id": 45716656038,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "2ba610c19065e7cfddfdcd03ef4269555a094897",
+     "created_at": "2026-11-25T22:50:55Z",
+     "updated_at": "2026-11-25T23:01:07Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45716656038"
+    },
+    {
+     "id": 45715258515,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "0340594b5b6e924f6130ee47168d1ff531db02d6",
+     "created_at": "2026-11-25T22:40:41Z",
+     "updated_at": "2026-11-25T22:50:50Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45715258515"
+    },
+    {
+     "id": 45711869387,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "9eb3e2622f4de983494fc8515f3745c2604bea6f",
+     "created_at": "2026-11-25T22:16:56Z",
+     "updated_at": "2026-11-25T22:32:56Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45711869387"
+    },
+    {
+     "id": 45710403077,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "251daec592e6106811ba55624799841140874624",
+     "created_at": "2026-11-25T22:06:52Z",
+     "updated_at": "2026-11-25T22:22:39Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45710403077"
+    },
+    {
+     "id": 45709624746,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "cca6baab2f7112d76bf0918ea6e7ff144604a097",
+     "created_at": "2026-11-25T22:01:36Z",
+     "updated_at": "2026-11-25T22:12:37Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45709624746"
+    },
+    {
+     "id": 45707785004,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "52467af1f950dce84b4d5a7766e56f1d261d0770",
+     "created_at": "2026-11-25T21:49:07Z",
+     "updated_at": "2026-11-25T22:00:21Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45707785004"
+    },
+    {
+     "id": 45701068354,
+     "name": "Deploy — slot budzika okna wdrożeń",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ba9d4e83654e1a1d56320bb114a43e7d63060dd2",
+     "created_at": "2026-11-25T21:05:21Z",
+     "updated_at": "2026-11-25T21:12:07Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45701068354"
+    },
+    {
+     "id": 45700331875,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ba9d4e83654e1a1d56320bb114a43e7d63060dd2",
+     "created_at": "2026-11-25T21:00:42Z",
+     "updated_at": "2026-11-25T21:11:40Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45700331875"
+    },
+    {
+     "id": 45695939929,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "94146e797b9fb51aa87f45309df33ec019448194",
+     "created_at": "2026-11-25T20:32:29Z",
+     "updated_at": "2026-11-25T20:32:37Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45695939929"
+    },
+    {
+     "id": 45694690215,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "4d81fe9621568669f318e80942d8bbd365822751",
+     "created_at": "2026-11-25T20:24:38Z",
+     "updated_at": "2026-11-25T20:24:48Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45694690215"
+    },
+    {
+     "id": 45687896159,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "02e62b4631e645859fd9291f473d9fb25c31b9c9",
+     "created_at": "2026-11-25T19:42:50Z",
+     "updated_at": "2026-11-25T19:42:59Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45687896159"
+    },
+    {
+     "id": 45686218707,
+     "name": "Deploy",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:32:34Z",
+     "updated_at": "2026-11-25T19:42:40Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686218707"
+    },
+    {
+     "id": 45685917294,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:30:46Z",
+     "updated_at": "2026-11-25T19:30:54Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685917294"
+    },
+    {
+     "id": 45683885891,
+     "name": "Deploy",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T19:18:30Z",
+     "updated_at": "2026-11-25T19:28:34Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683885891"
+    },
+    {
+     "id": 45683701209,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T19:17:23Z",
+     "updated_at": "2026-11-25T19:17:34Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683701209"
+    },
+    {
+     "id": 45681648795,
+     "name": "Deploy — slot budzika okna wdrożeń",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T19:05:12Z",
+     "updated_at": "2026-11-25T19:16:17Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681648795"
+    },
+    {
+     "id": 45678318018,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T18:45:08Z",
+     "updated_at": "2026-11-25T18:45:18Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45678318018"
+    }
+   ]
+  }
+ },
+ "raw": {},
+ "http": {
+  "https://api.nexus.b2bnetwork.pl/api/health": {
+   "error": "HTTP Error 503: Service Unavailable"
+  },
+  "https://nexus.b2bnetwork.pl/login": "<!DOCTYPE html><html lang=\"pl\"><head><meta charSet=\"utf-8\"/><meta name=\"baggage\" content=\"sentry-environment=production,sentry-release=467995771f4e8015063ccc6cabb0d0a7092f4813,sentry-sampled=false\"/><title>NEXUS</title></head><body></body></html>"
+ },
+ "ancestor": {
+  "2ba610c19065e7cfddfdcd03ef4269555a094897..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "697c9117ad24bf244e67943a2cabb7e04c80b116..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "5d9a855a649836e7dcbe6e78443822485c9e3578..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "467995771f4e8015063ccc6cabb0d0a7092f4813..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "5f4c23ff1cd520ac5f38b8f7f0639df1c77c016f..467995771f4e8015063ccc6cabb0d0a7092f4813": false
+ },
+ "now": "2026-11-25T23:44:44Z",
+ "lines": [
+  "#3991 ✓ na produkcji wg frontu 467995771 (/api/health: HTTP Error 503: Service Unavailable) · feat(cv): Word „Nowego CV” — strona 1 jak w PDF, stanowiska…",
+  "#4033 ✓ na produkcji wg frontu 467995771 (/api/health: HTTP Error 503: Service Unavailable) · fix(nowe-cv): Edukacja rozdziela stopień i kierunek w „MA i…",
+  "#4034 ✓ na produkcji wg frontu 467995771 (/api/health: HTTP Error 503: Service Unavailable) · docs(sciezka): ścieżka na stagingu przed każdym PR-em z ekr…",
+  "#4035 ✓ na produkcji wg frontu 467995771 (/api/health: HTTP Error 503: Service Unavailable) · fix(staging): nocna kopia bierze z produkcji wszystkie flag…",
+  "#4036 ⏳ scalony 00:36, wdrożenie w toku (/api/health: HTTP Error 503: Service Unavailable) — https://github.com/B2B-net-S-A/NEXUS/actions/runs/45723125048 · fix(cpro): po Upload robot czeka, aż nowe CV pojawi się na …",
+  "#4037 ⏳ w kolejce, pozycja 1, testy grupy w toku, od 00:14 · feat(sciezka): mapa wpływu — inne miejsca z tą samą informa…",
+  "#4038 ⏳ w kolejce, pozycja 3, testy grupy w toku, od 00:25 · fix(csp): przeładowanie starej karty po zmianie domeny API …",
+  "#4039 ⏳ w kolejce, pozycja 2, testy grupy w toku, od 00:19 · feat(rozliczenia): komunikaty do konsultanta na adres, z kt…",
+  "#4040 ⏳ otwarty, auto-merge włączony — checki PR-a: czerwone; z migracją — do kolejki wprowadzi go pas migracji · feat: raport kompetencji w 24 godziny dla kandydatów ze str…",
+  "#4041 ⏳ otwarty, auto-merge włączony — checki PR-a: w toku · feat(nowosci): lekcja asystenta prawnego — pismo na kontrak…",
+  "#4042 ⏳ w kolejce, pozycja 4, testy grupy w toku, od 00:41 · feat(sciezka): wolna para portów per worktree i strażnik w …"
+ ]
+}

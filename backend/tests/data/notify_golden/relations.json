@@ -1,0 +1,174 @@
+{
+ "do_decyzji": {},
+ "obsady": {
+  "persony": [
+   "admin",
+   "automation",
+   "back_office",
+   "board",
+   "delivery_lead",
+   "delivery_lead+recruiter",
+   "delivery_lead+talent_community_manager",
+   "employee",
+   "employee+client_contracts_view",
+   "finance",
+   "finance-finance_module",
+   "head_of_recruitment",
+   "head_of_recruitment+delivery_lead",
+   "head_of_recruitment+recruiter",
+   "recruiter",
+   "recruiter+amounts_edit",
+   "recruiter+cases",
+   "recruiter+clients_edit",
+   "recruiter+delivery_view",
+   "recruiter+equipment",
+   "recruiter+finance_module",
+   "recruiter+payroll",
+   "recruiter+people_admin",
+   "recruiter+recruitment_manage",
+   "talent_community_manager",
+   "talent_community_manager+contracts_orders_edit",
+   "talent_community_manager+recruiter",
+   "trainee",
+   "user"
+  ],
+  "persony + admin z nadaniem": [
+   "admin",
+   "admin+receives_board_report",
+   "automation",
+   "back_office",
+   "board",
+   "delivery_lead",
+   "delivery_lead+recruiter",
+   "delivery_lead+talent_community_manager",
+   "employee",
+   "employee+client_contracts_view",
+   "finance",
+   "finance-finance_module",
+   "head_of_recruitment",
+   "head_of_recruitment+delivery_lead",
+   "head_of_recruitment+recruiter",
+   "recruiter",
+   "recruiter+amounts_edit",
+   "recruiter+cases",
+   "recruiter+clients_edit",
+   "recruiter+delivery_view",
+   "recruiter+equipment",
+   "recruiter+finance_module",
+   "recruiter+payroll",
+   "recruiter+people_admin",
+   "recruiter+recruitment_manage",
+   "talent_community_manager",
+   "talent_community_manager+contracts_orders_edit",
+   "talent_community_manager+recruiter",
+   "trainee",
+   "user"
+  ],
+  "reguła etapu": [
+   "prowadzący rekrutację",
+   "rekruter kandydata"
+  ]
+ },
+ "opis": "Wybór odbiorców liczony czystymi funkcjami producentów (bez bazy). „obsada” = konta scenariusza (lista w „obsady”), „odbiorcy” = kogo wybiera kod; reszta obsady nie dostaje.",
+ "przegeneruj": "cd backend && NOTIFY_GOLDEN_WRITE=1 python -m pytest tests/test_notify_golden.py tests/test_notify_golden_db.py",
+ "rodzaje": {
+  "announcement_important [do Rady]": {
+   "obsada": "persony",
+   "odbiorcy": [
+    "board"
+   ],
+   "zrodlo": "app.services.announcements._recipients"
+  },
+  "announcement_important [do rekruterów]": {
+   "obsada": "persony",
+   "odbiorcy": [
+    "delivery_lead+recruiter",
+    "head_of_recruitment+recruiter",
+    "recruiter",
+    "recruiter+amounts_edit",
+    "recruiter+cases",
+    "recruiter+clients_edit",
+    "recruiter+delivery_view",
+    "recruiter+equipment",
+    "recruiter+finance_module",
+    "recruiter+payroll",
+    "recruiter+people_admin",
+    "recruiter+recruitment_manage",
+    "talent_community_manager+recruiter"
+   ],
+   "zrodlo": "app.services.announcements._recipients"
+  },
+  "announcement_important [do wszystkich]": {
+   "obsada": "persony",
+   "odbiorcy": [
+    "admin",
+    "automation",
+    "back_office",
+    "board",
+    "delivery_lead",
+    "delivery_lead+recruiter",
+    "delivery_lead+talent_community_manager",
+    "employee",
+    "employee+client_contracts_view",
+    "finance",
+    "finance-finance_module",
+    "head_of_recruitment",
+    "head_of_recruitment+delivery_lead",
+    "head_of_recruitment+recruiter",
+    "recruiter",
+    "recruiter+amounts_edit",
+    "recruiter+cases",
+    "recruiter+clients_edit",
+    "recruiter+delivery_view",
+    "recruiter+equipment",
+    "recruiter+finance_module",
+    "recruiter+payroll",
+    "recruiter+people_admin",
+    "recruiter+recruitment_manage",
+    "talent_community_manager",
+    "talent_community_manager+contracts_orders_edit",
+    "talent_community_manager+recruiter",
+    "trainee",
+    "user"
+   ],
+   "zrodlo": "app.services.announcements._recipients"
+  },
+  "board_monthly_report [nadawca: Podsumowanie Rady]": {
+   "obsada": "persony + admin z nadaniem",
+   "odbiorcy": [
+    "admin+receives_board_report",
+    "board"
+   ],
+   "zrodlo": "app.tasks.kpi_email_reports._board_readers"
+  },
+  "stage_rule [reguła „rekruter rekrutacji”: kandydat bez rekrutera, ruch bez osoby]": {
+   "obsada": "reguła etapu",
+   "odbiorcy": [
+    "prowadzący rekrutację"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.job_recruiter_ids"
+  },
+  "stage_rule [reguła „rekruter rekrutacji”: kandydat innego rekrutera]": {
+   "obsada": "reguła etapu",
+   "odbiorcy": [
+    "rekruter kandydata"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.job_recruiter_ids"
+  },
+  "stage_rule [reguła „rekruter rekrutacji”: prowadzący wybrał wszystkie ruchy]": {
+   "obsada": "reguła etapu",
+   "odbiorcy": [
+    "prowadzący rekrutację",
+    "rekruter kandydata"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.job_recruiter_ids"
+  },
+  "stage_rule [reguła „rekruter rekrutacji”: własny kandydat prowadzącego]": {
+   "obsada": "reguła etapu",
+   "odbiorcy": [
+    "prowadzący rekrutację"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.job_recruiter_ids"
+  }
+ }
+}

@@ -51,7 +51,7 @@ it('enables correlation after a compatible simple response and traces only the N
   const capability = await import('../telemetry-capability')
   await capability.probeTelemetryCapability()
   expect(capability.apiSupportsCorrelation()).toBe(true)
-  expect(capability.apiTraceTargets[0].test('https://api.nexus.dynaminds.pl/api/jobs')).toBe(true)
+  expect(capability.apiTraceTargets[0].test('https://api.nexus.b2bnetwork.pl/api/jobs')).toBe(true)
   expect(capability.apiTraceTargets[0].test('https://external.example/api')).toBe(false)
 })
 it('sends trace headers to the API the bundle actually calls, not a hard-coded host', async () => {

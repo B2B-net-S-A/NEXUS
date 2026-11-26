@@ -791,6 +791,57 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
       );
     });
 
+    it("klient z PDF w regule: „Pobierz PDF” na wierzchu, Word w „⋯” (25.11.2026)", async () => {
+      const pdf = new Blob(["pdf"]);
+      stageCvPdf.mockResolvedValue({ blob: pdf, filename: "CV.pdf" });
+      stageCvFile.mockResolvedValue({ blob: new Blob(["docx"]), filename: "CV.docx" });
+      mockApi([file(1, "cv.pdf", { is_primary: true })], [{ ...inRecruitment, client_file_format: "pdf" }]);
+      const user = userEvent.setup();
+      renderTab();
+
+      const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+      expect(within(client).queryByRole("button", { name: "Pobierz" })).toBeNull();
+      await user.click(within(client).getByRole("button", { name: "Pobierz PDF" }));
+      await waitFor(() => expect(savedFiles).toHaveBeenCalledWith(pdf, "CV.pdf"));
+      expect(stageCvPdf).toHaveBeenCalledWith(55, { download: "files" });
+
+      await user.click(within(client).getByRole("button", { name: "Akcje CV Kowalski_CV_PL.docx" }));
+      const menu = await screen.findByRole("menu");
+      expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
+        "Pobierz Word",
+        "Plik z generatora (bez poprawek)",
+        "Otwórz w rekrutacji",
+      ]);
+      await user.click(within(menu).getByRole("menuitem", { name: "Pobierz Word" }));
+      await waitFor(() => expect(stageCvFile).toHaveBeenCalledWith(55, { download: "files" }));
+    });
+
+    it("Nowe CV: „Word (klasyczne)” tylko w „⋯”, z `classic`", async () => {
+      stageCvFile.mockResolvedValue({ blob: new Blob(["docx"]), filename: "CV.docx" });
+      mockApi(
+        [file(1, "cv.pdf", { is_primary: true })],
+        [{ ...inRecruitment, client_file_format: "both", stage_cv_layout: "new" }],
+      );
+      const user = userEvent.setup();
+      renderTab();
+
+      const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+      await user.click(within(client).getByRole("button", { name: "Akcje CV Kowalski_CV_PL.docx" }));
+      const menu = await screen.findByRole("menu");
+      expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
+        "Pobierz PDF",
+        "Word (klasyczne)",
+        "Plik z generatora (bez poprawek)",
+        "Otwórz w rekrutacji",
+      ]);
+      await user.click(within(menu).getByRole("menuitem", { name: "Word (klasyczne)" }));
+      await waitFor(() => expect(stageCvFile).toHaveBeenCalledWith(55, { download: "files", classic: true }));
+
+      // „Pobierz” = Word w nowym wyglądzie (oba formaty: Word pierwszy).
+      await user.click(within(client).getByRole("button", { name: "Pobierz" }));
+      await waitFor(() => expect(stageCvFile).toHaveBeenLastCalledWith(55, { download: "files" }));
+    });
+
     it("podgląd pokazuje CV etapu — ten sam plik co „Pobierz”, bez wpisu pobrania", async () => {
       stageCvFile.mockResolvedValue({ blob: new Blob(["docx"]), filename: "CV.docx" });
       mockApi([file(1, "cv.pdf", { is_primary: true })], [inRecruitment]);

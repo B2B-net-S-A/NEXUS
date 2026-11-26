@@ -42,7 +42,7 @@ describe("/preview/b2b-documents", () => {
   it("jest publiczną ścieżką (harness bez logowania)", () => {
     // Surowy plik — w middleware są wzorce ścieżek z `/*`, których
     // wycinanie komentarzy by nie przeżyło.
-    expect(readFileSync(join(SRC, "middleware.ts"), "utf8")).toContain(
+    expect(readFileSync(join(SRC, "lib", "public-paths.ts"), "utf8")).toContain(
       '"/preview/b2b-documents"',
     );
   });

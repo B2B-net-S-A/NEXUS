@@ -647,6 +647,12 @@ describe("client order list filters", () => {
     );
 
     expect(result.map((item) => item.contract_id)).toEqual([436]);
+    // Osoba pracuje dalej na linii MD: karta to sama historia — „Zakończeni”,
+    // nie „Aktywne” z czerwonym „Brak aktywnego zamówienia”.
+    expect(result[0].history_only).toBe(true);
+    expect(contractorMatchesPill(result[0], "completed", "2026-11-25")).toBe(true);
+    expect(contractorMatchesPill(result[0], "active", "2026-11-25")).toBe(false);
+    expect(contractorMatchesPill(result[0], "all", "2026-11-25")).toBe(true);
     // Link `?order=5` trafia w panel tej osoby, a nie w komunikat „niewidoczne”.
     expect(resolveOrderFocus([md], result, { orderId: 5 })).toEqual({
       kind: "contractor",

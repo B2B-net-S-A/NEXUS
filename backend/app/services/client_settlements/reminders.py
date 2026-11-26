@@ -41,6 +41,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -404,6 +405,59 @@ def pick_owner(
     return None
 
 
+#: Ile ostatnich nadawców dokumentów kontraktu sprawdzamy przy szukaniu adresu konsultanta.
+_ADDRESS_SENDERS = 5
+
+
+async def consultant_addresses(
+    db: AsyncSession, contract_ids: set[int], *, today: date
+) -> dict[int, str]:
+    """Adres, z którego konsultant sam przysyła dokumenty kontraktu.
+
+    Decyzja Artura z 26.11.2026: komunikaty do konsultanta idą tam, skąd on pisze
+    do rozliczeń (zwykle alias firmowy), a nie na adres prywatny z kartoteki;
+    ``contracts.candidate_email`` jest prawie wszędzie pusty. Bierzemy najnowszego
+    nadawcę dokumentu z poczty, którego czytnik poczty rozpoznaje jako tego
+    konsultanta (``identity.sender_contract_ids``), więc kierownik u klienta albo
+    koordynator nie zostaną adresatem. Bez takiego dokumentu — brak wpisu (wtedy
+    adres z kontraktu, potem z kartoteki, jak dotąd)."""
+
+    from app.services.consultant_portal import identity
+
+    if not contract_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                CpDocument.contract_id,
+                CpDocument.sender_email,
+                func.max(CpDocument.created_at).label("last"),
+            )
+            .where(
+                CpDocument.contract_id.in_(contract_ids),
+                CpDocument.channel == "mailbox",
+                CpDocument.sender_email.is_not(None),
+            )
+            .group_by(CpDocument.contract_id, CpDocument.sender_email)
+            .order_by(CpDocument.contract_id, func.max(CpDocument.created_at).desc())
+        )
+    ).all()
+    by_contract: dict[int, list[str]] = defaultdict(list)
+    for contract_id, sender, _last in rows:
+        address = identity.normalize_email(sender)
+        if address and len(by_contract[contract_id]) < _ADDRESS_SENDERS:
+            by_contract[contract_id].append(address)
+    found: dict[int, str] = {}
+    for contract_id, senders in by_contract.items():
+        for address in senders:
+            if contract_id in await identity.sender_contract_ids(
+                db, address, today=today
+            ):
+                found[contract_id] = address
+                break
+    return found
+
+
 async def missing_reports(
     db: AsyncSession, month: str, *, client_id: Optional[int] = None
 ) -> list[Missing]:
@@ -488,10 +542,12 @@ async def missing_reports(
     state = await portal_settings.load(db)
     address = settlements_address()
     from_client = await client_hours_clients(db, client_ids, month)
+    written = await consultant_addresses(db, set(ids), today=business_today())
     out: list[Missing] = []
     for contract_id, cid, email, name, client_name, own, default_own in rows:
         if cid in from_client:
             continue
+        email = written.get(contract_id) or email
         files = reports.get(contract_id, [])
         if cid in estimating:
             files = [at for at in files if at >= end]

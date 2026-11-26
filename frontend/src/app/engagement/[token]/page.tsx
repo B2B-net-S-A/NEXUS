@@ -16,7 +16,7 @@ import axios from "axios";
 import { apiErrorMessage } from "@/lib/api-error";
 import { Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 interface ViewResponse {
   candidate_first_name: string;

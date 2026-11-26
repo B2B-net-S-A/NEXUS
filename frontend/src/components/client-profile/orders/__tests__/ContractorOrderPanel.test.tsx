@@ -1849,6 +1849,27 @@ describe("ContractorOrderPanel — bramka roli „Zakończ współpracę”", ()
     ).not.toBeInTheDocument();
   });
 
+  it("karta samej historii (osoba dalej na linii MD) nie ma „Zakończ współpracę” ani „Brak aktywnego zamówienia”", async () => {
+    // KIR 25.11.2026: umowa żyje na linii MD; zakończenie stąd zamknęłoby też
+    // tę linię, a czerwony dopisek straszył brakiem zamówienia.
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          { ...structuredClone(CONTRACTOR), orders: [HISTORY], history_only: true },
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(
+      screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Brak aktywnego zamówienia")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Dodaj przedłużenie/i })).toBeInTheDocument();
+  });
+
   it("admin w trybie „podgląd jako” nie widzi „Zakończ współpracę”", async () => {
     impersonation.realUser = { role: "admin" };
     renderPanel();

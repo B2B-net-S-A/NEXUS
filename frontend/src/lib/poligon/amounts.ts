@@ -108,6 +108,9 @@ function hideMargin(value: Json): Json {
 
 /** Odpowiedź klienta ćwiczebnego dla tej osoby: bez kwot, jeśli ich nie widzi. */
 export function forViewer(path: string, data: Json, viewer: PoligonViewer): Json {
+  // Zadania asystenta prawnego: serwer daje pustą listę osobie bez podglądu
+  // kwot (bramka treści umowy), więc Poligon też.
+  if (path === "/api/legal/tasks" && !viewer.amounts) return { items: [] };
   if (!viewer.amounts) return redact(data, false);
   if (!viewer.companyMargin && path === "/api/contracts") return hideMargin(data);
   return data;

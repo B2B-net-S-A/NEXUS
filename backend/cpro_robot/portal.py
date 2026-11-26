@@ -613,15 +613,29 @@ class ItemRun:
             page.wait_for_load_state("networkidle", timeout=STEP_TIMEOUT_MS)
         except Exception:
             pass
-        rejected = page.evaluate(
-            """() => [...document.querySelectorAll('form[action=OfferController] .is-invalid')].map(e => e.name)"""
-        )
+        rejected = self._rejected_offer_fields()
         if rejected:
             raise _fail(
                 "draft_unconfirmed",
                 "Cpro oznaczył pola oferty jako błędne: "
                 + ", ".join(sorted(set(rejected)))[:200],
             )
+
+    def _rejected_offer_fields(self) -> list[str]:
+        """Pola oznaczone przez Cpro po zapisie. Nowa oferta przeładowuje stronę
+        po Save (bieg 40) — odczyt w trakcie przejścia ponawiamy na nowej stronie."""
+
+        for _ in range(5):
+            try:
+                self.page.wait_for_load_state("domcontentloaded")
+                return self.page.evaluate(
+                    """() => [...document.querySelectorAll('form[action=OfferController] .is-invalid')].map(e => e.name)"""
+                )
+            except Exception as exc:
+                if "context was destroyed" not in str(exc):
+                    raise
+                self.page.wait_for_timeout(1000)
+        return []
 
     # --- potwierdzenie --------------------------------------------------------
     def confirm_draft(self) -> Outcome:

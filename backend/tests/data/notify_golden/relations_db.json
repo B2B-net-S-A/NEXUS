@@ -1,0 +1,239 @@
+{
+ "do_decyzji": {},
+ "obsady": {
+  "firma i rekrutacja": [
+   "admin",
+   "admin (imienne nadanie maila Rady)",
+   "automation",
+   "back_office",
+   "board",
+   "board (konto wyłączone)",
+   "delivery_lead",
+   "delivery_lead (DL klienta)",
+   "delivery_lead (DL rekrutacji)",
+   "delivery_lead+recruiter",
+   "delivery_lead+talent_community_manager",
+   "employee",
+   "finance",
+   "head_of_recruitment",
+   "head_of_recruitment+delivery_lead",
+   "head_of_recruitment+recruiter",
+   "recruiter",
+   "recruiter (aktywne przypisanie)",
+   "recruiter (aktywne przypisanie, autor wiadomości)",
+   "recruiter (poprzedni rekruter)",
+   "recruiter (prowadzący rekrutację)",
+   "recruiter (rekruter kandydata, aktywne przypisanie)",
+   "recruiter (uczestnik kategorii, auto_cc)",
+   "recruiter (współpracownik dodany ręcznie)",
+   "talent_community_manager",
+   "talent_community_manager+recruiter",
+   "trainee",
+   "user"
+  ]
+ },
+ "opis": "Wybór odbiorców liczony zapytaniami producenta na obsadzie fikcyjnych kont (lista w „obsady”), po bramce dzwonka. Etykieta konta: persona (spoza zespołu) albo „rola (relacja)”.",
+ "przegeneruj": "cd backend && NOTIFY_GOLDEN_WRITE=1 python -m pytest tests/test_notify_golden.py tests/test_notify_golden_db.py",
+ "rodzaje": {
+  "board_krs_entry [dzwonek do Rady]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin",
+    "admin (imienne nadanie maila Rady)",
+    "board"
+   ],
+   "zrodlo": "app.services.board.notify.recipient_ids"
+  },
+  "board_meeting_pack [dzwonek do Rady]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin",
+    "admin (imienne nadanie maila Rady)",
+    "board"
+   ],
+   "zrodlo": "app.services.board.notify.recipient_ids"
+  },
+  "board_monthly_report [mail: Podsumowanie Rady]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin (imienne nadanie maila Rady)",
+    "board"
+   ],
+   "zrodlo": "app.tasks.kpi_email_reports._board_recipients"
+  },
+  "board_placement_alert [mail]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "board"
+   ],
+   "zrodlo": "app.services.board_placement_alerts.board_members"
+  },
+  "board_vote [projekt uchwały: skład z wysyłki]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "board"
+   ],
+   "zrodlo": "app.services.board.votes.board_member_ids"
+  },
+  "board_vote [wynik uchwały]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin",
+    "admin (imienne nadanie maila Rady)",
+    "board"
+   ],
+   "zrodlo": "app.services.board.notify.recipient_ids"
+  },
+  "candidate_data_access_alert": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin",
+    "admin (imienne nadanie maila Rady)",
+    "head_of_recruitment",
+    "head_of_recruitment+delivery_lead",
+    "head_of_recruitment+recruiter"
+   ],
+   "zrodlo": "app.services.candidate_data_access_alerts._recipients"
+  },
+  "client_order_ending_30d [klient bez DL-a]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin",
+    "admin (imienne nadanie maila Rady)"
+   ],
+   "zrodlo": "app.services.delivery_alert_recipients.DeliveryAlertRecipientScope.bell_recipients"
+  },
+  "client_order_ending_30d [klient z DL-em]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "delivery_lead (DL klienta)"
+   ],
+   "zrodlo": "app.services.delivery_alert_recipients.DeliveryAlertRecipientScope.bell_recipients"
+  },
+  "cpro_invoice_buyer": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "finance"
+   ],
+   "zrodlo": "app.services.hired_order_status.finance_recipient_ids"
+  },
+  "daily_digest [mail: poranny skrót]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "back_office",
+    "delivery_lead",
+    "delivery_lead (DL klienta)",
+    "delivery_lead (DL rekrutacji)",
+    "delivery_lead+recruiter",
+    "delivery_lead+talent_community_manager",
+    "finance",
+    "head_of_recruitment",
+    "head_of_recruitment+delivery_lead",
+    "head_of_recruitment+recruiter",
+    "recruiter",
+    "recruiter (aktywne przypisanie)",
+    "recruiter (aktywne przypisanie, autor wiadomości)",
+    "recruiter (poprzedni rekruter)",
+    "recruiter (prowadzący rekrutację)",
+    "recruiter (rekruter kandydata, aktywne przypisanie)",
+    "recruiter (uczestnik kategorii, auto_cc)",
+    "recruiter (współpracownik dodany ręcznie)",
+    "talent_community_manager",
+    "talent_community_manager+recruiter"
+   ],
+   "zrodlo": "app.tasks.daily_digest_email._recipients"
+  },
+  "hired_order_missing": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "back_office",
+    "finance"
+   ],
+   "zrodlo": "app.services.hired_order_status.finance_recipient_ids"
+  },
+  "job_chat_mention [@wszyscy w czacie rekrutacji]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "delivery_lead (DL rekrutacji)",
+    "recruiter (aktywne przypisanie)",
+    "recruiter (prowadzący rekrutację)",
+    "recruiter (rekruter kandydata, aktywne przypisanie)",
+    "recruiter (współpracownik dodany ręcznie)"
+   ],
+   "zrodlo": "app.services.mention_parser.parse_mentions"
+  },
+  "job_chat_message [czat rekrutacji, pisze przypisany]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "delivery_lead (DL rekrutacji)",
+    "recruiter (aktywne przypisanie)",
+    "recruiter (prowadzący rekrutację)",
+    "recruiter (rekruter kandydata, aktywne przypisanie)",
+    "recruiter (współpracownik dodany ręcznie)"
+   ],
+   "zrodlo": "app.services.job_membership.list_job_assigned_ids"
+  },
+  "job_p0_requested": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "head_of_recruitment",
+    "head_of_recruitment+delivery_lead",
+    "head_of_recruitment+recruiter"
+   ],
+   "zrodlo": "app.services.job_p0.head_of_recruitment_recipients"
+  },
+  "kpi_weekly_report [mail]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "head_of_recruitment",
+    "head_of_recruitment+delivery_lead",
+    "head_of_recruitment+recruiter"
+   ],
+   "zrodlo": "app.tasks.kpi_email_reports._recipients"
+  },
+  "month_check_report [mail, wysyłka do Finansów włączona]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "finance"
+   ],
+   "zrodlo": "app.services.month_check.mail.recipients"
+  },
+  "new_person_signed_in": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "admin",
+    "admin (imienne nadanie maila Rady)",
+    "head_of_recruitment",
+    "head_of_recruitment+delivery_lead",
+    "head_of_recruitment+recruiter"
+   ],
+   "zrodlo": "app.services.new_person_setup.recipients"
+  },
+  "stage_rule [Nowe → Odrzucony: kandydat bez rekrutera, przesuwa rekruter z zespołu]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [],
+   "zrodlo": "app.services.stage_notification_resolver.resolve_recipients"
+  },
+  "stage_rule [Nowe → Odrzucony: kandydat bez rekrutera, ruch automatu]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "recruiter (prowadzący rekrutację)"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.resolve_recipients"
+  },
+  "stage_rule [Nowe → Odrzucony: kandydat z rekruterem, przesuwa inny rekruter z zespołu]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "recruiter (rekruter kandydata, aktywne przypisanie)"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.resolve_recipients"
+  },
+  "stage_rule [Nowe → Odrzucony: kandydat z rekruterem, ruch automatu]": {
+   "obsada": "firma i rekrutacja",
+   "odbiorcy": [
+    "recruiter (rekruter kandydata, aktywne przypisanie)"
+   ],
+   "zrodlo": "app.services.stage_notification_resolver.resolve_recipients"
+  }
+ }
+}

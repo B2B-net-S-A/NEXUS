@@ -97,6 +97,35 @@ describe("ExtendOrderDialog candidate finance lockdown", () => {
     });
   });
 
+  it("odmowa serwera pokazuje jego polski komunikat, nie „Request failed with status code 409”", async () => {
+    act(() => {
+      useAuthStore.setState({ user: user("admin"), hydrated: true });
+    });
+    const message =
+      "Ten konsultant jest już obsadzony na zamówieniu rozliczanym w MD (albo kosztowym) u tego klienta.";
+    createOrderExtension.mockRejectedValue(
+      Object.assign(new Error("Request failed with status code 409"), {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: { detail: { code: "consultant_already_on_group_order", message } },
+        },
+      }),
+    );
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText(/Numer zamówienia/), {
+      target: { value: "KIR/DAZ/BK/00222/1/2026/DSR/ZAM" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Start/), {
+      target: { value: "2026-04-01" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz przedłużenie" }));
+
+    expect(await screen.findByText(new RegExp(message.slice(0, 40)))).toBeInTheDocument();
+    expect(screen.queryByText("Request failed with status code 409")).not.toBeInTheDocument();
+  });
+
   it("Delivery Lead nie widzi kwot i nie wysyła ich w FormData", async () => {
     act(() => {
       useAuthStore.setState({ user: user("delivery_lead"), hydrated: true });
