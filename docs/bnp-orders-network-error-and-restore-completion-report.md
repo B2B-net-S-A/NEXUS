@@ -134,7 +134,7 @@ wariantach).
 
 ### Objaw
 
-Trzy sprawy (Płonka 90 MD, Dynek 120 MD, Krawczyk 85 MD, wszyscy
+Trzy sprawy (90, 120 i 85 MD, wszyscy
 „zakończył(a) współpracę 2026-08-31") czekały na decyzję, której nie było
 w systemie: współpraca trwa dalej. `remove` oddaje pulę, `transfer` przekazuje
 ją komuś innemu — obie zakładają, że współpraca się skończyła. Jedynym wyjściem

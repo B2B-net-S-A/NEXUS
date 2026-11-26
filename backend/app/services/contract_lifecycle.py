@@ -399,7 +399,7 @@ async def activate_without_revenue_gate(
     pochodzi z zamówienia klienta, które w chwili podpisania umowy z
     kontraktorem zwykle jeszcze nie istnieje. Stąd do 09.2026 kontrakt po
     potwierdzeniu obustronnego podpisu zostawał „Szkicem" — także wtedy, gdy
-    zamówienie było już w pełni uzupełnione (Bartosz Czapelka, Alior).
+    zamówienie było już w pełni uzupełnione (zgłoszenie z Aliora).
 
     Tylko dwa uprawnione źródła, każde z decyzji produktowej:
 

@@ -8,10 +8,10 @@ Układ z pipeline'u (pdfplumber; WIERSZ tabeli w jednej linii)::
     Rodzaj kompetencji Zlecenie od Zlecenie do Liczba Stawka Wartość
     Nazwisko i imię Wartość brutto
     (profil) (dd-mm-rrrr) (dd-mm-rrrr) MD netto/MD netto
-    Baczewski Marcin Starszy Tester 1.07.2026 31.08.2026 43 1 400,00 60 200,00 zł 74 046,00 zł
+    Testowy Jan Starszy Tester 1.07.2026 31.08.2026 20 1 000,00 20 000,00 zł 24 600,00 zł
     …
     Wartość zlecenia
-    518 150,00 PLN NETTO
+    100 000,00 PLN NETTO
 
 Każda osoba ma WŁASNY okres i stawkę — w Nexusie każdy dostaje osobne
 zamówienie (ticket). ``Nazwisko i imię`` = nazwisko PIERWSZE; zostawiamy jak

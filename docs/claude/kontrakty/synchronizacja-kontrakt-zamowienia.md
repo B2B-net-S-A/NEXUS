@@ -1,8 +1,9 @@
 # Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
 
-Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" (120 zł/h,
-bez przychodu i okresu zamówienia), choć zamówienie OIT/0189/2026/ITVM miało
-okres 15.09–31.12.2026 i 1340 PLN/MD. Serwis: `services/contract_order_sync.py`.
+Zgłoszenie: kontrakt konsultanta Aliora stał jako „Szkic" (sama stawka
+kosztowa, bez przychodu i okresu zamówienia), choć zamówienie
+OIT/0189/2026/ITVM miało już okres 15.09–31.12.2026 i stawkę przychodową.
+Serwis: `services/contract_order_sync.py`.
 Każda strona jest źródłem prawdy dla SWOICH pól:
 
 - **Jeden miesiąc roboczy: 168 h = 21 MD × 8 h (0345, decyzja Artura

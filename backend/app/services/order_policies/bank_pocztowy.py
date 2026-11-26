@@ -7,7 +7,7 @@ zostaje w parserze. Ta warstwa dokłada to, czego tamta nie czyta::
     10.08.2026 30.09.2026
     …
     Profil Specjalisty (Stanowisko) Imię i nazwisko
-    Kierownik projektu Wojciech Sokolnicki
+    Kierownik projektu Jan Testowy
 
 Nagłówek w jednej linii, wartości w następnej. Nazwisko = OSTATNIE dwa tokeny
 linii pod nagłówkiem (przed nimi stoi profil, bywa kilkuwyrazowy: „Programista

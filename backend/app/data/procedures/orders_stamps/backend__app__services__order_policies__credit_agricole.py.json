@@ -1,4 +1,4 @@
 {
-  "sha256": "311143af892d6b170c805f9aa7f2a1fb2f32ffc237e14d77960c175df2816d98",
+  "sha256": "b3dc7fff151544a7c2f4623be978dae840de1bede577568d2caf72176321f2df",
   "source": "backend/app/services/order_policies/credit_agricole.py"
 }

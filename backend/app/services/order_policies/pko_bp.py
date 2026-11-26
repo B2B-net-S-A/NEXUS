@@ -8,15 +8,15 @@ Układ z korpusu (nagłówki tabeli rozbite po jednym na linię, potem wiersze):
     Imię i nazwisko / Wykonawców / Profil / Początek / Zaangażowania /
     Planowany Koniec / Zaangażowania / Liczba MD / Stawka / PLN/MD netto /
     Lokalizacja / Numer SSGW
-    Andrzej Iciek / Projektant / UI/UX Senior / 2026-09-01 / 2026-11-30 / 64 / 900,00 / …
-    Łączna wartość zamówienia wynosi: 57 600,00 PLN netto …
+    Jan Testowy / Projektant / UI/UX Senior / 2026-09-01 / 2026-11-30 / 20 / 500,00 / …
+    Łączna wartość zamówienia wynosi: 10 000,00 PLN netto …
 
 Wiersz osoby: nazwisko, potem profil (1–2 linie), potem DWIE daty ISO, liczba MD
 i stawka. Parsujemy fail-closed: wiersz bez kompletu dwóch dat i dwóch liczb
 nie jest wierszem.
 
 Profil JEDNOLINIOWY („Tester Middle") pdfplumber stawia w tej samej linii co
-nazwisko, między nim a datami: „Piotr Michałowski Tester Middle 2026-10-01 …".
+nazwisko, między nim a datami: „Anna Przykładowa Tester Middle 2026-10-01 …".
 Do 09.2026 cały ten fragment szedł jako nazwisko, więc resolver nie trafiał
 w istniejącego konsultanta i plan proponował nowego kontraktora. Granicę
 nazwiska i profilu wyznacza słownik słów profilu; granica niepewna = wiersz
@@ -290,8 +290,8 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     """Wiersze Wykonawców z tabeli (deterministycznie, fail-closed).
 
     Dwa układy tej samej tabeli, zależne od ekstraktora tekstu: pdfplumber
-    (produkcja) oddaje WIERSZ w jednej linii — „Andrzej Iciek 2026-09-01
-    2026-11-30 64 900,00 Warszawa 103587-1"; inne ekstraktory oddają komórki
+    (produkcja) oddaje WIERSZ w jednej linii — „Jan Testowy 2026-09-01
+    2026-11-30 20 500,00 Warszawa 100000-1"; inne ekstraktory oddają komórki
     po jednej na linię. Obsługujemy oba: najpierw wiersz-w-linii, potem
     komórka-na-linię. Układ komórka-na-linię nie ma problemu z podziałem
     liczb — każda stoi w osobnej linii (``_NUMBER_RE``).

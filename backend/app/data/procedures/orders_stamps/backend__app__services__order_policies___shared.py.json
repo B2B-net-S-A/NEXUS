@@ -1,4 +1,4 @@
 {
-  "sha256": "b788582d1e5851dcbd84dc6d118d27ac0ae3cbcdbca803d8133e4d578fcdf8d4",
+  "sha256": "4c4fed1656524c42cb84162d621def8d0e39065b92ad995b0cb82cc73bb5b3be",
   "source": "backend/app/services/order_policies/_shared.py"
 }

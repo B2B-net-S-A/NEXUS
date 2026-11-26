@@ -68,9 +68,9 @@ Symetryczne do `expected_rate_*` — trzymane na pipeline.
 | eslint (2 pliki) | ✅ 0 errors (warnings = istniejący dług, < cap 300) |
 | CI PR #390 (gitleaks/backend pytest/frontend/trivy/review) | ✅ all green (pytest 3m31s na realnym Postgresie z migracją 0122) |
 | `/api/health` po deploy | ✅ `healthy`, version `84e8f90` |
-| UI prod (Chrome, kandydat 137644 „Aleksandra Dudek" → Scrum Master) | ✅ set 22 000 PLN/mies. → persist po reload → edit → clear → „—"/„Uzupełnij" |
+| UI prod (Chrome, kandydat 137644 → Scrum Master) | ✅ set kwoty testowej → persist po reload → edit → clear → „—"/„Uzupełnij" |
 
-Dane testowe (22 000 PLN) wyczyszczone po weryfikacji — rekord kandydata bez śladu.
+Dane testowe wyczyszczone po weryfikacji — rekord kandydata bez śladu.
 
 ## Znane ograniczenia / uwagi
 

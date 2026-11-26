@@ -39,10 +39,10 @@ VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Contrac
 
 ## Poza zakresem (świadomie)
 
-- Baczewski (465) i Więckiewicz (470) zostają w „Zakończonych" — nie ma ich na nowym
+- Kontrakty 465 i 470 zostają w „Zakończonych" — tych osób nie ma na nowym
   zamówieniu; wskrzeszenie wciągnęłoby ich do MRR i alertów. Administracja może
   zakończyć/odtworzyć ich umowy w Kontraktach.
-- Contract 444 (Anna Gąsowska, klient 26): `ended` z `terminated_at` 30.09 w przyszłości
+- Contract 444 (klient 26): `ended` z `terminated_at` 30.09 w przyszłości
   i `end_date` 31.08 — niespójność sprzed tej zmiany, do przeglądu przez administrację.
 
 ## Weryfikacja

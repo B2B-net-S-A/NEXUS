@@ -5,10 +5,10 @@ Układ z pipeline'u::
     Zamówienie z dnia 27.04.2026 do umowy ramowej z dnia 3 lipca 2017 (Time and Material)
     …
     LP Grupa kompetencyjna Od Do Liczba MD
-    1. Jakub Jedynak 27.04.2026 31.12.2026 172
+    1. Jan Testowy 27.04.2026 31.12.2026 100
     …
-    9. Daty od do wskazują okres, w którym będą wykorzystane 172MDs przy zastosowaniu stawki dla Testera
-    Manualnego (1040 PLN/MD net.).
+    9. Daty od do wskazują okres, w którym będą wykorzystane 100MDs przy zastosowaniu stawki dla Testera
+    Manualnego (1000 PLN/MD net.).
 
 Dokument nie ma numeru — identyfikatorem jest data z „Zamówienie z dnia"
 (ticket). Zamówienie jest OKRESOWE: liczba MD z tabeli i z prozy jest

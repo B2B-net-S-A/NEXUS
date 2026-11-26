@@ -22,14 +22,9 @@ redakcja, nie ukryty widok.
 
 Zgłoszenie przyszło ze zrzutu ekranu: Nordea Bank Abp (`client_id=11`), czterech
 konsultantów, trzy kolumny finansowe puste. Ten sam ekran, ten sam klient i ci
-sami konsultanci odpytani z **sesji admina** (`view_finance`) zwracają komplet:
-
-| Konsultant | Kosztowa | Przychodowa | Marża |
-|---|---|---|---|
-| Patryk Tatarek (`contract_id=520`) | 15 200,00 zł | 25 120,00 zł | 9 920,00 zł |
-| Błażej Kanczkowski (522) | 14 400,00 zł | 20 960,00 zł | 6 560,00 zł |
-| Piotr Ciszek (525) | 16 800,00 zł | 24 000,00 zł | 7 200,00 zł |
-| Mateusz Polanski (526) | 21 600,00 zł | 28 480,00 zł | 6 880,00 zł |
+sami konsultanci (kontrakty 520, 522, 525, 526) odpytani z **sesji admina**
+(`view_finance`) zwracają komplet trzech kolumn (kosztowa, przychodowa, marża) —
+kwot raport nie powtarza, bo repo jest publiczne.
 
 Zmierzone dwiema drogami: `GET /api/clients/11/profile` oraz odczyt DOM-u
 wyrenderowanej tabeli. **Dane źródłowe są kompletne, a backend liczy je
@@ -37,7 +32,7 @@ poprawnie** — pustki na zrzucie to redakcja po stronie odbiorcy bez
 `VIEW_FINANCE`, czyli dokładnie ta ścieżka, którą ta zmiana otwiera dla DL.
 
 Warto odnotować, co ta miara WYKLUCZYŁA: pierwszą hipotezą był brak stawek dla
-kontraktów o starcie w przyszłości (Tatarek startuje 19.10.2026, a stawki
+kontraktów o starcie w przyszłości (kontrakt 520 startuje 19.10.2026, a stawki
 rozwiązuje się „na dziś"). Nie ta ścieżka — `_resolve_scheduled_rate` przy samych
 przyszłych krokach zwraca najbliższy nadchodzący, więc świeży kontrakt ma stawkę.
 
@@ -164,9 +159,9 @@ strony — taka jest ich rola.
 
 ## Zauważone, NIE naprawione
 
-Na produkcji `monthly_margin_pct` dla Nordei to **603,82%**:
-`monthly_margin_total` (1 833 307 — suma marż MIESIĘCZNYCH z 283 kontraktów)
-jest dzielona przez `active_revenue` (303 616 — suma `ClientOrder.total_value`
-aktywnych zamówień). To dwie różne wielkości i ich iloraz nie znaczy nic. Defekt
+Na produkcji `monthly_margin_pct` dla Nordei to kilkaset procent:
+`monthly_margin_total` (suma marż MIESIĘCZNYCH ze wszystkich kontraktów) jest
+dzielona przez `active_revenue` (suma `ClientOrder.total_value` aktywnych
+zamówień). To dwie różne wielkości i ich iloraz nie znaczy nic. Defekt
 zastany, niezależny od uprawnień — po tej zmianie zobaczy go po prostu więcej
 osób.

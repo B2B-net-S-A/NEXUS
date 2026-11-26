@@ -1,4 +1,4 @@
 {
-  "sha256": "f3abd4f2ddff23ff265f26385525898d0ab30a97502df6009125516b52786cb8",
+  "sha256": "12dfdb44f7b3efcc7844fbdf89748217477b8d23d24ac5db94595c3a29ee8f4f",
   "source": "backend/app/services/contract_order_sync.py"
 }

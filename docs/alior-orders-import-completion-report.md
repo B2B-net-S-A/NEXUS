@@ -7,7 +7,7 @@
 ## Problem
 
 Excel Aliora zawiera stawki klienta z **trzema** miejscami po przecinku
-(164,375 / 141,175 / 194,375 / 161,875 zł/h). Kolumny stawek były `NUMERIC(10,2)`
+(przykład: 100,125 zł/h). Kolumny stawek były `NUMERIC(10,2)`
 (po migracjach 0147/0148, import Erste) — skala 2 zaokrąglałaby te wartości.
 Dodatkowo handler `contract-with-order` **celowo zaokrąglał** `Contract.rate_client`
 do liczby całkowitej (zaległy komentarz „Contract.rate_client jest Integer"),
@@ -37,20 +37,8 @@ PR #610 — fix zaokrąglania w „Nowy kontraktor":
 11 kontraktów + 11 zamówień (atomic `POST /api/clients/39/contract-with-order`,
 `rate_unit=hourly`, `billing_hours_per_month=160`, status `active`). Kandydaci
 dopasowani do rekordów `[zatrudniony]` (kanoniczny rekord zatrudnionego):
-
-| Konsultant | Contract | stawka kand. | stawka klienta | marża/h |
-|---|---|---|---|---|
-| Artur Biernat | 487 | 150 | 180 | 30 |
-| Bartosz Bańczerowski | 488 | 160 | 164,375 | 4,375 |
-| Bartosz Nowak | 489 | 130 | 168,75 | 38,75 |
-| Kamil Mnichowski | 490 | 100 | 141,175 | 41,175 |
-| Karol Mikitiuk | 491 | 125 | 164,5 | 39,5 |
-| Kosma Ostrowski | 492 | 120 | 138,75 | 18,75 |
-| Michał Zasada | 493 | 80 | 140 | 60 |
-| Piotr Żywczewski | 494 | 130 | 194,375 | 64,375 |
-| Renata Mikołajska | 495 | 130 | 161,875 | 31,875 |
-| Tymoteusz Konkol | 496 | 150 | 172,5 | 22,5 |
-| Wiktoria Matyja | 497 | 130 | 167,5 | 37,5 |
+kontrakty 487–497, po jednym na konsultanta. Osoby i stawki nie są wypisane w
+raporcie, bo repo jest publiczne — są w NEXUSIE na tych kontraktach.
 
 (Pierwsza, częściowa próba — kontrakty 480–486 z zaokrągloną stawką — została
 usunięta przed wdrożeniem fixu i wstawiona ponownie jako 487–497.)
@@ -60,7 +48,7 @@ usunięta przed wdrożeniem fixu i wstawiona ponownie jako 487–497.)
 - Migracja zdeployowana, `/api/health` = `d3ef048`, status `healthy`.
 - API: wszystkie 11 `rate_client` zgodne co do ułamka z Excelem (w tym 3-miejscowe).
 - UI (Chrome): ALIOR BANK → Zamówienia → „Wszyscy (11)" renderuje dokładne
-  stawki (`klient 141,175/mc`, `194,375/mc`, …) i marże.
+  stawki (z trzema miejscami po przecinku) i marże.
 
 ## Znane ograniczenia / poza zakresem
 
