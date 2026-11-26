@@ -246,6 +246,27 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     expect(screen.queryByText(/Rekrutacja: /)).not.toBeInTheDocument();
   });
 
+  it("okno się nie zwija i pokazuje fragmenty CV mimo ustawień listy (26.11.2026)", async () => {
+    useUiStore.setState({ candidatesSearchCollapsed: true, candidatesSnippetsVisible: false });
+    listItems = [
+      {
+        id: 1,
+        name: "Ewa",
+        lastname: "Marczak",
+        status: "active",
+        match_snippets: [{ field: "Stanowisko", text: "Analityk Systemowy", highlights: [[0, 8]] }],
+      },
+    ];
+    listTotal = 1;
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const panel = screen.getByRole("region", { name: "Filtry kandydatów" });
+    expect(within(panel).queryByRole("button", { name: /^Zwiń wyszukiwanie/ })).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: /^Szukaj(?! w)/ }));
+    expect(screen.getByRole("region", { name: "Filtry kandydatów" })).toBeInTheDocument();
+    expect(await screen.findByText("Stanowisko:")).toBeInTheDocument();
+  });
+
   it("bez nagłówka strony Kandydatów, z dopasowaniem do rekrutacji", async () => {
     renderEmbedded();
     await screen.findByText("Ewa Marczak");

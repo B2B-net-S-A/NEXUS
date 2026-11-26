@@ -24,13 +24,14 @@ import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
-import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
+import { MoveRequirementList, type ActionBusy } from "@/components/v2/recruitment/MoveRequirementList";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   isBlockingGap,
   summarizeRequirements,
   useMoveRequirements,
   type MoveRequirementAction,
+  type MoveRequirementItem,
   type MoveRequirementsResponse,
 } from "@/lib/api/moveRequirements";
 import { boardColumnLabel, boardColumnStep, type BoardColumnKey } from "@/lib/board-stages";
@@ -103,8 +104,9 @@ export interface DockNextStageProps {
    * przekazanie jest nieaktywne (nie zgadujemy etapu).
    */
   onMoveToStageDef?: (stageDefId: number) => void;
-  onAction: (action: MoveRequirementAction) => void;
+  onAction: (action: MoveRequirementAction, item: MoveRequirementItem) => void;
   canAct: (action: MoveRequirementAction) => boolean;
+  actionBusy?: (action: MoveRequirementAction, item: MoveRequirementItem) => ActionBusy | null;
   /**
    * Zmienia się, gdy tablica przyniesie nowy stan karty (np. po zapisie
    * arkusza screeningu) — wtedy wymagania liczymy od nowa.
@@ -123,6 +125,7 @@ export function DockNextStage({
   onMoveToStageDef,
   onAction,
   canAct,
+  actionBusy,
   refreshToken,
   item,
 }: DockNextStageProps) {
@@ -213,6 +216,7 @@ export function DockNextStage({
               readOnly={readOnly}
               onAction={onAction}
               canAct={canAct}
+              actionBusy={actionBusy}
               compact
               className="bg-card"
             />

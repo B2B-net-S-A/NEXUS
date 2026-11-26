@@ -202,7 +202,7 @@ const contract = {
   candidate_id: 77,
   client_id: 42,
   job_id: null,
-  candidate_name: "Agnieszka Urbaniak",
+  candidate_name: "Agnieszka Wzorniak",
   client_name: "Nordea",
   job_title: null,
   start_date: "2026-01-01",
@@ -254,7 +254,7 @@ const signedContractConflict = {
       detail: {
         code: "contract_has_signed_generated_contract",
         requires_admin_confirmation: true,
-        contractor_name: "Agnieszka Urbaniak",
+        contractor_name: "Agnieszka Wzorniak",
       },
     },
   },
@@ -278,7 +278,7 @@ async function requestDelete() {
   const user = userEvent.setup({ delay: null });
   renderPage();
 
-  await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+  await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
   // Od przebudowy 19.11.2026 „Usuń” jest w menu „Więcej akcji” nagłówka.
   await user.click(screen.getByRole("button", { name: "Więcej akcji" }));
   await user.click(await screen.findByRole("menuitem", { name: /Usuń kontrakt/ }));
@@ -320,7 +320,7 @@ describe("ContractDetailPage — edycja walut stawek", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     // Kotwice są tu load-bearing (jak w `/^Usuń$/` niżej): karta kontraktu ma
     // też ołówki edycji w miejscu z etykietami „Edytuj: E-mail" / „Edytuj:
     // Telefon", więc gołe `/Edytuj/` trafia w kilka przycisków i `getByRole`
@@ -366,7 +366,7 @@ describe("ContractDetailPage — sama zmiana kwot edytuje tylko kwoty (audyt 22.
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     // Bez edycji kontraktów nie ma pełnej edycji ani usuwania.
     expect(screen.queryByRole("button", { name: /^Edytuj$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
@@ -413,7 +413,7 @@ describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu",
     };
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
     // Menu z usunięciem, przepięciem i szablonami też jest tylko dla edycji kontraktów.
@@ -427,7 +427,7 @@ describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu",
     mocks.impersonating = true;
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(mocks.accessCalls.length).toBeGreaterThan(0);
     expect(mocks.accessCalls.every((call) => call.impersonating)).toBe(true);
     // Kwoty i dokumenty liczą się per klient kontraktu, nie globalnie.
@@ -455,7 +455,7 @@ describe("ContractDetailPage — edycja kontraktu nie daje zmiany statusu", () =
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
 
     const status = screen.getByLabelText("Status");
@@ -476,7 +476,7 @@ describe("ContractDetailPage — edycja kontraktu nie daje zmiany statusu", () =
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
 
     expect(screen.getByLabelText("Status")).toBeEnabled();
@@ -561,7 +561,7 @@ describe("ContractDetailPage — Historia, dawny Timeline (retest UAT B23)", () 
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     await user.click(screen.getByRole("button", { name: /^Historia$/ }));
 
     expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
@@ -573,7 +573,7 @@ describe("ContractDetailPage — Historia, dawny Timeline (retest UAT B23)", () 
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     await user.click(screen.getByRole("button", { name: /^Historia$/ }));
 
     expect(await screen.findByText("Brak wpisów w historii.")).toBeInTheDocument();
@@ -598,7 +598,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
   it("tytułem jest osoba, a klient i numer kontraktu stoją w podtytule", async () => {
     renderPage();
 
-    const heading = await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    const heading = await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(heading).not.toHaveTextContent("Kontrakt #563");
     expect(screen.getByText(/Kontrakt #563/)).toBeInTheDocument();
     expect(
@@ -610,7 +610,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     mocks.getContract.mockResolvedValue({ data: { ...contract, status: "void" } });
     renderPage();
 
-    const heading = await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    const heading = await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(within(heading).getAllByText("Anulowany").length).toBeGreaterThan(0);
     expect(within(heading).queryByText("void")).not.toBeInTheDocument();
   });
@@ -620,7 +620,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     // Od 19.11.2026 status to kropka z menu, nie natywna lista.
     await user.click(screen.getByRole("button", { name: /Zmień status kontraktu/ }));
     await user.click(await screen.findByRole("menuitemradio", { name: "Szkic" }));
@@ -640,7 +640,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     mocks.access = { canViewBenchmark: false };
     mocks.search = "tab=money";
     renderPage();
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(screen.queryByText("karta benchmarku")).not.toBeInTheDocument();
   });
 });
@@ -791,7 +791,7 @@ describe("ContractDetailPage — pas „Co się dzieje”", () => {
     mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: null } });
     mocks.access = { canViewFinance: false, canViewBenchmark: false };
     renderPage();
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(screen.queryByText("Brak stawki klienta")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Uzupełnij stawkę" })).not.toBeInTheDocument();
   });
@@ -799,7 +799,7 @@ describe("ContractDetailPage — pas „Co się dzieje”", () => {
   it("spokojny kontrakt nie ma pasa", async () => {
     mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: 165, rate_client_currency: "PLN" } });
     renderPage();
-    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await screen.findByRole("heading", { name: /Agnieszka Wzorniak/ });
     expect(screen.queryByTestId("contract-happening")).not.toBeInTheDocument();
   });
 });

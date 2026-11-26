@@ -35,6 +35,7 @@
  "poza_regula_konta": {
   "application_confirmation": "mail do kandydata, nie do konta",
   "candidate_terms": "mail do kandydata, nie do konta",
+  "competence_report": "mail do kandydata, nie do konta",
   "email_verification": "mail bezpieczeństwa do właściciela konta",
   "password_changed": "mail bezpieczeństwa do właściciela konta",
   "password_reset": "mail bezpieczeństwa do właściciela konta"

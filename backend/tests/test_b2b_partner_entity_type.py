@@ -62,7 +62,7 @@ def test_fold_never_swallows_l_with_stroke():
     [
         "JK Software Jan Kowalski",
         # Realny przykład z docstringa `registry_lookup`.
-        "Management Services - Olaf Moczydłowski",
+        "Management Services - Olaf Wzorydłowski",
         "Anna Kowalska Usługi Programistyczne",
         # `s a` nie na końcu — inicjały, nie spółka akcyjna.
         "PHU S.A.M. Jan Kowalski",

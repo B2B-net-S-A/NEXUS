@@ -40,7 +40,7 @@ Dedykowane, **nieucinane** źródło notatek dla zakładki Notatki:
 - `GET /api/notes?candidate_id=20164` → `200`, `total: 37`, `count: 37`,
   `author_name` + `content_rendered` wypełnione.
 - UI (Chrome): zakładka Notatki woła `/api/notes` (200) i renderuje **37**
-  kart notatek z autorami (Katarzyna Orlinska, Marlena Rosol, …). Wcześniej
+  kart notatek z autorami (Katarzyna Wzorinska, Marlena Testol, …). Wcześniej
   badge „19".
 
 ## Pliki

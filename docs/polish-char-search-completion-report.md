@@ -2,8 +2,8 @@
 
 **Data:** 2026-07-13
 **Branch:** `claude/polish-char-search-da2618`
-**Problem:** Wpisanie w `/candidates?q=` frazy bez polskich znaków — np. `lukasz gradzki`
-zamiast „Łukasz Grądzki", `krakow` zamiast „Kraków" — zwracało **0 wyników**.
+**Problem:** Wpisanie w `/candidates?q=` frazy bez polskich znaków — np. `lukasz testadzki`
+zamiast „Łukasz Testądzki", `krakow` zamiast „Kraków" — zwracało **0 wyników**.
 **Cel:** Można wyszukać osobę (i dowolne pole) także bez wpisywania `ł`, `ą`, `ę`, itd.
 
 ## Diagnoza
@@ -31,7 +31,7 @@ Polskie diakrytyki to pojedyncze prekomponowane (NFC) kodpunkty, więc fałdowan
 | `backend/alembic/versions/0159_candidate_search_doc_unaccented.py` | **Nowa migracja.** `candidates.search_doc_unaccented` — STORED generated column = `lower(translate(<te same 16 pól co search_doc>, 'ąćęłńóśźż…', 'acelnoszz…'))` (diakrytyczne lustro `search_doc`), + `ix_candidates_search_doc_unaccent_trgm` (GIN pg_trgm, CONCURRENTLY). Wyklucza `raw_cv_text` jak `search_doc` → rewrite `ADD COLUMN` bez detoastu 171 MB CV (lock kilka sekund). |
 | `backend/app/services/advanced_candidate_search.py` | `fold_polish()` składa frazę **tą samą mapą** (NFC → translate → lower) i dokłada gałąź `search_doc_unaccented ILIKE '%<folded>%'` do UNION-a `_phrase_match` na **obu** trasach. Czysto **addytywne** — dokładne gałęzie `search_doc`/`search_fts` zostają → brak regresji dla zapytań z diakrytykami. Folding jest 1:1, więc gałąź folded to nadzbiór dokładnej. |
 | `backend/entrypoint.sh` | Kolumna + indeks zmirrorowane w `_COLUMN_STATEMENTS` (`ADD COLUMN IF NOT EXISTS … GENERATED`, `CREATE INDEX IF NOT EXISTS`). Prod alembic jest chronicznie multi-head → bez tego lista kandydatów zwróciłaby **500 UndefinedColumn** gdyby migracja nie wjechała. |
-| `backend/tests/test_candidates_advanced_search.py` | `test_fold_polish_helper` (unit) + `test_diacritic_insensitive_name_search` / `…_city_search` (integracja: „Łukasz Grądzki"/„Kraków" po ascii; no-regression dla `?q=Grądzki`). Plik jest już na liście pytest w CI. |
+| `backend/tests/test_candidates_advanced_search.py` | `test_fold_polish_helper` (unit) + `test_diacritic_insensitive_name_search` / `…_city_search` (integracja: „Łukasz Testądzki"/„Kraków" po ascii; no-regression dla `?q=Testądzki`). Plik jest już na liście pytest w CI. |
 
 Zasięg: cały `search_doc` (imię, nazwisko, miasto, lokalizacja, tytuł/firma LinkedIn,
 ai_summary, kategoria, engagement_notes + bloby JSON skills/tags/education/languages),
@@ -42,7 +42,7 @@ zarówno proste `?q=` jak i zaawansowane `q_all`/`q_any`/`q_none` oraz `app/api/
 ## Weryfikacja
 
 - **PG16 (docker, DDL 1:1 z migracji):** wartości folded poprawne
-  (`Łukasz Grądzki`→`lukasz gradzki`, `Kraków`→`krakow`, `Gdańsk`→`gdansk`,
+  (`Łukasz Testądzki`→`lukasz testadzki`, `Kraków`→`krakow`, `Gdańsk`→`gdansk`,
   `Łódź`→`lodz`, JSON `Świnoujście`→`swinoujscie`); **wszystkie** zapytania ascii
   zwracają oczekiwane wiersze.
 - **ruff** `check` + `format --check` czyste na `app/services/advanced_candidate_search.py`
@@ -63,4 +63,4 @@ zarówno proste `?q=` jak i zaawansowane `q_all`/`q_any`/`q_none` oraz `app/api/
 ## TODO po merge
 
 - [ ] Merge po zielonym CI → Coolify deploy → smoke `/api/health` (nowy `GIT_SHA`).
-- [ ] Chrome MCP: `nexus.dynaminds.pl/candidates?q=lukasz gradzki` → „Łukasz Grądzki" widoczny.
+- [ ] Chrome MCP: `nexus.dynaminds.pl/candidates?q=lukasz testadzki` → „Łukasz Testądzki" widoczny.

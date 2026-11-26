@@ -20,7 +20,7 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     group_id: 10,
     contract_id: 100,
     candidate_id: 5,
-    consultant_name: "Konrad Sigda",
+    consultant_name: "Konrad Testigda",
     job_id: null,
     job_title: null,
     status: "completed",

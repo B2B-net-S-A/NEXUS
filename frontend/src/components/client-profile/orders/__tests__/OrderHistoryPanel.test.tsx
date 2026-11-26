@@ -20,7 +20,7 @@ function entry(overrides: Partial<OrderHistoryEntry>): OrderHistoryEntry {
     type_label: "Utworzenie zamówienia",
     created_at: "2026-08-21T09:31:00Z",
     author_id: 7,
-    author_name: "Anna Korycka",
+    author_name: "Anna Testycka",
     summary: "Utworzono zamówienie nr 4500030197",
     order_id: null,
     person_name: null,
@@ -58,7 +58,7 @@ const TEPER_SERIES = entry({
   details: Array.from({ length: 6 }, (_, i) => ({
     created_at: `2026-09-24T12:2${i}:00Z`,
     author_id: 7,
-    author_name: "Anna Korycka",
+    author_name: "Anna Testycka",
     text: `Zmiana nr ${i + 1}`,
   })),
 });
@@ -115,7 +115,7 @@ describe("OrderHistoryPanel — historia zamówienia (ticket 7)", () => {
     renderPanel();
     const row = (await screen.findByText("Konrad Tester", { selector: "span" })).closest("li")!;
     expect(row).toHaveTextContent(/24\.09\.2026 \d{2}:\d{2}/);
-    expect(row).toHaveTextContent("Anna Korycka");
+    expect(row).toHaveTextContent("Anna Testycka");
     expect(row).toHaveTextContent("Edycja");
     expect(row).toHaveTextContent("stawka kosztowa: 560 zł/MD → 580 zł/MD");
     expect(row).toHaveTextContent("budżet MD: 9,66 MD → 10 MD");

@@ -50,7 +50,7 @@ def _sample_rows() -> list[list]:
     return [
         _row(
             **{
-                "Imię i nazwisko": "Adrian Kruk",
+                "Imię i nazwisko": "Adrian Testuk",
                 "Średnia Stawka MD": 950,
                 "Ilość MD": "22,375",
                 # Polski zapis z walutą i twardą spacją — tak wychodzi z Excela.
@@ -362,11 +362,11 @@ async def test_import_results_and_hidden_columns_never_serialised(
 
     data = results.json()
     assert {r["consultant_name"] for r in data["rows"]} == {
-        "Adrian Kruk",
+        "Adrian Testuk",
         "Magdalena Dąbrowska",
     }
     adrian = next(
-        row for row in data["rows"] if row["consultant_name"] == "Adrian Kruk"
+        row for row in data["rows"] if row["consultant_name"] == "Adrian Testuk"
     )
     assert adrian["md_count"] == 22.375
     assert adrian["compensation"] == 20900.125

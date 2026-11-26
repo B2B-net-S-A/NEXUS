@@ -282,7 +282,7 @@ liczbom, wyciągnąłbym błędne wnioski o przyczynie.
   „widoczny/dostępny do podglądu" spełniony, nie tylko pobranie.
 - Sekcja „Dokumenty zamówień" w Dokumentach kontraktu: kolumna **Typ = „Zamówienie"** i e-mail
   wgrywającego. W trakcie weryfikacji widoczny był plik wgrany przez realną użytkowniczkę
-  (`anna.korycka@…`) — czyli nowa ścieżka jest już w użyciu produkcyjnym.
+  (`anna.testycka@…`) — czyli nowa ścieżka jest już w użyciu produkcyjnym.
 - `can_manage_finance` przychodzi z serwera `true` dla admina na 10 klientach z draftami.
 
 Nadal **nieprzetestowany**: sam import arkusza i edycja komórek dwuklikiem — wymagałyby wgrania

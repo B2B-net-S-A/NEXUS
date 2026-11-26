@@ -87,7 +87,7 @@ LIVE_TITLES: list[tuple[str, str | None]] = [
     ("CLOUDFERRO: Specjalista ds. infrastruktury (Storage i Cloud)", INFRA),
     ("PL_Senior Infrastructure Operations Specialist (35014)", INFRA),
     ("Specjalista Helpdesk", INFRA),
-    ("IT Support Engineer zastępstwo za Paweł Kurantowicz", INFRA),
+    ("IT Support Engineer zastępstwo za Paweł Wzorantowicz", INFRA),
     ("DBA Consultant: FACP DevOps (32174)", INFRA),
     ("SAP FICO Administrator", INFRA),
     ("Senior IT Application Operations specialist (37526)", INFRA),

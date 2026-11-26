@@ -9,7 +9,7 @@ import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 const KAMILA = {
   contract_id: 645,
   candidate_id: 32903,
-  candidate_name: "Kamila Gniewek",
+  candidate_name: "Kamila Testek",
   contract_status: "active",
   rate_candidate: 85,
   rate_unit: "hourly",
@@ -21,7 +21,7 @@ const KAMILA = {
 const KONRAD = {
   id: 672,
   contract_id: 403,
-  consultant_name: "Konrad Sigda",
+  consultant_name: "Konrad Testigda",
   status: "completed",
   is_active: false,
   rate_revenue: 800,

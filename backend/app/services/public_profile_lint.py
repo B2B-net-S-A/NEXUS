@@ -370,3 +370,51 @@ def lint_internal_codes(
                 )
             )
     return findings
+
+
+# ── Zaślepki szkicu AI (26.11.2026) ──────────────────────────────────────────
+# Oferta Oracle pokazywała kandydatom w rozdziale „Projekt” zdanie modelu
+# „Brak szczegółowych informacji o projekcie w materiale źródłowym”: szkic
+# dostał w materiale same „brak” i opisał ten brak. Zdanie mówi o materiale
+# NEXUSA, nie o projekcie, więc nie jest treścią — wycinamy je przy zapisie
+# i w każdej projekcji publicznej (bez opisu strona chowa rozdział „Projekt”).
+# Wzorce celowo wąskie: „Brak nadgodzin” czy „materiały szkoleniowe” zostają.
+_PLACEHOLDER_SENTENCE = re.compile(
+    # „… w materiale źródłowym”, „materiał źródłowy nie zawiera …”
+    r"\bmateria(?:ł|łu|le|łach|łów|ły)\s+(?:źródłow|wejściow)"
+    r"|\bw\s+(?:podanym\s+|dostarczonym\s+|przekazanym\s+)?materiale\b"
+    r"|\bsource\s+material"
+    # Zdanie, które zaczyna się od braku informacji, także po nagłówku
+    # („O projekcie: brak szczegółowych informacji …”).
+    r"|^(?:[^:.;]{3,40}:\s*)?(?:brak|nie\s+podano|nie\s+ma)\s+(?:\w+\s+){0,2}?"
+    r"(?:informacji|danych|szczegółów|opisu)\b"
+    r"|^(?:[^:.;]{3,40}:\s*)?no\s+(?:\w+\s+){0,2}?(?:information|details|description)\b",
+    re.IGNORECASE,
+)
+_PARAGRAPH_SPLIT = re.compile(r"\n\s*\n")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def drop_placeholders(text: str | None) -> str | None:
+    """Tekst publiczny bez zdań-zaślepek modelu; ``None``, gdy nic nie zostało.
+
+    Akapit bez zaślepki zostaje słowo w słowo (także łamania wierszy), żeby
+    zwykły opis nie zmieniał skrótu zatwierdzenia.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+    kept: list[str] = []
+    changed = False
+    for paragraph in _PARAGRAPH_SPLIT.split(stripped):
+        sentences = [s for s in _SENTENCE_SPLIT.split(paragraph.strip()) if s.strip()]
+        clean = [s for s in sentences if not _PLACEHOLDER_SENTENCE.search(for_lint(s))]
+        if len(clean) == len(sentences):
+            kept.append(paragraph.strip())
+            continue
+        changed = True
+        if clean:
+            kept.append(" ".join(clean))
+    if not changed:
+        return stripped
+    return "\n\n".join(kept) or None

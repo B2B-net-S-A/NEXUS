@@ -120,7 +120,7 @@ describe("OrderMailQueueView", () => {
     // osoba wyszła jako „nowy kontraktor". Kolejka ma najpierw powiedzieć,
     // KOGO znaleziono — etykieta akcji schodzi pod podpowiedź.
     const reason =
-      "„Piotr Michałowski” (#11) ma kontrakt #456 u klienta „Powszechna Kasa Oszczędności Bank Polski S.A”.";
+      "„Piotr Testałowski” (#11) ma kontrakt #456 u klienta „Powszechna Kasa Oszczędności Bank Polski S.A”.";
     render(
       <OrderMailQueueView
         {...base}
@@ -134,7 +134,7 @@ describe("OrderMailQueueView", () => {
               blocking: [],
               rows: [
                 {
-                  row_index: 0, row_name: "Piotr Michałowski", action: "new_draft",
+                  row_index: 0, row_name: "Piotr Testałowski", action: "new_draft",
                   candidate_id: null, contract_id: null, target_order_id: null,
                   title: "1893/2031", start_date: "2031-10-01", end_date: "2031-12-31",
                   rate_client: null, rate_unit: "day", md_total: null,

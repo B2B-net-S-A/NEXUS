@@ -1303,6 +1303,10 @@ class Settings(BaseSettings):
     # (rodzaj `candidate_terms`, domyślnie wyłączony).
     CANDIDATE_TERMS_ENABLED: bool = True
     CANDIDATE_TERMS_DAILY_LIMIT: int = 400
+    # Pętla raportów kompetencji w 24 h (`tasks/competence_report_sender.py`):
+    # składa raporty po odczycie CV i wysyła je po terminie. Mail i tak przechodzi
+    # przez politykę z Ustawień (rodzaj `competence_report`, domyślnie wyłączony).
+    COMPETENCE_REPORT_SENDER_ENABLED: bool = True
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
     M365_MAIL_TENANT_ID: str = ""

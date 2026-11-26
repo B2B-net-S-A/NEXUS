@@ -24,7 +24,7 @@ vi.mock("@/lib/poligon/usePoligonPath", () => ({
 }));
 vi.mock("@/lib/poligon/adapter", () => ({ onPoligonAction: () => () => undefined }));
 
-import { PoligonLayer } from "../PoligonLayer";
+import { BROKEN_AFTER_MS, PoligonLayer } from "../PoligonLayer";
 
 const STATS = /nie liczy się do Twoich statystyk/;
 
@@ -89,5 +89,30 @@ describe("PoligonLayer — okno ćwiczenia nad oknem ekranu", () => {
     await user.click(screen.getByRole("region", { name: "Ćwiczenie na poligonie", hidden: true }));
     await radixListening();
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("PoligonLayer — „Coś nie działa”", () => {
+  // 26.11.2026 (decyzja Artura): przycisk od pierwszej sekundy służył do
+  // pomijania; zepsute ćwiczenie ratuje dopiero po chwili na nim.
+  it("pojawia się dopiero po 30 s na ćwiczeniu", async () => {
+    vi.useFakeTimers();
+    try {
+      state.done = [];
+      state.poligon = { open: true, required: true, done: 0, total: 2, luki: null };
+      render(<PoligonLayer />);
+      const name = "Coś nie działa — zalicz i dalej";
+      expect(screen.queryByRole("button", { name })).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BROKEN_AFTER_MS - 1000);
+      });
+      expect(screen.queryByRole("button", { name })).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

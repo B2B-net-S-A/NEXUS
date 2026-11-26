@@ -55,7 +55,7 @@ def _contract(
         ("UR – Jan Kowalski", "UR", ("jan", "kowalski")),
         ("Projekt 2 Jan Kowalski", "Projekt 2", ("jan", "kowalski")),
         ("Jan Kowalski", "", ("jan", "kowalski")),
-        ("Anna Prus-Rudzińska", "", ("anna", "prus", "rudzinska")),
+        ("Anna Fikus-Próbińska", "", ("anna", "fikus", "probinska")),
         ("jan kowalski", "", ("jan", "kowalski")),
     ],
 )
@@ -76,9 +76,9 @@ def test_polish_diacritics_alone_are_an_automatic_match():
 @pytest.mark.parametrize(
     ("document", "contract"),
     [
-        ("Łukasz Goceł", "Lukasz Gocel"),
+        ("Łukasz Testeł", "Lukasz Testel"),
         ("JAN KOWALSKI", "Jan Kowalski"),
-        ("Anna Prus-Rudzińska", "Anna Prus Rudzinska"),
+        ("Anna Fikus-Próbińska", "Anna Fikus Probinska"),
     ],
 )
 def test_formatting_differences_are_automatic(document, contract):

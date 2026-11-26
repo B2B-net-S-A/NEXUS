@@ -78,7 +78,9 @@ from app.services.section_permissions import (
 )
 
 # Mail do kandydata — nie należy do żadnego konta.
-_NOT_AN_ACCOUNT_EMAIL = frozenset({"application_confirmation", "candidate_terms"})
+_NOT_AN_ACCOUNT_EMAIL = frozenset(
+    {"application_confirmation", "candidate_terms", "competence_report"}
+)
 
 OPTABLE_KINDS: tuple[str, ...] = tuple(
     spec["id"] for spec in CATALOG if spec["id"] not in _NOT_AN_ACCOUNT_EMAIL

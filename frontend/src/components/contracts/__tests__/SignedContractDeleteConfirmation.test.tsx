@@ -43,13 +43,13 @@ describe("signed contract forced delete confirmation", () => {
           detail: {
             code: "contract_has_signed_generated_contract",
             requires_admin_confirmation: true,
-            contractor_name: "Agnieszka Urbaniak",
+            contractor_name: "Agnieszka Wzorniak",
           },
         },
       },
     };
     expect(signedDeleteRequirementFromError(signedError)).toEqual({
-      contractorName: "Agnieszka Urbaniak",
+      contractorName: "Agnieszka Wzorniak",
     });
     expect(signedDeleteActionFromError(signedError, true)).toMatchObject({
       kind: "confirm",
@@ -67,16 +67,16 @@ describe("signed contract forced delete confirmation", () => {
   it("accepts the full contractor name or contract number, but not a fragment", () => {
     expect(
       matchesSignedDeleteConfirmation(
-        "  agnieszka   URBANIAK ",
+        "  agnieszka   WZORNIAK ",
         563,
-        "Agnieszka Urbaniak",
+        "Agnieszka Wzorniak",
       ),
     ).toBe(true);
-    expect(matchesSignedDeleteConfirmation("563", 563, "Agnieszka Urbaniak")).toBe(
+    expect(matchesSignedDeleteConfirmation("563", 563, "Agnieszka Wzorniak")).toBe(
       true,
     );
     expect(
-      matchesSignedDeleteConfirmation("Agnieszka", 563, "Agnieszka Urbaniak"),
+      matchesSignedDeleteConfirmation("Agnieszka", 563, "Agnieszka Wzorniak"),
     ).toBe(false);
   });
 
@@ -88,7 +88,7 @@ describe("signed contract forced delete confirmation", () => {
         open
         onOpenChange={vi.fn()}
         contractId={563}
-        contractorName="Agnieszka Urbaniak"
+        contractorName="Agnieszka Wzorniak"
         isPending={false}
         onConfirm={onConfirm}
       />,
@@ -97,7 +97,7 @@ describe("signed contract forced delete confirmation", () => {
     const button = screen.getByRole("button", {
       name: /Usuń podpisany kontrakt/i,
     });
-    const input = screen.getByLabelText(/Wpisz.*Agnieszka Urbaniak.*563/i);
+    const input = screen.getByLabelText(/Wpisz.*Agnieszka Wzorniak.*563/i);
     expect(button).toBeDisabled();
 
     await user.type(input, "Agnieszka");
@@ -120,7 +120,7 @@ describe("signed contract forced delete confirmation", () => {
         open
         onOpenChange={vi.fn()}
         contractId={563}
-        contractorName="Agnieszka Urbaniak"
+        contractorName="Agnieszka Wzorniak"
         isPending={false}
         onConfirm={vi.fn()}
       />,

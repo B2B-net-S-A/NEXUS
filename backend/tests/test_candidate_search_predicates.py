@@ -114,7 +114,7 @@ def test_wyrazenie_bez_operatora_trafia_do_musi_miec() -> None:
         ("Jan Kowalski", "name", "literal"),
         ("kowalski", "name", "literal"),
         ("Anna Nowak-Kowalska", "name", "literal"),
-        ("Łukasz Grądzki", "name", "literal"),
+        ("Łukasz Testądzki", "name", "literal"),
         ("jan.kowalski@example.com", "email", "literal"),
         ("@b2bnetwork.pl", "email", "literal"),
         ("+48 600 700 800", "phone", "literal"),

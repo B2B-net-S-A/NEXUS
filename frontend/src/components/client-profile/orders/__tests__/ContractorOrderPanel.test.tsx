@@ -153,7 +153,7 @@ function makeOrder(partial: Partial<ClientOrderRead> & { id: number; title: stri
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     candidate_id: 99,
-    candidate_name: "Tomasz Sadowski",
+    candidate_name: "Tomasz Testowski",
     contract_status: "active",
     job_title: null,
     monthly_margin: null,
@@ -194,7 +194,7 @@ const HISTORY = makeOrder({
 const CONTRACTOR = {
   contract_id: 529,
   candidate_id: 99,
-  candidate_name: "Tomasz Sadowski",
+  candidate_name: "Tomasz Testowski",
   contract_status: "active",
   contract_start_date: localISO(-30),
   contract_end_date: null,
@@ -398,7 +398,7 @@ describe("ContractorOrderPanel card", () => {
 
     renderPanel(7, { suggestedOrderType: "cost", legacyNullOrderType: "md" });
 
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getAllByText("MD")).toHaveLength(2);
     expect(screen.queryByText("Kosztowe")).not.toBeInTheDocument();
     expect(screen.queryByText("Okresowe")).not.toBeInTheDocument();
@@ -432,14 +432,14 @@ describe("ContractorOrderPanel card", () => {
 
   it('nie dopisuje „Brak aktywnego zamówienia", gdy zamówienie trwa albo dopiero się zacznie', async () => {
     renderPanel();
-    expect((await screen.findAllByText(/Tomasz Sadowski/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Tomasz Testowski/)).length).toBeGreaterThan(0);
     expect(screen.queryByTestId("no-active-order-note")).toBeNull();
   });
 
   it("shows the consultant name with the contract id and recruitment origin", async () => {
     renderPanel();
     expect(
-      await screen.findByRole("heading", { name: /Tomasz Sadowski/ }),
+      await screen.findByRole("heading", { name: /Tomasz Testowski/ }),
     ).toBeInTheDocument();
     // Active order title surfaces as "Numer zamówienia" at the top of the card.
     expect(screen.getByText("45767")).toBeInTheDocument();
@@ -458,11 +458,11 @@ describe("ContractorOrderPanel card", () => {
     // jeden, który dotyczy klienta, z którego profilu się w niego kliknęło.
     renderPanel();
     const heading = await screen.findByRole("heading", {
-      name: /Tomasz Sadowski/,
+      name: /Tomasz Testowski/,
     });
 
     expect(
-      within(heading).getByRole("link", { name: "Tomasz Sadowski" }),
+      within(heading).getByRole("link", { name: "Tomasz Testowski" }),
     ).toHaveAttribute("href", "/contracts/529");
     // Numer obok zostaje zwykłym tekstem — drugi link do tego samego celu to
     // zbędny przystanek w nawigacji klawiaturą.
@@ -476,7 +476,7 @@ describe("ContractorOrderPanel card", () => {
     await screen.findByText(/Przyszłe zamówienie \(1\)/);
 
     const links = screen
-      .getAllByRole("link", { name: "Tomasz Sadowski" })
+      .getAllByRole("link", { name: "Tomasz Testowski" })
       .map((link) => link.getAttribute("href"));
     expect(links).toEqual(["/contracts/529"]);
   });
@@ -485,7 +485,7 @@ describe("ContractorOrderPanel card", () => {
     // Regresja układu z ticketu: długość tekstu nie może decydować, czy okres
     // sklei się ze stawkami. W panelu każde pole ma własny wiersz faktów.
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     const numberRow = screen
       .getByTitle("Numer zamówienia")
@@ -558,7 +558,7 @@ describe("ContractorOrderPanel card", () => {
         },
       } as never);
       renderPanel();
-      await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+      await screen.findByRole("heading", { name: /Tomasz Testowski/ });
       // Kotwica na `title`, nie na widocznej etykiecie: kafelek skraca ją do
       // „koszt."/„przych.", żeby obie stawki mieściły się w jednej linii, a
       // kontrakt, którego pilnuje ten test, dotyczy WIDOCZNOŚCI pola, nie
@@ -583,7 +583,7 @@ describe("ContractorOrderPanel card", () => {
     const user = userEvent.setup();
 
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
@@ -622,7 +622,7 @@ describe("ContractorOrderPanel card", () => {
     const user = userEvent.setup();
 
     renderPanel(EZDROWIE_CLIENT_ID);
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     expect(screen.queryAllByLabelText(/^Edytuj:/)).toHaveLength(0);
     expect(screen.getByLabelText("Umowa wykonawcza")).toBeDisabled();
@@ -652,7 +652,7 @@ describe("ContractorOrderPanel card", () => {
 
   it("shows candidate finance rows when the server grants manage_finance", async () => {
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
   });
@@ -666,7 +666,7 @@ describe("ContractorOrderPanel card", () => {
       data: { contractors: [withMargin], total_contractors: 1, can_manage_finance: true },
     } as never);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
     expect(screen.queryByText("Marża")).not.toBeInTheDocument();
     expect(screen.queryByText(/6\s?846/)).not.toBeInTheDocument();
@@ -678,7 +678,7 @@ describe("ContractorOrderPanel card", () => {
     authState.role = "delivery_lead";
     authState.capabilities = [];
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
   });
@@ -699,7 +699,7 @@ describe("ContractorOrderPanel card", () => {
   it("saves an edited order number via updateOrder", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Numer zamówienia"));
     const input = screen.getByLabelText("Numer zamówienia");
@@ -721,7 +721,7 @@ describe("ContractorOrderPanel card", () => {
     });
     const spy = vi.spyOn(queryClient, "invalidateQueries");
     renderPanel(7, { queryClient });
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Numer zamówienia"));
     const input = screen.getByLabelText("Numer zamówienia");
@@ -741,7 +741,7 @@ describe("ContractorOrderPanel card", () => {
     // w zamówieniu i tak nadpisałaby synchronizacja, więc pola nie da się
     // edytować, a karta mówi, skąd liczba pochodzi.
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.queryByLabelText("Edytuj: Stawka kosztowa")).not.toBeInTheDocument();
     expect(screen.getByText("(z kontraktu)")).toBeInTheDocument();
   });
@@ -757,7 +757,7 @@ describe("ContractorOrderPanel card", () => {
     } as never);
     const user = userEvent.setup();
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Stawka kosztowa"));
     const input = screen.getByLabelText("Stawka kosztowa");
@@ -796,7 +796,7 @@ describe("ContractorOrderPanel card", () => {
   it("saves an edited okres (start + end) via updateOrder", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: okres zamówienia"));
     const endInput = screen.getByLabelText("Data do (puste = bezterminowo)");
@@ -821,7 +821,7 @@ describe("ContractorOrderPanel card", () => {
       },
     } as never);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByText("ustaw stawkę")).toBeInTheDocument();
   });
 
@@ -844,7 +844,7 @@ describe("ContractorOrderPanel card", () => {
       },
     } as never);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByText("125 USD/h")).toBeInTheDocument();
     expect(screen.getByText("180 EUR/h")).toBeInTheDocument();
     expect(screen.queryByText("120 PLN/mc")).not.toBeInTheDocument();
@@ -873,7 +873,7 @@ describe("ContractorOrderPanel card", () => {
     } as never);
 
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByText("120 USD/MD")).toBeInTheDocument();
     expect(screen.getByText("180 GBP/MD")).toBeInTheDocument();
   });
@@ -884,7 +884,7 @@ describe("ContractorOrderPanel card", () => {
 describe("ContractorOrderPanel — wyszukiwanie", () => {
   it("aktywne wyszukiwanie wymusza rozwiniętą historię (trafienie w starym numerze)", async () => {
     renderPanel(7, { searching: true });
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(await screen.findByText("OLD-1")).toBeInTheDocument();
     // Przełącznik nie może schować dopasowanego zamówienia.
     fireEvent.click(screen.getByRole("button", { name: /Historia zamówień \(1\)/ }));
@@ -893,7 +893,7 @@ describe("ContractorOrderPanel — wyszukiwanie", () => {
 
   it("bez wyszukiwania historia jest domyślnie zwinięta", async () => {
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.queryByText("OLD-1")).not.toBeInTheDocument();
   });
 });
@@ -905,7 +905,7 @@ describe("ContractorOrderPanel — plakietka przyszłego zamówienia", () => {
     const continued = {
       ...structuredClone(CONTRACTOR),
       contract_id: 145,
-      candidate_name: "Marek Urbański",
+      candidate_name: "Marek Testański",
       days_to_latest_end: 69,
       orders: [
         makeOrder({
@@ -1420,7 +1420,7 @@ describe("ContractorOrderPanel — komunikat o zamówieniu kończącym się w na
           {
             ...structuredClone(CONTRACTOR),
             contract_id: 479,
-            candidate_name: "Mariusz Matyszczuk",
+            candidate_name: "Mariusz Wzorczuk",
             contract_status: "active",
             days_to_latest_end: 1,
             orders,
@@ -1609,7 +1609,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     return {
       ...structuredClone(CONTRACTOR),
       contract_id: 600,
-      candidate_name: "Wojciech Sokolnicki",
+      candidate_name: "Wojciech Testolnicki",
       contract_status,
       orders: [
         makeOrder({
@@ -1645,7 +1645,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     // aktywacji — zdjęte w sierpniu 2026; scenariusz zostaje realny bez niego.)
     mockContractor("draft");
     renderPanel();
-    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
     expect(
       screen.getByRole("button", { name: /^Zakończ współpracę…$/ }),
     ).toBeInTheDocument();
@@ -1656,7 +1656,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     async (status) => {
       mockContractor(status);
       renderPanel();
-      await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+      await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
       expect(
         screen.getByRole("button", { name: /^Zakończ współpracę…$/ }),
       ).toBeInTheDocument();
@@ -1668,7 +1668,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     async (status) => {
       mockContractor(status);
       renderPanel();
-      await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+      await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
       expect(
         screen.queryByRole("button", { name: /^Zakończ współpracę…$/ }),
       ).not.toBeInTheDocument();
@@ -1684,7 +1684,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     } as never);
     mockContractor("active");
     renderPanel();
-    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
 
     fireEvent.click(screen.getByRole("button", { name: /^Zakończ zamówienie$/ }));
     const dateInput = await screen.findByLabelText(
@@ -1716,7 +1716,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     // CO się przeceni, i dopiero wtedy odsłania przycisk.
     mockContractor("active");
     renderPanel();
-    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
 
     await openDeleteFromMenu();
 
@@ -1767,7 +1767,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
     } as never);
     mockContractor("active");
     renderPanel();
-    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
 
     await openDeleteFromMenu();
 
@@ -1778,7 +1778,7 @@ describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zak
   it("„Zakończ współpracę” nie wygląda jak usuwanie (bez ikony kosza)", async () => {
     mockContractor("active");
     renderPanel();
-    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    await screen.findByRole("heading", { name: /Wojciech Testolnicki/ });
     const terminate = screen.getByRole("button", { name: /^Zakończ współpracę…$/ });
     expect(terminate.querySelector("svg[class*='trash']")).toBeNull();
   });
@@ -1843,7 +1843,7 @@ describe("ContractorOrderPanel — bramka roli „Zakończ współpracę”", ()
     authState.role = "recruiter";
     authState.capabilities = [];
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(
       screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
     ).not.toBeInTheDocument();
@@ -1862,7 +1862,7 @@ describe("ContractorOrderPanel — bramka roli „Zakończ współpracę”", ()
       },
     } as never);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(
       screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
     ).not.toBeInTheDocument();
@@ -1873,7 +1873,7 @@ describe("ContractorOrderPanel — bramka roli „Zakończ współpracę”", ()
   it("admin w trybie „podgląd jako” nie widzi „Zakończ współpracę”", async () => {
     impersonation.realUser = { role: "admin" };
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(
       screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
     ).not.toBeInTheDocument();
@@ -1883,7 +1883,7 @@ describe("ContractorOrderPanel — bramka roli „Zakończ współpracę”", ()
     authState.role = "delivery_lead";
     authState.capabilities = [];
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(
       screen.getByRole("button", { name: /^Zakończ współpracę…$/ }),
     ).toBeInTheDocument();
@@ -1916,7 +1916,7 @@ describe("ContractorOrderPanel — PDF bieżącego zamówienia", () => {
   it("bez pliku nie ma przycisków „Otwórz” i „Pobierz”", async () => {
     mockActive(false);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.queryByRole("button", { name: /Otwórz/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Pobierz/ })).not.toBeInTheDocument();
   });
@@ -1926,7 +1926,7 @@ describe("ContractorOrderPanel — PDF bieżącego zamówienia", () => {
     fileMocks.download.mockResolvedValue(undefined);
     fileMocks.open.mockResolvedValue(undefined);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     expect(screen.getByText("zamowienie_45767.pdf")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Pobierz/ }));
@@ -1950,7 +1950,7 @@ describe("ContractorOrderPanel — PDF bieżącego zamówienia", () => {
     mockActive(true);
     fileMocks.download.mockRejectedValue(new Error("boom"));
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     fireEvent.click(screen.getByRole("button", { name: /Pobierz/ }));
     expect(
       await screen.findByText("Nie udało się pobrać pliku zamówienia."),
@@ -2055,7 +2055,7 @@ describe("ContractorOrderPanel — redakcja kwot i zamykanie", () => {
       },
     } as never);
     renderPanel();
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    await screen.findByRole("heading", { name: /Tomasz Testowski/ });
     const cost = screen.getByText("Koszt").nextElementSibling;
     const revenue = screen.getByText("Przychód").nextElementSibling;
     expect(cost).toHaveTextContent(/^—$/);
@@ -2125,7 +2125,7 @@ describe("ContractorOrderPanel — deep link z panelu „Moi klienci”", () => 
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    const draft = makeOrder({ id: 77, title: "Tomasz Sadowski — DevOps", status: "draft" });
+    const draft = makeOrder({ id: 77, title: "Tomasz Testowski — DevOps", status: "draft" });
     render(
       <QueryClientProvider client={queryClient}>
         <ToastProvider>

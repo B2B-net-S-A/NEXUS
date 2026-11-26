@@ -44,8 +44,8 @@ def _entry(**overrides) -> OrderPdfEntry:
         original_name="x.pdf",
         file_path="client_orders/1/x.pdf",
         content_type="application/pdf",
-        consultant_name="Axel Gocan",
-        consultant_lastname="Gocan",
+        consultant_name="Axel Wzorcan",
+        consultant_lastname="Wzorcan",
         start=date(2026, 10, 1),
         end=date(2026, 12, 31),
         entry_type="extension",
@@ -59,7 +59,7 @@ def _entry(**overrides) -> OrderPdfEntry:
 
 def test_zip_member_name_follows_the_schema_without_polish_letters_or_spaces():
     assert zip_member_name(_entry()) == (
-        "Nordea_Bank_Abp_286139_Gocan_Przedluzenie_01.10.2026-31.12.2026.pdf"
+        "Nordea_Bank_Abp_286139_Wzorcan_Przedluzenie_01.10.2026-31.12.2026.pdf"
     )
     name = zip_member_name(
         _entry(
@@ -136,8 +136,8 @@ def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path, monkeypatch
     folder = "Nordea_Bank_Abp/"
     assert names == [
         "BRAKUJACE_PLIKI.txt",
-        f"{folder}Nordea_Bank_Abp_286139_Gocan_Przedluzenie_01.10.2026-31.12.2026.pdf",
-        f"{folder}Nordea_Bank_Abp_286139_Gocan_Przedluzenie_01.10.2026-31.12.2026_2.pdf",
+        f"{folder}Nordea_Bank_Abp_286139_Wzorcan_Przedluzenie_01.10.2026-31.12.2026.pdf",
+        f"{folder}Nordea_Bank_Abp_286139_Wzorcan_Przedluzenie_01.10.2026-31.12.2026_2.pdf",
     ]
     assert "_Brak_" in missing
 

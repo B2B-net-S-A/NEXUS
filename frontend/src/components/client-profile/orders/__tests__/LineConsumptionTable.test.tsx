@@ -71,7 +71,7 @@ const DATA = {
       source: "manual",
       source_kind: "manual_correction",
       import_id: null,
-      created_by_name: "Anna Korycka",
+      created_by_name: "Anna Testycka",
       updated_at: "2026-09-24T12:23:00Z",
       balance_after: -19,
       import_rows: [],
@@ -79,7 +79,7 @@ const DATA = {
         {
           created_at: "2026-09-24T12:23:00Z",
           period_month: "2026-08",
-          author_name: "Anna Korycka",
+          author_name: "Anna Testycka",
           from_md: 4,
           from_source: "import",
           to_md: 3.7,

@@ -29,7 +29,7 @@ Zgodnie z zatwierdzonym planem — autosave już istniał, dodajemy powiadomieni
 
 ### Backend E2E przez curl + SQL (wszystkie scenariusze PASS)
 
-1. **Notification creation**: Olaf (delivery_lead, id=2) PUT CP dla Job #3 (Marta id=3 = recruiter). DB: 1 wiersz `notifications` (user_id=3, type=`champion_profile_updated`, entity_type=`job`, entity_id=3, is_read=false, message="Olaf Moczydłowski zmienił podstawy, kontekst projektu i strategię sourcingu dla: DevOps / Cloud Engineer"). ✓
+1. **Notification creation**: Olaf (delivery_lead, id=2) PUT CP dla Job #3 (Marta id=3 = recruiter). DB: 1 wiersz `notifications` (user_id=3, type=`champion_profile_updated`, entity_type=`job`, entity_id=3, is_read=false, message="Olaf Wzorydłowski zmienił podstawy, kontekst projektu i strategię sourcingu dla: DevOps / Cloud Engineer"). ✓
 2. **Dedupe na unread**: Olaf edytuje ponownie. Wciąż 1 wiersz, `created_at` zaktualizowany, message odświeżony. ✓
 3. **Auto-read on GET**: Marta GET CP → `is_read` flipped `f → t`, badge maleje. ✓
 4. **Resurface after read**: Olaf edytuje ponownie (po tym jak Marta przeczytała) → ten sam wiersz, `is_read` z powrotem `f`, `created_at` odświeżony. ✓
@@ -63,6 +63,6 @@ Jeśli chcesz zobaczyć feature na żywo:
 3. Oboje otwierają `/jobs/3` → tab "Profil Championa".
 4. Olaf edytuje dowolne pole → klika "Zapisz". W oknie Marty:
    - Bell icon w top-right dostaje badge.
-   - Banner "Olaf Moczydłowski zaktualizował profil — odświeżono" pojawia się w edytorze CP i dismiss po 6s.
+   - Banner "Olaf Wzorydłowski zaktualizował profil — odświeżono" pojawia się w edytorze CP i dismiss po 6s.
    - Pole, które Olaf zmienił, odświeża się (React Query refetch).
 5. Marta klika w powiadomienie lub wchodzi bezpośrednio na `/jobs/3` z CP otwartym → backend na GET oznacza notif jako przeczytany → badge maleje.

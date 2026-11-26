@@ -150,11 +150,11 @@ describe("areaPrefillDescription", () => {
 });
 
 describe("partnerNameAfterLookup", () => {
-  // Sedno zgłoszenia: wybrany „Rafał Korecki", a lookup NIP-u firmy (JDG) zwraca
+  // Sedno zgłoszenia: wybrany „Rafał Wzorecki", a lookup NIP-u firmy (JDG) zwraca
   // „RAFAŁ WASILEWSKI" — rejestr NIE może nadpisać nazwiska kandydata.
   it("nie nadpisuje nazwiska kandydata właścicielem JDG z rejestru", () => {
-    expect(partnerNameAfterLookup("Rafał Korecki", "RAFAŁ WASILEWSKI")).toBe(
-      "Rafał Korecki",
+    expect(partnerNameAfterLookup("Rafał Wzorecki", "RAFAŁ WASILEWSKI")).toBe(
+      "Rafał Wzorecki",
     );
   });
 
@@ -182,7 +182,7 @@ describe("partnerNameAfterLookup", () => {
   // zmian, a puste/białe znaki normalizują się do "" — nigdy „null"/"undefined"
   // ani surowe spacje.
   it("dla spółki (person = null) zachowuje treść, a pustkę/spacje normalizuje do pustego", () => {
-    expect(partnerNameAfterLookup("Rafał Korecki", null)).toBe("Rafał Korecki");
+    expect(partnerNameAfterLookup("Rafał Wzorecki", null)).toBe("Rafał Wzorecki");
     expect(partnerNameAfterLookup("", null)).toBe("");
     expect(partnerNameAfterLookup("", undefined)).toBe("");
     expect(partnerNameAfterLookup("   ", null)).toBe("");
