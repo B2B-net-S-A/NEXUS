@@ -22,11 +22,11 @@ from app.services.order_pdf_parser import (
 from app.services.order_policies import PolicyContext, active_policies, apply_policies
 from tests.test_order_mail_gate_and_planner import _gate_input
 
-FILENAME = "Zlecenie nr 34 Michał Chwedorczuk pk-sig.pdf"
+FILENAME = "Zlecenie nr 34 Michał Forczuk pk-sig.pdf"
 TEXT = """ZLECENIE NA USŁUGI OUTSOURCING SPECJALISTÓW IT
 na podstawie Umowy nr 2026/000008/PZP z dnia 22.04.2026
 w związku z Zapotrzebowaniem Nr 1
-Imię i nazwisko: Michał Chwedorczuk
+Imię i nazwisko: Michał Forczuk
 Stawka za jedną Roboczogodzinę (zgodna z Ofertą Wykonawcy): 98,40 zł brutto
 Data rozpoczęcia wykonywania Prac przez Specjalistę: 01.09.2026
 Termin wykonania Prac 30.09.2026r. z możliwością przedłużenia do 31.12.2026.
@@ -40,7 +40,7 @@ def old_extraction():
         end_date="2026-12-31",
         consultant_rows=[
             ConsultantOrderRow(
-                consultant_name="Michał Chwedorczuk",
+                consultant_name="Michał Forczuk",
                 end_date="2026-12-31",
                 rate_client=Decimal("98.40"),
                 rate_unit="hour",

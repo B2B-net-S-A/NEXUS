@@ -444,8 +444,8 @@ function compareCreated(
  * Klucz nazwiska do sortowania: same litery i cyfry, pusty gdy nazwiska nie ma.
  *
  * Interpunkcja LECI W CAŁOŚCI, bo do nazwisk w tej bazie potrafi się przykleić
- * śmieć — produkcja Nordei ma „{ } Wojciech Łazowski", a wcześniej „[acive/
- * Mariusz Szewczyk" (marker statusu wklejony w imię). `foldText` zdejmuje tylko
+ * śmieć — produkcja Nordei ma „{ } Wojciech Wzorazowski", a wcześniej „[acive/
+ * Mariusz Testewczyk" (marker statusu wklejony w imię). `foldText` zdejmuje tylko
  * wielkość liter i diakrytykę, więc `{` zostawało i wynosiło taki wiersz na
  * SAM SZCZYT listy „A→Z" — czyli w miejsce, gdzie użytkownik szuka litery „A".
  *

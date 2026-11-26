@@ -2421,7 +2421,7 @@ describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026
           stage: "rejected",
           moved_at: "2026-10-16T10:00:00Z",
           rejection_reason_name: "Za wysokie oczekiwania finansowe",
-          closed_by_name: "Julia Swidkiewicz",
+          closed_by_name: "Julia Testkiewicz",
           notes: "Oczekuje 190 zł/h, budżet do 150.",
         }),
       });
@@ -2429,7 +2429,7 @@ describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026
       expect(box).toHaveAttribute("data-tone", "danger");
       expect(box).toHaveTextContent("Odrzucony: Za wysokie oczekiwania finansowe");
       expect(box).toHaveTextContent("Oczekuje 190 zł/h, budżet do 150.");
-      expect(box).toHaveTextContent("Julia Swidkiewicz · 16.10.2026");
+      expect(box).toHaveTextContent("Julia Testkiewicz · 16.10.2026");
       // Pierwsza rzecz w sekcji akcji — widać ją bez przewijania.
       expect(screen.getByTestId("dock-actions").firstElementChild).toBe(box);
       // Oś czasu mówi, kiedy i dlaczego, zamiast „W etapie od 3 dni”.

@@ -2,7 +2,7 @@
 
 **Data:** 2026-07-11
 **PR:** [#661](https://github.com/artur-t-96/Nexus/pull/661) (merged → `main` SHA `25bf3d3`)
-**Zgłoszenie:** upload „Adam Drazkowski Check Point Certified CCSE CCSA CV. (6).pdf" (Marlena Rosol, 10.07.2026) — karta pliku z błędem „Nie udało się odczytać tekstu z CV: Empty text extracted from …pdf".
+**Zgłoszenie:** upload „Adam Drazkowski Check Point Certified CCSE CCSA CV. (6).pdf" (Marlena Testol, 10.07.2026) — karta pliku z błędem „Nie udało się odczytać tekstu z CV: Empty text extracted from …pdf".
 
 ## Diagnoza
 

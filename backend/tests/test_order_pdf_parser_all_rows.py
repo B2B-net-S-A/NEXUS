@@ -124,8 +124,8 @@ async def test_all_rows_returns_every_person_without_choosing_one(monkeypatch):
                     uncertain=False,
                 ),
                 m.ConsultantOrderRow(
-                    consultant_name="Bartosz Nowak",
-                    rate_client=Decimal("1350"),
+                    consultant_name="Bartosz Testowy",
+                    rate_client=Decimal("1330"),
                     rate_unit="day",
                     md_total=Decimal("189"),
                     start_date="2026-04-01",
@@ -189,8 +189,8 @@ async def test_all_rows_marks_silent_truncation(monkeypatch):
                 '{"title": "1830/2026", "start_date": "2026-09-01", "end_date": null,'
                 ' "rate_client": null, "rate_unit": null, "total_value": null,'
                 ' "md_total": null, "consultant_rows": [{"consultant_name":'
-                ' "Andrzej Iciek", "start_date": null, "end_date": null,'
-                ' "rate_client": 900, "rate_unit": "day", "md_total": 64,'
+                ' "Andrzej Wzoriek", "start_date": null, "end_date": null,'
+                ' "rate_client": 880, "rate_unit": "day", "md_total": 64,'
                 ' "uncertain": false, "uncertain_reason": null}], "currency": "PLN",'
                 ' "_confidence": {"title": 0.99}, "uncertain": false,'
                 ' "uncertain_reasons": []}'
@@ -210,12 +210,12 @@ async def test_all_rows_marks_silent_truncation(monkeypatch):
     r = await parse_order_document(long_text, all_rows=True)
 
     assert r.document_truncated is True
-    assert r.consultant_rows[0].consultant_name == "Andrzej Iciek"
+    assert r.consultant_rows[0].consultant_name == "Andrzej Wzoriek"
     assert captured["max_tokens"] == m._MAX_ALL_ROWS_TOKENS
     assert "LIST ALL CONSULTANTS (yes|no):\nyes" in str(captured["prompt"])
 
     short = await parse_order_document(
-        "Zamówienie nr 1830/2026\nAndrzej Iciek", all_rows=True
+        "Zamówienie nr 1830/2026\nAndrzej Wzoriek", all_rows=True
     )
     assert short.document_truncated is False
 
@@ -230,7 +230,7 @@ async def test_all_rows_marks_silent_truncation(monkeypatch):
     # Tryb celowany nie tnie po cichu — buduje nagłówek + okna osoby, a o
     # niepełnym kontekście mówi `uncertain`. Flaga ma tam zostać opuszczona.
     targeted_long = await parse_order_document(
-        long_text + "\nAndrzej Iciek", consultant_name="Andrzej Iciek"
+        long_text + "\nAndrzej Wzoriek", consultant_name="Andrzej Wzoriek"
     )
     assert targeted_long.document_truncated is False
 

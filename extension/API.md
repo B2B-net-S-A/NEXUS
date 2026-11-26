@@ -26,7 +26,7 @@ Wtyczka przyjmuje to w `chrome.runtime.onMessageExternal` (manifest:
 
 ### `GET /api/extension/me`
 ```json
-{"user": {"id": 26, "name": "Malwina Jobda", "initials": "MJ"},
+{"user": {"id": 26, "name": "Anna Przykładowa", "initials": "AP"},
  "usage": {"reads_today": 34, "reads_limit": 150, "adds_today": 6},
  "frontend_url": "https://nexus.b2bnetwork.pl",
  "latest_version": "1.0.3"}

@@ -18,8 +18,8 @@ def _csv(*rows: str) -> bytes:
 def test_parser_converts_decimal_commas_and_keeps_two_orders_for_one_person():
     parsed = parse_nordea_csv(
         _csv(
-            "279411;Paweł Włodarczyk;Manager;25.02.2026;23.08.2026;185;178",
-            "285838;Paweł Włodarczyk;Manager;24.08.2026;23.02.2027;195,8;56,4",
+            "279411;Paweł Przykładarczyk;Manager;25.02.2026;23.08.2026;185;178",
+            "285838;Paweł Przykładarczyk;Manager;24.08.2026;23.02.2027;195,8;56,4",
         )
     )
     assert [row.order_number for row in parsed] == ["279411", "285838"]

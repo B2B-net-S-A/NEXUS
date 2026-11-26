@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 /**
  * Regresja: pętla logowania przez Microsoft SSO.
  *
- * Zgłoszenie (Anna Korycka): „nie mogę się zalogować. Jak wchodzę przez
+ * Zgłoszenie (Anna Testycka): „nie mogę się zalogować. Jak wchodzę przez
  * Microsoft to próbuje się zalogować, a po chwili mnie wyrzuca na tę stronę
  * ponownie" + baner „Could not validate credentials".
  *

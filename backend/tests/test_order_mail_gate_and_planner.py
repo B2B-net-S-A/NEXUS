@@ -184,20 +184,20 @@ class TestResolveRows:
     @pytest.mark.parametrize(
         "name",
         [
-            "Konrad Korcz",
-            "Konrada Korcza",
-            "Konradowi Korczowi",
-            "Konradem Korczem",
-            "Korcza Konrada",
-            "Konard Korcz",
-            "Konrad Krcz",
-            "Konrada Korzca",
+            "Konrad Forcz",
+            "Konrada Forcza",
+            "Konradowi Forczowi",
+            "Konradem Forczem",
+            "Forcza Konrada",
+            "Konard Forcz",
+            "Konrad Frcz",
+            "Konrada Forzca",
         ],
     )
     def test_pfron_name_forms_are_included_in_plan(self, name):
         roster = [
             RosterPerson(
-                7, "Konrad", "Korcz", (RosterContract(70, "active", None, None),)
+                7, "Konrad", "Forcz", (RosterContract(70, "active", None, None),)
             )
         ]
         rows = [_row(name)]
@@ -220,8 +220,8 @@ class TestResolveRows:
         assert resolved[0].candidate_id == 1
 
     def test_short_surname_typo_requires_remaining_name_to_match(self):
-        roster = [RosterPerson(7, "Konrad", "Korcz", ())]
-        for name in ("Robert Korcz", "Konard Krcz", "Konrad Nowak"):
+        roster = [RosterPerson(7, "Konrad", "Forcz", ())]
+        for name in ("Robert Forcz", "Konard Frcz", "Konrad Nowak"):
             resolved = resolve_rows([_row(name)], roster)
             assert resolved[0].match_kind == MATCH_NONE
             assert (
@@ -231,10 +231,10 @@ class TestResolveRows:
 
     def test_inflection_collision_requires_manual_choice(self):
         roster = [
-            RosterPerson(7, "Konrad", "Korcz", ()),
-            RosterPerson(8, "Konrad", "Korcza", ()),
+            RosterPerson(7, "Konrad", "Forcz", ()),
+            RosterPerson(8, "Konrad", "Forcza", ()),
         ]
-        resolved = resolve_rows([_row("Konrada Korcza")], roster)
+        resolved = resolve_rows([_row("Konrada Forcza")], roster)
         assert resolved[0].match_kind == MATCH_AMBIGUOUS
         assert resolved[0].candidate_ids == (7, 8)
 

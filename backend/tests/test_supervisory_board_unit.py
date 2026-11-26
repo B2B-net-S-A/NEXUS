@@ -375,10 +375,8 @@ def test_exit_description_drops_consultant_name_in_any_case() -> None:
 
     from app.services.board.people import without_name
 
-    person = SimpleNamespace(name="Michał", lastname="Dyzma")
-    text = (
-        "We need to let go Michał Dyzma; Michała nie przedłużamy, pan Dyzmy nie było."
-    )
+    person = SimpleNamespace(name="Michał", lastname="Testyzma")
+    text = "We need to let go Michał Testyzma; Michała nie przedłużamy, pan Testyzmy nie było."
     assert without_name(text, person) == (
         "We need to let go [konsultant]; [konsultant] nie przedłużamy, pan [konsultant] nie było."
     )

@@ -63,7 +63,7 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
 
         candidate = Candidate(
             name="Tomasz",
-            lastname=f"Plonka-{suffix}",
+            lastname=f"Testonka-{suffix}",
             email=f"restore-{suffix}@example.com",
         )
         db.add(candidate)
@@ -105,7 +105,7 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
             client_id=client.id,
             contract_id=contract.id,
             order_group_id=group.id,
-            title=f"Zamówienie {group.order_number} — Tomasz Plonka",
+            title=f"Zamówienie {group.order_number} — Tomasz Testonka",
             order_type=None,
             status=ClientOrderStatus.completed,
             start_date=business_today() - timedelta(days=200),

@@ -222,7 +222,7 @@ async def test_targeted_extract_resolves_canonical_candidate_for_each_client(
     # pickera i ekstrakcji, mimo że nie jest już aktywny.
     candidate_id = await _seed_candidate(
         "Natalia",
-        "Prus-Rudzińska",
+        "Fikus-Próbińska",
         contract_client_id=client_id,
         contract_status="ended",
     )
@@ -241,13 +241,13 @@ async def test_targeted_extract_resolves_canonical_candidate_for_each_client(
         return OrderExtraction(
             title="PO-MULTI",
             start_date="2026-09-01",
-            rate_client=Decimal("1640"),
+            rate_client=Decimal("1480"),
             rate_unit="day",
             md_total=Decimal("37"),
             consultant_rows=[
                 ConsultantOrderRow(
-                    consultant_name="Prus-Rudzińska Natalia",
-                    rate_client=Decimal("1640"),
+                    consultant_name="Fikus-Próbińska Natalia",
+                    rate_client=Decimal("1480"),
                     rate_unit="day",
                     md_total=Decimal("37"),
                     uncertain=False,
@@ -270,11 +270,11 @@ async def test_targeted_extract_resolves_canonical_candidate_for_each_client(
     assert response.status_code == 200, response.text
     assert received == {
         "text": "treść PDF",
-        "consultant_name": "Natalia Prus-Rudzińska",
+        "consultant_name": "Natalia Fikus-Próbińska",
         "consultant_given_names": "Natalia",
     }
     data = response.json()
-    assert Decimal(str(data["rate_client"])) == Decimal("1640")
+    assert Decimal(str(data["rate_client"])) == Decimal("1480")
     assert Decimal(str(data["md_total"])) == Decimal("37")
     # Wewnętrzna lista innych osób i ich stawek nie wychodzi z API.
     assert "consultant_rows" not in data
@@ -761,7 +761,7 @@ async def test_bnp_endpoint_reads_a_document_without_a_consultant_name(
 
     client_id = await _seed_client("BNP Paribas Bank Polska S.A.")
     candidate_id = await _seed_candidate(
-        "Damian", "Krawczyk", contract_client_id=client_id
+        "Damian", "Testczyk", contract_client_id=client_id
     )
     monkeypatch.setenv("BNP_ORDER_EXTRACTION_CLIENT_IDS", f"999999,{client_id}")
     monkeypatch.setattr(
@@ -969,7 +969,7 @@ async def test_nordea_all_paths_return_every_person_and_discard_totals(
 
     client_id = await _seed_client("Nordea shared five fields")
     candidate_id = await _seed_candidate(
-        "Jakub", "Górecki", contract_client_id=client_id
+        "Jakub", "Próbecki", contract_client_id=client_id
     )
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     text = JAKUB.replace(
@@ -1005,7 +1005,7 @@ async def test_nordea_all_paths_return_every_person_and_discard_totals(
     )
     assert not data["uncertain"] and not data["uncertain_reasons"]
     assert [r["consultant_name"] for r in data["consultant_rows"]] == [
-        "Jakub Górecki",
+        "Jakub Próbecki",
         "Anna Druga",
     ]
     assert [Decimal(str(r["rate_client"])) for r in data["consultant_rows"]] == [

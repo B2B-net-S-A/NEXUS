@@ -51,7 +51,7 @@ function renderModal(contractorOverrides: Record<string, unknown> = {}) {
         contractor={
           {
             contract_id: 563,
-            candidate: { name: "Agnieszka", lastname: "Urbaniak" },
+            candidate: { name: "Agnieszka", lastname: "Wzorniak" },
             start_date: "2026-08-01",
             end_date: null,
             rate_candidate: 100,
@@ -169,13 +169,13 @@ describe("DraftCompletionModal — tytuł okna (UAT B25)", () => {
   it("rozdziela imię i nazwisko spacją", () => {
     renderModal();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "Uzupełnij kontrakt — Agnieszka Urbaniak",
+      "Uzupełnij kontrakt — Agnieszka Wzorniak",
     );
   });
 
   it("pusta część nazwy nie zostawia spacji ani „undefined”", () => {
     expect(contractorFullName({ candidate: { name: "Agnieszka", lastname: "" } } as never)).toBe("Agnieszka");
-    expect(contractorFullName({ candidate: { name: null, lastname: " Urbaniak " } } as never)).toBe("Urbaniak");
+    expect(contractorFullName({ candidate: { name: null, lastname: " Wzorniak " } } as never)).toBe("Wzorniak");
   });
 });
 

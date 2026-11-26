@@ -3,7 +3,7 @@
 Ticket 7 (25.09.2026): historia mieszała trzy rodzaje zapisów — zdarzenia
 biznesowe, pojedyncze zejścia MD z importów i techniczne edycje pól
 (``rate_candidate_currency``). Na zamówieniu 4500030197 było 23 wpisy, w tym
-6 edycji Konrada Tepera w 3 minuty i dwukrotny „Zakończono zamówienie".
+6 edycji jednej osoby w 3 minuty i dwukrotny „Zakończono zamówienie".
 
 Dziennik zostaje nietknięty (czyta go ``/events``, dziesiątki testów i
 raporty). Ten moduł SKŁADA z niego widok przy odczycie — czyste funkcje bez

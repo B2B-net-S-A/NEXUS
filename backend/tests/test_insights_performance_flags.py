@@ -135,9 +135,7 @@ async def admin_headers() -> dict[str, str]:
 # ── 1. Kto może czytać, kto może pisać ─────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "role", [UserRole.recruiter, UserRole.finance, UserRole.admin]
-)
+@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.finance, UserRole.admin])
 @pytest.mark.asyncio
 async def test_every_role_can_read_active_flags(
     pflag_client: AsyncClient, role: UserRole
@@ -310,7 +308,7 @@ async def test_second_active_flag_of_same_type_is_refused(
     assert second.status_code == 409, second.text
 
     # Inny typ przy tej samej osobie jest w porządku — DynaReporter pokazuje
-    # obie plakietki naraz (Zuzanna Gruszczyńska).
+    # obie plakietki naraz (Zuzanna Wzorczyńska).
     other = await pflag_client.post(
         _BASE,
         headers=admin_headers,

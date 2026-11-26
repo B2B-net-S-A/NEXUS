@@ -21,9 +21,9 @@ import { dlPortalApi } from "@/lib/api/dlPortal";
 const CONSULTANT: ConsultantOption = {
   candidate_id: 5,
   contract_id: 100,
-  full_name: "Damian Krawczyk",
+  full_name: "Damian Testczyk",
   first_name: "Damian",
-  last_name: "Krawczyk",
+  last_name: "Testczyk",
   source: "client_recruitment",
   source_label: "Rekrutacja u klienta",
   job_title: "Inżynier danych",
@@ -123,7 +123,7 @@ describe("ConsultantLineModal — numer ID konsultanta z dokumentu", () => {
     } as never);
     renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Damian Krawczyk/ }));
+    await user.click(await screen.findByRole("button", { name: /Damian Testczyk/ }));
     const input = document.querySelector<HTMLInputElement>("#line-po");
     expect(input).not.toBeNull();
     await user.upload(
@@ -160,7 +160,7 @@ describe("ConsultantLineModal — numer ID konsultanta z dokumentu", () => {
     } as never);
     renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Damian Krawczyk/ }));
+    await user.click(await screen.findByRole("button", { name: /Damian Testczyk/ }));
     const input = document.querySelector<HTMLInputElement>("#line-po");
     await user.upload(
       input as HTMLInputElement,

@@ -99,7 +99,7 @@ const BODY: TeamTableResponse = {
   rows: [
     row({
       user_id: 1,
-      name: "Monika Czapla",
+      name: "Monika Testapla",
       role: "recruiter",
       role_label: "Rekruter",
       verifications: 22,
@@ -110,7 +110,7 @@ const BODY: TeamTableResponse = {
     }),
     row({
       user_id: 2,
-      name: "Ewa Kalata",
+      name: "Ewa Wzorata",
       role: "recruiter",
       role_label: "Rekruter",
       verifications: 20,
@@ -121,7 +121,7 @@ const BODY: TeamTableResponse = {
     }),
     row({
       user_id: 3,
-      name: "Katarzyna Orlińska",
+      name: "Katarzyna Wzorińska",
       role: "recruiter",
       role_label: "Rekruter",
       verifications: 19,
@@ -133,7 +133,7 @@ const BODY: TeamTableResponse = {
     // Odeszła z firmy, ale w tym oknie ma dorobek — wiersz musi zostać.
     row({
       user_id: 4,
-      name: "Aleksandra Nałęcz",
+      name: "Aleksandra Wzorłęcz",
       is_active: false,
       verifications: 15,
       recommendations: 4,
@@ -144,7 +144,7 @@ const BODY: TeamTableResponse = {
     // Placementy ma tylko ta osoba — po przesortowaniu wskoczy na górę.
     row({
       user_id: 5,
-      name: "Marlena Rosół",
+      name: "Marlena Testół",
       role: "recruiter",
       role_label: "Rekruter",
       verifications: 0,
@@ -195,7 +195,7 @@ describe("InsightsTeamTable", () => {
     respond(BODY);
     renderSection();
 
-    expect(await screen.findByText("Monika Czapla")).toBeInTheDocument();
+    expect(await screen.findByText("Monika Testapla")).toBeInTheDocument();
     expect(screen.getByText("22")).toBeInTheDocument();
     // Domyślnie: weryfikacje malejąco — medale 1–3 dla trzech najlepszych.
     expect(screen.getByLabelText("Miejsce 1")).toBeInTheDocument();
@@ -205,8 +205,8 @@ describe("InsightsTeamTable", () => {
     // Podium siedzi na trzech pierwszych WIERSZACH, nie na trzech pierwszych
     // osobach z odpowiedzi — sortowanie jest po stronie klienta.
     const names = bodyRowNames();
-    expect(names[0]).toContain("Monika Czapla");
-    expect(names[2]).toContain("Katarzyna Orlińska");
+    expect(names[0]).toContain("Monika Testapla");
+    expect(names[2]).toContain("Katarzyna Wzorińska");
   });
 
   it("pokazuje nieprzypisane kamienie obok sumy kolumny", async () => {
@@ -256,7 +256,7 @@ describe("InsightsTeamTable", () => {
     respond(BODY);
     renderSection();
 
-    const name = await screen.findByText("Aleksandra Nałęcz");
+    const name = await screen.findByText("Aleksandra Wzorłęcz");
     const personCell = name.closest("td")!;
     expect(within(personCell).getByText("był(a) w zespole")).toBeInTheDocument();
     // Jej liczby zostają w tabeli — offboarding nie kasuje historii wstecz.
@@ -268,11 +268,11 @@ describe("InsightsTeamTable", () => {
     respond(BODY);
     renderSection();
 
-    await screen.findByText("Monika Czapla");
+    await screen.findByText("Monika Testapla");
     fireEvent.click(screen.getByRole("button", { name: /Placements/i }));
 
     const names = bodyRowNames();
-    expect(names[0]).toContain("Marlena Rosół");
+    expect(names[0]).toContain("Marlena Testół");
     expect(screen.getByLabelText("Miejsce 1")).toBeInTheDocument();
   });
 
@@ -280,10 +280,10 @@ describe("InsightsTeamTable", () => {
     respond(BODY);
     renderSection();
 
-    await screen.findByText("Monika Czapla");
+    await screen.findByText("Monika Testapla");
     fireEvent.click(screen.getByRole("button", { name: /Osoba/i }));
 
-    expect(bodyRowNames()[0]).toContain("Aleksandra Nałęcz");
+    expect(bodyRowNames()[0]).toContain("Aleksandra Wzorłęcz");
     expect(screen.queryByLabelText("Miejsce 1")).not.toBeInTheDocument();
   });
 
@@ -401,7 +401,7 @@ describe("sortRows / initialsOf", () => {
   });
 
   it("buduje inicjały z polskich znaków i znosi brak nazwiska", () => {
-    expect(initialsOf("Julia Świdkiewicz")).toBe("JŚ");
+    expect(initialsOf("Julia Ślimakiewicz")).toBe("JŚ");
     expect(initialsOf(null)).toBe("?");
   });
 });

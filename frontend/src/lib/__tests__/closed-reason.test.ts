@@ -12,7 +12,7 @@ describe("closedReason (19.10.2026)", () => {
       closedReason({
         stage: "rejected",
         rejection_reason_name: " Za wysokie oczekiwania finansowe ",
-        closed_by_name: " Julia Swidkiewicz ",
+        closed_by_name: " Julia Testkiewicz ",
         notes: "  Oczekuje 190 zł/h.\n",
         moved_at: "2026-10-16T10:00:00Z",
       }),
@@ -23,7 +23,7 @@ describe("closedReason (19.10.2026)", () => {
       reasonText: "Za wysokie oczekiwania finansowe",
       unknown: false,
       comment: "Oczekuje 190 zł/h.",
-      by: "Julia Swidkiewicz",
+      by: "Julia Testkiewicz",
       at: "2026-10-16T10:00:00Z",
       tone: "danger",
     });
