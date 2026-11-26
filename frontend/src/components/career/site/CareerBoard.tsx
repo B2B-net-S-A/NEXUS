@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CareerBoardResponse, RemotePolicy } from "@/lib/career/api";
 import { BOARD_MODES, BOARD_PAGE, filterBoard } from "@/lib/career/board";
 import { careerHref, type CareerBase } from "@/lib/career/host";
+import { openRecruitmentsIT } from "@/lib/career/ogText";
 import { inCities, onMap } from "@/lib/career/polandMap";
 import { facetCounts, jobFacetIds, nextBatch, openNowLabel, partialMatch, pluralForm } from "@/lib/career/site";
 
@@ -20,13 +21,6 @@ export const CV_ID = "zostaw-cv";
 
 /** Ile miast w chipach nad listą (reszta zostaje w szukajce). */
 const CHIPS = 12;
-
-/** „1 otwarta rekrutacja IT”, „3 otwarte rekrutacje IT”, „101 otwartych rekrutacji IT”. */
-export function openRecruitments(n: number): string {
-  const f = pluralForm(n);
-  if (f === "one") return "1 otwarta rekrutacja IT";
-  return f === "few" ? `${n} otwarte rekrutacje IT` : `${n} otwartych rekrutacji IT`;
-}
 
 /** „101 ofert” (nagłówek listy) i „Pokaż 1 ofertę” (biernik w przycisku szukajki). */
 export function offersLabel(n: number, kase: "nom" | "acc"): string {
@@ -159,7 +153,7 @@ function Board({
 
   const lead = total > 0 ? (
     <>
-      <strong>{openRecruitments(total)}</strong> w bankowości, AI, danych i testach. Zdalnie, hybrydowo albo w biurze
+      <strong>{openRecruitmentsIT(total)}</strong> w bankowości, AI, danych i testach. Zdalnie, hybrydowo albo w biurze
       {cities ? `, ${cities}` : ""}.
     </>
   ) : (
