@@ -24,7 +24,6 @@ interface ReturnedItem {
 
 const DAY = new Intl.DateTimeFormat("pl-PL", {
   timeZone: "Europe/Warsaw",
-  weekday: "short",
   day: "2-digit",
   month: "2-digit",
 });
@@ -48,7 +47,9 @@ export function returnedLine(item: ReturnedItem, viewerId: number | null | undef
   const when = dayLabel(returned.at);
   if (returnedToViewer(item, viewerId)) {
     const since = dayLabel(returned.screening_since);
-    return [`Wróciła od Ciebie${when ? ` ${when}` : ""}`, since ? `w Screeningu od ${since}` : null]
+    // Grupa nad kartą mówi już „Wróciły od Ciebie” — tu tylko daty, krótko,
+    // żeby „Weź z powrotem” zmieściło się w tej samej linii przy 1280 px.
+    return [`Wróciła${when ? ` ${when}` : ""}`, since ? `w Screeningu od ${since}` : null]
       .filter(Boolean)
       .join(" · ");
   }

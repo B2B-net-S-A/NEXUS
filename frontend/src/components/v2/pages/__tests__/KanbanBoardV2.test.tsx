@@ -595,7 +595,7 @@ describe("KanbanBoardV2 — karty, które wróciły ze Screeningu (26.11.2026)",
     );
     expect(order.slice(0, 3)).toEqual(["2", "1", "3"]);
     const lines = screen.getAllByTestId("card-returned-line").map((el) => el.textContent);
-    expect(lines[0]).toContain("Wróciła od Ciebie");
+    expect(lines[0]).toBe("Wróciła 26.11 · w Screeningu od 23.11");
     expect(lines[1]).toBe("Wróciła ze Screeningu od: Kolega K.");
     expect(screen.getAllByTestId("card-take-back")).toHaveLength(1);
   });

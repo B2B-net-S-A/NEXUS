@@ -15,7 +15,7 @@ const card = (holder: number | null, extra: object = {}) => ({
 describe("napis pod kartą, która wróciła ze Screeningu", () => {
   it("osobie, od której wróciła: kiedy wróciła i od kiedy stała w Screeningu", () => {
     expect(returnedToViewer(card(261), 261)).toBe(true);
-    expect(returnedLine(card(261), 261)).toBe("Wróciła od Ciebie czw., 26.11 · w Screeningu od pon., 23.11");
+    expect(returnedLine(card(261), 261)).toBe("Wróciła 26.11 · w Screeningu od 23.11");
   });
 
   it("pozostałym: od kogo wróciła", () => {
@@ -30,7 +30,7 @@ describe("napis pod kartą, która wróciła ze Screeningu", () => {
   });
 
   it("zły termin nie psuje napisu", () => {
-    expect(returnedLine(card(261, { at: "x", screening_since: null }), 261)).toBe("Wróciła od Ciebie");
+    expect(returnedLine(card(261, { at: "x", screening_since: null }), 261)).toBe("Wróciła");
   });
 });
 
