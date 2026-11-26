@@ -1045,24 +1045,37 @@ async def _store_client_reports(
         except ValueError:
             continue
         if lower.endswith((".xlsx", ".xls")):
-            # Wykaz grupy Polkomtel / Cyfrowy Polsat z wierszami kilku kontraktów
-            # (dwie osoby albo jedna osoba w obu spółkach, próba VI–VIII 2026): plik
-            # u każdego kontraktu. Jeden kontrakt idzie zwykłą ścieżką.
+            # Wykaz grupy Polkomtel / Cyfrowy Polsat z wierszami kilku osób albo
+            # kontraktów (próba VI–VIII 2026): plik u każdego rozpoznanego kontraktu.
+            # Jedna osoba z jednym kontraktem idzie zwykłą ścieżką. Arkusz dwóch osób
+            # jako całość nie wskazuje nikogo, więc idzie tędy także przy jednym.
             sheet = await asyncio.to_thread(timesheet_plus.parse, content)
             if sheet is not None and sheet.month is not None:
+                matched = await identity.resolve_sheet_contracts(
+                    db, sheet, sender=sender, today=today
+                )
                 owners = [
-                    c
-                    for c in await identity.resolve_sheet_contracts(
-                        db, sheet, sender=sender, today=today
-                    )
+                    c.id
+                    for c in matched.contracts
                     if state.any_sender or state.open_for(c.id)
                 ]
-                if len(owners) > 1:
+                several = len(timesheet_plus.people(sheet)) > 1
+                if len(owners) > 1 or (owners and several):
                     year, month = (int(part) for part in sheet.month.split("-"))
-                    for position, contract in enumerate(owners):
+                    # Identyfikator maila nosi jedna kopia, zapisana przy pierwszym
+                    # odczycie. Gdy czytnik wraca do maila, dochodzą tylko kontrakty,
+                    # których wcześniej nie rozpoznał.
+                    first_read = not await documents.stored_from_mail(
+                        db, message_id, content
+                    )
+                    # Wiersze bez kontraktu zostają widoczne w kopii do przypisania.
+                    # Stoi pierwsza, więc wtedy to ona nosi identyfikator maila.
+                    keep_spare = matched.unmatched and state.any_sender and first_read
+                    spare = [None] if keep_spare else []
+                    for position, owner in enumerate([*spare, *owners]):
                         stored = await documents.store(
                             db,
-                            contract_id=contract.id,
+                            contract_id=owner,
                             kind="report",
                             year=year,
                             month=month,
@@ -1070,7 +1083,9 @@ async def _store_client_reports(
                             file_name=name or None,
                             channel="mailbox",
                             now=now,
-                            graph_message_id=message_id if position == 0 else None,
+                            graph_message_id=(
+                                message_id if position == 0 and first_read else None
+                            ),
                             sender_email=sender[:320] or None,
                         )
                         created += 0 if stored.duplicate else 1

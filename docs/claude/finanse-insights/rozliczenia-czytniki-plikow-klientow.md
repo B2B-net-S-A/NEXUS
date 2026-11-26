@@ -55,11 +55,13 @@ Polsatu powstały z jego PDF-ów „Zlecenie Wykonawcze”, każda spółka ma s
 Artur 23.11.2026: dane zostają. Nadawca (skrzynka firmowa konsultanta, `plus.pl` wspólne dla
 grupy) nie wskazuje więc kontraktu, a plik tak (`identity.resolve_from_sheet`):
 
-- numer zamówienia z wiersza („Z250725003”, „Nr zlecenia”) → kontrakt z nieanulowaną linią
+- numer zamówienia z wiersza („Z990101001”, „Nr zlecenia”) → kontrakt z nieanulowaną linią
   tego zamówienia; przedrostek „CP”/„SAP” i spacje się nie liczą (`timesheet_plus.order_key`);
 - raport Polkomtelu bez numeru albo z numerem spoza NEXUSA → kontrakt osoby u Polkomtelu
   (decyzja Artura z 23.11.2026; „Nr zlecenia” pusty w 81 z 82 raportów w archiwum);
 - arkusz Polsatu z numerem spoza NEXUSA, dwie osoby w pliku albo dwa kontrakty w trafieniu → nikt.
+  Tak działa cały arkusz; plik kilku osób albo kontraktów poczta rozpisuje na pary
+  (niżej, „Wykaz Polsatu w `.xlsx` i plik kilku kontraktów”).
 
 Treść pliku wskazuje osobę tylko od skrzynki firmy, od klienta z domeny z rejestru zamówień
 (wśród jego kontraktów) albo od tej samej osoby. Obcy adres nie dopisze nikomu godzin plikiem.
@@ -205,5 +207,15 @@ Ten sam układ co „B2B_RRRR_MM.xls” przychodzi jako prawdziwy `.xlsx` („B2
 z zamówieniem Polsatu i Polkomtelu. `identity.resolve_sheet_contracts` daje kontrakt każdej pary
 (osoba, numer zamówienia) przez `resolve_from_sheet`, z tymi samymi zasadami nadawcy, a poczta
 (`_store_client_reports`) zapisuje plik u każdego z nich. Godziny kontraktu to tylko wiersze jego
-zamówień (`declared_for(orders=…)`, klucze z `service._order_keys`). Jeden kontrakt idzie zwykłą
-ścieżką.
+zamówień (`declared_for(orders=…)`, klucze z `service._order_keys`). Jedna osoba z jednym
+kontraktem idzie zwykłą ścieżką.
+
+Od 26.11.2026 plik dwóch osób dostaje także jedyny rozpoznany kontrakt. Wcześniej nie dostawał
+go nikt, bo cały arkusz dwóch osób nikogo nie wskazuje: w czerwcowym wykazie numerów drugiej
+osoby nie było w NEXUSIE, więc 634 VI zostawało bez raportu mimo zgodnego numeru. Gdy któraś
+para nie wskazała kontraktu, jedna kopia pliku zostaje bez kontraktu (karta „do przypisania”),
+żeby jej godziny nie znikły; w pilotażu, który nie bierze dokumentów od nieznanych nadawców,
+tej kopii nie ma. Czytnik wraca do maili z ostatnich 2 godzin, więc identyfikator maila i kopia
+bez kontraktu powstają tylko przy pierwszym odczycie. Potem dochodzą najwyżej kontrakty
+rozpoznane później (np. po dopisaniu numeru zamówienia); wcześniej taki powtórny odczyt kończył
+się błędem zapisu.

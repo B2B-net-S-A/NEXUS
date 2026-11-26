@@ -454,23 +454,32 @@ async def resolve_from_sheet(
     return hits[0] if len(hits) == 1 else None
 
 
+@dataclass(frozen=True)
+class SheetContracts:
+    #: Kolejność jak w pliku, bez powtórzeń.
+    contracts: tuple[Contract, ...]
+    #: Któraś para (osoba, numer zamówienia) nie wskazała żadnego kontraktu.
+    unmatched: bool
+
+
 async def resolve_sheet_contracts(
     db: AsyncSession, sheet: "timesheet_plus.Sheet", *, sender: str, today: date
-) -> list[Contract]:
+) -> SheetContracts:
     """Kontrakty wszystkich osób i zamówień z arkusza grupy Polkomtel / Cyfrowy Polsat.
 
     Próba VI–VIII 2026: jeden wykaz od kierownika klienta niesie wiersze dwóch osób
     albo jednej osoby na zamówieniach Polsatu i Polkomtelu (kontrakt w każdej
     spółce). Każda para (osoba, numer zamówienia) przechodzi ``resolve_from_sheet``
     na wycinku arkusza z tymi wierszami, więc zasady nadawcy i numeru zostają te same.
-    Kolejność kontraktów jak w pliku, bez powtórzeń."""
+    """
 
     from dataclasses import replace
 
     from app.services.client_settlements import timesheet_plus
     from app.services.client_settlements.rcp_checks import name_tokens
 
-    found: list[Contract] = []
+    found: dict[int, Contract] = {}
+    unmatched = False
     groups: dict[tuple[frozenset[str], Optional[str]], list] = {}
     for row in sheet.rows:
         key = (frozenset(name_tokens(row.person)), timesheet_plus.order_key(row.order))
@@ -478,9 +487,11 @@ async def resolve_sheet_contracts(
     for rows in groups.values():
         part = replace(sheet, rows=tuple(rows))
         contract = await resolve_from_sheet(db, part, sender=sender, today=today)
-        if contract is not None and contract.id not in {c.id for c in found}:
-            found.append(contract)
-    return found
+        if contract is None:
+            unmatched = True
+        else:
+            found.setdefault(contract.id, contract)
+    return SheetContracts(tuple(found.values()), unmatched)
 
 
 async def split_client(db: AsyncSession, order_keys: frozenset[str]) -> Optional[int]:

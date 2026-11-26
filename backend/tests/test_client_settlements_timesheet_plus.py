@@ -260,8 +260,10 @@ def polsat_xlsx(
     *,
     month: str = "lipiec",
     hours_columns: bool = False,
+    text_header: bool = False,
 ) -> bytes:
-    """Wiersze jak w ``polsat_xml``; ``hours_columns`` = kolumny R(h)/P(h) i wiersz SUMA."""
+    """Wiersze jak w ``polsat_xml``; ``hours_columns`` = kolumny R(h)/P(h) i wiersz
+    SUMA, ``text_header`` = rok i numery dni zapisane jako tekst."""
 
     import io
 
@@ -273,9 +275,10 @@ def polsat_xlsx(
     book = openpyxl.Workbook()
     sheet = book.active
     sheet.title = "Harmonogram"
-    sheet.append([*lead, 2026, 2026])
+    cast = str if text_header else int
+    sheet.append([*lead, cast(2026), cast(2026)])
     sheet.append([None] * width + [month, month])
-    sheet.append([None] * (width + 1) + list(range(1, 32)))
+    sheet.append([None] * (width + 1) + [cast(d) for d in range(1, 32)])
     for person, order, month_hours, per_day in rows:
         extra = [240, 0] if hours_columns else []
         days = [int(per_day[d]) if d in per_day else None for d in range(1, 32)]
@@ -332,6 +335,21 @@ def test_polsat_xlsx_z_kolumnami_godzin_i_wierszem_suma() -> None:
         ("Inna Anna", Decimal("16")),
     ]
     assert len(timesheet_plus.people(sheet)) == 2
+
+
+def test_polsat_xlsx_z_naglowkiem_i_dniami_jako_tekst() -> None:
+    """VII 2026: w pliku rok i numery dni to teksty, a dwie kolumny noszą nazwę
+    miesiąca (suma i pierwszy dzień)."""
+
+    sheet = timesheet_plus.parse(
+        polsat_xlsx(
+            [("Testowy Jan", "Z990101001", "24", {1: "8", 2: "8", 31: "8"})],
+            text_header=True,
+        )
+    )
+
+    assert sheet is not None and sheet.month == "2026-07"
+    assert [(r.order, r.hours) for r in sheet.rows] == [("Z990101001", Decimal("24"))]
 
 
 def test_inny_arkusz_xlsx_to_nie_polsat() -> None:

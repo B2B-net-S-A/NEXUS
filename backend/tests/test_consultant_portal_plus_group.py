@@ -23,13 +23,17 @@ from sqlalchemy import update
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
+from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
+from app.models.consultant_panel import CpActivation
+from app.models.contract import Contract
 from app.services.consultant_portal import identity
 from tests.care_announcements_seed import care_on, tag  # noqa: F401  (fixture)
 from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     make_person,
     portal_restored,
+    set_portal,
 )
 from tests.test_client_settlements_timesheet_plus import (
     polkomtel_html,
@@ -288,3 +292,125 @@ async def test_arkusz_kilku_kontraktow_od_obcego_nic_nie_przypisuje(
         for d in await _documents()
         if d.file_name == "B2B_2026_07.xlsx"
     )
+
+
+def _june_sheet(last: str, rows: list[tuple[str, str]]) -> bytes:
+    """Wykaz VI 2026: obok osoby z NEXUS-a druga, której zamówienia tu nie ma.
+    ``rows``: (numer, godziny) osoby ``last``; wiersz nierozpoznany stoi pierwszy."""
+
+    mine = [
+        (f"{last} Jan", number, hours, {d: "8" for d in range(1, int(hours) // 8 + 1)})
+        for number, hours in rows
+    ]
+    unknown = (f"Inna{tag()} Anna", "4500000002", "16", {1: "8", 2: "8"})
+    return polsat_xlsx([unknown, *mine], month="czerwiec", hours_columns=True)
+
+
+async def _read_june(sheet: bytes) -> FakeMailbox:
+    reader = _mail(
+        f"kierowniczka@{GROUP_DOMAIN}",
+        [_attachment("B2B czerwiec 2026.xlsx", sheet)],
+        "Rozliczenie za 06.2026",
+    )
+    await _read(reader)
+    return reader
+
+
+async def _june_owners() -> list[int | None]:
+    return sorted(
+        (
+            d.contract_id
+            for d in await _documents()
+            if (d.kind, d.period_year, d.period_month) == ("report", 2026, 6)
+        ),
+        key=str,
+    )
+
+
+async def test_arkusz_dwoch_osob_z_jednym_rozpoznanym_kontraktem(monkeypatch) -> None:
+    """VI 2026: numerów drugiej osoby nie ma w NEXUS-ie. Do 26.11 plik nie trafiał
+    do nikogo, bo cały arkusz dwóch osób nikogo nie wskazuje. Dostaje go rozpoznany
+    kontrakt, a jedna kopia zostaje do przypisania, żeby reszta wierszy nie znikła."""
+
+    last = f"Testowy{tag()}"
+    _, cp, number = await _group_person(monkeypatch, last)
+
+    reader = await _read_june(_june_sheet(last, [(number, "88")]))
+
+    assert await _june_owners() == sorted([cp.contract_id, None], key=str)
+
+    await _read(reader)  # mail wraca w zakładce ``OVERLAP``: bez drugich kopii
+
+    assert await _june_owners() == sorted([cp.contract_id, None], key=str)
+    assert len(await _documents()) == 2
+
+
+async def test_nierozpoznany_wiersz_zostawia_kopie_obok_dwoch_kontraktow(
+    monkeypatch,
+) -> None:
+    last = f"Testowy{tag()}"
+    plk, cp, number = await _group_person(monkeypatch, last)
+    sap = f"45{tag()}"
+    await _order(plk.contract_id, plk.client_id, f"SAP {sap}")
+
+    await _read_june(_june_sheet(last, [(number, "88"), (sap, "8")]))
+
+    assert await _june_owners() == sorted(
+        [cp.contract_id, plk.contract_id, None], key=str
+    )
+
+
+async def test_zamowienie_dopisane_przed_ponownym_odczytem(monkeypatch) -> None:
+    """Czytnik wraca do maili z ostatnich 2 godzin. Numer dopisany w tym czasie daje
+    plik kolejnemu kontraktowi: bez błędu zapisu i bez drugiej kopii do przypisania."""
+
+    last = f"Testowy{tag()}"
+    plk, cp, number = await _group_person(monkeypatch, last)
+    other = await make_person(activated=False)
+    other_last = f"Inna{tag()}"
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Candidate)
+            .where(Candidate.id == other.candidate_id)
+            .values(name="Anna", lastname=other_last)
+        )
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == other.contract_id)
+            .values(client_id=plk.client_id)
+        )
+        await db.commit()
+    sap = f"45{tag()}"
+    sheet = polsat_xlsx(
+        [
+            (f"{other_last} Anna", sap, "16", {1: "8", 2: "8"}),
+            (f"{last} Jan", number, "88", {d: "8" for d in range(1, 12)}),
+        ],
+        month="czerwiec",
+    )
+    reader = await _read_june(sheet)
+    assert await _june_owners() == sorted([cp.contract_id, None], key=str)
+
+    await _order(other.contract_id, plk.client_id, f"SAP {sap}")
+    result = await _read(reader)
+
+    assert (result["status"], result["failed"]) == ("ok", 0)
+    assert await _june_owners() == sorted(
+        [cp.contract_id, other.contract_id, None], key=str
+    )
+
+
+async def test_pilotaz_nie_zostawia_kopii_bez_kontraktu(monkeypatch) -> None:
+    """W pilotażu skrzynka bierze tylko aktywowane kontrakty, więc kopii bez
+    kontraktu nie ma (jak przy nieznanym nadawcy)."""
+
+    last = f"Testowy{tag()}"
+    _, cp, number = await _group_person(monkeypatch, last)
+    async with AsyncSessionLocal() as db:
+        db.add(CpActivation(contract_id=cp.contract_id, email=cp.email))
+        await db.commit()
+    await set_portal("pilot")
+
+    await _read_june(_june_sheet(last, [(number, "88")]))
+
+    assert [d.contract_id for d in await _documents()] == [cp.contract_id]
