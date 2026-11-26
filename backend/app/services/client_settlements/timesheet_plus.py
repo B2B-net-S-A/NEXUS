@@ -273,14 +273,21 @@ def people(sheet: Sheet) -> list[set[str]]:
 
 
 def declared_for(
-    sheet: Sheet, person_name: str, *, orders: frozenset[str] = frozenset()
+    sheet: Sheet,
+    person_name: str,
+    *,
+    orders: frozenset[str] = frozenset(),
+    other_orders: frozenset[str] = frozenset(),
 ) -> Optional[Declared]:
     """Godziny osoby z kontraktu; plik jednej innej osoby idzie w całości, żeby
     kontrola nazwiska pokazała różnicę zamiast cichego „bez MD”.
 
     ``orders``: klucze numerów zamówień kontraktu (``order_key``). Gdy któryś wiersz
     osoby ma numer z tego zbioru, liczą się tylko takie wiersze: ta sama osoba ma
-    w pliku zamówienia drugiego kontraktu (Polsat i Polkomtel, próba VI–VIII 2026)."""
+    w pliku zamówienia drugiego kontraktu (Polsat i Polkomtel, próba VI–VIII 2026).
+    ``other_orders``: numery pozostałych kontraktów osoby. Kontrakt bez własnego
+    numeru w pliku nie bierze ich wierszy, bo te godziny liczy tamten kontrakt;
+    gdy nie zostaje żaden wiersz, godzin nie ma."""
 
     wanted = name_tokens(person_name)
     mine = [r for r in sheet.rows if name_tokens(r.person) == wanted]
@@ -288,15 +295,15 @@ def declared_for(
         if len(people(sheet)) != 1:
             return None
         mine = list(sheet.rows)
+    consultant = mine[0].person
     own = [r for r in mine if order_key(r.order) in orders]
-    if own:
-        mine = own
+    mine = own or [r for r in mine if order_key(r.order) not in other_orders]
     hours: Optional[Decimal] = None
-    if all(r.hours is not None for r in mine):
+    if mine and all(r.hours is not None for r in mine):
         hours = sum((r.hours for r in mine if r.hours is not None), Decimal("0"))
     return Declared(
         source=LABELS[sheet.source],
-        consultant=mine[0].person,
+        consultant=consultant,
         month=sheet.month,
         hours=hours,
     )

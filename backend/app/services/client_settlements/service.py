@@ -1343,11 +1343,14 @@ async def _proof(
     signed_sheet: bool = False,
     travel: Optional[TravelCheck] = None,
     order_keys: frozenset[str] = frozenset(),
+    other_order_keys: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
 
     ``order_keys``: numery zamówień kontraktu (``timesheet_plus.order_key``);
     wykaz grupy Polkomtel / Cyfrowy Polsat liczy tylko wiersze tych zamówień.
+    ``other_order_keys``: numery pozostałych kontraktów tej osoby; ich wierszy
+    ten kontrakt nie liczy.
 
     ``travel``: szuka akceptacji kosztów delegacji przez klienta, gdy RCP ma
     koszty delegacji (``_travel_acceptance``).
@@ -1385,6 +1388,7 @@ async def _proof(
         agreements=agreements,
         signed_sheet=signed_sheet,
         order_keys=order_keys,
+        other_order_keys=other_order_keys,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1517,6 +1521,7 @@ async def _read_file(
     agreements: frozenset[str] = frozenset(),
     signed_sheet: bool = False,
     order_keys: frozenset[str] = frozenset(),
+    other_order_keys: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
 
@@ -1562,7 +1567,9 @@ async def _read_file(
         # rozliczenie Polsatu bywa też prawdziwym „.xlsx” (próba VI–VIII 2026).
         sheet = await asyncio.to_thread(timesheet_plus.parse, content)
         found_plus = (
-            timesheet_plus.declared_for(sheet, person_name, orders=order_keys)
+            timesheet_plus.declared_for(
+                sheet, person_name, orders=order_keys, other_orders=other_order_keys
+            )
             if sheet
             else None
         )
@@ -2040,16 +2047,26 @@ def _order_rank(
     return (not overlaps, order.status != ClientOrderStatus.active, -start, -order.id)
 
 
-async def _order_keys(db: AsyncSession, contract_id: int) -> frozenset[str]:
-    """Numery zamówień kontraktu (grupa albo tytuł linii) jako ``order_key``."""
+async def _order_keys(
+    db: AsyncSession, contract_id: int, *, siblings: bool = False
+) -> frozenset[str]:
+    """Numery zamówień kontraktu (grupa albo tytuł linii) jako ``order_key``.
 
+    ``siblings``: zamiast nich numery pozostałych kontraktów tej samej osoby."""
+
+    scope = ClientOrder.contract_id == contract_id
+    if siblings:
+        person = select(Contract.candidate_id).where(Contract.id == contract_id)
+        scope = ClientOrder.contract_id.in_(
+            select(Contract.id).where(
+                Contract.candidate_id == person.scalar_subquery(),
+                Contract.id != contract_id,
+            )
+        )
     rows = await db.execute(
         select(ClientOrder.title, ClientOrderGroup.order_number)
         .outerjoin(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
-        .where(
-            ClientOrder.contract_id == contract_id,
-            ClientOrder.status != ClientOrderStatus.cancelled,
-        )
+        .where(scope, ClientOrder.status != ClientOrderStatus.cancelled)
     )
     keys = {
         timesheet_plus.order_key(number or number_from_title(title))
@@ -2464,6 +2481,7 @@ async def _recompute(
                 db, s, person.name, rules, parsed, signatures
             ),
             order_keys=await _order_keys(db, s.contract_id),
+            other_order_keys=await _order_keys(db, s.contract_id, siblings=True),
         )
         if proof is not None and fixed:
             _fix_note(proof, rules)

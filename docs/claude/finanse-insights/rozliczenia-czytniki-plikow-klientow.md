@@ -219,3 +219,12 @@ tej kopii nie ma. Czytnik wraca do maili z ostatnich 2 godzin, więc identyfikat
 bez kontraktu powstają tylko przy pierwszym odczycie. Potem dochodzą najwyżej kontrakty
 rozpoznane później (np. po dopisaniu numeru zamówienia); wcześniej taki powtórny odczyt kończył
 się błędem zapisu.
+
+- **Konsultant z jednym trafieniem idzie zwykłą ścieżką** (`identity.sender_contract_ids`):
+  wskazuje go adres, a ta ścieżka czyta też treść maila jako dowód akceptacji. Nie dostaje kopii
+  bez kontraktu ani nie oddaje pliku drugiej osobie z arkusza. Dwa trafienia i więcej: plik
+  u każdego, jak dotąd.
+- **Kontrakt bez żadnego numeru z pliku nie liczy wierszy innych kontraktów tej osoby**
+  (`declared_for(other_orders=…)`): kopię przypisaną do drugiego kontraktu rozlicza tylko
+  reszta, inaczej te same godziny weszłyby dwa razy. Gdy nie zostaje żaden wiersz, godzin nie
+  ma i MD wpisują Finanse.

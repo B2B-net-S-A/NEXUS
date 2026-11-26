@@ -334,6 +334,31 @@ def test_polsat_xlsx_z_kolumnami_godzin_i_wierszem_suma() -> None:
     assert len(timesheet_plus.people(sheet)) == 2
 
 
+def test_wiersze_innego_kontraktu_nie_licza_sie_drugi_raz() -> None:
+    """Kontrakt bez żadnego numeru z pliku (zamówienie jeszcze nie w NEXUS-ie) bierze
+    wiersze osoby bez numerów jej pozostałych kontraktów, inaczej te same godziny
+    weszłyby do dwóch rozliczeń. Gdy nie zostaje żaden wiersz, godzin nie ma."""
+
+    sheet = timesheet_plus.parse(
+        polsat_xlsx(
+            [
+                ("Testowy Jan", "Z990101001", "88", {d: "8" for d in range(1, 12)}),
+                ("Testowy Jan", "4500000001", "8", {14: "8"}),
+            ]
+        )
+    )
+    polsat = timesheet_plus.order_key("CP Z990101001")
+
+    rest = timesheet_plus.declared_for(sheet, PERSON, other_orders=frozenset({polsat}))
+    none = timesheet_plus.declared_for(
+        sheet, PERSON, other_orders=frozenset({polsat, "4500000001"})
+    )
+
+    assert rest is not None and rest.hours == Decimal("8")
+    assert none is not None and none.hours is None
+    assert (none.consultant, none.month) == ("Testowy Jan", "2026-07")
+
+
 def test_inny_arkusz_xlsx_to_nie_polsat() -> None:
     import io
 

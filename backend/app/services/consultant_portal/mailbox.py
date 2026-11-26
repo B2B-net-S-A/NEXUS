@@ -1048,7 +1048,9 @@ async def _store_client_reports(
             # Wykaz grupy Polkomtel / Cyfrowy Polsat z wierszami kilku osób albo
             # kontraktów (próba VI–VIII 2026): plik u każdego rozpoznanego kontraktu.
             # Jedna osoba z jednym kontraktem idzie zwykłą ścieżką. Arkusz dwóch osób
-            # jako całość nie wskazuje nikogo, więc idzie tędy także przy jednym.
+            # jako całość nie wskazuje nikogo, więc od klienta i z firmy idzie tędy
+            # także przy jednym. Konsultanta z jednym trafieniem wskazuje adres, a
+            # zwykła ścieżka czyta też treść jego maila (dowód akceptacji).
             sheet = await asyncio.to_thread(timesheet_plus.parse, content)
             if sheet is not None and sheet.month is not None:
                 matched = await identity.resolve_sheet_contracts(
@@ -1059,8 +1061,13 @@ async def _store_client_reports(
                     for c in matched.contracts
                     if state.any_sender or state.open_for(c.id)
                 ]
+                own = (
+                    await identity.sender_contract_ids(db, sender, today=today)
+                    if owners
+                    else frozenset()
+                )
                 several = len(timesheet_plus.people(sheet)) > 1
-                if len(owners) > 1 or (owners and several):
+                if len(owners) > 1 or (owners and several and not own):
                     year, month = (int(part) for part in sheet.month.split("-"))
                     # Identyfikator maila nosi jedna kopia, zapisana przy pierwszym
                     # odczycie. Gdy czytnik wraca do maila, dochodzą tylko kontrakty,
@@ -1070,7 +1077,12 @@ async def _store_client_reports(
                     )
                     # Wiersze bez kontraktu zostają widoczne w kopii do przypisania.
                     # Stoi pierwsza, więc wtedy to ona nosi identyfikator maila.
-                    keep_spare = matched.unmatched and state.any_sender and first_read
+                    keep_spare = (
+                        matched.unmatched
+                        and state.any_sender
+                        and first_read
+                        and not own
+                    )
                     spare = [None] if keep_spare else []
                     for position, owner in enumerate([*spare, *owners]):
                         stored = await documents.store(
