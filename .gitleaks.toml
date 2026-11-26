@@ -263,6 +263,11 @@ regexes = [
   # zera; w pliku mają już ``gitleaks:allow``, ale skan zakresu PR-a #3348 widzi
   # pierwszy commit. Dokładne wartości.
   '''00000000-0000-0000-0000-00000000000[12]''',
+  # Fikcyjne ``groupId`` ogłoszenia Pracuj.pl z testów i harnessu (26.11.2026) —
+  # w plikach zastąpione wartościami ``00000000-0000-4000-8000-…``, ale skan
+  # zakresu PR-a #4072 widzi pierwszy commit. Dokładne wartości.
+  '''0f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b''',
+  '''1f1e2d3c-4b5a-11ef-9a8b-7c6d5e4f3a2b''',
 ]
 
 [[rules]]

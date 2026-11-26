@@ -8,9 +8,12 @@
  *
  * To wyłącznie zapis tego, co zrobił człowiek. Wyjątek od 03.11.2026: przy
  * włączonym portalu JustJoin.IT publikuje NEXUS (`state.jjit_api`) i stan „wisi”
- * zapisuje worker. Reguły:
+ * zapisuje worker. Drugi wyjątek od 26.11.2026: link do Pracuj.pl NEXUS bierze
+ * sam z maila Pracuj.pl „Publikacja ogłoszenia na …” (`from_mail`), a przy
+ * niepewnym dopasowaniu pyta (`pracuj_mail_suggestions`). Reguły:
  * `docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md`,
- * `docs/claude/rekrutacja-tworzenie/ogloszenie-justjoin-przez-api.md`.
+ * `docs/claude/rekrutacja-tworzenie/ogloszenie-justjoin-przez-api.md`,
+ * `docs/claude/rekrutacja-tworzenie/link-pracuj-z-maila-pracuj.md`.
  */
 
 import { useEffect, useState } from "react";
@@ -31,13 +34,15 @@ import {
   type AdPortal,
   type AdPublication,
   type JobAdState,
+  type PracujMailSuggestion,
   type PracujRequest,
 } from "@/lib/api/jobAd";
 import { pendingActionLabel } from "@/lib/api/jobPortals";
 import { copyHtmlToClipboard } from "@/lib/clipboard";
 import { cn, formatDate } from "@/lib/utils";
 
-export type AdPublicationsApi = Pick<typeof jobAdApi, "markPublished" | "markRemoved">;
+export type AdPublicationsApi = Pick<typeof jobAdApi, "markPublished" | "markRemoved"> &
+  Partial<Pick<typeof jobAdApi, "confirmPracujMail" | "rejectPracujMail">>;
 
 /** Pierwszy człon klucza listy rekrutacji (`jobsListQueryKey`) — kolumna „Ogłoszenia”. */
 export const JOBS_LIST_QUERY_ROOT = "jobs-v2";
@@ -148,7 +153,23 @@ export function AdPublications({
       ),
   });
 
-  const busy = locked || mark.isPending || remove.isPending;
+  const confirmMail = useMutation({
+    mutationFn: (emailId: number) =>
+      (api.confirmPracujMail ?? jobAdApi.confirmPracujMail)(jobId, emailId),
+    onSuccess: apply,
+    onError: (err) =>
+      showError(apiErrorMessage(err, "Nie udało się oznaczyć publikacji. Spróbuj ponownie.")),
+  });
+
+  const rejectMail = useMutation({
+    mutationFn: (emailId: number) =>
+      (api.rejectPracujMail ?? jobAdApi.rejectPracujMail)(jobId, emailId),
+    onSuccess: apply,
+    onError: (err) => showError(apiErrorMessage(err, "Nie udało się zapisać. Spróbuj ponownie.")),
+  });
+
+  const busy =
+    locked || mark.isPending || remove.isPending || confirmMail.isPending || rejectMail.isPending;
   const blockedReason = !state.ad
     ? "Najpierw przygotuj ogłoszenie."
     : !state.can_copy
@@ -178,6 +199,16 @@ export function AdPublications({
     if (confirmed) remove.mutate(portal);
   };
 
+  const confirmNotThisAd = async (emailId: number) => {
+    const confirmed = await askConfirm({
+      title: "To nie to ogłoszenie?",
+      description:
+        "NEXUS zdejmie oznaczenie i link wzięty z tego maila Pracuj.pl. Ten mail nie wróci przy tej rekrutacji — właściwy link wkleisz ręcznie.",
+      confirmLabel: "To nie to ogłoszenie",
+    });
+    if (confirmed) rejectMail.mutate(emailId);
+  };
+
   const confirmTakeDown = async () => {
     const confirmed = await askConfirm({
       title: "Zdjąć ogłoszenie z JustJoin.IT?",
@@ -199,6 +230,10 @@ export function AdPublications({
           // Mail do opiekuna wyszedł, a ogłoszenia jeszcze nie oznaczono.
           const request: PracujRequest | null =
             key === "pracuj" && !active ? state.pracuj_request : null;
+          // Maile Pracuj.pl z niepewnym dopasowaniem i mail, z którego jest link (26.11.2026).
+          const suggestions: PracujMailSuggestion[] =
+            key === "pracuj" && !active ? state.pracuj_mail_suggestions : [];
+          const fromMail = key === "pracuj" ? (active?.from_mail ?? null) : null;
           // Ogłoszenie trzyma kolejka portali: ręczne oznaczanie nie ma tu sensu.
           const viaApi = key === "jjit" && jjitLive;
           const jjitPending = viaApi ? pendingActionLabel(jjitApi?.pending_action) : null;
@@ -316,6 +351,19 @@ export function AdPublications({
                       >
                         {active.url ? "Zmień link" : "Dodaj link"}
                       </Button>
+                      {fromMail ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2"
+                          disabled={busy}
+                          onClick={() => void confirmNotThisAd(fromMail.email_id)}
+                          data-testid="pracuj-mail-reject"
+                        >
+                          To nie to ogłoszenie
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         size="sm"
@@ -404,11 +452,70 @@ export function AdPublications({
                     : "Treść zmieniła się po publikacji. Na portalu zaktualizuje ją Delivery Lead."}
                 </p>
               ) : null}
+              {fromMail ? (
+                <p className="text-xs text-muted-foreground" data-testid="pracuj-from-mail">
+                  {`Link z maila Pracuj.pl${
+                    fromMail.received_at ? ` z ${formatDate(fromMail.received_at)}` : ""
+                  }: „${fromMail.subject}”`}
+                </p>
+              ) : null}
+              {suggestions.map((item) => {
+                const suggestionHref = portalAdHref(key, item.url);
+                return (
+                  <div
+                    key={item.email_id}
+                    className="flex flex-col gap-1.5 rounded-md border border-dashed border-border bg-muted px-2.5 py-2 text-xs"
+                    data-testid="pracuj-mail-suggestion"
+                  >
+                    <span className="text-foreground">
+                      {`Pracuj.pl potwierdził publikację ${formatDate(item.received_at)}: „${item.subject}”`}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {suggestionHref ? (
+                        <a
+                          href={suggestionHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
+                        >
+                          Otwórz ogłoszenie
+                          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                        </a>
+                      ) : null}
+                      {canMark ? (
+                        <div className="ml-auto flex flex-wrap items-center gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            className="h-7 px-2.5"
+                            title={blockedReason ?? undefined}
+                            disabled={busy || !!blockedReason}
+                            onClick={() => confirmMail.mutate(item.email_id)}
+                          >
+                            To ta rekrutacja
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2"
+                            disabled={busy}
+                            onClick={() => rejectMail.mutate(item.email_id)}
+                          >
+                            Nie
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
               {request ? (
                 <p className="text-xs text-muted-foreground">
                   {request.waiting
-                    ? "Opiekun zwykle wstawia ogłoszenie w 1–2 dni robocze. Gdy przyśle link, wklej go tutaj — do tego czasu codzienny mail nie przypomina o Pracuj.pl."
-                    : "Ogłoszenie wciąż nie jest oznaczone. Sprawdź odpowiedź opiekuna i wklej link albo wyślij ponownie."}
+                    ? "Opiekun zwykle wstawia ogłoszenie w 1–2 dni robocze. Gdy Pracuj.pl przyśle mail „Publikacja ogłoszenia na …”, NEXUS sam weźmie z niego link — do tego czasu codzienny mail nie przypomina o Pracuj.pl."
+                    : "Ogłoszenie wciąż nie jest oznaczone. Jeśli wisi, wklej link z maila Pracuj.pl „Publikacja ogłoszenia na …” albo wyślij ponownie."}
                 </p>
               ) : null}
               {active && jobClosed && !viaApi ? (

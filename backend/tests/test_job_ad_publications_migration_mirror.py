@@ -68,3 +68,17 @@ def test_health_deep_probes_the_table_and_model_is_registered() -> None:
     assert '("job_ad_publications", JobAdPublication)' in main
     models = (BACKEND / "app" / "models" / "__init__.py").read_text(encoding="utf-8")
     assert "from app.models.job_ad_publication import JobAdPublication" in models
+
+
+def test_pracuj_panel_links_migration_runs_the_shared_dml_and_is_mirrored() -> None:
+    migration = BACKEND / "alembic" / "versions" / "0793_pracuj_public_links.py"
+    text = migration.read_text(encoding="utf-8")
+    assert 'revision = "0793_pracuj_public_links"' in text
+    assert "schema.PRACUJ_PANEL_LINKS_DML" in text
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    for statement in schema.PRACUJ_PANEL_LINKS_DML:
+        assert statement in entrypoint, statement
+    # Najpierw zamiana na publiczny link, potem czyszczenie reszty panelu.
+    convert, clear = schema.PRACUJ_PANEL_LINKS_DML
+    assert "groupId" in convert and "SET url = NULL" in clear
+    assert entrypoint.index(convert) < entrypoint.index(clear)

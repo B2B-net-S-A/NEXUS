@@ -41,4 +41,26 @@ TABLE_DDL = (
 
 ALL_DDL = (TABLE_DDL,)
 
+# 0793 (26.11.2026): linki Pracuj.pl z panelu pracodawcy → publiczne.
+# Pomiar tego dnia: 47 z 96 zapisanych linków prowadziło do panelu
+# (``publikacja.pracuj.pl``, ``strefa.pracuj.pl``) — otwierał je tylko ktoś
+# zalogowany na konto firmy. ``showjoboffer/<id>`` niesie ten sam identyfikator
+# co ``groupId`` publicznego ogłoszenia (sprawdzone na mailach Pracuj.pl
+# „Publikacja ogłoszenia na …”), więc taki link da się zamienić. Pozostałe
+# strony panelu (podgląd, lista kandydatów, przekierowanie logowania z kodem
+# w adresie) nie mają tego identyfikatora: link znika, oznaczenie „opublikowane”
+# zostaje. Od tej rewizji ``clean_url`` takich linków nie przyjmuje, więc oba
+# zapytania po pierwszym przebiegu niczego nie znajdują (bezpieczne co deploy).
+# Kolejność ma znaczenie: najpierw zamiana, potem czyszczenie reszty.
+PRACUJ_PANEL_LINKS_DML = (
+    "UPDATE job_ad_publications SET url = 'https://www.pracuj.pl/praca?groupId=' "
+    "|| substring(lower(url) from '^https?://publikacja[.]pracuj[.]pl/showjoboffer/"
+    "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?$'), "
+    "updated_at = now() WHERE portal = 'pracuj' AND lower(url) ~ "
+    "'^https?://publikacja[.]pracuj[.]pl/showjoboffer/"
+    "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?$'",
+    "UPDATE job_ad_publications SET url = NULL, updated_at = now() "
+    "WHERE portal = 'pracuj' AND lower(url) ~ '^https?://(publikacja|strefa)[.]pracuj[.]pl([/?#]|$)'",
+)
+
 DOWNGRADE_DDL = ("DROP TABLE IF EXISTS job_ad_publications",)
