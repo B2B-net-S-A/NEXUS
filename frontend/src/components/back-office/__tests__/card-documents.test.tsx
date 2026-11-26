@@ -101,14 +101,20 @@ describe("Przypisz: miesiąc faktury z poczty (26.11.2026)", () => {
     expect(month()).toHaveValue("2027-01");
   });
 
-  it("przy raporcie miesiąca nie zmienia, bo liczy się od niego rozliczenie", async () => {
-    show(document_({ kind: "report", file_name: "TS_11_2026.pdf" }));
+  it("raport też ma wybór miesiąca, od którego policzy się rozliczenie", async () => {
+    show(document_({ kind: "report", file_name: "TS_raport.pdf", period_guessed: true }));
     await screen.findByRole("textbox", { name: "Numer kontraktu" });
 
-    expect(month()).not.toBeInTheDocument();
+    expect(screen.getByText(/okres nie z nazwy pliku: sprawdź/)).toBeInTheDocument();
+    expect(screen.getByText(/Rozliczenie policzy się za ten miesiąc/)).toBeInTheDocument();
+    await userEvent.selectOptions(month()!, "wrzesień 2026");
     await assignTo("512");
 
-    expect(post).toHaveBeenCalledWith("/api/back-office/portal/documents/7/assign", { contract_id: 512 });
+    expect(post).toHaveBeenCalledWith("/api/back-office/portal/documents/7/assign", {
+      contract_id: 512,
+      period_year: 2026,
+      period_month: 9,
+    });
   });
 
   it("faktura z kontraktem ma tylko decyzję, bez wyboru miesiąca", async () => {

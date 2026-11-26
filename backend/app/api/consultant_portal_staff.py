@@ -487,7 +487,7 @@ async def paid_document(
 
 class AssignBody(BaseModel):
     contract_id: int = Field(gt=0)
-    # Miesiąc faktury poprawiany przy przypisaniu; bez obu pól zostaje z czytnika.
+    # Miesiąc dokumentu poprawiany przy przypisaniu; bez obu pól zostaje z czytnika.
     period_year: Optional[int] = Field(default=None, ge=2000, le=2100)
     period_month: Optional[int] = Field(default=None, ge=1, le=12)
 

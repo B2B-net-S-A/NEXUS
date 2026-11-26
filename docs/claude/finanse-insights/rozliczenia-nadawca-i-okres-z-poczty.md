@@ -1,6 +1,6 @@
 # Rozliczenia: nadawca i okres raportu z poczty — Gmail bez kropek, erste.pl, „MM RRRR”
 
-<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, thread_invoice_waits, dwóch klientów, Przypisz, assign_contract, miesiąc usługi, miesiąc faktury, period_report, Faktura bez kontraktu -->
+<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, thread_invoice_waits, dwóch klientów, Przypisz, assign_contract, miesiąc usługi, miesiąc faktury, period_report, Faktura bez kontraktu, Raport bez kontraktu, okres nie z nazwy pliku -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (powtórka na kopii produkcji) 24 przypadki poza
 Nordeą miały status „bez dokumentu”, choć Finanse wystawiły za nie faktury. Przegląd archiwum
@@ -90,7 +90,7 @@ wyglądała na jedną za oba kontrakty (tak bywa, `resolve_report_owner`).
   w portfelu Delivery Leada. Dokumentów zapisanych wcześniej czytnik nie przepina, a okres
   faktury dalej bierze z numeru w nazwie (poprawia go człowiek przy „Przypisz”, niżej).
 
-## Miesiąc faktury poprawia się przy „Przypisz” (od 26.11.2026)
+## Miesiąc dokumentu poprawia się przy „Przypisz” (od 26.11.2026)
 
 Czytnik bierze okres z nazwy pliku, a numer faktury niesie miesiąc wystawienia, więc faktura
 za VII o nazwie „Faktura_FV1_8_2026.pdf” dostaje 08.2026. Na ścieżce na stagingu 26.11.2026
@@ -101,16 +101,21 @@ tematu, w tym 2 z trwającym jeszcze listopadem (mail 19–20.11).
 Decyzja Artura z 26.11.2026: człowiek wybiera miesiąc przy „Przypisz”, czytnika nie
 zmieniamy (raport w tym samym mailu miały 2 z 18 faktur).
 
-- Formularz faktury bez kontraktu ma „Miesiąc usługi”, domyślnie ten z czytnika
-  (`CardDocuments`, `POST /api/back-office/portal/documents/{id}/assign` z `period_year`
-  i `period_month`, oba albo żadne).
-- Zmieniony miesiąc: ostatnie dwa lata, najpóźniej bieżący (`documents.valid_period`),
-  i znika flaga „zgadnięty”. Miesiąc bez zmiany przechodzi zawsze, także przyszły
-  z numeru, i flagi nie rusza.
-- Tylko faktura. Miesiąc raportu liczy rozliczenie, a wybrany ręcznie udawałby tam
-  miesiąc z nazwy pliku (`client_settlements.service._named_month`), więc API odmawia
-  (`period_report`).
-- Tylko przy „Przypisz” (decyzja Artura): faktury, która ma już kontrakt, nie da się
+- Formularz dokumentu bez kontraktu (faktury i raportu) ma „Miesiąc usługi”, domyślnie
+  ten z czytnika (`CardDocuments`, `POST /api/back-office/portal/documents/{id}/assign`
+  z `period_year` i `period_month`, oba albo żadne).
+- Zmieniony miesiąc: ostatnie dwa lata, najpóźniej bieżący (`documents.valid_period`).
+  Miesiąc bez zmiany przechodzi zawsze, także przyszły z numeru, i flagi „zgadnięty”
+  nie rusza.
+- Faktura ze zmienionym miesiącem traci flagę „zgadnięty”.
+- Raport ze zmienionym miesiącem ma flagę „zgadnięty” (druga decyzja Artura z 26.11.2026,
+  bez migracji). Kontrole rozliczenia biorą niezgadnięty okres dokumentu z poczty za
+  miesiąc z nazwy pliku albo tematu (`client_settlements.service._named_month`, „RCP za
+  inny miesiąc”), a wybór Finansów nie jest takim dowodem. Flaga znaczy więc „okres nie
+  z nazwy pliku” i tak ją pokazuje karta. Rozliczenie liczy się za wybrany miesiąc
+  (`service.refresh_for_document`). Na kopii z 26.11 bez kontraktu czekało 10 raportów,
+  6 z miesiącem zgadniętym z daty maila.
+- Tylko przy „Przypisz” (decyzja Artura): dokumentu, który ma już kontrakt, nie da się
   przestawić na inny miesiąc.
 - Karta bez kontraktu nazywa się „Faktura bez kontraktu” albo „Raport bez kontraktu”.
   „Od nieznanego nadawcy” było nieprawdą przy osobie z dwoma kontraktami.

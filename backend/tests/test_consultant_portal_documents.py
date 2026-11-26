@@ -574,17 +574,26 @@ async def test_half_of_a_month_is_refused_while_assigning(
 
 
 @pytest.mark.usefixtures("portal_all")
-async def test_report_month_cannot_be_changed_while_assigning(app_client) -> None:
-    """Miesiąc raportu liczy rozliczenie, więc przy przypisaniu zmienia się tylko
-    miesiąc faktury (decyzja Artura z 26.11.2026)."""
+async def test_report_month_chosen_while_assigning_is_not_a_file_name_month(
+    app_client,
+) -> None:
+    """Raport też dostaje miesiąc przy „Przypisz” (decyzja Artura z 26.11.2026), ale
+    wybrany ręcznie nie udaje miesiąca z nazwy pliku: kontrola „RCP za inny miesiąc”
+    (``settlements._named_month``) go nie bierze, więc okres jest „nie z nazwy”."""
 
-    document_id = await _unmatched_document("Raport.pdf", subject="Raport")
+    from app.services.client_settlements import service as settlements
+
+    year_now, month_now = _month_from_today(0)
+    document_id = await _unmatched_document(
+        f"TS_{month_now:02d}_{year_now}.pdf", subject="Raport"
+    )
     before = await _stored(document_id)
-    assert before.kind == "report"
+    assert (before.kind, before.period_guessed) == ("report", False)
+    assert settlements._named_month(before) == f"{year_now}-{month_now:02d}"
     person = await make_person()
-    year, month = _month_from_today(-3)
+    year, month = _month_from_today(-1)
 
-    refused = await _assign(
+    response = await _assign(
         app_client,
         document_id,
         person.contract_id,
@@ -592,12 +601,58 @@ async def test_report_month_cannot_be_changed_while_assigning(app_client) -> Non
         period_month=month,
     )
 
-    assert refused.status_code == 422, refused.text
-    assert refused.json()["detail"]["code"] == "period_report"
+    assert response.status_code == 200, response.text
+    after = await _stored(document_id)
+    assert (after.contract_id, after.period_year, after.period_month) == (
+        person.contract_id,
+        year,
+        month,
+    )
+    assert after.period_guessed is True
+    assert settlements._named_month(after) is None
+    assert [card.source_key for card in await _document_cards()] == [
+        f"document:{person.contract_id}:{year}-{month:02d}:report"
+    ]
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_report_month_from_file_name_stays_when_unchanged(app_client) -> None:
+    year_now, month_now = _month_from_today(0)
+    document_id = await _unmatched_document(
+        f"TS_{month_now:02d}_{year_now}.pdf", subject="Raport"
+    )
+    person = await make_person()
+
+    response = await _assign(
+        app_client,
+        document_id,
+        person.contract_id,
+        period_year=year_now,
+        period_month=month_now,
+    )
+
+    assert response.status_code == 200, response.text
+    after = await _stored(document_id)
+    assert (after.period_month, after.period_guessed) == (month_now, False)
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_report_month_out_of_range_is_refused_while_assigning(app_client) -> None:
+    document_id = await _unmatched_document("Raport.pdf", subject="Raport")
+    person = await make_person()
+    year, month = _month_from_today(1)
+
+    response = await _assign(
+        app_client,
+        document_id,
+        person.contract_id,
+        period_year=year,
+        period_month=month,
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == documents.BAD_PERIOD
     assert (await _stored(document_id)).contract_id is None
-    assigned = await _assign(app_client, document_id, person.contract_id)
-    assert assigned.status_code == 200, assigned.text
-    assert (await _stored(document_id)).period_month == before.period_month
 
 
 @pytest.mark.usefixtures("portal_all")

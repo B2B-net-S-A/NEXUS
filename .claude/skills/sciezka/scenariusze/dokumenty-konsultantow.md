@@ -6,8 +6,9 @@ Reguły: `docs/claude/finanse-insights/rozliczenia-nadawca-i-okres-z-poczty.md`,
    usługi”, numer kontraktu, „Przypisz”.
 2. Finanse: karta faktury stoi na kontrakcie i wybranym miesiącu; „Przyjmij fakturę”
    albo „Do poprawy”.
-3. Finanse: karta „Raport bez kontraktu” nie ma wyboru miesiąca; przypisanie jak dotąd,
-   rozliczenie miesiąca się przelicza.
+3. Finanse: karta „Raport bez kontraktu” → „Miesiąc usługi” inny niż z czytnika →
+   „Przypisz”; raport stoi na wybranym miesiącu z dopiskiem „okres nie z nazwy pliku”,
+   rozliczenie tego miesiąca się przelicza.
 4. Admin: ta sama karta i formularz jak u Finansów.
 5. Delivery Lead spoza zespołu back office: bez kart dokumentów na `/back-office`.
 

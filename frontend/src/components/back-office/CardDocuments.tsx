@@ -24,9 +24,9 @@ const CHANNEL_LABELS: Record<StaffDocument["channel"], string> = {
   mailbox: "z poczty rozliczeniowej",
 };
 
-/** Miesiące do wyboru przy fakturze: dwa lata wstecz, najpóźniej bieżący (zakres
- *  serwera), oraz miesiąc, który faktura ma teraz, także spoza zakresu. */
-function invoiceMonths(current: string): string[] {
+/** Miesiące do wyboru przy „Przypisz”: dwa lata wstecz, najpóźniej bieżący (zakres
+ *  serwera), oraz miesiąc, który dokument ma teraz, także spoza zakresu. */
+function serviceMonths(current: string): string[] {
   const now = warsawToday().slice(0, 7);
   const months = Array.from({ length: 25 }, (_, back) => shiftMonth(now, -back));
   return months.includes(current) ? months : [current, ...months].sort().reverse();
@@ -80,10 +80,10 @@ function DocumentRow({ document_ }: { document_: StaffDocument }) {
       </div>
       <p className="text-xs text-muted-foreground">
         Za {String(document_.period_month).padStart(2, "0")}.{document_.period_year}
-        {document_.period_guessed ? " (okres zgadnięty z daty maila: sprawdź)" : ""}
+        {document_.period_guessed ? " (okres nie z nazwy pliku: sprawdź)" : ""}
         {document_.sender_email ? ` · ${document_.sender_email}` : ""}
       </p>
-      {unmatched && document_.kind === "invoice" ? (
+      {unmatched ? (
         <div className="space-y-1">
           <label className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-muted-foreground">Miesiąc usługi</span>
@@ -92,7 +92,7 @@ function DocumentRow({ document_ }: { document_: StaffDocument }) {
               onChange={(event) => setMonth(event.target.value)}
               className="h-8 rounded-md border border-border bg-background px-2 text-sm pointer-coarse:h-10"
             >
-              {invoiceMonths(documentMonth).map((value) => (
+              {serviceMonths(documentMonth).map((value) => (
                 <option key={value} value={value}>
                   {monthYearPl(value)}
                 </option>
@@ -100,7 +100,9 @@ function DocumentRow({ document_ }: { document_: StaffDocument }) {
             </select>
           </label>
           <p className="text-xs text-muted-foreground">
-            Numer w nazwie faktury to często miesiąc wystawienia. Sprawdź w pliku, za który miesiąc jest.
+            {document_.kind === "invoice"
+              ? "Numer w nazwie faktury to często miesiąc wystawienia. Sprawdź w pliku, za który miesiąc jest."
+              : "Rozliczenie policzy się za ten miesiąc. Sprawdź w pliku, za który miesiąc jest raport."}
           </p>
         </div>
       ) : null}
