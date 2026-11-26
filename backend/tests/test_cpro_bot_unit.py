@@ -607,3 +607,23 @@ def test_office_days_from_the_card_beat_the_recruitment() -> None:
         card={"location": {"raw": "Gdynia"}, "nationality": {"raw": "PL"}}
     )
     assert "3x/week" in payload["offer"]["physical_location"]
+
+
+@pytest.mark.parametrize(
+    ("candidate", "job", "card_office", "office"),
+    [
+        # Karta z 26.11: „3 dni w tyg/Łódź”, rekrutacja bez Łodzi — było Gdynia.
+        ("Łódź", "Gdynia, Gdańsk lub Warszawa", "Łódź", "Lodz"),
+        ("Sopot", "Gdańsk lub Warszawa", "Trójmiasto", "Gdansk"),
+        ("Gdynia", "Gdynia, Gdańsk lub Warszawa", None, "Gdynia"),
+    ],
+)
+def test_office_from_the_card_wins(candidate, job, card_office, office) -> None:
+    assert offer_text.office_city(candidate, job, card_office) == office
+
+
+def test_qc_passed_despite_errors_does_not_hold_the_bot() -> None:
+    assert bot_items.qc_blocking("overridden", 2) == 0
+    assert bot_items.qc_blocking("passed", 0) == 0
+    assert bot_items.qc_blocking("failed", 2) == 2
+    assert bot_items.qc_blocking(None, 1) == 1

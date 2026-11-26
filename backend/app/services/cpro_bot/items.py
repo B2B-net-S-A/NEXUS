@@ -181,6 +181,17 @@ def merge_card_values(
     return values, used
 
 
+def qc_blocking(status: Optional[str], blocking_failed: int) -> int:
+    """Błędy blokujące QC, które zatrzymują bota.
+
+    „Przepuszczone mimo QC” (``overridden``) zostawia licznik błędów, ale DL
+    już zdecydował — bot nie czeka (26.11.2026: karta z „QC: przepuszczone”
+    stała na „QC CV ma błędy blokujące”).
+    """
+
+    return 0 if status in ("passed", "overridden") else int(blocking_failed or 0)
+
+
 def build_payload(
     *,
     stage_id: int,
@@ -243,8 +254,9 @@ def build_payload(
     )
     former = offer_text.former_at_client(card.get("worked_at_client"))
     office = offer_text.office_city(
-        work_mode.get("office_city") or location.get("raw") or profile_city,
+        location.get("raw") or profile_city,
         job_location,
+        work_mode.get("office_city"),
     )
     # Dni z karty (co kandydat przyjął) przed dniami rekrutacji — osoba od Cpro
     # 26.11.2026: „2 dni w tygodniu w biurze” dawało „3x/week”.
@@ -490,7 +502,7 @@ async def load_items(
             profile_city=person.city,
             cv=cv,
             accepted=t.moved_by in accepted,
-            qc_blocking_failed=t.qc_blocking_failed,
+            qc_blocking_failed=qc_blocking(t.qc_status, t.qc_blocking_failed),
             today=today,
             delivery_lead_id=job.delivery_lead_id,
             delivery_lead_active=job.delivery_lead_id in active_delivery_lead_ids,
