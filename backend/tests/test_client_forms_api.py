@@ -420,6 +420,14 @@ async def test_points_follow_the_legend_of_the_score_template(
     values = {item["id"]: item["value"] for item in filled.json()["fields"]}
     assert values["s0.r12.c4"] == "2"
 
+    # Formularz Word legendy nie dostaje: na stagingu wypełniał się z nią gorzej.
+    from app.services import job_files
+
+    async with AsyncSessionLocal() as db:
+        assert await job_files.scoring_rules_text(db, job_id) == ""
+        legend = await job_files.scoring_rules_text(db, job_id, score_legend=True)
+    assert "1 pkt za każdy rok" in legend
+
 
 @pytest.mark.asyncio
 async def test_pdf_or_other_files_cannot_be_templates(

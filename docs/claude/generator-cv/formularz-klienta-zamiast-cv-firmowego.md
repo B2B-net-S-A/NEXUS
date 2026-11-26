@@ -398,14 +398,17 @@ wzór tabeli, z zasadami w kolumnie „Legenda (punktacja)”. `scoring_rules_te
 pomijał oznaczone wzory, więc zasady były puste, prompt F36 nie dostawał pól
 punktów, a kod odrzucał każdą liczbę.
 
-- **Bez osobnego pliku zasady idą z legendy wzoru**
-  (`client_score_structure.rules_text`, `job_files._score_template_legend`):
-  wiersz „<oceniany element>: <legenda>” z kolumn, których nagłówek ma
-  „legend”, „punktacj”, „zasad” albo „sposób oceny”. Osobny plik z zasadami
-  dalej wygrywa. Wzór bez legendy daje pusty tekst — same nazwy wierszy nie
-  są zasadami i nie odblokują punktów.
-- Te same zasady trafiają do wypełnienia formularza Word, więc minimum do
-  „ponad minimalne wymagania” bierze się z legendy („1 pkt – więcej niż 3 lata”).
+- **Bez osobnego pliku tabela punktowa bierze zasady z legendy swojego wzoru**
+  (`client_score_structure.rules_text`, `job_files.scoring_rules_text(...,
+  score_legend=True)`): wiersz „<oceniany element>: <legenda>” z kolumn,
+  których nagłówek ma „legend”, „punktacj”, „zasad” albo „sposób oceny”.
+  Osobny plik z zasadami dalej wygrywa. Wzór bez legendy daje pusty tekst —
+  same nazwy wierszy nie są zasadami i nie odblokują punktów. Pomiar: tabela
+  „Testera ePP” 43 % → 86 %, „Testera Automatycznego” 50 % → 93 %.
+- **Formularz Word legendy nie dostaje.** Z nią wypełniał się gorzej (para
+  z „Testera ePP”, 6 biegów: średnio 70 % bez legendy, 62 % z nią — model
+  pomijał więcej lat i opisów), a zyskiwał tylko minimum w jednym wierszu
+  „ponad minimalne wymagania”. To pole zostaje puste z „minimum nieznane”.
 - **Reszta braków to w większości brak danych w źródłach**, nie błąd modelu:
   lata kompetencji bez roli, która ją opisuje (Xray, rejestry publiczne,
   służba zdrowia), wiersz „Test sprawdzający wiedzę” (wypełnia klient po
