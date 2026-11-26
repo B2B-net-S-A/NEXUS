@@ -2248,7 +2248,8 @@
     "id": "lekcja-karty-bez-sladu",
     "title": "Karta bez śladu wraca do „Nowych”",
     "novelties": [
-      "tablica-karty-bez-sladu-wracaja"
+      "tablica-karty-bez-sladu-wracaja",
+      "tablica-wrocily-od-ciebie"
     ],
     "task": "Na Tablicy ćwiczebnej przewiń do kolumny „Screening” i kliknij nagłówek pierwszej grupy, np. „Do telefonu”.",
     "solo_href": "/jobs/990001",
@@ -2276,6 +2277,16 @@
         ],
         "answer": 0,
         "explain": "Śladem jest notatka (także „Nie odebrał”), umówiony telefon, arkusz i ruch karty. Samo otwarcie śladem nie jest."
+      },
+      {
+        "q": "Rano nie widzisz osób, które wczoraj miałeś w „Screeningu”. Gdzie są?",
+        "options": [
+          "Na górze „Nowych” w grupie „Wróciły od Ciebie”, z „Weź z powrotem”",
+          "W kolumnie „Zamknięci” jako odrzuceni",
+          "Zniknęły z rekrutacji i trzeba je dodać od nowa"
+        ],
+        "answer": 0,
+        "explain": "Karta bez śladu wraca do „Nowych” dla wszystkich, ale przez 5 dni roboczych stoi u Ciebie na górze w grupie „Wróciły od Ciebie”. „Weź z powrotem” daje „Biorę” i przesuwa ją do „Screeningu”."
       }
     ]
   },

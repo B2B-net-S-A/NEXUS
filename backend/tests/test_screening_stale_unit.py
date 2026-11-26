@@ -136,3 +136,12 @@ def test_people_in_polish() -> None:
         "25 osób",
     ]
     assert svc.bell_title(3, "Java") == "3 osoby znów dla wszystkich · Java"
+
+
+def test_returned_window_counts_five_workdays_back_with_today() -> None:
+    """Powrót z wtorku 24.11 widać do poniedziałku 30.11 włącznie."""
+    waw = ZoneInfo("Europe/Warsaw")
+    monday = datetime(2026, 11, 30, 9, tzinfo=waw)
+    tuesday = datetime(2026, 12, 1, 9, tzinfo=waw)
+    assert svc.returned_window_start(monday) == date(2026, 11, 24)
+    assert svc.returned_window_start(tuesday) == date(2026, 11, 25)

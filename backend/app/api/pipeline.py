@@ -4501,6 +4501,9 @@ async def _load_kanban_boards(
     from app.services import screening_stale
 
     stale_returns = await screening_stale.return_days_for_jobs(db, job_ids)
+    # …i karty, które automat już oddał, a nikt ich nie ruszył (26.11.2026):
+    # grupa „Wróciły od Ciebie” w „Nowych”.
+    returned_cards = await screening_stale.returned_cards_for_jobs(db, job_ids)
     # Szablon Tablicy i katalog etapów — raz na żądanie: kolumny niżej i reguła
     # follow-upu („czeka na klienta”) czytają te same definicje etapów.
     default_template_id: Optional[int] = None
@@ -4541,6 +4544,12 @@ async def _load_kanban_boards(
         board.rate_change_by_candidate = rate_changes[jid]
         board.card_by_candidate = cards[jid]
         board.stale_returns = stale_returns.get(jid, {})
+        board.returned_cards = returned_cards.get(jid, {})
+        board.name_user_ids |= {
+            card.holder_id
+            for card in board.returned_cards.values()
+            if card.holder_id is not None
+        }
         board.contact_attempts = {
             cid: total
             for cid in sorted(board.candidate_ids)
@@ -4840,6 +4849,19 @@ async def _render_kanban_board(
         )
         payload["contact_attempts"] = contact_attempts.get(e.candidate_id, 0)
         payload["returns_to_new_on"] = board.stale_returns.get(e.candidate_id)
+        returned = board.returned_cards.get(e.candidate_id)
+        payload["returned_from_screening"] = (
+            {
+                "at": returned.returned_at,
+                "holder_user_id": returned.holder_id,
+                "holder_name": board.user_name_by_id.get(returned.holder_id)
+                if returned.holder_id is not None
+                else None,
+                "screening_since": returned.screening_since,
+            }
+            if returned is not None
+            else None
+        )
         # Rekruter karty: przypisany „Prowadzi”, potem właściciel procesu
         # (Priority Work), a gdy proces go nie ma — osoba, która dodała
         # kandydata do rekrutacji.

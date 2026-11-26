@@ -145,6 +145,8 @@ import {
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
 import { attemptLabel, orderScreeningColumn, returnNotice, screeningGroupLabel, type ScreeningGroup } from "@/lib/screening-column-groups";
+import { RETURNED_TITLE, returnedLine, returnedTitle, returnedToViewer, screeningWarning } from "@/lib/screening-returned";
+import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import { checkApplicantCv } from "@/lib/api/applicationScreenings";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
@@ -1855,6 +1857,7 @@ interface ColProps {
  freshSlots: Set<number>;
  sections: Map<number, NewColumnSection>;
  appliedGapIds: Set<number>;
+ returnedMine: number;
  } | null;
  /** Grupy kolumny „Screening” (23.11.2026, `lib/screening-column-groups.ts`);
   *  `null` w innych kolumnach. */
@@ -1862,6 +1865,12 @@ interface ColProps {
  /** Napis „wraca do Nowych jutro” / „„Biorę” wygasa jutro” pod kartą:
   *  kolumna, której dotyczy reguła kart bez śladu; `null` = żadna. */
  staleColumn?: "screening" | "new" | null;
+ /** Kto patrzy na Tablicę — grupa „Wróciły od Ciebie” i napis pod kartą (26.11.2026). */
+ viewerId?: number | null;
+ /** „Weź z powrotem” pod kartą, która wróciła od patrzącego: „Biorę” i ruch
+  *  do „Screeningu” tą samą drogą co strzałka „→”. Brak = bez przycisku. */
+ onTakeBack?: (item: KanbanItem) => void;
+ takingIds?: ReadonlySet<number>;
  /** Zwinięta grupa „Aplikowali, brak »musi mieć«” (06.11.2026). */
  appliedGap?: {
  count: number;
@@ -1940,11 +1949,43 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
  );
 }
 
+/** „Nie odebrał” pod kartą, której jutro grozi powrót do „Nowych”
+ *  (26.11.2026): ta sama notatka-próba co w doku i profilu. */
+function CardNoAnswerButton({ candidateId, jobId }: { candidateId: number; jobId: number }) {
+ const noAnswer = useNoAnswerNote({ candidateId, jobId });
+ return (
+ <button
+ type="button"
+ data-testid="card-no-answer"
+ disabled={noAnswer.isPending}
+ onClick={(event) => {
+ event.stopPropagation();
+ noAnswer.mutate();
+ }}
+ className="font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ {noAnswer.isPending ? "Zapisuję…" : "Nie odebrał"}
+ </button>
+ );
+}
+
 /** Podział kolumny „Nowi” (`lib/new-column-queue.ts`). */
-function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
+function NewColumnSectionHeader({
+ section,
+ total,
+ freshFirst,
+ returnedMine = 0,
+}: {
+ section: NewColumnSection;
+ total: number;
+ freshFirst: boolean;
+ returnedMine?: number;
+}) {
  const callFirst = Math.min(total, CALL_FIRST_COUNT);
  const label =
- section === "applied"
+ section === "returned_mine"
+ ? `Wróciły od Ciebie · ${returnedMine}`
+ : section === "applied"
  ? "Aplikowali na ogłoszenie"
  : section === "applied_gap"
  ? "Aplikowali, brak „musi mieć”"
@@ -1956,12 +1997,22 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  return (
  <div
  data-testid={`new-column-section-${section}`}
- data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : section === "returned_mine" ? "board.returned-mine" : undefined}
  className="px-0.5 pt-1 text-[11px] leading-tight"
  >
- <div className={cn("font-semibold", section === "call_first" ? "text-primary" : "text-muted-foreground")}>
+ <div
+ className={cn(
+ "font-semibold",
+ section === "call_first" || section === "returned_mine" ? "text-primary" : "text-muted-foreground"
+ )}
+ >
  {label}
  </div>
+ {section === "returned_mine" ? (
+ <div className="mt-0.5 text-[10.5px] text-muted-foreground" title={RETURNED_TITLE}>
+ Były u Ciebie w Screeningu 2 dni robocze bez śladu. Teraz może je wziąć każdy.
+ </div>
+ ) : null}
  {section === "call_first" ? (
  <div className="mt-0.5 text-[10.5px] text-muted-foreground">
  {freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy"}
@@ -2028,6 +2079,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  newQueue = null,
  screeningGroups = null,
  staleColumn = null,
+ viewerId = null,
+ onTakeBack,
+ takingIds,
  appliedGap = null,
  scoresLoading,
  stagesWithScorecard,
@@ -2057,6 +2111,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  const showNewSections =
  newQueue != null &&
  (newQueue.total > 0 ||
+ newQueue.returnedMine > 0 ||
  [...newQueue.sections.values()].some((s) => s === "applied" || s === "applied_gap"));
  // Kolumna pusta przez filtr „Kto dodał” nie jest wąska — mieści napis
  // „Brak osób dodanych przez…” i „Pokaż wszystkich”.
@@ -2068,6 +2123,12 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // trybem kafelków (tam kolumny i tak dzielą szerokość); `droppableId`
  // i indeksy kart się nie zmieniają, więc upuszczanie działa jak dotąd.
  const narrow = peopleCount === 0;
+ // Pasek nad „Screeningiem” (26.11.2026): karty, którym został najwyżej
+ // 1 dzień roboczy do powrotu — ten sam napis co pod kartą.
+ const screeningBanner =
+ staleColumn === "screening" && !readOnly
+ ? screeningWarning(col.items.map((it) => returnNotice(it.returns_to_new_on, "screening")))
+ : null;
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -2239,11 +2300,26 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  const startsScreeningGroup =
  screeningGroup != null && (previous == null || screeningGroups?.get(previous.id) !== screeningGroup);
  const staleNotice = staleColumn ? returnNotice(item.returns_to_new_on, staleColumn) : null;
+ const returned = staleColumn === "new" ? returnedLine(item, viewerId) : null;
+ const returnedMine = returned != null && returnedToViewer(item, viewerId);
+ const noAnswerHere = staleColumn === "screening" && staleNotice != null && !readOnly;
  const attempts = screeningGroup === "no_answer" ? attemptLabel(item.contact_attempts) : null;
  return (
  <Fragment key={String(item.id)}>
+ {index === 0 && screeningBanner ? (
+ <div
+ data-testid="screening-return-warning"
+ role="status"
+ className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] leading-snug text-foreground"
+ >
+ <div className="font-semibold">{screeningBanner}</div>
+ <div className="text-[10.5px] text-muted-foreground">
+ Notatka, „Nie odebrał” albo umówiony telefon zatrzyma kartę u Ciebie.
+ </div>
+ </div>
+ ) : null}
  {startsSection && newQueue ? (
- <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} returnedMine={newQueue.returnedMine} />
  ) : null}
  {startsScreeningGroup ? (
  <div
@@ -2275,7 +2351,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {...dragProvided.dragHandleProps}
  // Kropkę nowości zalicza klik w osobę z grupy, nie w sam napis nagłówka
  // (14.11.2026: kotwica tylko na nagłówku = 24 widzących, 0 zaliczeń).
- data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : section === "returned_mine" ? "board.returned-mine" : undefined}
  className={cn("transition-shadow",
  dragSnapshot.isDragging &&"relative z-20 shadow-md rotate-1 opacity-90"
  )}
@@ -2313,17 +2389,38 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  nextAction={nextActions[index]}
  stageBadge={badgeByItemId?.get(item.id) ?? null}
  />
- {attempts || staleNotice ? (
+ {attempts || staleNotice || returned ? (
  // Pod kartą, nie w niej: wygląd karty zostaje jeden dla wszystkich kolumn.
  <div
  data-testid="card-stale-line"
- className="flex flex-wrap gap-x-2 px-1 pt-0.5 text-[10px] leading-tight"
+ className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 pt-0.5 text-[10px] leading-tight"
  >
  {attempts ? <span className="text-muted-foreground">{attempts}</span> : null}
  {staleNotice ? (
  <span className="font-semibold text-warning" title="2 dni robocze bez notatki, próby kontaktu, telefonu, arkusza i ruchu karty — wtedy karta jest dostępna dla wszystkich">
  {staleNotice}
  </span>
+ ) : null}
+ {noAnswerHere ? <CardNoAnswerButton candidateId={item.candidate_id} jobId={jobId} /> : null}
+ {returned ? (
+ <span
+ data-testid="card-returned-line"
+ className={cn(returnedMine ? "font-semibold text-primary" : "text-muted-foreground")}
+ title={returnedTitle(item)}
+ >
+ {returned}
+ </span>
+ ) : null}
+ {returnedMine && onTakeBack && !readOnly ? (
+ <button
+ type="button"
+ data-testid="card-take-back"
+ disabled={takingIds?.has(item.id)}
+ onClick={() => onTakeBack(item)}
+ className="font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Weź z powrotem
+ </button>
  ) : null}
  </div>
  ) : null}
@@ -2422,13 +2519,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // Kolejka w „Nowych” (02.11.2026): zespół na górze, potem karty od systemu
  // od najwyższego wyniku. Liczona przed filtrem „Kto dodał”, żeby miejsce
  // karty nie zależało od filtra.
+ // „Wróciły od Ciebie” (26.11.2026) zależy od tego, kto patrzy.
+ const viewerUserId = useAuthStore((st) => st.user?.id ?? null);
  const newColumnQueue = useMemo(
  () =>
  orderNewColumn(
  boardFold.columns.find((f) => f.key === "new")?.items ?? [],
- criticalGapMap
+ criticalGapMap,
+ viewerUserId
  ),
- [boardFold, criticalGapMap]
+ [boardFold, criticalGapMap, viewerUserId]
  );
  // Grupa „Aplikowali, brak »musi mieć«” jest domyślnie zwinięta (06.11.2026):
  // chowamy ją tak jak filtr „Kto dodał” — przed przeciąganiem, żeby indeksy
@@ -2722,6 +2822,37 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  }
  },
  [jobId, queryClient, showSuccess, showError]
+ );
+ // „Weź z powrotem” (26.11.2026): karta, która wróciła od patrzącego ze
+ // „Screeningu” — „Biorę”, a potem ruch do „Screeningu” tą samą drogą co
+ // strzałka „→” (10 s na „Cofnij” albo okno „Przesuń dalej”). Gdy „Biorę”
+ // się nie uda (ktoś był szybszy), karta zostaje w „Nowych”. Własne „Biorę”
+ // już jest (np. po „Cofnij”) — sam ruch, bo blokady nie da się przedłużyć (409).
+ const takeBack = useCallback(
+ async (item: KanbanItem) => {
+ if (item.claim_user_id != null && item.claim_user_id === authUser?.id && item.claim_until) {
+ onArrowAdvance(item);
+ return;
+ }
+ setTakingIds((prev) => new Set(prev).add(item.id));
+ try {
+ await api.post("/api/pipeline/claim", {
+ candidate_id: item.candidate_id,
+ job_id: jobId,
+ });
+ } catch (e) {
+ showError(apiErrorMessage(e, "Nie udało się wziąć tej osoby z powrotem."));
+ return;
+ } finally {
+ setTakingIds((prev) => {
+ const n = new Set(prev);
+ n.delete(item.id);
+ return n;
+ });
+ }
+ onArrowAdvance(item);
+ },
+ [jobId, showError, onArrowAdvance, authUser?.id]
  );
  // `openDock` powstaje niżej (zależy od kolumn i warsztatu) — kontekst karty
  // woła go przez ref, żeby „Screening razem” z okienka karty otwierał panel.
@@ -4979,6 +5110,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  criticalGapMap={criticalGapMap}
  criticalAltMap={criticalAltMap}
  newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
+ viewerId={authUser?.id ?? null}
+ onTakeBack={boardKeyByColId.get(entry.key) === "new" && !readOnly ? takeBack : undefined}
+ takingIds={takingIds}
  screeningGroups={boardKeyByColId.get(entry.key) === "screening" ? screeningColumnOrder.groups : null}
  staleColumn={
  boardKeyByColId.get(entry.key) === "screening"

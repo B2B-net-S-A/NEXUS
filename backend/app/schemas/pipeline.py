@@ -387,6 +387,12 @@ class CandidateStageResponse(BaseModel):
     # straci „Biorę”), jeśli do tego czasu nie będzie śladu pracy. `None` =
     # reguła karty nie dotyczy. Wypełnia tylko tablica.
     returns_to_new_on: Optional[date] = None
+    # Karta, którą automat oddał ze „Screeningu” w ostatnich 5 dniach roboczych
+    # i która dalej stoi tam, gdzie wróciła (26.11.2026,
+    # `screening_stale.returned_cards_for_jobs`): `{"at", "holder_user_id",
+    # "holder_name", "screening_since"}`. Tablica pokazuje ją osobie z
+    # `holder_user_id` w grupie „Wróciły od Ciebie”. Wypełnia tylko tablica.
+    returned_from_screening: Optional[dict] = None
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None
