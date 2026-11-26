@@ -90,13 +90,9 @@ export function PrzegraneView() {
             ? `${capitalize(query.data.period_label)}${dl === null ? "" : dl === LOST_NO_DL ? " · rekrutacje bez DL" : ` · ${dlName ?? "wybrany DL"}`}. Przegrana = rekrutację wzięła inna firma albo NEXUS zamknął ją po 28 dniach bez ruchu.`
             : "Gdzie i dlaczego przegrywamy rekrutacje, ogólnie i u każdego klienta, i co zmieniamy."
         }
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <DlSelect value={dl} options={query.data?.dls ?? []} onChange={setDl} />
-            <PeriodPicker value={period} onChange={setPeriod} defaultValue={DEFAULT_PERIOD} hideHistoryNote />
-          </div>
-        }
+        actions={<PeriodPicker value={period} onChange={setPeriod} defaultValue={DEFAULT_PERIOD} hideHistoryNote />}
       />
+      <DlSelect value={dl} options={query.data?.dls ?? []} onChange={setDl} />
       {query.isPending ? <LoadingSpinner /> : null}
       {query.isError ? (
         <SectionError label="Przegrane" error={query.error} onRetry={() => void query.refetch()} />
@@ -120,7 +116,10 @@ function DlSelect({
   // pole pokazałoby „Wszyscy DL”, a strona liczyłaby jedną osobę.
   const missing = value !== null && !options.some((o) => o.id === value);
   return (
-    <div className="flex items-center gap-2" data-tour="insights.lost.dl">
+    <div
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+      data-tour="insights.lost.dl"
+    >
       <label htmlFor={id} className="shrink-0 text-xs font-medium text-muted-foreground">
         Delivery Lead
       </label>
@@ -128,7 +127,7 @@ function DlSelect({
         id={id}
         value={value === null ? "" : String(value)}
         onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        className="h-8 min-w-0 max-w-[14rem] rounded-md border border-border bg-card px-2 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        className="h-8 min-w-0 max-w-[20rem] rounded-md border border-border bg-card px-2 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <option value="">Wszyscy DL</option>
         {options.map((o) => (
@@ -140,6 +139,11 @@ function DlSelect({
           <option value={String(value)}>{value === LOST_NO_DL ? "bez DL" : "wybrany DL"} · brak zamknięć w okresie</option>
         ) : null}
       </select>
+      <span className="text-xs text-muted-foreground">
+        {value === null
+          ? "Cała firma. Wybierz osobę, a cała strona policzy się tylko dla jej rekrutacji."
+          : "Cała strona tylko dla rekrutacji tej osoby. Zasady ze spotkań są wspólne dla firmy."}
+      </span>
     </div>
   );
 }
