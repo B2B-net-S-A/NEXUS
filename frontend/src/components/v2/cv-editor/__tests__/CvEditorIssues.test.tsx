@@ -1436,6 +1436,11 @@ describe("lata w punkcie 1 i daty stanowisk (R2–R3, 17.11.2026)", () => {
     expect(row).toHaveTextContent("Cały staż z dat ról: 8 lat 6 mies. · role z punktu 1: 7 lat 4 mies.");
     expect(within(row).getByText("Junior L2 Support").closest("li")).toHaveTextContent("Junior L2 Support 06.2018 – 07.2019 1 rok 2 mies.");
     expect(within(row).getByText("Kelner").closest("li")).toHaveTextContent("Kelner bez dat");
+    // Propozycja zaraz pod tytułem, rozpisanie ról pod nią (26.11.2026): przy
+    // 1280 × 720 przycisk pod długą listą ról spadał pod krawędź panelu nad
+    // asystentem i lekcji „CV do klienta” nie dało się zrobić bez przewijania.
+    const breakdown = within(row).getByText("Junior L2 Support");
+    expect(proposal.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Zmiana faktu w CV — nie wchodzi do „Popraw wszystkie”.
     expect(within(screen.getByRole("region", { name: "Do poprawy" })).queryByRole("button", { name: /Popraw wszystkie/ })).toBeNull();
 

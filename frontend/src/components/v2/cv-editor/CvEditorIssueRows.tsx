@@ -105,6 +105,12 @@ interface RowShellProps {
   /** Przyciski po prawej (krótkie) albo pod tytułem (`actionsBelow`). */
   actions?: ReactNode;
   actionsBelow?: boolean;
+  /**
+   * Długi opis pod przyciskami (z `actionsBelow`): rozpisanie ról przy „Lata
+   * w punkcie 1” wypychało propozycję pod krawędź panelu przy 1280 × 720
+   * (26.11.2026, lekcja „CV do klienta”).
+   */
+  subBelowActions?: boolean;
   /** Formularz w wierszu (potwierdzenie, fragment, edycja zdania) — zawsze widoczny, gdy jest. */
   form?: ReactNode;
   details?: ReactNode;
@@ -113,7 +119,9 @@ interface RowShellProps {
   ctx: RowContext;
 }
 
-function RowShell({ kind, blocking = false, title, sub, actions, actionsBelow = false, form, details, target, ctx }: RowShellProps) {
+function RowShell({ kind, blocking = false, title, sub, actions, actionsBelow = false, subBelowActions = false, form, details, target, ctx }: RowShellProps) {
+  const subNode = sub ? <div className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{sub}</div> : null;
+  const lateSub = actionsBelow && subBelowActions;
   const [open, setOpen] = useState(false);
   const detailsId = useId();
   const toggle = () => {
@@ -144,12 +152,13 @@ function RowShell({ kind, blocking = false, title, sub, actions, actionsBelow = 
           >
             {title}
           </button>
-          {sub ? <div className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{sub}</div> : null}
+          {lateSub ? null : subNode}
         </div>
         {actions && !actionsBelow ? <div className="flex shrink-0 flex-wrap justify-end gap-1">{actions}</div> : null}
       </div>
       {/* Bez wcięcia pod ikoną: trzy odpowiedzi przy treści spoza oryginału mieszczą się w jednym rzędzie (360 px). */}
       {actions && actionsBelow ? <div className="flex flex-wrap gap-1">{actions}</div> : null}
+      {lateSub ? subNode : null}
       {form ? <div className={cn(blocking && "pl-6")}>{form}</div> : null}
       {details && open ? (
         <div id={detailsId} className={cn("space-y-1.5 text-xs", blocking && "pl-6")}>
@@ -979,6 +988,7 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
       actions={action}
       // Miniatura zrzutu i długa propozycja lat ściskają treść do wąskiej kolumny.
       actionsBelow={item.fix === "replace_consent" || item.fix === "tenure_split"}
+      subBelowActions={item.fix === "tenure_split"}
       details={
         <>
           {item.fix === "ai" && item.detail ? <p className="text-muted-foreground">{item.detail}</p> : null}
