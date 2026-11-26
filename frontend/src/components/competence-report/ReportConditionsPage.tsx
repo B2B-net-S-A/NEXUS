@@ -10,7 +10,6 @@
 
 import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import axios from "axios";
-import Link from "next/link";
 
 import { B2BLogo } from "@/components/career/B2BLogo";
 import { careerDisplayFont } from "@/components/career/fonts";
@@ -403,7 +402,12 @@ export function ReportConditionsPage({ token, optOut }: ReportConditionsPageProp
 
       <footer className="wr-foot">
         <div className="wr-foot-inner">
-          <Link href="/kariera/rodo">{t.privacy}</Link>
+          {/* Zwykły <a>, nie next/link: prefetch RSC trafiał w 307 middleware na
+              domenę kariery i CSP connect-src go blokowała (NEXUS-FE-A4).
+              Nowa karta, jak w ApplyForm — formularz nie traci wpisanych danych. */}
+          <a href="/kariera/rodo" target="_blank" rel="noopener noreferrer">
+            {t.privacy}
+          </a>
           <span>B2B.NET S.A. · Al. Jerozolimskie 180, 02-486 Warszawa · KRS 0000387063 · NIP 5711707392</span>
         </div>
       </footer>
