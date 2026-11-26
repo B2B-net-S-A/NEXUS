@@ -184,13 +184,16 @@ function Board({
                 listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
               }}
             >
-              <label className={g.heroField}>
+              <div className={g.heroField}>
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <circle cx="8.5" cy="8.5" r="6.5" stroke="currentColor" strokeWidth="1.8" />
                   <path d="M13.5 13.5 L18 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                 </svg>
-                <span className={s.srOnly}>Technologia, rola albo miasto</span>
+                <label htmlFor={`${uid}-q`} className={s.srOnly}>
+                  Technologia, rola albo miasto
+                </label>
                 <input
+                  id={`${uid}-q`}
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -206,7 +209,7 @@ function Board({
                     </button>
                   </>
                 ) : null}
-              </label>
+              </div>
               <button type="submit" className={g.heroGo}>
                 Pokaż {offersLabel(visible.length, "acc")}
               </button>

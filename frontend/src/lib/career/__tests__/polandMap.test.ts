@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCityMap, columnScale, inCities, officeNote, offerMapMode } from "../polandMap";
+import { buildCityMap, columnScale, fitLabel, inCities, officeNote, offerMapMode, textWidth } from "../polandMap";
 import { facetCounts, jobCities, type Facet } from "../site";
 
 /** Stan tablicy z 26.11.2026 (makieta A-pierwszy-ekran). */
@@ -141,5 +141,31 @@ describe("liczba miast słowem", () => {
     [14, "w 14 miastach"],
   ])("%i → %s", (n, text) => {
     expect(inCities(n)).toBe(text);
+  });
+});
+
+describe("podpis obok kolumny mieści się w mapie (0–600)", () => {
+  const inside = (colX: number, lines: { text: string; size: number }[], prefer: "left" | "right", gap?: number) => {
+    const f = fitLabel(colX, lines, prefer, gap);
+    const w = Math.max(...lines.map((l) => textWidth(l.text, l.size * f.scale)));
+    return f.anchor === "end" ? f.x - w >= -0.01 : f.x + w <= 600.01;
+  };
+
+  it("Warszawa z podpisem biura zostaje po lewej jak na makiecie", () => {
+    expect(fitLabel(378, [{ text: "Warszawa", size: 28 }, { text: "biuro 1 dzień w tygodniu", size: 18 }], "left")).toEqual({
+      anchor: "end",
+      x: 342,
+      scale: 1,
+    });
+  });
+
+  it.each([
+    ["Trójmiasto po lewej Gdańska", 232.7, "Gdańsk, Gdynia, Sopot", 28, "left"],
+    ["Szczecin przy lewej krawędzi", 40, "Szczecin", 36, "left"],
+    ["zamknięta w Krakowie, po prawej", 377.3, "Kraków · zamknięta", 30.8, "right"],
+    ["zamknięta w Rzeszowie, po prawej", 478.8, "Rzeszów · zamknięta", 30.8, "right"],
+    ["długie hasło na pustej kolumnie", 278, "Programista COBOL mainfr…: 0", 33, "right"],
+  ] as const)("%s", (_, x, text, size, prefer) => {
+    expect(inside(x, [{ text, size }], prefer)).toBe(true);
   });
 });

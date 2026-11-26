@@ -5,7 +5,9 @@ import {
   REMOTE_DOTS,
   SLAB,
   buildCityMap,
+  COL_W,
   columnShape,
+  fitLabel,
   points,
   type MapLabel,
 } from "@/lib/career/polandMap";
@@ -169,8 +171,17 @@ export function OfferCityMap({
   const litShapes = lit.map((c) => ({ c, h: Math.max(c.height, LIT_MIN) }));
   const head = first ? first.base - Math.max(first.height, LIT_MIN) : 0;
   const font = phone ? { name: 36, note: 26 } : { name: 28, note: 18 };
-  const labelX = first ? first.x - 36 : 0;
   const ariaCities = cities.join(", ");
+  const fit = first
+    ? fitLabel(
+        first.x,
+        [
+          { text: ariaCities, size: font.name },
+          ...(note ? [{ text: note, size: font.note }] : []),
+        ],
+        "left",
+      )
+    : null;
   return (
     <svg
       viewBox="0 120 600 470"
@@ -206,14 +217,27 @@ export function OfferCityMap({
           );
         })}
       </g>
-      {first ? (
+      {first && fit ? (
         <>
-          <path d={`M${first.x - 2},${head + 15} L${labelX + 8},${head + 15}`} className={g.leader} />
-          <text x={labelX} y={head + 9} textAnchor="end" fontSize={font.name} className={g.mapNum}>
-            {cities.join(", ")}
+          <path
+            d={
+              fit.anchor === "end"
+                ? `M${first.x - 2},${head + 15} L${fit.x + 8},${head + 15}`
+                : `M${first.x + COL_W + 2},${head + 15} L${fit.x - 8},${head + 15}`
+            }
+            className={g.leader}
+          />
+          <text x={fit.x} y={head + 9} textAnchor={fit.anchor} fontSize={font.name * fit.scale} className={g.mapNum}>
+            {ariaCities}
           </text>
           {note ? (
-            <text x={labelX} y={head + 9 + font.note + 8} textAnchor="end" fontSize={font.note} className={g.mapName}>
+            <text
+              x={fit.x}
+              y={head + 9 + font.note + 8}
+              textAnchor={fit.anchor}
+              fontSize={font.note * fit.scale}
+              className={g.mapName}
+            >
               {note}
             </text>
           ) : null}
@@ -245,9 +269,11 @@ export function RemoteMap({ uid, className }: MapBase) {
 }
 
 /** Zamknięta rekrutacja: przerywany obrys i przerywana kolumna miasta. */
-export function ClosedMap({ uid, cities, className }: MapBase & { cities: readonly string[] }) {
+export function ClosedMap({ cities, className }: MapBase & { cities: readonly string[] }) {
   const first = cities.length > 0 ? buildCityMap([{ id: cities[0], label: cities[0], count: 30 }]).columns[0] : null;
-  void uid;
+  const text = `${cities.join(", ")} · zamknięta`;
+  // Krój mono jest szerszy niż szacunek dla Montserrat — zapas przez większy rozmiar w pomiarze.
+  const fit = first ? fitLabel(first.x, [{ text, size: 28 * 1.1 }], "right", 12) : null;
   return (
     <svg viewBox="0 300 600 290" aria-hidden="true" className={`${g.map} ${className ?? ""}`}>
       <polygon points={OUTLINE} fill="#FFFFFF" fillOpacity="0.10" stroke="#FFFFFF" strokeOpacity="0.5" strokeWidth="1.3" />
@@ -257,9 +283,11 @@ export function ClosedMap({ uid, cities, className }: MapBase & { cities: readon
             <polygon points={columnShape(first.x, first.base, 90).front} />
             <polygon points={columnShape(first.x, first.base, 90).top} />
           </g>
-          <text x={first.x + 34} y={first.base - 86} fontSize="28" className={g.mapMono}>
-            {cities.join(", ")} · zamknięta
-          </text>
+          {fit ? (
+            <text x={fit.x} y={first.base - 86} textAnchor={fit.anchor} fontSize={28 * fit.scale} className={g.mapMono}>
+              {text}
+            </text>
+          ) : null}
         </>
       ) : null}
     </svg>
@@ -270,6 +298,7 @@ export function ClosedMap({ uid, cities, className }: MapBase & { cities: readon
 export function GhostMap({ uid, word, className }: MapBase & { word: string }) {
   const id = safeId(uid);
   const s = columnShape(278, 452, 122);
+  const ghostFit = fitLabel(278, [{ text: `${word}: 0`, size: 30 * 1.1 }], "right", 12);
   return (
     <svg viewBox="0 280 600 320" role="img" aria-label={`Mapa Polski z pustym miejscem na kolumnę: dziś nie ma projektu z ${word}.`} className={`${g.map} ${className ?? ""}`}>
       <defs>
@@ -284,7 +313,7 @@ export function GhostMap({ uid, word, className }: MapBase & { word: string }) {
         <polygon points={s.front} />
         <polygon points={s.top} />
       </g>
-      <text x="312" y="342" fontSize="30" className={g.ghostText}>
+      <text x={ghostFit.x} y="342" textAnchor={ghostFit.anchor} fontSize={30 * ghostFit.scale} className={g.ghostText}>
         {word}: 0
       </text>
     </svg>

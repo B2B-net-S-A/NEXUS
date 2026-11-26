@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { CareerBoard } from "@/components/career/site/CareerBoard";
 import { OfferPage } from "@/components/career/site/OfferPage";
+import { atName } from "@/components/career/site/SentGate";
 import type { CareerBoardJob, CareerBoardResponse, CareerJobResponse } from "@/lib/career/api";
 
 const card = (slug: string, over: Partial<CareerBoardJob> = {}): CareerBoardJob => ({
@@ -205,6 +206,23 @@ describe("lista rekrutacji (KarieraA)", () => {
     expect(section.querySelector('input[name="consent"]')).toBeTruthy();
     expect(section.querySelector('input[name="consent_future"]')).toBeNull();
     expect(section.textContent).toContain("przyszłych procesów rekrutacyjnych");
+  });
+});
+
+describe("„CV jest u …” — dopełniacz imienia albo nic", () => {
+  it.each([
+    ["Marek", "Marka"], ["Paweł", "Pawła"], ["Michał", "Michała"], ["Tomasz", "Tomasza"], ["Dominik", "Dominika"],
+    ["Marta", "Marty"], ["Paulina", "Pauliny"], ["Olga", "Olgi"], ["Agnieszka", "Agnieszki"], ["Ola", "Oli"],
+    ["Kasia", "Kasi"], ["Ania", "Ani"], ["Gosia", "Gosi"], ["Basia", "Basi"], ["Maria", "Marii"], ["Julia", "Julii"],
+    ["Zofia", "Zofii"], ["Maja", "Mai"], ["Malwina", "Malwiny"],
+  ])("%s → %s", (name, gen) => {
+    expect(atName(name)).toBe(gen);
+  });
+
+  it("imienia, którego nie umie odmienić, nie zgaduje", () => {
+    expect(atName("Zoe")).toBeNull();
+    expect(atName("")).toBeNull();
+    expect(atName("Anna Maria")).toBeNull();
   });
 });
 

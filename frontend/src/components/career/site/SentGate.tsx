@@ -67,7 +67,10 @@ export function SentGate({ sent, children }: { sent: SentContext; children: Reac
  * i ekran mówi „CV jest u nas.”, zamiast zgadywać formę.
  */
 const GENITIVE: [RegExp, (n: string) => string][] = [
-  [/[ij]a$/i, (n) => `${n.slice(0, -1)}i`],
+  // Kasia → Kasi, Ania → Ani (miękka spółgłoska), ale Maria → Marii, Julia → Julii; Maja → Mai.
+  [/(s|n|c|z|dz)ia$/i, (n) => n.slice(0, -1)],
+  [/ia$/i, (n) => `${n.slice(0, -1)}i`],
+  [/ja$/i, (n) => `${n.slice(0, -2)}i`],
   [/la$/i, (n) => `${n.slice(0, -1)}i`],
   [/[kg]a$/i, (n) => `${n.slice(0, -1)}i`],
   [/a$/i, (n) => `${n.slice(0, -1)}y`],

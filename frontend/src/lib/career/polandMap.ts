@@ -136,7 +136,7 @@ export function columnScale(max: number): number {
 }
 
 /** Szacunek szerokości tekstu (Montserrat / Source Sans 3, bez pomiaru w DOM). */
-function textWidth(text: string, size: number): number {
+export function textWidth(text: string, size: number): number {
   return text.length * size * 0.56;
 }
 
@@ -246,6 +246,41 @@ export function buildCityMap(facets: readonly Facet[], opts: { phone?: boolean }
     flows,
     summary: [...facets].map((f) => `${f.label} ${f.count}`).join(", "),
   };
+}
+
+export interface FittedLabel {
+  anchor: "start" | "end";
+  x: number;
+  /** Mnożnik czcionki (< 1 tylko, gdy podpis nie mieści się po żadnej stronie). */
+  scale: number;
+}
+
+/**
+ * Podpis obok kolumny, który mieści się w szerokości mapy (0–600): najpierw
+ * strona `prefer`, potem przeciwna, a gdy żadna nie wystarcza — większa z nich
+ * z mniejszą czcionką. Bo mapa ma `overflow: visible` i za długi podpis
+ * („Gdańsk, Gdynia, Sopot”, „Kraków · zamknięta”) wchodził w tekst oferty
+ * albo dawał poziomy pasek przewijania na telefonie.
+ */
+export function fitLabel(
+  colX: number,
+  lines: readonly { text: string; size: number }[],
+  prefer: "left" | "right",
+  gap = 36,
+): FittedLabel {
+  const w = Math.max(...lines.map((l) => textWidth(l.text, l.size)));
+  const leftX = colX - gap;
+  const rightX = colX + COL_W + gap;
+  const left: FittedLabel = { anchor: "end", x: leftX, scale: 1 };
+  const right: FittedLabel = { anchor: "start", x: rightX, scale: 1 };
+  const fitsLeft = leftX - w >= 0;
+  const fitsRight = rightX + w <= 600;
+  if (prefer === "left" && fitsLeft) return left;
+  if (fitsRight) return right;
+  if (fitsLeft) return left;
+  const roomLeft = leftX;
+  const roomRight = 600 - rightX;
+  return roomLeft >= roomRight ? { ...left, scale: roomLeft / w } : { ...right, scale: roomRight / w };
 }
 
 /** Co pokazuje mapa na stronie oferty. */
