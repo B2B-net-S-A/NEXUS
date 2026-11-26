@@ -16,7 +16,8 @@ paragonu, a hook `sciezka-stagingu-gate.js` sprawdza, że każde miejsce ma decy
     python3 scripts/impact_map.py --diff A...B
 
 Pliki zmienione w diffie, testy i harnessy `/preview/*` nie są „innym miejscem”.
-Pole TS liczy się w `interface`/`type` i w typie wpisanym w sygnaturę, nie we
+Pole Pythona liczy się w pliku schematów i w klasie modelu w `backend/app/api/`
+(tam stoi większość modeli tras), nie w parametrze funkcji. Pole TS liczy się w `interface`/`type` i w typie wpisanym w sygnaturę, nie we
 właściwości obiektu (`timeout:`, `queryKey:`). Symbol z ponad `TOO_BROAD` miejscami ma nazwę zbyt
 ogólną, żeby grep znalazł tę samą informację: dostaje jeden wiersz
 `<symbol> · *` z decyzją zbiorczą zamiast wiersza na plik (PR #4058: nowy typ
@@ -37,18 +38,26 @@ from typing import NamedTuple
 
 SEARCH_ROOTS = ("frontend/src", "backend/app")
 # Nazwy, które są w każdym pliku: ich użycia nic nie mówią o tej samej informacji.
-# Ostatni wiersz: pomiar na PR #4058 (każde z tych słów: od 27 do 1937 miejsc).
+# Przedostatni wiersz: pomiar na PR #4058 (każde z tych słów: od 27 do 1937 miejsc).
+# Ostatni: pola modeli z `backend/app/api/` w 120 commitach maina (26.11.2026) —
+# 36–47 miejsc, same komentarze i zmienne („Role markers decide…”, `forms = {token}`).
 GENERIC = frozenset(
     "id name type status data value label title key kind items count total page size "
     "created_at updated_at deleted_at user_id email notes description url path code "
     "message error result results detail children className props "
-    "text source company token quote verified issue timeout".split()
+    "text source company token quote verified issue timeout "
+    "decide forms delivery".split()
 )
 # Więcej miejsc dla jednego symbolu = jeden wiersz zbiorczy. Mediana z 120 commitów
 # maina (26.11.2026) to 22 miejsca na pole; powyżej 50 są już tylko słowa ogólne
 # i identyfikatory w rodzaju `contract_id`, których nikt nie przegląda plik po pliku.
 TOO_BROAD = 50
 PY_FIELD = re.compile(r"^\s{4}([a-z_][a-z0-9_]*)\s*:\s*[^=\s]")
+PY_CLASS_WITH_BASES = re.compile(r"^class\s+\w+\s*\((.+)\)\s*:")
+# Bazy klas, które nie są modelem pydantic. Pomiar 26.11.2026 w `backend/app/api/`:
+# 1700 z 1749 klas to `BaseModel` albo pochodne; reszta to klasy bez bazy
+# (dataclass ze stanem wewnętrznym), `NamedTuple`, wyliczenia i wyjątki.
+PY_NOT_MODEL_BASE = re.compile(r"Enum|Exception|Error|Protocol|NamedTuple|TypedDict")
 TS_FIELD = re.compile(r"^\s+([a-zA-Z_][a-zA-Z0-9_]*)\??\s*:\s*[^=\s]")
 TS_TYPE_DECL = re.compile(r"^(?:export\s+)?(?:declare\s+)?(?:interface|type)\s")
 # Deklaracja na najwyższym poziomie; ten sam warunek git stosuje do nagłówka hunka.
@@ -126,6 +135,21 @@ def _is_schema_py(path: str) -> bool:
     return path.endswith(".py") and ("/schemas/" in path or "schema" in PurePosixPath(path).name)
 
 
+def _is_py_model_field(path: str, scope: str) -> bool:
+    """Pole modelu pydantic: cały plik schematów albo klasa modelu w `backend/app/api/`.
+
+    Moduł w `api/` ma obok modeli funkcje, więc tam liczy się tylko linia w klasie
+    z bazą modelu (`class X(BaseModel):` albo pochodna `class Y(X):`); parametr
+    w sygnaturze `def _merged(\\n    extras: Optional[dict],` polem nie jest.
+    """
+    if _is_schema_py(path):
+        return True
+    if not (path.startswith("backend/app/api/") and path.endswith(".py")):
+        return False
+    m = PY_CLASS_WITH_BASES.match(scope)
+    return bool(m) and not PY_NOT_MODEL_BASE.search(m.group(1))
+
+
 def _is_types_ts(path: str) -> bool:
     return path.startswith("frontend/src/") and path.endswith(".ts") and (
         "/types/" in path or "/lib/" in path
@@ -138,7 +162,7 @@ def symbols_from_diff(files: dict[str, list[Line]]) -> list[Symbol]:
         if IGNORE.search(path):
             continue
         for text, scope in lines:
-            if _is_schema_py(path):
+            if _is_py_model_field(path, scope):
                 m = PY_FIELD.match(text)
                 if m and not text.lstrip().startswith(("def ", "return", "#")):
                     found.setdefault(m.group(1), Symbol(m.group(1), "pole"))
