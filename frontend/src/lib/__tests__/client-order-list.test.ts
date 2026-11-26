@@ -771,19 +771,19 @@ describe("reguła zakładki Zakończeni", () => {
   });
 
   it("upływ okresu zamówienia NIE przenosi do Zakończonych — zostaje dopisek", () => {
-    // Klimczak po 31.08: umowa aktywna (bezterminowa), zamówienie minęło.
-    const klimczak = contractor(469, "Piotr Klimczak", {
+    // Po 31.08: umowa aktywna (bezterminowa), zamówienie minęło.
+    const openEnded = contractor(6, "Oskar Testowy", {
       contract_status: "active",
       contract_end_date: null,
       days_to_latest_end: -3,
       orders: [past()],
     });
-    expect(contractorMatchesPill(klimczak, "active", TODAY)).toBe(true);
-    expect(contractorMatchesPill(klimczak, "completed", TODAY)).toBe(false);
-    expect(lacksCurrentOrder(klimczak, TODAY)).toBe(true);
+    expect(contractorMatchesPill(openEnded, "active", TODAY)).toBe(true);
+    expect(contractorMatchesPill(openEnded, "completed", TODAY)).toBe(false);
+    expect(lacksCurrentOrder(openEnded, TODAY)).toBe(true);
 
     // Przedłużenie dodane (zaczyna się później) — dopisek znika.
-    const extended = contractor(469, "Piotr Klimczak", {
+    const extended = contractor(6, "Oskar Testowy", {
       contract_status: "active",
       orders: [
         past(),

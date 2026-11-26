@@ -5,8 +5,8 @@ Data: 2026-09-03 · jeden PR na ticket · poprzedza go #1355 (zamówienia z mail
 ## Zgłoszenie
 
 Osoby z zakończonym okresem zamówienia trafiały do „Zakończonych" niekonsekwentnie;
-Piotr Klimczak (VeloBank, Contract 469) wylądował tam mimo aktywnej współpracy
-i czekającego przedłużenia.
+Contract 469 (VeloBank) wylądował tam mimo aktywnej współpracy i czekającego
+przedłużenia.
 
 ## Co było naprawdę (dane z produkcji, 03.09)
 
@@ -19,7 +19,7 @@ bywał przepisany z pierwszego okresu zamówienia; do tego wskrzeszenie kontrakt
 żywym zamówieniem przepisywało do umowy datę końca ZAMÓWIENIA, więc po jej
 upływie osoba wracała do „Zakończonych". W całej bazie klasa „zakończona bez
 wypowiedzenia, a zamówienie trwało po dacie końca umowy" liczy 3 wiersze — wszystkie
-VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Klimczak.
+VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Contract 469.
 
 ## Zmiany
 
