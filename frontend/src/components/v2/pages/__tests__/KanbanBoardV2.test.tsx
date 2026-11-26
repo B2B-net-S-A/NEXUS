@@ -558,12 +558,12 @@ function returnedColumns() {
           returned_from_screening: {
             at: "2026-11-25T23:06:41Z",
             holder_user_id: 7,
-            holder_name: "Barbara I.",
+            holder_name: "Ola Testowa",
             screening_since: "2026-11-23T09:00:00Z",
           },
         }),
         base(3, "new", {
-          returned_from_screening: { at: "2026-11-25T23:06:41Z", holder_user_id: 9, holder_name: "Kolega K." },
+          returned_from_screening: { at: "2026-11-25T23:06:41Z", holder_user_id: 9, holder_name: "Jan Testowy" },
         }),
       ],
     },
@@ -596,7 +596,7 @@ describe("KanbanBoardV2 — karty, które wróciły ze Screeningu (26.11.2026)",
     expect(order.slice(0, 3)).toEqual(["2", "1", "3"]);
     const lines = screen.getAllByTestId("card-returned-line").map((el) => el.textContent);
     expect(lines[0]).toBe("Wróciła 26.11");
-    expect(lines[1]).toBe("Wróciła ze Screeningu od: Kolega K.");
+    expect(lines[1]).toBe("Wróciła ze Screeningu od: Jan Testowy");
     expect(screen.getAllByTestId("card-take-back")).toHaveLength(1);
   });
 
