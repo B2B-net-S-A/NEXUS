@@ -35,6 +35,12 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
 - **Wynik w kolumnach `candidates.rate_from_*`, `rate_latest_*`,
   `rate_observation_count`**, zapisywany surowym SQL-em — `updated_at`
   nietknięte, więc alerty zapisanych wyszukiwań nie widzą przeliczenia.
+  Zapis idzie tylko, gdy wynik się zmienił (`IS DISTINCT FROM` w `_UPDATE_SQL`,
+  26.11.2026), więc `rate_from_computed_at` to chwila ostatniej zmiany. UPDATE
+  kandydata nie jest HOT i dokłada wpisy do wszystkich indeksów, także trygramów
+  CV: na produkcji ok. 120 ms i 2,9 MB WAL na wiersz, 14 947 zapisów w 19 h,
+  a na kopii 99,7–100% przeliczeń dawało ten sam wynik. Wyzwalacz
+  pełnotekstowy (`trg_candidates_search_fts`) kosztuje w tym ok. 0,5 ms.
   Wyzwalacze na `recommendation_cards`, `candidate_stages`, stawce profilu
   i `application_submissions` dopisują kandydata do `candidate_rate_from_queue`
   (łapią też surowy SQL Traffita); pętla `candidate_rate_from` (heartbeat)
