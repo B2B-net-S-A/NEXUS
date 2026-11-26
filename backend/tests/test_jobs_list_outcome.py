@@ -129,7 +129,7 @@ async def _seed(token: str) -> tuple[int, dict[str, int], list[int]]:
             if key == "excluded_hire":
                 db.add(
                     PlacementExclusion(
-                        candidate_id=candidate.id, job_id=jobs[key], reason="test"
+                        candidate_id=candidate.id, job_id=jobs[key], reason="manual"
                     )
                 )
         await db.commit()
@@ -141,8 +141,20 @@ async def _cleanup(client_id: int, candidate_ids: list[int]) -> None:
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.job import Job
+    from app.models.placement_exclusion import PlacementExclusion
+    from app.models.recruitment_pipeline import CandidateStage
 
     async with AsyncSessionLocal() as db:
+        # Etapy i wykluczenia przed rekrutacjami: klucz z `candidate_stages`
+        # nie ma kaskady.
+        await db.execute(
+            delete(CandidateStage).where(CandidateStage.candidate_id.in_(candidate_ids))
+        )
+        await db.execute(
+            delete(PlacementExclusion).where(
+                PlacementExclusion.candidate_id.in_(candidate_ids)
+            )
+        )
         await db.execute(delete(Job).where(Job.client_id == client_id))
         await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
         await db.execute(delete(Client).where(Client.id == client_id))
