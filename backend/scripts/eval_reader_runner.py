@@ -26,6 +26,7 @@ import base64
 import copy
 import json
 import os
+import re
 import sys
 import tempfile
 import traceback
@@ -670,7 +671,7 @@ def _schema_fingerprint(metadata) -> str:
         + ",".join(f"{c.name} {c.type!r} {c.nullable}" for c in table.columns)
         for table in sorted(metadata.tables.values(), key=lambda t: t.name)
     ]
-    return hashlib.sha1("\n".join(lines).encode()).hexdigest()
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 async def _prepare_schema(url: str) -> None:
@@ -718,17 +719,21 @@ async def _prepare_schema(url: str) -> None:
         if stored == fingerprint:
             await admin.dispose()
             return
+    # Nazwa bazy to identyfikator (bez parametrów w SQL): tylko z bezpiecznego
+    # alfabetu, w cudzysłowie dialektu.
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", target.database or ""):
+        raise ValueError(f"niedozwolona nazwa bazy evalu: {target.database!r}")
     async with admin.connect() as conn:
-        await conn.execute(
-            text(f'DROP DATABASE IF EXISTS "{target.database}" WITH (FORCE)')
-        )
-        await conn.execute(text(f'CREATE DATABASE "{target.database}"'))
+        name = conn.dialect.identifier_preparer.quote(target.database)
+        await conn.exec_driver_sql(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        await conn.exec_driver_sql(f"CREATE DATABASE {name}")
     await admin.dispose()
 
     engine = create_async_engine(url)
     async with engine.begin() as conn:
-        for extension in ("pg_trgm", "unaccent", "btree_gin"):
-            await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gin"))
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("CREATE TABLE _eval_reader_ready (fp text)"))
         await conn.execute(
@@ -790,8 +795,8 @@ async def _clear_mail_state(db) -> None:
 
     from sqlalchemy import text
 
-    for table in ("cp_documents", "cp_mailbox_state"):
-        await db.execute(text(f"DELETE FROM {table}"))
+    await db.execute(text("DELETE FROM cp_documents"))
+    await db.execute(text("DELETE FROM cp_mailbox_state"))
 
 
 async def _read_mail(case: dict, today: date, moment: datetime, engine):

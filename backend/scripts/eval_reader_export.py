@@ -32,6 +32,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from collections import defaultdict
@@ -74,8 +75,16 @@ def _docker_env(container: str) -> dict[str, str]:
 def copy_url(database: str) -> str:
     """Adres kopii stagingu; hasło z kontenera, tylko w pamięci procesu."""
 
-    password = _docker_env(PG_CONTAINER).get("POSTGRES_PASSWORD", "")
-    return f"postgresql+asyncpg://nexus:{password}@127.0.0.1:5433/{database}"
+    from sqlalchemy.engine import URL
+
+    return URL.create(
+        "postgresql+asyncpg",
+        username="nexus",
+        password=_docker_env(PG_CONTAINER).get("POSTGRES_PASSWORD", ""),
+        host="127.0.0.1",
+        port=5433,
+        database=database,
+    ).render_as_string(hide_password=False)
 
 
 def newest_copy() -> str:
@@ -117,9 +126,10 @@ def production_settings() -> tuple[dict[str, Any], list[str]]:
 
 
 def _private_dir(path: Path) -> Path:
+    """Katalog z danymi osób: tylko właściciel czyta i wchodzi (rwx------)."""
     path.mkdir(parents=True, exist_ok=True)
     for folder in (path, path.parent):
-        os.chmod(folder, 0o700)
+        os.chmod(folder, stat.S_IRWXU)
     return path
 
 

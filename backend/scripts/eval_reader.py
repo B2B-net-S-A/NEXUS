@@ -51,7 +51,23 @@ STAGING = Path(os.environ.get("NEXUS_STAGING_DIR", Path.home() / ".nexus-staging
 TREES = STAGING / "eval" / "drzewa"
 PG_CONTAINER = "nexus-eval-reader-pg"
 PG_PORT = 55491
-PG_URL = f"postgresql+asyncpg://eval:eval@127.0.0.1:{PG_PORT}/eval"
+# Jednorazowy kontener bez danych; użytkownik i hasło tylko lokalne.
+PG_USER = os.environ.get("EVAL_READER_PG_USER", "eval")
+PG_PASSWORD = os.environ.get("EVAL_READER_PG_PASSWORD", "eval")
+
+
+def pg_url(database: str = "eval") -> str:
+    from sqlalchemy.engine import URL
+
+    return URL.create(
+        "postgresql+asyncpg",
+        username=PG_USER,
+        password=PG_PASSWORD,
+        host="127.0.0.1",
+        port=PG_PORT,
+        database=database,
+    ).render_as_string(hide_password=False)
+
 
 # Wartości ze sita CI (publiczny .github/workflows/ci.yml) — nie sekrety.
 APP_ENV = {
@@ -136,7 +152,7 @@ def ensure_postgres() -> str:
                 "docker", "run", "-d", "--rm", "--name", PG_CONTAINER,
                 "--label", "nexus.eval-reader=1",
                 "-p", f"127.0.0.1:{PG_PORT}:5432",
-                "-e", "POSTGRES_USER=eval", "-e", "POSTGRES_PASSWORD=eval",
+                "-e", f"POSTGRES_USER={PG_USER}", "-e", f"POSTGRES_PASSWORD={PG_PASSWORD}",
                 "-e", "POSTGRES_DB=eval", "postgres:16-alpine",
             ],
             check=True,
@@ -144,13 +160,13 @@ def ensure_postgres() -> str:
         )  # fmt: skip
         for _ in range(30):
             ready = subprocess.run(
-                ["docker", "exec", PG_CONTAINER, "pg_isready", "-U", "eval"],
+                ["docker", "exec", PG_CONTAINER, "pg_isready", "-U", PG_USER],
                 capture_output=True,
             )
             if ready.returncode == 0:
                 break
             time.sleep(1)
-    return PG_URL
+    return pg_url()
 
 
 def corpus_dirs(
@@ -211,7 +227,8 @@ def run_revision(
         base = db_url.rsplit("/", 1)[0]
         env["DATABASE_URL"] = f"{base}/eval_{reader}_{sha[:10]}"
     else:
-        env["DATABASE_URL"] = "postgresql+asyncpg://eval:eval@127.0.0.1:1/brak"
+        # CV nie łączy się z bazą; adres tylko dla importu ustawień aplikacji.
+        env["DATABASE_URL"] = "postgresql+asyncpg://127.0.0.1:1/brak"
     copy = copy_database(reader, dirs)
     if copy:
         env["EVAL_READER_COPY_URL"] = copy
