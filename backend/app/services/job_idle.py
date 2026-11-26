@@ -11,7 +11,8 @@ i wybrał jedną regułę z dwoma przyciskami:
   notatki i aplikacje z ogłoszeń nie są ruchem — w 12 z 36 martwych
   rekrutacji rekruter ruszał karty w ostatnich 14 dniach;
 * licznik liczy od późniejszego z: ostatniego ruchu, otwarcia rekrutacji,
-  „Jeszcze trwa” (``jobs.idle_snoozed_at``) i startu reguły minus 14 dni
+  „Jeszcze trwa” (``jobs.idle_snoozed_at``), wznowienia po „Wstrzymanej”
+  (``jobs.hold_ended_at``, 26.11.2026) i startu reguły minus 14 dni
   (zaległe dostają przypomnienie w dniu włączenia, a — decyzja Artura
   29.10.2026 — HoR po 21 dniach i zamknięcie po 28 od startu);
 * **14 dni** → dzwonek i mail do Delivery Leada (bez DL: Head of Recruitment),
@@ -23,6 +24,11 @@ i wybrał jedną regułę z dwoma przyciskami:
 * jeden zbiorczy wpis dziennie na osobę (``job_idle_reminder``, mail
   obowiązkowy); znaczniki etapów w ``Activity`` (``idle_notice``) z datą
   początku cyklu, więc „Jeszcze trwa” zaczyna nowy cykl.
+
+„Wstrzymana” (``work_state = on_hold``) wypada z reguły: bez przypomnień, bez
+zamknięcia po 28 dniach i bez paska. Zamiast tego ta sama pętla pyta DL
+w dniu „Sprawdzę z klientem” i po 30 dniach wstrzymania
+(``job_hold.run_hold_notices``).
 
 Automaty nie piszą do rekruterów osób w toku (reguła zamykania), ale pasek
 zamkniętej Tablicy pokazuje im ich osoby. Reguła:
@@ -52,6 +58,7 @@ from app.models.user import User, UserRole
 from app.services.autofill_decisions import business_days_since
 from app.services.job_priority import level_of
 from app.services.job_similarity import CLIENT_STAGES, request_statuses_and_stages
+from app.services.request_work_state import ON_HOLD
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +110,8 @@ class IdleFacts:
     last_move_kind: Optional[str]  # "cv" | "client"
     snoozed_at: Optional[datetime]
     last_cv_at: Optional[datetime] = None
+    # Wznowienie po „Wstrzymanej” — cisza w czasie wstrzymania się nie liczy.
+    hold_ended_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -149,7 +158,12 @@ def idle_state(facts: IdleFacts, *, started_at: datetime, now: datetime) -> Idle
     floor = _aware(started_at) - timedelta(days=REMIND_DAYS)
     candidates = [floor] + [
         _aware(m)
-        for m in (facts.opened_at, facts.last_move_at, facts.snoozed_at)
+        for m in (
+            facts.opened_at,
+            facts.last_move_at,
+            facts.snoozed_at,
+            facts.hold_ended_at,
+        )
         if m is not None
     ]
     since = max(candidates)
@@ -205,6 +219,19 @@ async def last_cv_sent_at(
         )
     ).all()
     return {job_id: moved_at for job_id, moved_at in rows}
+
+
+def may_auto_close(job: Optional[Job]) -> bool:
+    """Czy pętla może zamknąć rekrutację — sprawdzane PO blokadzie wiersza.
+
+    Kandydatów pętla wybiera bez blokady; wstrzymanie zapisane w tym czasie
+    widać dopiero w ``SELECT … FOR UPDATE``. Wstrzymana nie zamyka się sama.
+    """
+    return (
+        job is not None
+        and job.status == JobStatus.published
+        and job.work_state != ON_HOLD
+    )
 
 
 def in_send_window(now: datetime) -> bool:
@@ -279,13 +306,17 @@ async def load_facts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, Idle
     by_job = {job_id: (last, last_cv) for job_id, last, last_cv in moves}
     jobs = (
         await db.execute(
-            select(Job.id, Job.opened_at, Job.created_at, Job.idle_snoozed_at).where(
-                Job.id.in_(ids)
-            )
+            select(
+                Job.id,
+                Job.opened_at,
+                Job.created_at,
+                Job.idle_snoozed_at,
+                Job.hold_ended_at,
+            ).where(Job.id.in_(ids))
         )
     ).all()
     facts: dict[int, IdleFacts] = {}
-    for job_id, opened_at, created_at, snoozed_at in jobs:
+    for job_id, opened_at, created_at, snoozed_at, hold_ended_at in jobs:
         last, last_cv = by_job.get(job_id, (None, None))
         kind = None
         if last is not None:
@@ -297,6 +328,7 @@ async def load_facts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, Idle
             last_move_kind=kind,
             snoozed_at=snoozed_at,
             last_cv_at=last_cv,
+            hold_ended_at=hold_ended_at,
         )
     return facts
 
@@ -304,8 +336,10 @@ async def load_facts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, Idle
 async def state_for_job(
     db: AsyncSession, job: Job, *, now: datetime
 ) -> Optional[IdleState]:
-    """Stan jednej otwartej rekrutacji (pasek na stronie) albo ``None``."""
-    if job.status != JobStatus.published:
+    """Stan jednej otwartej rekrutacji (pasek na stronie) albo ``None``.
+
+    „Wstrzymana” nie ma paska — licznik stoi do wznowienia."""
+    if job.status != JobStatus.published or job.work_state == ON_HOLD:
         return None
     start = await started_at(db, create=False, now=now)
     if start is None:
@@ -457,6 +491,8 @@ async def run_idle_sweep(
             .join(Client, Client.id == Job.client_id, isouter=True)
             .where(
                 Job.status == JobStatus.published,
+                # „Wstrzymana”: bez przypomnień 14/21 i bez zamknięcia po 28.
+                Job.work_state != ON_HOLD,
                 *([Job.id.in_(list(only_job_ids))] if only_job_ids is not None else []),
             )
         )
@@ -511,7 +547,7 @@ async def run_idle_sweep(
             stage = "hor"
         if stage == "close":
             job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
-            if job is None or job.status != JobStatus.published:
+            if not may_auto_close(job):
                 continue
             await close_job_core(
                 db,
@@ -667,6 +703,14 @@ async def run_idle_sweep(
             )
         )
     counts[OVERDUE_STAGE] = len(rung)
+    # „Wstrzymana”: termin „Sprawdzę z klientem” i 30 dni wstrzymania (26.11.2026).
+    from app.services.job_hold import run_hold_notices  # noqa: PLC0415
+
+    hold_counts = await run_hold_notices(
+        db, now=now, only_job_ids=only_job_ids, leads_of=leads_of
+    )
+    counts.update(hold_counts)
+    sent += hold_counts.get("hold_sent", 0)
     counts["sent"] = sent
     await db.flush()
     return counts
@@ -839,6 +883,9 @@ async def run_once_safely(now: Optional[datetime] = None) -> Optional[dict[str, 
     from app.services.lost_review import run_ask_reminders_safely  # noqa: PLC0415
 
     await run_ask_reminders_safely(moment)
-    if any(counts.get(k) for k in ("remind", "hor", "closed", OVERDUE_STAGE)):
+    if any(
+        counts.get(k)
+        for k in ("remind", "hor", "closed", OVERDUE_STAGE, "hold_review", "hold_long")
+    ):
         logger.info("job_idle: %s", counts)
     return counts

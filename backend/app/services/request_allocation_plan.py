@@ -62,6 +62,8 @@ from typing import Iterable, Optional
 RELEASE_REASONS = {
     "champion": "Mamy championa",
     "client_silent": "Klient milczy",
+    # Tylko propozycje automatu — zespół zostaje przy wstrzymaniu (26.11.2026).
+    "on_hold": "Rekrutacja wstrzymana",
     "finished": "Request zakończony",
     "to_review": "Request wrócił do przejrzenia",
     "unavailable": "Osoba na urlopie",

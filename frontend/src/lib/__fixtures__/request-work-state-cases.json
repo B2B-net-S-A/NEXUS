@@ -6,6 +6,8 @@
     {"work_state": "searching", "champion": false, "visible": "searching"},
     {"work_state": "searching", "champion": true, "visible": "champion"},
     {"work_state": "client_silent", "champion": true, "visible": "client_silent"},
+    {"work_state": "on_hold", "champion": false, "visible": "on_hold"},
+    {"work_state": "on_hold", "champion": true, "visible": "on_hold"},
     {"work_state": "finished", "champion": false, "visible": "finished"},
     {"work_state": "finished", "champion": true, "visible": "finished"},
     {"work_state": "unknown", "champion": false, "visible": "to_review"},

@@ -135,6 +135,7 @@ export const PUBLIC_PATHS = [
   "/preview/daily",
   // Panel „Zespół” rekrutacji: Delivery Lead · Rekruter · Kategoria (02.10.2026).
   "/preview/job-team-panel",
+  // Rekrutacja „Wstrzymana” (26.11.2026): pigułka, pas, okno, panel DL — zapis lokalny.
   // Profil Championa w czterech zakładkach (04.10.2026).
   "/preview/champion-workspace",
   "/preview/plain-brief",

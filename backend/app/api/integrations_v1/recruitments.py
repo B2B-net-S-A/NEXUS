@@ -140,7 +140,8 @@ class RecruitmentOut(BaseModel):
     is_open: bool = Field(description="Rekrutacja przekazana do searchu.")
     priority: str = Field(description="p1 | p2 | accepting")
     work_state: str = Field(
-        description="to_review | searching | champion | client_silent | finished"
+        description="to_review | searching | champion | client_silent | on_hold "
+        "| finished"
     )
     recruiters: list[RecruiterOut]
     previous_recruiters: list[PreviousRecruiterOut]

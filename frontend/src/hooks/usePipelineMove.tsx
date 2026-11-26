@@ -122,6 +122,10 @@ import {
   type VerifiedRequirementsMissing,
 } from "@/lib/verified-gate";
 import { terminalOf } from "@/lib/kanban-terminal";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { stageLabel } from "@/lib/cv-generator";
+import { holdMoveWarning, holdViewOf, type HoldView, type JobHold } from "@/lib/job-hold";
+import { jobHoldKey } from "@/lib/job-hold-api";
 import {
   jumpsOverClientSend,
   moveDialogFor,
@@ -648,6 +652,51 @@ export function usePipelineMove({
   const confirmedRef = useRef(
     new Map<number, { fromId: number; patch: PipelineMoveConfirmedPatch }>()
   );
+  // Rekrutacja „Wstrzymana” (26.11.2026): każdy ruch naprzód (bez odrzucenia
+  // i rezygnacji) pyta „Przesuń mimo to” / „Nie przesuwaj” — ostrzega, nie
+  // blokuje. Stan z cache'u `GET …/hold`, który trzyma strona rekrutacji.
+  const { askConfirm: askHoldConfirm, confirmDialog: holdConfirmDialog } = useConfirmV2();
+  const currentHold = useCallback(
+    (): HoldView | null => holdViewOf(queryClient.getQueryData<JobHold>(jobHoldKey(jobId))),
+    [queryClient, jobId]
+  );
+  const holdWarnsMove = useCallback(
+    (dst: KanbanColumn, srcColId: string | null): boolean => {
+      const dstTerminal = terminalOf(dst);
+      if (dstTerminal === "rejected" || dstTerminal === "withdrawn") return false;
+      if (!currentHold()) return false;
+      // Cofnięcie karty między kolumnami pracy to nie ruch naprzód.
+      const srcIndex = srcColId ? columns.findIndex((c) => colId(c) === srcColId) : -1;
+      const dstIndex = columns.findIndex((c) => colId(c) === colId(dst));
+      if (srcIndex >= 0 && dstIndex >= 0 && !terminalOf(columns[srcIndex]) && dstIndex < srcIndex) {
+        return false;
+      }
+      return true;
+    },
+    [columns, currentHold]
+  );
+  const confirmHoldMove = useCallback(
+    async (
+      dst: KanbanColumn,
+      srcColId: string | null,
+      who: { item?: KanbanItem; count?: number }
+    ): Promise<boolean> => {
+      const hold = currentHold();
+      if (!hold || !holdWarnsMove(dst, srcColId)) return true;
+      const warning = holdMoveWarning(hold, {
+        candidateName: who.item ? itemFullName(who.item) : null,
+        targetLabel: dst.name ?? stageLabel(dst.stage),
+        count: who.count,
+      });
+      return askHoldConfirm({
+        ...warning,
+        confirmLabel: "Przesuń mimo to",
+        cancelLabel: "Nie przesuwaj",
+      });
+    },
+    [askHoldConfirm, currentHold, holdWarnsMove]
+  );
+
   const latest = useCallback((item: KanbanItem): KanbanItem => {
     const confirmed = confirmedRef.current.get(item.candidate_id);
     return confirmed && confirmed.fromId === item.id ? { ...item, ...confirmed.patch } : item;
@@ -1232,6 +1281,9 @@ export function usePipelineMove({
   const canMoveWithoutDialog = useCallback(
     (item: KanbanItem, dst: KanbanColumn): boolean => {
       if (readOnly) return false;
+      // Wstrzymana rekrutacja: strzałka nie odkłada ruchu po cichu — idzie
+      // przez `requestMove`, który najpierw pyta.
+      if (holdWarnsMove(dst, null)) return false;
       const dstTerminal = terminalOf(dst);
       const terminal = dstTerminal === "rejected" || dstTerminal === "withdrawn";
       // Weto HM i globalna czarna lista: serwer zapyta „Przenieś mimo to” —
@@ -1255,7 +1307,7 @@ export function usePipelineMove({
           return false;
       }
     },
-    [readOnly, latest, cproEnabled, canWriteClientRate, skipsFillGates]
+    [readOnly, latest, cproEnabled, canWriteClientRate, skipsFillGates, holdWarnsMove]
   );
 
   const deferMove = useCallback(
@@ -2084,6 +2136,7 @@ export function usePipelineMove({
 
   const dialogs: ReactNode = (
     <>
+      {holdConfirmDialog}
       <RejectionV2
         open={pendingRejection !== null}
         onOpenChange={(v) => !v && setPendingRejection(null)}
@@ -2537,9 +2590,37 @@ export function usePipelineMove({
     </>
   );
 
+  const guardedRequestMove = useCallback<PipelineMoveControls["requestMove"]>(
+    (item, fromColumn, toColumn, options) => {
+      if (readOnly) return;
+      const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
+      if (!holdWarnsMove(toColumn, srcColId)) {
+        requestMove(item, fromColumn, toColumn, options);
+        return;
+      }
+      void confirmHoldMove(toColumn, srcColId, { item }).then((ok) => {
+        if (ok) requestMove(item, fromColumn, toColumn, options);
+      });
+    },
+    [confirmHoldMove, holdWarnsMove, readOnly, requestMove]
+  );
+  const guardedRequestBulkMove = useCallback<PipelineMoveControls["requestBulkMove"]>(
+    async (items, toColumn, options) => {
+      if (items.length > 0 && holdWarnsMove(toColumn, null)) {
+        const ok = await confirmHoldMove(toColumn, null, {
+          item: items.length === 1 ? items[0] : undefined,
+          count: items.length,
+        });
+        if (!ok) return;
+      }
+      await requestBulkMove(items, toColumn, options);
+    },
+    [confirmHoldMove, holdWarnsMove, requestBulkMove]
+  );
+
   return {
-    requestMove,
-    requestBulkMove,
+    requestMove: guardedRequestMove,
+    requestBulkMove: guardedRequestBulkMove,
     requestReject,
     requestWithdraw,
     canMoveWithoutDialog,

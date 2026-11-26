@@ -75,7 +75,12 @@ class ReviewResponse(BaseModel):
 
 class StateChange(BaseModel):
     job_id: int = Field(gt=0)
-    state: Literal["to_review", "searching", "client_silent", "finished"]
+    # ``on_hold`` przyjmujemy tylko po to, żeby odmówić zdaniem po polsku —
+    # wstrzymanie wymaga powodu (``PUT /api/jobs/{id}/hold``).
+    state: Literal["to_review", "searching", "client_silent", "on_hold", "finished"]
+
+
+HOLD_REFUSED = "Wstrzymanie ustawisz w rekrutacji — wymaga powodu."
 
 
 class ChangesPayload(BaseModel):
@@ -90,7 +95,7 @@ def _listable():
 @router.get("", response_model=ReviewResponse)
 async def list_request_work_states(
     tab: Literal[
-        "to_review", "searching", "champion", "client_silent", "finished"
+        "to_review", "searching", "champion", "client_silent", "on_hold", "finished"
     ] = Query("to_review"),
     mine: bool = Query(False),
     q: Optional[str] = Query(None, max_length=120),
@@ -208,6 +213,10 @@ async def change_request_work_states(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     wanted = {change.job_id: change.state for change in payload.changes}
+    # Z „Wstrzymanej” wolno wyjść (``set_work_state`` czyści jej pola), wejść
+    # — tylko z powodem, na rekrutacji.
+    if "on_hold" in wanted.values():
+        raise HTTPException(422, HOLD_REFUSED)
     jobs = list(
         (
             await db.scalars(
@@ -236,12 +245,28 @@ async def change_request_work_states(
             f"Najpierw otwórz rekrutację „{display_title(closed[0])}” — zamknięta "
             "rekrutacja może mieć tylko stan „Zakończony”.",
         )
+    from app.services import job_hold  # noqa: PLC0415
+
     changed = []
+    resumed: list[tuple[Job, list[dict]]] = []
     try:
         for job in jobs:
+            # Wyjście ze wstrzymania do pracy to wznowienie: ten sam dzwonek co
+            # „Wznów rekrutację” (adresaci liczeni przed zmianą stanu).
+            recipients = (
+                await job_hold.hold_recipients(db, job, exclude_user_id=current_user.id)
+                if job_hold.resumes_work(job.work_state, wanted[job.id])
+                else None
+            )
             if await set_work_state(db, job, wanted[job.id], actor_id=current_user.id):
                 changed.append(job.id)
+                if recipients is not None:
+                    resumed.append((job, recipients))
     except WorkStateError as exc:
         raise HTTPException(422, str(exc)) from exc
+    for job, recipients in resumed:
+        await job_hold.notify_resumed(
+            db, job, recipients=recipients, actor_id=current_user.id
+        )
     await db.commit()
     return {"changed": changed, "unchanged": len(jobs) - len(changed)}

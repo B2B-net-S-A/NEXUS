@@ -970,6 +970,31 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     expect(chips.queryByRole("button", { name: /Obsadzona|Zakończony|W pracy/ })).toBeNull();
   });
 
+  it("„Wstrzymane” znika przy zerze — dziewiąta pigułka zawijała rząd przy 1280 × 720", async () => {
+    mockJobsResponse([jobRow()]);
+    mockQuickCounts({ mine: 42, ...stageCounts });
+    renderJobs();
+    const chips = within(await screen.findByRole("group", { name: "Stan requestu" }));
+    await waitFor(() =>
+      expect(chips.getByRole("button", { name: /Szukamy\s*7/ })).toBeInTheDocument(),
+    );
+    expect(chips.queryByRole("button", { name: /Wstrzymane/ })).toBeNull();
+  });
+
+  it("„Wstrzymane” jest, gdy w zakresie są wstrzymane rekrutacje", async () => {
+    mockJobsResponse([jobRow()]);
+    mockQuickCounts({
+      mine: 42,
+      request_stage: stageCounts.request_stage,
+      request_stage_mine: { ...stageCounts.request_stage_mine, on_hold: 1 },
+    });
+    renderJobs();
+    const chips = within(await screen.findByRole("group", { name: "Stan requestu" }));
+    await waitFor(() =>
+      expect(chips.getByRole("button", { name: /Wstrzymane\s*1/ })).toBeInTheDocument(),
+    );
+  });
+
   it("bez liczników stanu (starszy backend) pigułki nie udają zera", async () => {
     mockJobsResponse([jobRow()]);
     mockQuickCounts();

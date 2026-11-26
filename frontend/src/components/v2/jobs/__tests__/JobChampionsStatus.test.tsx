@@ -5,7 +5,7 @@
  * plakietkę.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -80,11 +80,13 @@ function Harness({
   canEdit,
   onOpenPerson,
   requestStage,
+  holdSection,
 }: {
   job: JobChampionsFields;
   canEdit: boolean;
   onOpenPerson?: (id: number) => void;
   requestStage?: string;
+  holdSection?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -96,6 +98,7 @@ function Harness({
       onOpenChange={setOpen}
       onOpenPerson={onOpenPerson}
       requestStage={requestStage}
+      holdSection={holdSection}
     />
   );
 }
@@ -283,5 +286,22 @@ describe("JobChampionsStatus", () => {
     });
     expect(status()).toHaveTextContent("Klient milczy");
     expect(status()).not.toHaveTextContent("Szukamy");
+  });
+
+  it("„Wstrzymana” (26.11.2026): paski z pauzą, a dymek ma sekcję stanu bez championów", async () => {
+    renderStatus({
+      job: { request_status: "on_hold", champions: [], champion_seats: 1, hired_count: 0 },
+      canEdit: false,
+      requestStage: "on_hold",
+      holdSection: <p>sekcja stanu</p>,
+    });
+    expect(status()).toHaveTextContent("Wstrzymana");
+    expect(status()).toHaveAttribute("data-hold", "true");
+    expect(status().className).toContain("repeating-linear-gradient");
+    expect(status()).toHaveAccessibleName("Wstrzymana — stan rekrutacji");
+    await userEvent.click(status());
+    expect(await screen.findByText("sekcja stanu")).toBeInTheDocument();
+    expect(screen.queryByText("Championi tej rekrutacji")).not.toBeInTheDocument();
+    expect(apiMock.get).not.toHaveBeenCalled();
   });
 });

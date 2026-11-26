@@ -16,6 +16,7 @@ export const REQUEST_STAGES = [
   "closed",
   "filled",
   "contract",
+  "on_hold",
   "champion",
   "incomplete",
   "finished",
@@ -35,11 +36,21 @@ export const REQUEST_STAGE_CHIPS: readonly RequestStage[] = [
   "champion",
   "contract",
   "client_silent",
+  "on_hold",
 ];
+
+/** Pigułka filtra mówi o grupie („Wstrzymane”), plakietka wiersza o jednej rekrutacji. */
+export const REQUEST_STAGE_CHIP_LABEL: Partial<Record<RequestStage, string>> = {
+  on_hold: "Wstrzymane",
+};
 
 export const REQUEST_STAGE_META: Record<
   RequestStage,
-  { label: string; hint: string; tone: "need" | "search" | "client" | "done" | "quiet" | "late" }
+  {
+    label: string;
+    hint: string;
+    tone: "need" | "search" | "client" | "done" | "quiet" | "late" | "hold";
+  }
 > = {
   incomplete: { ...REQUEST_STATUS_META.incomplete, tone: "need" },
   to_review: { label: "Do przejrzenia", hint: STATE_HINT.to_review, tone: "quiet" },
@@ -50,6 +61,8 @@ export const REQUEST_STAGE_META: Record<
   champion: { ...REQUEST_STATUS_META.champion, tone: "client" },
   contract: { ...REQUEST_STATUS_META.contract, tone: "client" },
   client_silent: { label: "Klient milczy", hint: STATE_HINT.client_silent, tone: "need" },
+  // 26.11.2026 (decyzja Artura): klient wstrzymał — powód i termin w rekrutacji.
+  on_hold: { label: "Wstrzymana", hint: STATE_HINT.on_hold, tone: "hold" },
   filled: { ...REQUEST_STATUS_META.filled, tone: "done" },
   finished: { label: "Zakończony", hint: STATE_HINT.finished, tone: "done" },
   closed: { ...REQUEST_STATUS_META.closed, tone: "done" },

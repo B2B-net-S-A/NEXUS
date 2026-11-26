@@ -74,6 +74,8 @@ import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel"
+import { HoldChecksPanel } from "@/components/v2/jobs/hold/HoldChecksPanel"
+import { holdChecksAudience } from "@/lib/job-hold-audience"
 import { AnnouncementPublishButton, AnnouncementsPanel } from "../announcements/AnnouncementsPanel"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
@@ -564,6 +566,10 @@ export function CustomDashboard() {
           względu na własny układ (decyzja Artura); znika, gdy nie ma P0.
           Od 08.11.2026 pasek jednej linii (wariant A), pod nim kolejka roli. */}
       {editing ? null : <P0NowPanel compact />}
+      {/* „Czy te rekrutacje nadal trwają?” (26.11.2026): DL potwierdza jednym
+          klikiem rekrutacje, przy których coś mówi, że klient je wstrzymał;
+          znika, gdy nie ma czego potwierdzać. */}
+      {editing ? null : <HoldChecksPanel {...holdChecksAudience(user)} />}
       {/* Ogłoszenia (28.10.2026): HoR i admin publikują, u odbiorców nad
           kafelkami bez względu na układ; znika, gdy nie ma aktywnych. */}
       {editing ? null : <AnnouncementsPanel />}

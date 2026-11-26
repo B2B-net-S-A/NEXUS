@@ -10,7 +10,7 @@
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import { countPl } from "@/lib/plural-pl";
-import { History, Trophy } from "lucide-react";
+import { History, Pause, Trophy } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
@@ -25,6 +25,7 @@ import { RecruiterCellEditor } from "@/components/v2/jobs/JobRecruiterEditor";
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { AD_PORTALS, portalAdHref, type JobAdPublicationBrief } from "@/lib/api/jobAd";
 import { useAbsences, useLeaveModuleOpen, type PersonAbsence } from "@/lib/api/hr-leave";
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   pinRecruiters,
@@ -325,6 +326,17 @@ export function JobProposalsLink({
 /** „Po terminie” (24.11.2026) — ta sama czerwień co „po terminie N dni” obok. */
 export const OVERDUE_TONE_CLASS = "bg-destructive/10 text-destructive";
 
+/**
+ * „Wstrzymana” (26.11.2026, makiety): ostrzegawcze paski na tokenach warning —
+ * w nagłówku, w wierszu listy i w pigułce filtra ten sam wzór.
+ */
+export const HOLD_TONE_CLASS =
+  "bg-warning-muted bg-[repeating-linear-gradient(135deg,hsl(var(--warning)/0.22)_0_5px,transparent_5px_10px)] text-warning-muted-foreground ring-1 ring-inset ring-warning/50";
+
+/** Wiersz listy wstrzymanej rekrutacji — te same paski, słabiej. */
+export const HOLD_ROW_CLASS =
+  "bg-[repeating-linear-gradient(135deg,hsl(var(--warning)/0.10)_0_10px,transparent_10px_20px)]";
+
 export const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
   search: "bg-primary/10 text-primary",
   client: "bg-success-muted text-success-muted-foreground",
@@ -332,6 +344,7 @@ export const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
   // Zamknięte i obsadzone bez tła (25.11.2026, zgłoszenie rekrutera): „Szukamy”
   // ginęło w serii bladych plakietek „Zamknięta”.
   done: "bg-transparent font-medium text-muted-foreground",
+  hold: HOLD_TONE_CLASS,
 };
 
 /**
@@ -340,8 +353,9 @@ export const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
  */
 export const CHAMPION_TONE_CLASS = "bg-medal-gold text-medal-gold-foreground";
 
-/** Kropka statusu albo puchar przy championie. */
-export function RequestStatusMark({ champion }: { champion: boolean }) {
+/** Kropka statusu, puchar przy championie albo pauza przy „Wstrzymana”. */
+export function RequestStatusMark({ champion, hold = false }: { champion: boolean; hold?: boolean }) {
+  if (hold) return <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />;
   return champion ? (
     <Trophy className="h-3 w-3 shrink-0" aria-hidden="true" />
   ) : (
@@ -363,7 +377,7 @@ export function RequestStatusBadge({ status }: { status: unknown }) {
         champion ? CHAMPION_TONE_CLASS : REQUEST_TONE_CLASS[meta.tone],
       )}
     >
-      <RequestStatusMark champion={champion} />
+      <RequestStatusMark champion={champion} hold={value === "on_hold"} />
       {meta.label}
     </span>
   );
@@ -385,28 +399,47 @@ export function RequestStageBadge({
   stage,
   fallbackStatus,
   champions,
+  holdSince,
+  holdReason,
 }: {
   stage: unknown;
   fallbackStatus?: unknown;
   champions?: readonly { name: string }[] | null;
+  /** „Wstrzymana od 26.11” (26.11.2026) — `hold_since` wiersza listy. */
+  holdSince?: unknown;
+  /** Powód wstrzymania w dymku plakietki. */
+  holdReason?: unknown;
 }) {
   const value = requestStageOf(stage);
   if (!value) return <RequestStatusBadge status={fallbackStatus} />;
   const meta = REQUEST_STAGE_META[value];
   const champion = value === "champion";
+  const hold = value === "on_hold";
   const named = champion && champions && champions.length > 0 ? championsTitle(champions) : null;
+  const holdLabel = hold ? holdBadgeLabel(holdSince) : null;
+  const holdTitle =
+    hold && typeof holdReason === "string" && holdReason
+      ? `Klient wstrzymał: „${holdReason}”. Nie proponuj tego projektu kandydatom.`
+      : null;
   return (
     <span
-      title={named ?? meta.hint}
+      data-testid={hold ? "job-hold-badge" : undefined}
+      title={named ?? holdTitle ?? meta.hint}
       className={cn(
         "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold",
         champion ? CHAMPION_TONE_CLASS : STAGE_TONE_CLASS[meta.tone],
       )}
     >
-      <RequestStatusMark champion={champion} />
-      {meta.label}
+      <RequestStatusMark champion={champion} hold={hold} />
+      {holdLabel ?? meta.label}
     </span>
   );
+}
+
+/** „Wstrzymana od 26.11”; bez daty sama „Wstrzymana”. */
+export function holdBadgeLabel(since: unknown): string {
+  const day = typeof since === "string" && since ? formatDayMonthPl(since) : "—";
+  return day === "—" ? "Wstrzymana" : `Wstrzymana od ${day}`;
 }
 
 export interface JobSimilarSummary {

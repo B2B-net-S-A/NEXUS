@@ -11,9 +11,11 @@ export type RequestStatus =
   | "contract"
   | "champion"
   | "incomplete"
+  | "on_hold"
   | "searching";
 
-export type RequestStatusTone = "search" | "client" | "need" | "done";
+/** `hold` — „Wstrzymana” (26.11.2026): ostrzegawcze paski z ikoną pauzy. */
+export type RequestStatusTone = "search" | "client" | "need" | "done" | "hold";
 
 export const REQUEST_STATUS_META: Record<
   RequestStatus,
@@ -33,6 +35,11 @@ export const REQUEST_STATUS_META: Record<
     hint: "Zlecenie jest szkicem — nieprzekazane do searchu.",
   },
   closed: { label: "Zamknięta", tone: "done", hint: "Rekrutacja zamknięta." },
+  on_hold: {
+    label: "Wstrzymana",
+    tone: "hold",
+    hint: "Klient wstrzymał rekrutację — nie proponuj tego projektu kandydatom.",
+  },
 };
 
 /** Kolejność w filtrze „Status" (zamknięte mają własną zakładkę). */

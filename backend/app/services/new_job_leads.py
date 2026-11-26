@@ -76,8 +76,9 @@ ASSIGNING_GRACE = timedelta(minutes=2)
 CONFIRMED_ACTION = "new_job_lead_confirmed"
 # Wpis ``request_work_state.set_work_state``.
 _WORK_STATE_CHANGED = "work_state_changed"
-# Powrót z „Klient milczy” to ciąg tego samego cyklu (D2).
-_SAME_CYCLE_FROM = "client_silent"
+# Powrót z „Klient milczy” i z „Wstrzymanej” (26.11.2026; zespół zostaje przy
+# wstrzymaniu) to ciąg tego samego cyklu (D2).
+_SAME_CYCLE_FROM = ("client_silent", "on_hold")
 
 
 def record_confirmation(
@@ -198,7 +199,7 @@ async def _cycle_starts(
         if action == _WORK_STATE_CHANGED:
             if (
                 details.get("to") != "searching"
-                or details.get("from") == _SAME_CYCLE_FROM
+                or details.get("from") in _SAME_CYCLE_FROM
             ):
                 continue
             if job_id not in entered or created_at > entered[job_id][0]:

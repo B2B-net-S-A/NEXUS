@@ -11,6 +11,7 @@ import {
   type InternalAxiosRequestConfig,
 } from "axios";
 
+import { holdChecksAudience } from "@/lib/job-hold-audience";
 import { canSetPreContractStop } from "@/lib/pre-contract-stop";
 
 import { viewerFrom, withPracticeClient, type PoligonViewer } from "./amounts";
@@ -124,6 +125,8 @@ export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestC
     viewer: viewer(),
     // Lustro `pre_contract_stop.can_set_stop`: „Wyjątek dla tej osoby” tylko DL, HoR i admin.
     canSetPreContractStop: canSetPreContractStop(storedUser() as Parameters<typeof canSetPreContractStop>[0]),
+    // Lustro `WorkStateEditor`: wstrzymuje DL, HoR i admin (lekcja „Wstrzymana rekrutacja”).
+    canManageHold: holdChecksAudience(storedUser() as Parameters<typeof holdChecksAudience>[0]).enabled,
   });
   if (result === "network") {
     const response = await getAdapter(["xhr", "fetch"])(config);

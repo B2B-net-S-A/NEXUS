@@ -222,6 +222,13 @@ SPECS: dict[str, _Spec] = {
         label="Otwórz rekrutację",
         use_title=True,
     ),
+    # Tytuł mówi, czy wstrzymana, czy wznowiona (`services/job_hold.py`).
+    "job_hold_changed": _Spec(
+        "Stan rekrutacji się zmienił",
+        chip="Stan rekrutacji",
+        label="Otwórz rekrutację",
+        use_title=True,
+    ),
     "request_assignment_changed": _Spec(
         "Nowa rekrutacja dla Ciebie", chip="Nowa rekrutacja", label="Otwórz rekrutację"
     ),
@@ -399,7 +406,11 @@ def _facts(ntype: str, hr: bool, facts: MailFacts) -> tuple[tuple[str, str], ...
 def _about(ntype: str, hr: bool, facts: MailFacts) -> Optional[str]:
     if hr:
         parts = [facts.person]
-    elif ntype in {"request_assignment_changed", "job_closed_people_waiting"}:
+    elif ntype in {
+        "request_assignment_changed",
+        "job_closed_people_waiting",
+        "job_hold_changed",
+    }:
         parts = [facts.job, facts.client]
     else:
         parts = [facts.candidate, facts.client]
