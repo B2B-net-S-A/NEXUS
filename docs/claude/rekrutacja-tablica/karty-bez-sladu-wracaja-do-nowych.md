@@ -42,14 +42,18 @@ w 137 rekrutacjach, 33 osoby z dzwonkiem.
   encja `("user", id)`), liczony ze wszystkich dzisiejszych wpisów
   `stale_card_returned` tej osoby, z pełną listą nazwisk po rekrutacjach.
   Kolejny przebieg tego dnia aktualizuje treść i oznacza dzwonek jako
-  nieprzeczytany (`_upsert_daily`). Dotąd dzwonek szedł typem
+  nieprzeczytany (`_upsert_daily`). Dzisiejszy dzwonek szukany jest po osobie,
+  której dotyczy (`related_entity`), nie po odbiorcy: przy zastępstwie `emit`
+  zapisuje wiersz na zastępcę i dopiero tak drugi przebieg go aktualizuje. Dotąd dzwonek szedł typem
   `candidate_claim_taken` po każdym przebiegu (najwyżej 200 kart), a dzienny
   dedup przepuszczał tylko pierwszy: 24.11 na produkcji 593 z 1 632 kart nie
   trafiło do żadnego dzwonka, a „przejął(a) osobę” blokował powrót.
 - **Ostrzeżenie dzień wcześniej:** w dzień roboczy od 8:00 do 20:00 raz
   dziennie (`warn_due`, `warn_once_safely` w pętli) osoba dostaje „Jutro wrócą
   do „Nowych”: N osób” (w piątek „W poniedziałek…”) z nazwiskami i zdaniem,
-  co zatrzymuje kartę. Typ `screening_cards_return_soon`, kategoria
+  co zatrzymuje kartę. Dzisiejsze ostrzeżenie się nie aktualizuje
+  (`refresh=False`): restart pętli po wieczornym wdrożeniu nie wysyła go drugi
+  raz z inną liczbą. Typ `screening_cards_return_soon`, kategoria
   „Zaległości i przypomnienia” (do wyciszenia). Na stagingu:
   `python -m scripts.screening_stale_return --warn --as-of <moment> [--apply]`.
 - **„Prowadzi” zostaje.** Przypisanie admina i HoR (`prowadzi-przypisanie-osoby.md`)

@@ -771,17 +771,20 @@ async def _upsert_daily(
     title: str,
     message: str,
     link: str,
+    refresh: bool = True,
 ) -> bool:
     """Jeden dzwonek dziennie na osobę: dzisiejszy aktualizuje treść i wraca
-    jako nieprzeczytany, a gdy go nie ma — ``emit`` (bramka odbiorcy, dedup).
-    „Dziś” z zegara, nie z ``--as-of``: dzwonek ma czas zapisu."""
+    jako nieprzeczytany (``refresh=False``: zostaje, jaki był), a gdy go nie ma
+    — ``emit`` (bramka odbiorcy, dedup). „Dziś” z zegara, nie z ``--as-of``:
+    dzwonek ma czas zapisu. Szukamy po osobie, której dzwonek dotyczy
+    (``related_entity``), nie po odbiorcy: przy zastępstwie ``emit`` zapisuje
+    wiersz na zastępcę."""
     from app.models.notification import Notification
     from app.services.notification_triggers import emit
 
     existing = await db.scalar(
         select(Notification)
         .where(
-            Notification.user_id == user_id,
             Notification.notification_type == ntype,
             Notification.related_entity_type == "user",
             Notification.related_entity_id == user_id,
@@ -791,7 +794,7 @@ async def _upsert_daily(
         .limit(1)
     )
     if existing is not None:
-        if existing.title == title and existing.message == message:
+        if not refresh or (existing.title == title and existing.message == message):
             return False
         existing.title = title
         existing.message = message
@@ -884,8 +887,8 @@ async def send_bells(db: AsyncSession, result: SweepResult) -> int:
             parts: list[str] = []
             if returned:
                 parts.append(
-                    "2 dni robocze bez śladu w „Screeningu”. Stoją na górze „Nowych” "
-                    "w grupie „Wróciły od Ciebie”, ale bierze je każdy:"
+                    "2 dni robocze bez śladu w „Screeningu”. Stoją w „Nowych” "
+                    "i bierze je każdy; chcesz dalej dzwonić, weź ponownie:"
                 )
                 parts += _job_lines(returned, titles, names)
             if released:
@@ -961,6 +964,9 @@ async def send_soon_bells(
                     title=soon_bell_title(len(cards), today, day),
                     message="\n".join([STOP_HINT, *_job_lines(by_job, titles, names)]),
                     link=f"/jobs/{top_job}",
+                    # Po restarcie wieczorem (wdrożenia od 18:00) poranne
+                    # ostrzeżenie zostaje, jakie było — bez drugiego dzwonka.
+                    refresh=False,
                 )
             if changed:
                 sent += 1

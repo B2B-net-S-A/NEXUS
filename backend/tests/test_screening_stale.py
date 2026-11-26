@@ -301,7 +301,7 @@ async def test_silent_screening_card_returns_to_new_for_everyone() -> None:
         (bell,) = await _bells(rec, world["job_id"])
         assert bell.title == "Wróciło do „Nowych”: 1 osoba"
         assert bell.related_entity_type == "user" and bell.related_entity_id == rec
-        assert "Wróciły od Ciebie" in bell.message
+        assert "bierze je każdy" in bell.message
         assert await _bells(other, world["job_id"]) == []
         # Drugi przebieg nic nie powtarza.
         again = await _sweep(world, THURSDAY_MORNING + timedelta(minutes=15))
@@ -718,5 +718,69 @@ async def test_friday_warning_names_monday_and_weekend_sends_nothing() -> None:
             await db.commit()
         (bell,) = await _soon_bells(rec)
         assert bell.title == "W poniedziałek wrócą do „Nowych”: 1 osoba"
+    finally:
+        await _cleanup(world)
+
+
+async def test_substitute_gets_one_updated_bell_for_the_absent_holder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Przegląd 26.11: przy zastępstwie `emit` zapisuje wiersz na zastępcę,
+    więc dzisiejszy dzwonek trzeba szukać po osobie, której dotyczy
+    (`related_entity`), a nie po odbiorcy — inaczej drugi przebieg nic nie
+    dopisuje (dedup dzienny)."""
+    from app.services import notification_triggers
+    from app.services.notification_substitution import Route
+
+    rec = await _user()
+    sub = await _user("Zastępca")
+
+    async def route(db, user_id, ntype):  # noqa: ANN001, ANN202
+        return Route(sub, on_behalf_of=user_id) if user_id == rec else Route(user_id)
+
+    monkeypatch.setattr(notification_triggers, "notification_route", route)
+    first, second = await _world(), await _world()
+    try:
+        await _in_screening(first, rec)
+        await _in_screening(second, rec)
+        await _sweep(first, THURSDAY_MORNING)
+        await _sweep(second, THURSDAY_MORNING + timedelta(minutes=15))
+        assert await _returned_bells(rec) == []
+        (bell,) = await _returned_bells(sub)
+        assert bell.related_entity_id == rec
+        assert bell.title == "Wróciło do „Nowych”: 2 osoby"
+    finally:
+        await _cleanup(first)
+        await _cleanup(second)
+
+
+async def test_second_warning_the_same_day_leaves_the_morning_bell_alone() -> None:
+    """Przegląd 26.11: wdrożenie po 18:00 restartuje pętlę; ostrzeżenie nie
+    może wtedy wrócić jako nieprzeczytane z inną liczbą."""
+    rec = await _user()
+    world = await _world()
+    try:
+        await _in_screening(world, rec)
+        morning = datetime(2026, 11, 18, 9, tzinfo=WAW).astimezone(timezone.utc)
+        evening = datetime(2026, 11, 18, 18, 30, tzinfo=WAW).astimezone(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            assert (
+                await svc.send_soon_bells(db, now=morning, job_ids=[world["job_id"]])
+                == 1
+            )
+            await db.commit()
+        (bell,) = await _soon_bells(rec)
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Notification, bell.id)
+            row.is_read = True
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            assert (
+                await svc.send_soon_bells(db, now=evening, job_ids=[world["job_id"]])
+                == 0
+            )
+            await db.commit()
+        (bell,) = await _soon_bells(rec)
+        assert bell.is_read is True
     finally:
         await _cleanup(world)

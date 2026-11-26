@@ -30,8 +30,9 @@ async def screening_stale_loop() -> None:
     beat = loop_heartbeat.register(
         "screening_stale", max_silence_seconds=4 * _INTERVAL_SECONDS
     )
-    # Poranne ostrzeżenie (26.11.2026) raz dziennie od 8:00; po restarcie
-    # drugi raz nie dzwoni (dzisiejszy dzwonek się tylko aktualizuje).
+    # Poranne ostrzeżenie (26.11.2026) raz dziennie od 8:00. `warned_on` oszczędza
+    # przeliczeń; po restarcie dzisiejszy dzwonek w bazie zostaje bez zmian
+    # (`refresh=False`), więc drugi raz nie dzwoni.
     warned_on = None
     while True:
         beat.tick()
