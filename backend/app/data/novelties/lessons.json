@@ -633,8 +633,8 @@
       "szkolenia-biblioteka-nagran",
       "szkolenia-kalendarz-teams"
     ],
-    "task": "Wejdź z menu do „Szkoleń” i otwórz nagrania ze szkoleń.",
-    "solo_href": "/dashboard",
+    "task": "W „Szkoleniach” przejdź z kalendarza do nagrań ze szkoleń.",
+    "solo_href": "/trainings",
     "check": {
       "kind": "page",
       "path_prefix": "/trainings",
@@ -682,7 +682,7 @@
       "nowa-osoba-przechodzi-poligon"
     ],
     "task": "Znajdź w Ustawieniach ekran „Nowości — kto już umie” i sprawdź, czy Poligon dla nowych osób jest obowiązkowy.",
-    "solo_href": "/dashboard",
+    "solo_href": "/settings?area=team",
     "check": {
       "kind": "page",
       "path_prefix": "/settings/nowosci"
@@ -1014,8 +1014,8 @@
       "najwazniejsze-zadanie-w-roli",
       "nowa-rekrutacja-mniej-decyzji"
     ],
-    "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
-    "solo_href": "/jobs/990001",
+    "task": "W Profilu Championa rekrutacji ćwiczebnej kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
+    "solo_href": "/jobs/990001?tab=champion",
     "check": {
       "kind": "click",
       "anchor": "champion.key-task.question"
@@ -1503,7 +1503,7 @@
       "nowy-kontrakt-podsumowanie"
     ],
     "task": "Zacznij nowy kontrakt (nic nie zapisuj) i znajdź miejsce, gdzie ustawisz walutę stawek i status kontraktu przy utworzeniu.",
-    "solo_href": "/contracts",
+    "solo_href": "/contracts/new",
     "check": {
       "kind": "click",
       "anchor": "contracts.new.advanced"
@@ -1548,7 +1548,7 @@
       "analityka-kontraktow-90-dni"
     ],
     "task": "W analityce kontraktów sprawdź, którzy konsultanci przynoszą najwyższą marżę.",
-    "solo_href": "/contracts",
+    "solo_href": "/contracts/analytics",
     "check": {
       "kind": "click",
       "anchor": "contracts.analytics.view"
@@ -1670,7 +1670,7 @@
       "kontakty-klienta-szukaj"
     ],
     "task": "U klienta ćwiczebnego znajdź listę jego kontaktów i wyszukaj osobę po kawałku stanowiska.",
-    "solo_href": "/clients/990501",
+    "solo_href": "/clients",
     "check": {
       "kind": "click",
       "anchor": "clients.contacts.search"
@@ -1716,7 +1716,7 @@
       "klient-konsultanci-os-czasu"
     ],
     "task": "U klienta ćwiczebnego otwórz listę naszych konsultantów i zobacz okresy ich zamówień na osi czasu.",
-    "solo_href": "/clients/990501",
+    "solo_href": "/clients/990501?tab=konsultanci",
     "check": {
       "kind": "click",
       "anchor": "client.consultants.view"
@@ -1752,7 +1752,7 @@
       "koszt-zamowienia-w-czesciach"
     ],
     "task": "Stawka Partnera z kontraktu ćwiczebnego zmieniła się wstecz. Znajdź w Finansach zakończone zamówienie, którego koszt trzeba poprawić.",
-    "solo_href": "/finance",
+    "solo_href": "/finance?view=order-changes",
     "check": {
       "kind": "page",
       "path_prefix": "/finance",
@@ -1802,7 +1802,7 @@
       "kontrahenci-czeka-na-symfonie"
     ],
     "task": "Sprawdź w Finansach, których firm z faktur księgowa nie założyła jeszcze w Symfonii.",
-    "solo_href": "/finance",
+    "solo_href": "/finance?view=counterparties",
     "check": {
       "kind": "click",
       "anchor": "finance.counterparties-pending"
@@ -2296,8 +2296,8 @@
     "novelties": [
       "wymagania-klienta-do-faktury"
     ],
-    "task": "W rozliczeniach klientów otwórz Reguły klienta i w sekcji „Faktura do klienta” włącz numer umowy w KSeF. Na Poligonie nic się nie zapisze.",
-    "solo_href": "/finance?view=settlements",
+    "task": "W Regułach klienta, w sekcji „Faktura do klienta”, włącz numer umowy w KSeF. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=settlements&stSub=rules",
     "check": {
       "kind": "click",
       "anchor": "clients.rules.client_invoice"
@@ -2613,8 +2613,8 @@
     "novelties": [
       "przygotowanie-przed-prepem-1"
     ],
-    "task": "Kandydat z rekrutacji ćwiczebnej ma już propozycje terminów od klienta. Otwórz jego panel i zaplanuj mu przygotowanie przed Prepem 1.",
-    "solo_href": "/jobs/990001",
+    "task": "Kandydat z rekrutacji ćwiczebnej ma już propozycje terminów od klienta. W jego panelu zaplanuj mu przygotowanie przed Prepem 1.",
+    "solo_href": "/jobs/990001?candidate=990115",
     "check": {
       "kind": "click",
       "anchor": "dock.plan-preparation"
@@ -2910,8 +2910,8 @@
     "novelties": [
       "sprawy-rozliczen-co-dalej"
     ],
-    "task": "W rozliczeniach klientów otwórz zakładkę „Sprawy” i zaznacz „Tylko zaległe”. Na Poligonie nic się nie zapisze ani nie wyśle.",
-    "solo_href": "/finance?view=settlements",
+    "task": "W „Sprawach” rozliczeń klientów zaznacz „Tylko zaległe”. Na Poligonie nic się nie zapisze ani nie wyśle.",
+    "solo_href": "/finance?view=settlements&stSub=cases",
     "check": {
       "kind": "click",
       "anchor": "settlements.cases.overdue"

@@ -319,6 +319,8 @@ function SettingsItemRows({ items, showArea = false }: { items: SettingsItem[]; 
         <li key={item.id}>
           <Link
             href={settingsItemHref(item)}
+            // Krok lekcji „Poligon dla nowych osób” (novelties.json): droga do ekranu w Ustawieniach.
+            data-tour={item.id === "novelties" ? "settings.item.novelties" : undefined}
             className="flex min-h-14 items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/60"
           >
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">

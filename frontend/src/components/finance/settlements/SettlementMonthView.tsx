@@ -192,7 +192,13 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
             rows.map((r) => (
               <tr key={r.contract_id} className="hover:bg-muted/30">
                 <td className="truncate px-3 py-1.5">
-                  <button type="button" onClick={() => onOpen(r.contract_id)} className="block max-w-full truncate text-left font-medium hover:underline">
+                  {/* Krok lekcji „Dodatki do faktury” (novelties.json): rozliczenie osoby. */}
+                  <button
+                    type="button"
+                    onClick={() => onOpen(r.contract_id)}
+                    data-tour="clients.settlement-person"
+                    className="block max-w-full truncate text-left font-medium hover:underline"
+                  >
                     {r.person}
                   </button>
                   <span className="block truncate text-[11px] tabular-nums text-muted-foreground">
