@@ -184,7 +184,13 @@ function renderList(props: Parameters<typeof CandidatesListV2>[0] = {}) {
   );
 }
 
+/**
+ * Pasek filtrów. Po „Szukaj” lista zwija wyszukiwanie do jednej linii
+ * (26.11.2026) — wtedy najpierw „Pokaż filtry”, jak rekruter przed poprawką.
+ */
 function bar() {
+  const collapsed = screen.queryByRole("region", { name: "Wyszukiwanie (zwinięte)" });
+  if (collapsed) fireEvent.click(within(collapsed).getByRole("button", { name: /^Pokaż filtry/ }));
   return screen.getByRole("region", { name: "Filtry kandydatów" });
 }
 
@@ -249,7 +255,11 @@ describe("CandidatesListV2", () => {
     listTotal = 0;
     listExtra = {};
     window.history.replaceState(null, "", "/candidates");
-    useUiStore.setState({ candidatesPageSize: 50 });
+    useUiStore.setState({
+      candidatesPageSize: 50,
+      candidatesSearchCollapsed: false,
+      candidatesSnippetsVisible: false,
+    });
     useAuthStore.setState({
       user: {
         id: 7,
@@ -853,6 +863,57 @@ describe("CandidatesListV2", () => {
     });
   });
 
+  describe("zwinięte wyszukiwanie i fragmenty CV (26.11.2026)", () => {
+    it("„Szukaj” zwija pasek do jednej linii, „Pokaż filtry” i „Zwiń wyszukiwanie” przełączają", async () => {
+      urlParams = new URLSearchParams("q_any=Kafka&rate_max=180");
+      renderList();
+      search();
+      const collapsed = await screen.findByRole("region", { name: "Wyszukiwanie (zwinięte)" });
+      expect(within(collapsed).getByText(/Kafka/)).toBeTruthy();
+      expect(within(collapsed).getByText("do 180 zł/h")).toBeTruthy();
+      expect(screen.queryByRole("region", { name: "Filtry kandydatów" })).toBeNull();
+
+      fireEvent.click(within(collapsed).getByRole("button", { name: /^Pokaż filtry/ }));
+      const expanded = screen.getByRole("region", { name: "Filtry kandydatów" });
+      fireEvent.click(within(expanded).getByRole("button", { name: /^Zwiń wyszukiwanie/ }));
+      expect(screen.getByRole("region", { name: "Wyszukiwanie (zwinięte)" })).toBeTruthy();
+      expect(useUiStore.getState().candidatesSearchCollapsed).toBe(true);
+    });
+
+    it("bez żadnych kryteriów pasek jest rozwinięty mimo zapamiętanego zwinięcia", async () => {
+      useUiStore.setState({ candidatesSearchCollapsed: true });
+      renderList();
+      expect(await screen.findByRole("region", { name: "Filtry kandydatów" })).toBeTruthy();
+      expect(screen.queryByRole("region", { name: "Wyszukiwanie (zwinięte)" })).toBeNull();
+    });
+
+    it("fragmenty CV są ukryte, dopóki nie włączy się ich w „Kolumnach”", async () => {
+      urlParams = new URLSearchParams("q_any=Kafka");
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          match_snippets: [
+            { field: "Umiejętności", text: "Java Kafka Spring", highlights: [[5, 10]] },
+          ],
+        },
+      ];
+      listTotal = 1;
+      renderList();
+      expect(await screen.findByText("Marta Kowalczyk")).toBeTruthy();
+      expect(screen.queryByText("Umiejętności:")).toBeNull();
+
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Wybierz kolumny tabeli" }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Fragmenty CV pod osobą" }));
+      expect(useUiStore.getState().candidatesSnippetsVisible).toBe(true);
+      expect(await screen.findByText("Umiejętności:")).toBeTruthy();
+    });
+  });
+
   describe("przycisk „Szukaj” i pamięć wyszukiwania (25.09.2026)", () => {
     it("zmiana filtra czeka na „Szukaj”, a „Cofnij zmiany” wraca do zastosowanych", async () => {
       renderList();
@@ -1053,6 +1114,7 @@ describe("CandidatesListV2", () => {
       fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
 
       expect(await screen.findByText(/Czytam jako wymagania: Java, Spring/)).toBeTruthy();
+      bar(); // „Szukaj” zwinęło wyszukiwanie — wiersze widać po rozwinięciu
       for (const n of [1, 2, 3]) {
         expect(
           screen.getByRole("button", { name: `Dodaj wariant do wymagania ${n}` }),
