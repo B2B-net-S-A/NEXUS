@@ -248,6 +248,10 @@ class AIFeatureKey(str, enum.Enum):
     # 0791 (25.11.2026): asystent prawny — zgodność umów B2B z umową ramową
     # klienta w tle (część G); każdy cytat sprawdza kod.
     legal_client_fit = "legal_client_fit"
+    # 0792 (26.11.2026): Nowe CV — propozycja wyróżnika pod nazwiskiem z CV
+    # (nagroda, wyróżnienie, certyfikat z MUST) z cytatem sprawdzanym kodem;
+    # na stronę 1 trafia dopiero po przyjęciu przez rekrutera.
+    cv_page1_highlight = "cv_page1_highlight"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -313,6 +317,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.legal_template_draft: "Generator Umów — szkic wzoru własnego z asystentem prawnym",
     AIFeatureKey.legal_redline: "Asystent prawny — propozycje zmian w umowie (Popraw dokument)",
     AIFeatureKey.legal_client_fit: "Asystent prawny — zgodność umów B2B z umową ramową klienta",
+    AIFeatureKey.cv_page1_highlight: "Nowe CV — propozycja wyróżnika pod nazwiskiem (do przyjęcia przez rekrutera)",
 }
 
 
@@ -612,6 +617,13 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "i bez danych Partnerów)",
         "(bez kontraktorów, kandydatów, stawek z kontraktów i bez treści podpisanych "
         "umów Partnerów)",
+    ],
+    AIFeatureKey.cv_page1_highlight: [
+        "Treść CV do klienta z edytora: stanowiska (firma, stanowisko, daty, punkty), "
+        "certyfikaty i wykształcenie",
+        "Wymagania MUST z Profilu Championa rekrutacji",
+        "(bez imienia i nazwiska, kontaktu, stawek i notatek; w Blind CV model nie "
+        "podaje nazw firm)",
     ],
 }
 

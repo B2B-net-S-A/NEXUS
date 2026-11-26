@@ -1,0 +1,124 @@
+[
+  {
+    "id": "cv-3974-daty-myslnik-bez-spacji-i-koniec-rokiem",
+    "poprawka": "67ff9ae6a #3974",
+    "opis": "„05.2025-obecnie” bez spacji gubiło początek, „05.2008 - 11-2009” liczyło koniec jako sam rok, a koniec samym rokiem („09.2018 - 2020”) nie był grudniem",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {
+        "name": "Ewa Korpusowa",
+        "position": "Tester",
+        "experience": [
+          {
+            "dates": "05.2025-obecnie",
+            "company": "Firma Przykładowa",
+            "position": "Tester automatyzujący"
+          },
+          {
+            "dates": "09.2018 - 2020",
+            "company": "Usługi Przykładowe Sp. z o.o.",
+            "position": "Tester"
+          },
+          {
+            "dates": "05.2008 - 11-2009",
+            "company": "Hurtownia Przykładowa",
+            "position": "Młodszy tester"
+          }
+        ]
+      }
+    },
+    "oczekiwane": {
+      "daty": [
+        {
+          "daty": "05.2025-obecnie",
+          "staz": "1 rok 7 mies."
+        },
+        {
+          "daty": "09.2018 - 2020",
+          "staz": "ok. 2 lata"
+        },
+        {
+          "daty": "05.2008 - 11-2009",
+          "staz": "1 rok 7 mies."
+        }
+      ]
+    }
+  },
+  {
+    "id": "cv-3974-edukacja-daty-na-poczatku-wiersza",
+    "poprawka": "67ff9ae6a #3974",
+    "opis": "Ręcznie poprawiony wiersz „2019 - 2022 — Ekonomia, licencjat” bez pogrubionej uczelni szedł w całości do kierunku, razem z datami",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {
+        "name": "Jan Korpusowy",
+        "position": "Analityk"
+      },
+      "html": "<h1>Analityk – Jan Korpusowy</h1><h2 data-cv-section=\"education\">EDUKACJA</h2><p>2019 - 2022 — Ekonomia, licencjat</p>"
+    },
+    "oczekiwane": {
+      "edukacja": [
+        {
+          "kierunek": "Ekonomia",
+          "stopien": "Licencjat",
+          "rok": "2022",
+          "daty": "2019 - 2022"
+        }
+      ],
+      "liczba_edukacja": 1
+    }
+  },
+  {
+    "id": "cv-3974-szkic-jako-caly-dokument-html",
+    "poprawka": "67ff9ae6a #3974",
+    "opis": "Szkic zapisany jako cały dokument HTML (DOCTYPE, head, komentarz) wywracał odczyt treści na komentarzu — podgląd Nowego CV dawał 503",
+    "dzis": "2026-11-25",
+    "wejscie": {
+      "jezyk": "pl",
+      "generator": {
+        "name": "Jan Korpusowy",
+        "position": "Analityk"
+      },
+      "html": "<!DOCTYPE html>\n<html lang='pl'><head><meta charset='UTF-8'><title>CV</title><style>p{color:red}</style></head><body><!-- generator --><h1>Analityk – Jan Korpusowy</h1><h2 data-cv-section='education'>EDUKACJA</h2><div class='edu'><span class='edu-dates'>2016 - 2019</span> <span><b>Uniwersytet Przykładowy</b> — Ekonomia - licencjat</span></div><h2 data-cv-section='languages'>JĘZYKI</h2><p>Polski - ojczysty</p><p>Angielski - B2</p><h2 data-cv-section='experience'>DOŚWIADCZENIE</h2><p class='job-head' data-cv-section='role'><b>Analityk danych</b> <span class='job-dates'>03.2021 - obecnie</span></p><p class='job-co' data-cv-section='employer'>Firma Przykładowa</p></body></html>"
+    },
+    "oczekiwane": {
+      "nazwa": [
+        {
+          "imie_nazwisko": "Jan Korpusowy",
+          "stanowisko": "Analityk"
+        }
+      ],
+      "edukacja": [
+        {
+          "uczelnia": "Uniwersytet Przykładowy",
+          "kierunek": "Ekonomia",
+          "stopien": "Licencjat",
+          "rok": "2019"
+        }
+      ],
+      "jezyki": [
+        {
+          "jezyk": "Polski",
+          "kod": "PL",
+          "stopien": 6
+        },
+        {
+          "jezyk": "Angielski",
+          "kod": "EN",
+          "poziom": "B2",
+          "stopien": 4
+        }
+      ],
+      "liczba_jezyki": 2,
+      "daty": [
+        {
+          "daty": "03.2021 - obecnie",
+          "firma": "Firma Przykładowa",
+          "stanowisko": "Analityk danych"
+        }
+      ]
+    }
+  }
+]

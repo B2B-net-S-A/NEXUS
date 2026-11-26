@@ -9,6 +9,11 @@ na stronie tylko raz, więc z wyróżnikiem Edukacja idzie bez wieńca.
   stanowiska to klient (te same słowa po kolei w nazwie, nazwie wyświetlanej albo
   pełnej nazwie klienta). Zdanie z dat i stanowiska, bez dopowiadania. Brak
   takiej pracy albo CV anonimowe = bez wyróżnika.
+- „ai” (26.11.2026): propozycja AI z CV (nagroda, wyróżnienie, certyfikat
+  z MUST, `services/cv_page1_highlight.py`) — dopiero po przyjęciu przez
+  rekrutera; propozycje same (`page1_extras.highlight_proposals`) render
+  pomija. Przed renderem `cv_page1_highlight_checks.rechecked_highlight`
+  sprawdza cytat na bieżącej treści.
 - „custom”: etykieta, znak i zdanie wpisane przez rekrutera.
 - „off”: bez wyróżnika.
 """
@@ -25,7 +30,7 @@ from app.services.cv_new_layout.document import HighlightChoice
 from app.services.cv_new_layout.facts import Span, duration_text
 from app.services.cv_new_layout.labels import counted
 
-MODES = ("auto", "custom", "off")
+MODES = ("auto", "ai", "custom", "off")
 LABEL_MAX, TOKEN_MAX, TEXT_MAX = 60, 8, 160
 _LEGAL = re.compile(
     r"\b(s\.?\s*a|sp\.?\s*z\s*o\.?\s*o|spółka akcyjna|bank polski|polska|poland|group|grupa)\b\.?",
@@ -157,7 +162,7 @@ def resolve(ctx: Ctx) -> Optional[Highlight]:
     choice = ctx.doc.highlight
     if choice.mode == "off":
         return None
-    if choice.mode == "custom":
+    if choice.mode in ("ai", "custom"):
         if not (choice.label and choice.text):
             return None
         return Highlight(choice.label, choice.token, choice.text)

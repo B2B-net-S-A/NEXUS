@@ -31,8 +31,9 @@ sync = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = sync
 spec.loader.exec_module(sync)
 
+CONFIG_SOURCE = (ROOT / "backend/app/core/config.py").read_text()
 ALLOWED = sync.allowed_flags(
-    (ROOT / "backend/app/services/scoring_service.py").read_text()
+    (ROOT / "backend/app/services/scoring_service.py").read_text(), CONFIG_SOURCE
 )
 NIGHT = datetime(2026, 11, 2, 23, 5, tzinfo=timezone.utc)
 DATE = "20261103"
@@ -52,6 +53,7 @@ def test_allowlist_reads_scoring_inputs_without_importing_backend():
         | set(sync.CLIENT_LIST_FLAGS)
         | set(sync.SALES_FLAGS)
         | set(sync.CANDIDATE_TERMS_FLAGS)
+        | set(sync.enabled_flags(CONFIG_SOURCE))
     )
 
 
@@ -990,3 +992,23 @@ def test_law_radar_screen_is_on_and_its_loop_is_blocked_on_staging():
     ]["backend"]["environment"]
     assert environment["LAW_RADAR_ENABLED"] == "true"
     assert "law_radar" in STAGING_BLOCKED_TASKS
+
+
+def test_allowed_flags_take_every_enabled_flag_except_forbidden():
+    enabled = set(sync.CONFIG_ENABLED.findall(CONFIG_SOURCE))
+    assert "CV_NEW_LAYOUT_ENABLED" in ALLOWED
+    assert enabled - sync.FORBIDDEN_FLAGS <= set(ALLOWED)
+    assert not sync.FORBIDDEN_FLAGS & set(ALLOWED)
+    assert len(ALLOWED) == len(set(ALLOWED))
+
+
+def test_forbidden_flags_exist_in_config():
+    """Literówka albo usunięta flaga na liście zakazanej przepuściłaby nową nazwę."""
+    enabled = set(sync.CONFIG_ENABLED.findall(CONFIG_SOURCE))
+    assert sync.FORBIDDEN_FLAGS <= enabled
+
+
+def test_forbidden_flags_cover_mail_and_m365():
+    for name in ("SMTP_ENABLED", "M365_SYNC_LOOP_ENABLED", "CPRO_BOT_ENABLED"):
+        assert name in sync.FORBIDDEN_FLAGS
+        assert name not in sync.flag_lines({name: True}, ALLOWED)

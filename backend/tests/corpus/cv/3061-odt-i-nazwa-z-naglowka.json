@@ -1,0 +1,40 @@
+[
+  {
+    "id": "cv-3061-tekst-z-pliku-odt",
+    "poprawka": "ea446e76e #3061",
+    "opis": "CV w ODT miało pusty tekst (extract_text znał tylko PDF, Word i TXT), więc z pliku nie było imienia i nazwiska ani dat stanowisk",
+    "wejscie": {"odczyt": {"plik": "pliki/3061-cv-anna-korpusowa.odt", "model": null}},
+    "oczekiwane": {
+      "nazwa": [{"imie": "Anna", "nazwisko": "Korpusowa"}]
+    }
+  },
+  {
+    "id": "cv-3057-nazwa-z-naglowka-ma-znacznik",
+    "poprawka": "5a5da2f73 #3057",
+    "opis": "Model nie podał imienia i nazwiska, parser wziął je z pierwszej linii CV, a odczyt nie mówił, że to nagłówek: bramka tożsamości traktowała je jak odczyt modelu i dawała kwarantannę",
+    "uwaga": "z_naglowka to pola z _name_from_header; #3057 dawał True (cała nazwa), #3064 listę pól — runner zamienia oba na listę pól",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Jan Korpusowy\nJava Developer\n2019 - 2024 Firma Przykładowa\nProgramowanie w Javie i Springu.",
+        "model": {"first_name": null, "last_name": null, "email": null, "phone": null, "experience": [], "education": [], "languages": []}
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [{"imie": "Jan", "nazwisko": "Korpusowy", "z_naglowka": ["imie", "nazwisko"]}]
+    }
+  },
+  {
+    "id": "cv-3064-z-naglowka-tylko-brakujace-pole",
+    "poprawka": "3741664a8 #3064",
+    "opis": "Model podał imię, nazwisko wzięło się z nagłówka CV: znacznik oznaczał całą nazwę jako z nagłówka, więc imię od modelu też nie mogło nazwać pustego profilu",
+    "wejscie": {
+      "odczyt": {
+        "tekst": "Jan Korpusowy\nJava Developer\n2019 - 2024 Firma Przykładowa\nProgramowanie w Javie i Springu.",
+        "model": {"first_name": "Jan", "last_name": null, "email": null, "phone": null, "experience": [], "education": [], "languages": []}
+      }
+    },
+    "oczekiwane": {
+      "nazwa": [{"imie": "Jan", "nazwisko": "Korpusowy", "z_naglowka": ["nazwisko"]}]
+    }
+  }
+]

@@ -163,6 +163,125 @@ async def resolve_sender_in_month(
     return hits[0] if len(hits) == 1 else None
 
 
+async def contracts_at_several_clients(
+    db: AsyncSession,
+    *,
+    owner_id: Optional[int],
+    sender: str,
+    settings: PortalSettings,
+    today: date,
+) -> list[Contract]:
+    """Działające kontrakty osoby, która pracuje naraz u co najmniej dwóch klientów.
+
+    Osoba to ta z kontraktu wybranego już dla pliku (``owner_id``), a bez niego
+    jedyna osoba pod adresem nadawcy. Nieustalona osoba albo kontrakty u jednego
+    klienta = pusta lista.
+    """
+
+    if owner_id is not None:
+        owner = await db.get(Contract, owner_id)
+        people = {owner.candidate_id} if owner is not None else set()
+    else:
+        rows = await _sender_contracts(db, normalize_email(sender), today=today)
+        people = {row.candidate_id for row in rows}
+    if len(people) != 1 or None in people:
+        return []
+    rows = await db.scalars(
+        select(Contract).where(Contract.candidate_id == next(iter(people)))
+    )
+    contracts = [
+        row
+        for row in rows.all()
+        if eligible(row, today) and (settings.any_sender or settings.open_for(row.id))
+    ]
+    return contracts if len({row.client_id for row in contracts}) > 1 else []
+
+
+async def thread_invoice_waits(
+    db: AsyncSession,
+    *,
+    thread_contract_id: int,
+    sender: str,
+    settings: PortalSettings,
+    today: date,
+) -> bool:
+    """Czy faktura z maila z przekazanym wątkiem czeka na ręczne przypisanie.
+
+    Konsultant u dwóch klientów bywa, że wystawia jedną fakturę na oba kontrakty
+    (``resolve_report_owner``), a wątek wskazuje najwyżej jeden z nich: faktura
+    za VII z wątkiem ze skrzynki w jednym banku trafiała do kontraktu tego banku
+    (poczta za VII 2026). Pytamy o osobę z kontraktu z wątku i o jedyną osobę pod
+    adresem nadawcy, bo w wątku bywa ktoś inny niż autor faktury.
+    """
+
+    for owner_id in (thread_contract_id, None):
+        if await contracts_at_several_clients(
+            db, owner_id=owner_id, sender=sender, settings=settings, today=today
+        ):
+            return True
+    return False
+
+
+@dataclass(frozen=True)
+class TemplateChoice:
+    """Kontrakt wskazany wzorem dokumentu; ``None`` = karta do ręcznego przypisania."""
+
+    contract: Optional[Contract]
+
+
+async def resolve_by_template(
+    db: AsyncSession,
+    contracts: list[Contract],
+    *,
+    client_key: str,
+    person: Optional[str],
+    month: Optional[tuple[int, int]],
+    owner_id: Optional[int],
+) -> Optional[TemplateChoice]:
+    """Kontrakt dla dokumentu we wzorze klienta, gdy osoba pracuje u dwóch klientów.
+
+    Konsultant z kontraktem w Banku Pocztowym i VeloBanku wysyła z adresu firmy
+    jednym mailem kartę KCP i Time Sheet (VII i VIII 2026), więc nadawca nie
+    rozstrzyga, a temat i cytaty w treści wskazują najwyżej jeden z banków. Wzór
+    dokumentu (``templates.recognize``) mówi, którego klienta to plik.
+    ``contracts`` to wynik ``contracts_at_several_clients``.
+
+    ``None`` = wzór niczego tu nie zmienia i czytnik działa jak dotąd: u klienta
+    wzoru osoba nie ma kontraktu, w pliku stoi inna osoba albo wybrany już
+    kontrakt jest u tego klienta.
+
+    Inaczej wynik to jedyny kontrakt osoby u klienta wzoru, który działa
+    w miesiącu dokumentu. Dwa takie, żaden albo brak miesiąca = ``contract=None``:
+    przypisuje człowiek, a plik nie idzie do klienta, którego wzorem nie jest.
+    """
+
+    clients = await _clients_of_keys(db, (client_key,))
+    there = [row for row in contracts if row.client_id in clients]
+    if not there or any(row.id == owner_id for row in there):
+        return None
+    if person and not await _is_person(db, there[0].candidate_id, person):
+        return None
+    hits = [row for row in there if month and works_in_month(row, *month)]
+    return TemplateChoice(hits[0] if len(hits) == 1 else None)
+
+
+async def _is_person(db: AsyncSession, candidate_id: int, text: str) -> bool:
+    """Imię i nazwisko z pliku to ta osoba z kartoteki. Dodatkowe słowa nie
+    przeszkadzają: karta Banku Pocztowego ma w tym polu także skrót działu."""
+
+    words = _words(text)
+    row = (
+        await db.execute(
+            select(Candidate.name, Candidate.lastname).where(
+                Candidate.id == candidate_id
+            )
+        )
+    ).first()
+    return row is not None and any(
+        len(name) >= 2 and set(name) <= words for name in _people(row[0], row[1])
+    )
+
+
 async def sender_contract_ids(
     db: AsyncSession, address: str, *, today: date
 ) -> frozenset[int]:
@@ -454,23 +573,32 @@ async def resolve_from_sheet(
     return hits[0] if len(hits) == 1 else None
 
 
+@dataclass(frozen=True)
+class SheetContracts:
+    #: Kolejność jak w pliku, bez powtórzeń.
+    contracts: tuple[Contract, ...]
+    #: Któraś para (osoba, numer zamówienia) nie wskazała żadnego kontraktu.
+    unmatched: bool
+
+
 async def resolve_sheet_contracts(
     db: AsyncSession, sheet: "timesheet_plus.Sheet", *, sender: str, today: date
-) -> list[Contract]:
+) -> SheetContracts:
     """Kontrakty wszystkich osób i zamówień z arkusza grupy Polkomtel / Cyfrowy Polsat.
 
     Próba VI–VIII 2026: jeden wykaz od kierownika klienta niesie wiersze dwóch osób
     albo jednej osoby na zamówieniach Polsatu i Polkomtelu (kontrakt w każdej
     spółce). Każda para (osoba, numer zamówienia) przechodzi ``resolve_from_sheet``
     na wycinku arkusza z tymi wierszami, więc zasady nadawcy i numeru zostają te same.
-    Kolejność kontraktów jak w pliku, bez powtórzeń."""
+    """
 
     from dataclasses import replace
 
     from app.services.client_settlements import timesheet_plus
     from app.services.client_settlements.rcp_checks import name_tokens
 
-    found: list[Contract] = []
+    found: dict[int, Contract] = {}
+    unmatched = False
     groups: dict[tuple[frozenset[str], Optional[str]], list] = {}
     for row in sheet.rows:
         key = (frozenset(name_tokens(row.person)), timesheet_plus.order_key(row.order))
@@ -478,9 +606,11 @@ async def resolve_sheet_contracts(
     for rows in groups.values():
         part = replace(sheet, rows=tuple(rows))
         contract = await resolve_from_sheet(db, part, sender=sender, today=today)
-        if contract is not None and contract.id not in {c.id for c in found}:
-            found.append(contract)
-    return found
+        if contract is None:
+            unmatched = True
+        else:
+            found.setdefault(contract.id, contract)
+    return SheetContracts(tuple(found.values()), unmatched)
 
 
 async def split_client(db: AsyncSession, order_keys: frozenset[str]) -> Optional[int]:

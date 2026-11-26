@@ -466,8 +466,12 @@ export function ContractorOrderPanel({
   const isDraftCard = contractor.draft_card === true;
   const extendIsPrimary = ending !== null || (missing !== null && !isDraftCard);
   const canDeleteActiveOrder = canManageOrders && activeOrder !== null && !isDraftCard;
+  // Karta samej historii: umowa żyje dalej na linii zamówienia MD, więc
+  // „Zakończ współpracę” stąd zamknęłoby też tę linię (zgłoszenie z 0262).
   const showTerminate =
-    canTerminateByRole && canTerminateContractor(contractor.contract_status);
+    canTerminateByRole &&
+    !contractor.history_only &&
+    canTerminateContractor(contractor.contract_status);
 
   const currentSectionTitle = !activeOrder
     ? "Nowe zamówienie"

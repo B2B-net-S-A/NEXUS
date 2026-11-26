@@ -1,0 +1,26 @@
+{
+  "id": "cv-2924-obecnie-z-modelu-wraca-do-dat-oryginalu",
+  "poprawka": "83c09272c #2924",
+  "opis": "Generator zamieniał datę końca z oryginału na „obecnie” albo na bieżący miesiąc; okres stanowiska ma być taki jak w oryginale",
+  "dzis": "2026-11-25",
+  "wejscie": {
+    "jezyk": "pl",
+    "generator": {
+      "name": "Piotr Korpusowy",
+      "position": "Network Technical Lead",
+      "experience": [
+        {"dates": "08.2022 - obecnie", "company": "Sieci Przykładowe", "position": "Network Technical Lead"},
+        {"dates": "12.2019 - 11.2026", "company": "Telekom Przykładowy", "position": "Network Engineer"},
+        {"dates": "03.2017 - 11.2019", "company": "Serwis Przykładowy", "position": "Administrator sieci"}
+      ]
+    },
+    "zrodlo": "PIOTR KORPUSOWY\nEXPERIENCE\nNetwork Technical Lead\nSieci Przykładowe\n08.2022 – 05.2026\nCisco, Meraki\nNetwork Engineer\nTelekom Przykładowy\nDec 2019 – Jul 2022\nAdministrator sieci\nSerwis Przykładowy\n03.2017 - 11.2019"
+  },
+  "oczekiwane": {
+    "daty": [
+      {"daty": "08.2022 - 05.2026", "staz": "3 lata 10 mies."},
+      {"daty": "12.2019 - 07.2022", "staz": "2 lata 8 mies."},
+      {"daty": "03.2017 - 11.2019", "staz": "2 lata 9 mies."}
+    ]
+  }
+}

@@ -2069,7 +2069,7 @@ DEBRIEF_FROM_TEXT = PromptTemplate(
 
 INTERVIEW_ANSWER_PROPOSAL = PromptTemplate(
     name="interview_answer_proposal",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         "Jesteś doświadczonym rekruterem technicznym IT w polskiej agencji body "
@@ -2085,8 +2085,10 @@ INTERVIEW_ANSWER_PROPOSAL = PromptTemplate(
         "działa, kiedy używać, typowa pułapka); bez wstępów i bez „to zależy” "
         "bez wyjaśnienia;\n"
         "- pytanie o doświadczenie, zachowanie albo motywację: zacznij od "
-        "„Wskazówka:” i w 2–3 zdaniach napisz, co kandydat powinien w odpowiedzi "
-        "pokryć (przykład z projektu, jego rola, wynik) — nie wymyślaj mu historii;\n"
+        "„Wskazówka:” i w 2–3 zdaniach zwróć się do kandydata w 2. osobie "
+        "(„Opisz…”, „Podaj…”, „Wskaż…”, nie „Kandydat powinien…”), co ma "
+        "w odpowiedzi pokryć (przykład z projektu, swoja rola, wynik) — nie "
+        "wymyślaj mu historii;\n"
         "- samo hasło tematu albo technologii („Playwright”, „Klasa abstrakcyjna”, "
         "„Czy zna RLS”, „Pytali o doświadczenie”) to pytanie o ten temat — "
         "odpowiedz na nie;\n"

@@ -162,6 +162,16 @@ def test_prompt_tells_the_model_bare_topics_are_questions() -> None:
     assert ALL_TEMPLATES["interview_answer_proposal"] is INTERVIEW_ANSWER_PROPOSAL
 
 
+def test_prompt_tips_speak_to_the_candidate_in_one_voice() -> None:
+    # Pierwsza noc (26.11.2026): 163 z 698 wskazówek mówiło „Kandydat powinien…”,
+    # reszta „Opisz…”, bo prompt kazał pisać, „co kandydat powinien pokryć”.
+    text = re.sub(r"\s+", " ", INTERVIEW_ANSWER_PROPOSAL.render(questions=""))
+    assert "co kandydat powinien" not in text
+    assert "w 2. osobie" in text and "„Opisz" in text
+    assert "„Kandydat powinien" in text  # jako przykład tego, czego nie pisać
+    assert INTERVIEW_ANSWER_PROPOSAL.version == 2
+
+
 # ── Źródło odpowiedzi dla ekranu ────────────────────────────────────────────
 
 

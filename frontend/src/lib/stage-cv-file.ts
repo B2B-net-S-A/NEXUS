@@ -20,6 +20,7 @@ import {
   type AuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
+import { withClassicLayout } from "@/lib/cv-file-format";
 
 type UrlFor = (path: string) => string;
 
@@ -65,11 +66,17 @@ export function brandedIsNewLayout(branded: CVBrandedState | null | undefined): 
   return branded?.new_layout_enabled === true && branded.cv_layout === "new";
 }
 
+/**
+ * Plik Word CV etapu. `classic` — „Word (klasyczne)” przy „Nowym CV”
+ * (`?layout=classic`, 25.11.2026); bez niego serwer daje Word układu CV.
+ */
 export async function fetchStageCvFile(
   stageId: number,
-  opts?: { download?: CvDownloadSurface },
+  opts?: { download?: CvDownloadSurface; classic?: boolean },
 ): Promise<AuthenticatedDownload> {
-  return docxFile(stageId, await stageBranded(stageId), urlFor(opts));
+  const url = urlFor(opts);
+  const classic = opts?.classic === true;
+  return docxFile(stageId, await stageBranded(stageId), (path) => withClassicLayout(url(path), classic));
 }
 
 /**

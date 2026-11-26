@@ -41,7 +41,8 @@ class SkillGroup:
 @dataclass(frozen=True)
 class HighlightChoice:
     """Wyróżnik ze strony 1 (`page1_extras.highlight`, Artur 25.11.2026):
-    „auto” = praca u klienta rekrutacji, „custom” = wpis rekrutera, „off” = bez."""
+    „auto” = praca u klienta rekrutacji, „ai” = propozycja AI przyjęta przez
+    rekrutera (26.11.2026), „custom” = wpis rekrutera, „off” = bez."""
 
     mode: str = "auto"
     label: str = ""

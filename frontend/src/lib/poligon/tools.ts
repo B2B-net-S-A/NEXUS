@@ -9,8 +9,9 @@
 
 import { autoTexts, whySlots } from "@/lib/cv-page1-why";
 
-import { CV_FICTION_TERMS, CV_FICTION_WHY, cvFictionHtml } from "./cv-fiction";
+import { CV_FICTION_HIGHLIGHT, CV_FICTION_TERMS, CV_FICTION_WHY, cvFictionHtml } from "./cv-fiction";
 import { POLIGON_CLIENT_MAIL_SLOTS } from "./exercises";
+import { practiceLetterApprove, practiceLetterDraft } from "./legal-letter";
 import type { PoligonAction, PoligonDataset, PoligonPerson, PoligonResponse } from "./store";
 
 type Json = unknown;
@@ -494,12 +495,32 @@ export function createTools(ctx: ToolsContext) {
     const extras = { ...((current.data as Row).page1_extras as Row) };
     const next: Row = { ...(page1.get(entryId) ?? {}) };
     let touched = false;
+    const proposals = (Array.isArray(extras.highlight_proposals) ? extras.highlight_proposals : []) as Row[];
     if ("highlight" in body && body.highlight && typeof body.highlight === "object") {
       const highlight = body.highlight as Row;
       if (highlight.mode === "custom" && !(textOf(highlight.label).trim() && textOf(highlight.text).trim())) {
         return { status: 422, data: { detail: "Wyróżnik potrzebuje etykiety i zdania." } };
       }
-      next.highlight = highlight.mode === "auto" ? null : highlight;
+      if (highlight.mode === "ai") {
+        // Lustro przyjęcia propozycji AI: tylko sprawdzona z listy.
+        const chosen = proposals.find((item) => item.key === highlight.proposal);
+        if (!chosen || chosen.verified !== true) {
+          return { status: 422, data: { detail: "Tej propozycji wyróżnika nie ma na liście sprawdzonych propozycji." } };
+        }
+        const { label, token, text, quote, key, kind } = chosen;
+        next.highlight = { mode: "ai", label, token, text, quote, key, kind };
+      } else {
+        next.highlight = highlight.mode === "auto" ? null : highlight;
+      }
+      touched = true;
+    }
+    if (typeof body.highlight_reject === "string") {
+      const rejected = proposals.find((item) => item.key === body.highlight_reject);
+      if (!rejected) return { status: 422, data: { detail: "Tej propozycji wyróżnika nie ma na liście sprawdzonych propozycji." } };
+      next.highlight_proposals = proposals.filter((item) => item.key !== rejected.key);
+      next.highlight_rejected = [...((extras.highlight_rejected as string[] | undefined) ?? []), rejected.key];
+      const current = (next.highlight ?? extras.highlight) as Row | null | undefined;
+      if (current?.mode === "ai" && current.key === rejected.key) next.highlight = null;
       touched = true;
     }
     if ("result_text" in body) {
@@ -534,6 +555,18 @@ export function createTools(ctx: ToolsContext) {
     const before = autoTexts(extras);
     const slots = whySlots(extras).map((slot, index) => (slot === "" || slot === before[index] ? auto[index] : slot));
     page1.set(entryId, { ...(page1.get(entryId) ?? {}), why: slots });
+    const after = brandedFor(entryId);
+    return after.status === 200 ? { status: 200, data: (after.data as Row).page1_extras } : after;
+  }
+
+  /** „Poszukaj w CV” (propozycja AI wyróżnika): fikcyjny certyfikat z CV, odrzucony nie wraca. */
+  function findHighlight(entryId: number): PoligonResponse {
+    const current = brandedFor(entryId);
+    if (current.status !== 200) return current;
+    const extras = (current.data as Row).page1_extras as Row;
+    const rejected = (extras.highlight_rejected as string[] | undefined) ?? [];
+    const proposals = rejected.includes(CV_FICTION_HIGHLIGHT.key) ? [] : [{ ...CV_FICTION_HIGHLIGHT }];
+    page1.set(entryId, { ...(page1.get(entryId) ?? {}), highlight_proposals: proposals, highlight_source_sha: "poligon" });
     const after = brandedFor(entryId);
     return after.status === 200 ? { status: 200, data: (after.data as Row).page1_extras } : after;
   }
@@ -734,6 +767,10 @@ export function createTools(ctx: ToolsContext) {
     if (page1Results && method === "POST" && personByEntry(Number(page1Results[1]))) {
       return refreshPage1(Number(page1Results[1]));
     }
+    const page1Highlight = path.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/page1\/highlight$/);
+    if (page1Highlight && method === "POST" && personByEntry(Number(page1Highlight[1]))) {
+      return findHighlight(Number(page1Highlight[1]));
+    }
     const transform = path.match(/^\/api\/pipeline\/stages\/(\d+)\/qc\/transform$/);
     if (transform && method === "POST") return qcTransform(Number(transform[1]), body);
     const ai = path.match(/^\/api\/pipeline\/stages\/(\d+)\/cv-ai\/(command|applied|confirm-fact)$/);
@@ -741,6 +778,19 @@ export function createTools(ctx: ToolsContext) {
       if (ai[2] === "command") return cvCommand(body);
       if (ai[2] === "applied") emit({ type: "cv_applied", operations: Number(body.operations ?? 0) });
       return { status: 200, data: { ok: true } };
+    }
+
+    // Pismo asystenta prawnego na kontrakcie ćwiczebnym: szkic i „Zatwierdzam”
+    // bez modelu i bez zapisu (`legal-letter.ts`). DOCX zostaje zablokowany.
+    const letter = path.match(/^\/api\/contracts\/(\d+)\/legal-letter\/(draft|approve)$/);
+    if (letter && method === "POST" && Number(letter[1]) >= 990_000) {
+      const contract = ctx.recorded("GET", `/api/contracts/${letter[1]}`, [], true);
+      const draft = contract.status === 200 && contract.data && typeof contract.data === "object"
+        ? practiceLetterDraft(contract.data as Row, body, ctx.now)
+        : null;
+      if (!draft) return null;
+      if (letter[2] === "draft") return { status: 200, data: draft };
+      return { status: 200, data: practiceLetterApprove(draft, body) };
     }
 
     if (path === "/api/jarvis/status" && get) {

@@ -1,8 +1,9 @@
 """Migracja 0274: korekta wskazana w tickecie + audyt klasy — kontrakt SQL-a.
 
-Wzorzec 0250: id kontraktu nie jest zaufane samo — klient, nazwisko, status,
-brak wypowiedzenia i data muszą się zgadzać; analogiczne wiersze są wyłącznie
-audytowane. Do tego jeden test WYKONUJE blok na bazie testowej: literówka
+Wzorzec 0250: id kontraktu nie jest zaufane samo — klient, status, brak
+wypowiedzenia i data muszą się zgadzać (bez danych osoby: repo jest publiczne);
+analogiczne wiersze są wyłącznie audytowane. Do tego jeden test WYKONUJE blok
+na bazie testowej: literówka
 w nazwie kolumny wyszłaby dopiero na produkcji, a entrypoint połknąłby ją
 (`|| echo skipped`).
 """
@@ -44,11 +45,11 @@ def test_repair_requires_business_identity_not_a_bare_id():
         "c.terminated_at IS NULL",
         "c.termination_reason IS NULL",
         "c.end_date = DATE '2026-06-30'",
-        "= 'piotr'",
-        "= 'klimczak'",
         "LIKE '%velobank%'",
     ):
         assert value in target
+    # Repozytorium jest publiczne: blok nie porównuje imienia ani nazwiska.
+    assert "lastname" not in ENDED_TAB_REPAIR_SQL
 
 
 def test_only_the_ticket_target_is_updated_and_the_class_is_audited():
@@ -90,7 +91,7 @@ async def test_repair_block_runs_and_reopens_the_ticket_contract():
             )
         client = Client(name=f"VeloBank S.A. Test {tag}")
         candidate = Candidate(
-            name="Piotr", lastname="Klimczak", email=f"pk-{tag}@example.test"
+            name="Oskar", lastname="Testowy", email=f"ot-{tag}@example.test"
         )
         db.add_all([client, candidate])
         await db.flush()
@@ -103,8 +104,8 @@ async def test_repair_block_runs_and_reopens_the_ticket_contract():
             status=ContractStatus.ended,
             start_date=date(2026, 5, 1),
             end_date=date(2026, 6, 30),
-            rate_candidate=1280,
-            rate_client=1600,
+            rate_candidate=800,
+            rate_client=1000,
         )
         db.add(contract)
         await db.flush()

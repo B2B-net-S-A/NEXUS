@@ -455,7 +455,8 @@ export function InsightsView() {
         {location.tab === "firma" && <FirmaView />}
         {/* Przed hydracją lista zakładek jest pełna, a trasa odmawia wszystkim poza dwiema rolami. */}
         {location.tab === "wnioski" && wnioskiVisible && <WnioskiView />}
-        {location.tab === "przegrane" && visibleTabIds.includes("przegrane") && <PrzegraneView />}
+        {/* Jak „Wnioski”: bez `user` zakładek jest komplet, a widok od razu pyta API (403 u rekrutera). */}
+        {location.tab === "przegrane" && Boolean(user) && visibleTabIds.includes("przegrane") && <PrzegraneView />}
         {location.tab === "zasady" && <ZasadyView />}
         {location.tab === "raporty" && <RaportyView reportId={location.report} />}
       </div>

@@ -52,6 +52,21 @@ export function cvFictionHtml(fullName: string): string {
  * (lekcja „Nowe CV: strona 1”, 25.11.2026) — tak, jak je zapisuje serwer
  * (`page1_extras.why_generated`) po sprawdzeniu kodem. Bez formy z rodzajem.
  */
+/**
+ * Propozycja AI wyróżnika na Poligonie (26.11.2026): certyfikat z CV powyżej,
+ * z cytatem jak z `services/cv_page1_highlight_checks.py`. Fikcja, bez modelu.
+ */
+export const CV_FICTION_HIGHLIGHT = {
+  kind: "certificate",
+  label: "Certyfikat PRINCE2 Practitioner",
+  token: "PRINCE2",
+  text: "Certyfikat **PRINCE2 Practitioner** wydany przez PeopleCert w 2019 r.",
+  quote: "PRINCE2 Practitioner - PeopleCert (2019)",
+  key: "poligon-prince2",
+  verified: true,
+  source: "certification",
+} as const;
+
 export const CV_FICTION_WHY = [
   {
     slot: "experience",

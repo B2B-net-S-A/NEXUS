@@ -58,6 +58,9 @@ CARE_CASE_ID = 990585
 ORDER_NUMBER = "ĆW/ZAM/2026/07"
 ORDER_AFTER_END_NUMBER = "ĆW/ZAM/2026/11"
 CONTRACT_NUMBER = "ĆW-B2B-0521"
+# Wypowiedzenie Partnera na trwającym kontrakcie (lekcja asystenta prawnego).
+NOTICE_SIGNED_ON = "@reld:-2"
+NOTICE_LAST_DAY = "@releom:-2:1"
 
 # Kwoty ćwiczebne (zł/h, miesiąc = 168 h). Zgodne z rekrutacją ćwiczebną:
 # kandydat 105 zł/h, do klienta 122 zł/h. Aneks 1 (w mocy od 60 dni) podniósł
@@ -157,9 +160,19 @@ def _contract_base(person: dict, status: str) -> dict:
 
 
 def active_contract_row() -> dict:
-    """Trwający kontrakt: zamówienie MD kończy się za 40 dni, stawka z aneksu czeka."""
+    """Trwający kontrakt: zamówienie MD kończy się za 40 dni, stawka z aneksu czeka.
+
+    Partner złożył wypowiedzenie 2 dni temu (lekcja asystenta prawnego,
+    26.11.2026): okres 1 miesiąc liczony od kolejnego miesiąca, więc ostatni
+    dzień umowy to koniec przyszłego miesiąca (`@releom:-2:1` w `store.ts`).
+    Szkic odpowiedzi daje narzędzie Poligonu (`lib/poligon/legal-letter.ts`).
+    """
     return {
         **_contract_base(ACTIVE, "active"),
+        "agreement_termination_mode": "notice",
+        "agreement_termination_party": "consultant",
+        "agreement_termination_signed_on": NOTICE_SIGNED_ON,
+        "agreement_last_day": NOTICE_LAST_DAY,
         "start_date": "@reld:-200",
         "end_date": None,
         "client_order_start_date": "@reld:-200",
@@ -1223,6 +1236,26 @@ def contract_list_keys() -> dict[str, object]:
     return out
 
 
+def legal_notice_task() -> dict:
+    """Zadanie asystenta prawnego (`GET /api/legal/tasks`, kształt `LegalTaskRow`).
+
+    Opis bez dat: zestaw trzyma daty względne tylko w osobnych polach.
+    """
+    a = ACTIVE["contract_id"]
+    return {
+        "key": f"notice_reply:{a}:practice",
+        "kind": "notice_reply",
+        "severity": "info",
+        "title": f"{ACTIVE['name']}: szkic odpowiedzi na wypowiedzenie czeka",
+        "detail": f"Wypowiedzenie Partnera sprzed 2 dni · umowa trwa do końca przyszłego miesiąca · {CLIENT_NAME}",
+        "action_label": "Otwórz szkic",
+        "href": f"/contracts/{a}?pismo=notice_reply",
+        "client_id": POLIGON_CLIENT,
+        "contract_id": a,
+        "created_at": "@rel:-2",
+    }
+
+
 def lost_review_empty() -> dict:
     """Zakładka „Przegrane” bez przegranych w okresie (kształt `lost_review.compute`)."""
     side = {"count": 0, "first_cv_days": None, "cvs": None, "interview_share": None}
@@ -1367,6 +1400,12 @@ def client_practice(template_candidate_id: int) -> dict[str, object]:
             "documents": [],
             "items": [],
         },
+        # Asystent prawny (26.11.2026): zadanie „szkic odpowiedzi na
+        # wypowiedzenie” na liście kontraktów i na trwającym kontrakcie;
+        # zakończony nie ma zadań (bez klucza wziąłby odpowiedź listy).
+        "GET /api/legal/tasks": {"items": [legal_notice_task()]},
+        f"GET /api/legal/tasks?contract_id={a}": {"items": [legal_notice_task()]},
+        f"GET /api/legal/tasks?contract_id={e}": {"items": []},
         # Zamówienia z maila.
         "GET /api/order-mail/queue?limit=100&outcome=needs_review": {
             "total": 1,

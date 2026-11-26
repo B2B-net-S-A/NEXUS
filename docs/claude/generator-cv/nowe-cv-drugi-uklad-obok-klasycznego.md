@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora”; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf`; Word nowego wyglądu (25.11, wariant B): strona 1 = obraz z PDF, dalej tabele, osadzony Poppins, `docx_render.py`, `?layout=classic` = „Word (klasyczne)” -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1; runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta; od 26.11 propozycja AI `cv_page1_highlight` tylko po przyjęciu, tryb „ai”, `highlight_proposals`, `POST …/cv/page1/highlight`), oś po kolei S1, Edukacja zawsze z ikonami (wieniec tylko przy wyróżniku, bez wyboru wieńca), pismo do 11 pt, stały odstęp sekcji; zdania 1–3 (25.11): `cv_page1_why`, `page1_extras.why` / `why_generated`, lata z dat kodem, MUST z cytatem, `key_task` z dowodem, „Przywróć z generatora”; format pliku klienta (25.11): `client_cv_rules.cv_file_format` docx/pdf/both, główny przycisk pobrania za regułą, `PUT …/cv-rule/file-format`, PDF wyniku generatora `GET …/generated/{id}/pdf`; Word nowego wyglądu (25.11, wariant B): strona 1 = obraz z PDF, dalej tabele, osadzony Poppins, `docx_render.py`, `?layout=classic` = „Word (klasyczne)” -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -182,6 +182,21 @@ w regule CV klienta (etap 1), potem Word w nowym wyglądzie (etap 2, sekcja
   w „Nowym CV” (`GeneratedCvItem.cv_layout`) trasa daje 409, a wynik nie ma
   przycisku PDF, tylko wskazanie karty „CV do klienta” — PDF z Worda byłby
   innym plikiem niż wybrany.
+- **Pozostałe miejsca pobrania CV etapu** (25.11.2026, PR po #3983/#3991):
+  - pasek podglądu „CV firmowe” w panelu osoby (`CandidatePreviewPane`) —
+    jak dok (`cvDownloadsWithoutMenu`): Word i PDF obok siebie, plik klienta
+    pierwszy, bez „Word (klasyczne)” (miejsce nie ma menu);
+  - przycisk nad CV w `StageCvPreview` (przegląd DL, edytor): bez wymagań jeden
+    plik jak dotąd (PDF przy Nowym CV, inaczej Word), przy formacie klienta
+    przyciski z `plan.primary` (oba = Word i PDF);
+  - pliki kandydata („CV dla klientów”): „Pobierz” = plik klienta (przy PDF
+    przycisk „Pobierz PDF”), reszta planu w „⋯”, także „Word (klasyczne)”
+    (`fetchStageCvFile(…, { classic: true })` → `?layout=classic`);
+  - „Moje wygenerowane CV”: jeden przycisk, plik klienta (bez menu).
+  Lista `GET /cv-generator/generated` niesie przy CV etapu `stage_cv_layout`
+  i `client_file_format` (to samo zapytanie co `stage_cv_stage_id`).
+  Rekrutacje w profilu kandydata nie pobierają pliku (sam podgląd), oryginały
+  kandydata idą jak dotąd.
 - **Ostrzeżenie** „Klient chce Worda, a wybrane jest Nowe CV” było w etapie 1
   (PR #3983); etap 2 je usunął, bo Word ma już nowy wygląd.
 
@@ -356,6 +371,75 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
   fladze po edycji CV — kontrola przy renderze na bieżącej treści zostaje.
 - Nie dopisuj tego zdania do promptu generatora — klasyczne CV mają zostać bez
   zmian, a wynik liczy się z treści po poprawkach rekrutera.
+- Nie wpuszczaj propozycji wyróżnika AI na stronę 1 bez „Przyjmij” rekrutera
+  i nie przyjmuj jej sam w tle (W36 w `decyzje-wygladu.md`).
+
+## Wyróżnik z propozycji AI (26.11.2026)
+
+Decyzja Artura z 26.11.2026 („wyróżnik może też być to, co AI zaproponuje, lub
+rekruter sam wpisze i zdecyduje”): wyróżnik pod nazwiskiem ma trzy źródła —
+praca u klienta (automat, „auto”), propozycja AI przyjęta przez rekrutera („ai”)
+i wpis rekrutera („custom”). Ostatnie słowo ma rekruter. Decyzja wyglądu: W36.
+Kod: `services/cv_page1_highlight.py` (prompt, wejście, bieg, wyzwalacze)
+i `services/cv_page1_highlight_checks.py` (sprawdzenie, bez sieci i bazy).
+
+- **Model:** własny klucz AI `cv_page1_highlight` (F61 w `ai_models`, model
+  i zapas generatora F4, migracja 0792 + lustro w `entrypoint.sh`), wywołanie
+  w `ai_feature()`, licznik w Ustawieniach → AI. Wejście: stanowiska z HTML-a
+  edytora (firma, stanowisko, daty, punkty), certyfikaty, wykształcenie i MUST
+  z Profilu Championa; bez imienia, kontaktu, stawek i notatek.
+- **Co proponuje:** najwyżej 3 wyróżniki dwóch rodzajów — `award` (nagroda,
+  wyróżnienie, tytuł, stypendium, miejsce w konkursie) i `certificate`
+  (certyfikat z certyfikatów CV, który jest wymaganiem MUST). Każdy: etykieta
+  (≤ 60), znak w wieńcu (≤ 8), jedno zdanie (≤ 160) i dosłowny cytat.
+- **Sprawdzenie (kod, nie model):** cytat stoi w całości w jednym wpisie CV
+  (punkt albo nazwa stanowiska, certyfikat, wiersz wykształcenia; po słowach jak
+  przy wynikach); nagroda — cytat ma słowo, które samo znaczy nagrodę
+  („najlepszych”, „z tytułu”, „top”, „won”, „wyróżniających się” to zwykłe
+  słowa obowiązku i nie wystarczą); certyfikat — cytat z certyfikatów i MUST jest certyfikatem w jego
+  nazwie (`education.must_certificate`, ta sama reguła co kolejność w Edukacji);
+  każda liczba z etykiety, znaku i zdania stoi w cytacie albo w tym wpisie; bez
+  form z rodzajem; w Blind CV bez nazw firm. Bez cytatu = brak propozycji;
+  niesprawdzone zostają z `issue`, edytor ich nie podaje.
+- **Zapis:** `page1_extras.highlight_proposals` (`kind`, `label`, `token`,
+  `text`, `quote`, `key`, `verified`, `source`, `company`, `issue`),
+  `highlight_source_sha` = odcisk HTML-a, MUST i wersji promptu,
+  `highlight_rejected` = odciski propozycji odrzuconych (nie wracają przy
+  kolejnym biegu). Wybór rekrutera (`highlight`) zostaje przy każdym biegu.
+- **Wyzwalacze:** „Poszukaj w CV” w edytorze (`POST …/cv/page1/highlight`,
+  liczy od nowa, limit 20/min, awaria = 503 z polskim zdaniem; bramki jak
+  `…/page1/results`, wzorzec `authz_golden/cv_page1_results.json`) i bieg w tle
+  po tych samych wyzwalaczach co wyniki strony 1 (`refresh_after_commit`), we
+  własnej sesji, tylko przy fladze, kluczu dostawcy i nieaktualnym odcisku.
+  Awaria = dodatki bez zmian, ślad w logu, wyróżnik działa jak dotąd.
+- **Przyjęcie i odrzucenie** (`PATCH …/cv/page1`): `highlight: {mode: "ai",
+  proposal: "<key>"}` przepisuje sprawdzoną propozycję do `highlight` (słowa,
+  cytat, `key`), ale tylko gdy cytat stoi w bieżącym szkicu (inaczej 422);
+  `highlight_reject: "<key>"` usuwa propozycję i zapisuje jej odcisk, a
+  odrzucenie przyjętej wraca do automatu. Po odcisku, nie po numerze na liście:
+  bieg w tle i „Poszukaj w CV” mogą podmienić listę między odczytem a kliknięciem
+  (przegląd 26.11.2026); odcisku, którego już nie ma, serwer nie przyjmuje (422).
+  Historia zdarzeń zapisuje tryb, bez treści.
+- **Render:** czyta wyłącznie `page1_extras.highlight` (`choice_from_extras`);
+  „ai” rysuje się jak wpis rekrutera. Przed renderem
+  `cv_page1_highlight_checks.rechecked_highlight` sprawdza przyjęty wyróżnik na
+  bieżącej treści (cytat, liczby, Blind, bez warunku MUST) — gdy rekruter usunął
+  nagrodę z CV, strona 1 wraca do automatu. Wczytanie innego CV
+  (`forget_page1_result`) czyści propozycje i przyjęty wyróżnik „ai”, lista
+  odrzuconych zostaje.
+- **Edytor „Strona 1”:** tryby „Automatycznie · Propozycja AI · Własny · Bez
+  wyróżnika”; pod nimi sekcja „Propozycja AI” (`CvNewLayoutHighlightAi.tsx`) —
+  karty sprawdzonych propozycji (etykieta, znak, zdanie, „Z CV: „cytat””)
+  z „Przyjmij”, „Odrzuć” i „Popraw jako własny” (słowa do „Własnego”), przyjęta
+  jako „Na stronie 1”, „Poszukaj w CV” / „Poszukaj od nowa”, zdanie „Bez
+  przyjęcia propozycja nie trafia do CV”. Tryb „Propozycja AI” bez propozycji
+  jest wyłączony, jego wybór przyjmuje pierwszą. Harness `/preview/cv-editor`
+  i Poligon (fikcyjny certyfikat PRINCE2) mają propozycje w pamięci.
+- Testy: `tests/test_cv_page1_highlight.py` (sprawdzenie, scalenie, bieg
+  z atrapą, przyjęcie i odrzucenie, render), `test_cv_page1_highlight_db.py`
+  (trasy), W36 w `test_cv_new_layout_decisions.py`, front
+  `cv-editor/__tests__/CvNewLayoutHighlightAi.test.tsx`,
+  `lib/poligon/__tests__/store-cv-layout.test.ts`.
 
 ## Edytor nowego CV: Strona 1 i Stanowiska (22.11.2026)
 

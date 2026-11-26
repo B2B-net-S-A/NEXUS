@@ -200,7 +200,12 @@ export type CvEditorApi = Pick<
    * Układ CV i „Najmocniejszy wynik” strony 1 nowego CV (22.11.2026) — tylko
    * CV etapu; wynik generatora nie ma układu.
    */
-  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout" | "setPage1" | "refreshPage1Results">>;
+  Partial<
+    Pick<
+      typeof candidateStageCvApi.branded,
+      "setLayout" | "setPage1" | "refreshPage1Results" | "refreshPage1Highlight"
+    >
+  >;
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
@@ -834,6 +839,20 @@ function CVBrandedEditContent({
         );
       }
     : undefined;
+  /** „Poszukaj w CV” — propozycje AI wyróżnika z zapisanego szkicu (najpierw zapis treści). */
+  const refreshHighlightApi = isGenerated ? undefined : editorApi.refreshPage1Highlight;
+  const findHighlight = refreshHighlightApi
+    ? async () => {
+        if (!(await ensureDraft())) {
+          throw new Error("Nie udało się założyć nowego szkicu CV — nie poszukano wyróżnika.");
+        }
+        await flush();
+        const response = await refreshHighlightApi(stageId);
+        queryClient.setQueryData<CVBrandedState>([scopeKey, stageId], (current) =>
+          current ? { ...current, page1_extras: response.data ?? null } : current,
+        );
+      }
+    : undefined;
   // Wiersz „Umiejętności” / „Edukacja” / „Języki” ze „Strony 1”: kursor w tej sekcji kartki.
   const pendingJump = useRef<CvSectionKey | null>(null);
   const openInText = (section: CvSectionKey) => {
@@ -1339,6 +1358,7 @@ function CVBrandedEditContent({
                   loadPreview={() => loadPdf("preview")}
                   onSaveResult={savePage1}
                   onRecalcResults={recalcPage1}
+                  onFindHighlight={findHighlight}
                   onTab={setMode}
                   onOpenText={openInText}
                 />

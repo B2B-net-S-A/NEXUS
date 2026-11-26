@@ -72,6 +72,7 @@ from app.services.consultant_portal import (
     forwarded,
     identity,
     portal_settings,
+    templates,
     zip_files,
 )
 from app.services.consultant_portal.auth import PortalError
@@ -707,6 +708,10 @@ async def _ingest_message(
         indirect = await _forwarded_contract(
             db, inner.senders, state=state, today=today
         )
+    # Wątek wskazuje kontrakt, ale nie fakturę osoby u dwóch klientów.
+    invoice_waits = indirect is not None and await identity.thread_invoice_waits(
+        db, thread_contract_id=indirect.id, sender=sender, settings=state, today=today
+    )
     by_file_name = False
     company = contract is None and identity.is_company_address(sender)
     staff_clients: frozenset[int] = frozenset()
@@ -734,6 +739,8 @@ async def _ingest_message(
         sender_clients = await identity.client_ids_for_sender(db, sender)
     by_file: dict[int, Contract] = {}
     indirect_created = 0
+    # Faktura zatrzymana przez ``invoice_waits``: treść maila dalej należy do wątku.
+    held_invoice = False
     contract_id = contract.id if contract else None
     created = skipped = 0
     # Plik nadawcy, który już mamy (ten sam Time Sheet drugi raz): mail i tak może
@@ -774,7 +781,10 @@ async def _ingest_message(
             skipped += 1
             continue
         year, month, guessed = period_for(subject, name, received.date())
+        # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
+        kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         owner = contract_id
+        held = False
         if owner is None and indirect is not None and _named_kind(subject, name):
             # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
             # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
@@ -785,7 +795,8 @@ async def _ingest_message(
             if (own is not None and own.id == indirect.id) or not (
                 await identity.names_someone_else(db, name, indirect, today=today)
             ):
-                owner = indirect.id
+                held = invoice_waits and kind == "invoice"
+                owner = None if held else indirect.id
         elif owner is None and by_file_name and _named_kind("", name):
             # Koordynator wysyła protokoły kilku osób jednym mailem („PROTOKÓŁ_ Imię
             # Nazwisko_WRZESIEŃ 2026.pdf”): plik idzie do jedynej osoby z jego nazwy,
@@ -837,9 +848,24 @@ async def _ingest_message(
             if from_sheet is not None:
                 owner = from_sheet.id
                 by_file[from_sheet.id] = from_sheet
-        # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
-        kind = await asyncio.to_thread(kind_of_file, subject, name, content)
-        if owner is None and kind == "report" and not guessed:
+        by_template = None
+        if kind == "report":
+            by_template = await _by_template(
+                db,
+                content,
+                name,
+                owner_id=owner,
+                sender=sender,
+                period=None if guessed else (year, month),
+                state=state,
+                today=today,
+            )
+        if by_template is not None:
+            # Wzór klienta rozstrzyga sam: bez dalszych domysłów z miesiąca i T4T.
+            owner = by_template.contract.id if by_template.contract else None
+            if by_template.contract is not None:
+                by_file[owner] = by_template.contract
+        elif owner is None and kind == "report" and not guessed:
             # Adres wskazuje dwa kontrakty osoby po zmianie klienta: raport z okresem
             # w nazwie albo temacie idzie do jedynego, który działa w tym miesiącu
             # (próba IX–X 2026, VeloBank 466 i 467). Okres z daty maila nie
@@ -852,7 +878,12 @@ async def _ingest_message(
             if in_month is not None:
                 owner = in_month.id
                 by_file[in_month.id] = in_month
-        if owner is None and report_owner is not None and kind == "report":
+        if (
+            owner is None
+            and by_template is None
+            and report_owner is not None
+            and kind == "report"
+        ):
             # Drugi kontrakt jest u klienta z raportem T4T: raport godzin z poczty
             # należy do tego kontraktu, faktura czeka na człowieka (próba IX–X 2026).
             owner = report_owner.id
@@ -878,9 +909,11 @@ async def _ingest_message(
         created += 0 if stored.duplicate else 1
         if owner is not None and owner != contract_id and not stored.duplicate:
             indirect_created += 1
+        if held and not stored.duplicate:
+            held_invoice = True
         if stored.duplicate and owner is not None and owner == contract_id:
             known += 1
-    body_owner = contract or (indirect if indirect_created else None)
+    body_owner = contract or (indirect if indirect_created or held_invoice else None)
     if body_owner is None and indirect_created and len(by_file) == 1:
         body_owner = next(iter(by_file.values()))
     if (
@@ -902,6 +935,42 @@ async def _ingest_message(
             now=now,
         )
     return created + time_report.versions + client_report, skipped
+
+
+async def _by_template(
+    db: AsyncSession,
+    content: bytes,
+    name: str,
+    *,
+    owner_id: Optional[int],
+    sender: str,
+    period: Optional[tuple[int, int]],
+    state: portal_settings.PortalSettings,
+    today: date,
+) -> Optional[identity.TemplateChoice]:
+    """Kontrakt ze wzoru dokumentu (``templates``) dla osoby u dwóch klientów.
+
+    ``None`` = zwykła ścieżka. Plik czytamy dopiero wtedy, gdy osoba ma kontrakty
+    u dwóch klientów. Miesiąc z pliku, a bez niego okres z nazwy albo tematu
+    (``period``; ``None``, gdy zgadnięty z daty maila).
+    """
+
+    contracts = await identity.contracts_at_several_clients(
+        db, owner_id=owner_id, sender=sender, settings=state, today=today
+    )
+    if not contracts:
+        return None
+    template = await asyncio.to_thread(templates.recognize, content, name)
+    if template is None:
+        return None
+    return await identity.resolve_by_template(
+        db,
+        contracts,
+        client_key=template.client_key,
+        person=template.person,
+        month=template.month or period,
+        owner_id=owner_id,
+    )
 
 
 async def _agreement_contract(
@@ -1045,24 +1114,49 @@ async def _store_client_reports(
         except ValueError:
             continue
         if lower.endswith((".xlsx", ".xls")):
-            # Wykaz grupy Polkomtel / Cyfrowy Polsat z wierszami kilku kontraktów
-            # (dwie osoby albo jedna osoba w obu spółkach, próba VI–VIII 2026): plik
-            # u każdego kontraktu. Jeden kontrakt idzie zwykłą ścieżką.
+            # Wykaz grupy Polkomtel / Cyfrowy Polsat z wierszami kilku osób albo
+            # kontraktów (próba VI–VIII 2026): plik u każdego rozpoznanego kontraktu.
+            # Jedna osoba z jednym kontraktem idzie zwykłą ścieżką. Arkusz dwóch osób
+            # jako całość nie wskazuje nikogo, więc od klienta i z firmy idzie tędy
+            # także przy jednym. Konsultanta z jednym trafieniem wskazuje adres, a
+            # zwykła ścieżka czyta też treść jego maila (dowód akceptacji).
             sheet = await asyncio.to_thread(timesheet_plus.parse, content)
             if sheet is not None and sheet.month is not None:
+                matched = await identity.resolve_sheet_contracts(
+                    db, sheet, sender=sender, today=today
+                )
                 owners = [
-                    c
-                    for c in await identity.resolve_sheet_contracts(
-                        db, sheet, sender=sender, today=today
-                    )
+                    c.id
+                    for c in matched.contracts
                     if state.any_sender or state.open_for(c.id)
                 ]
-                if len(owners) > 1:
+                own = (
+                    await identity.sender_contract_ids(db, sender, today=today)
+                    if owners
+                    else frozenset()
+                )
+                several = len(timesheet_plus.people(sheet)) > 1
+                if len(owners) > 1 or (owners and several and not own):
                     year, month = (int(part) for part in sheet.month.split("-"))
-                    for position, contract in enumerate(owners):
+                    # Identyfikator maila nosi jedna kopia, zapisana przy pierwszym
+                    # odczycie. Gdy czytnik wraca do maila, dochodzą tylko kontrakty,
+                    # których wcześniej nie rozpoznał.
+                    first_read = not await documents.stored_from_mail(
+                        db, message_id, content
+                    )
+                    # Wiersze bez kontraktu zostają widoczne w kopii do przypisania.
+                    # Stoi pierwsza, więc wtedy to ona nosi identyfikator maila.
+                    keep_spare = (
+                        matched.unmatched
+                        and state.any_sender
+                        and first_read
+                        and not own
+                    )
+                    spare = [None] if keep_spare else []
+                    for position, owner in enumerate([*spare, *owners]):
                         stored = await documents.store(
                             db,
-                            contract_id=contract.id,
+                            contract_id=owner,
                             kind="report",
                             year=year,
                             month=month,
@@ -1070,7 +1164,9 @@ async def _store_client_reports(
                             file_name=name or None,
                             channel="mailbox",
                             now=now,
-                            graph_message_id=message_id if position == 0 else None,
+                            graph_message_id=(
+                                message_id if position == 0 and first_read else None
+                            ),
                             sender_email=sender[:320] or None,
                         )
                         created += 0 if stored.duplicate else 1

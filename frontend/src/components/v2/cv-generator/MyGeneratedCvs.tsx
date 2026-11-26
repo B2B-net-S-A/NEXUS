@@ -8,7 +8,8 @@ import { FileText, Search } from "lucide-react";
 import { cvGeneratorApi, type GeneratedCvItem } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/cv-generator";
-import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { stageCvRowPlan } from "@/lib/cv-file-format";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
@@ -47,6 +48,11 @@ export function myCvState(item: GeneratedCvItem): string {
   if (item.stage_cv_status === "finalized") return "Zatwierdzone w rekrutacji";
   if (item.stage_cv_status === "draft") return "Szkic w rekrutacji";
   return "Z generatora";
+}
+
+/** Plik pod „Pobierz”: CV etapu w formacie klienta, inaczej Word z generatora. */
+function rowKind(item: GeneratedCvItem): "docx" | "pdf" {
+  return item.stage_cv_stage_id != null && stageCvRowPlan(item).primary[0] === "pdf" ? "pdf" : "docx";
 }
 
 /** Plik da się otworzyć: CV etapu albo gotowy dokument generatora. */
@@ -104,6 +110,9 @@ export function MyGeneratedCvs() {
     isSuccess: query.isSuccess,
   });
 
+  // Format pliku z reguły klienta (25.11.2026): CV etapu pobiera się w pliku,
+  // którego chce klient. Lista nie ma menu, więc jeden plik — reszta w karcie
+  // „CV do klienta” i w plikach kandydata.
   async function download(item: GeneratedCvItem) {
     const stageId = item.stage_cv_stage_id;
     if (stageId == null) {
@@ -111,11 +120,19 @@ export function MyGeneratedCvs() {
       if (problem) showError(problem);
       return;
     }
+    const pdf = rowKind(item) === "pdf";
     try {
-      const file = await fetchStageCvFile(stageId, { download: "mine" });
+      const file = pdf
+        ? await fetchStageCvPdf(stageId, { download: "mine" })
+        : await fetchStageCvFile(stageId, { download: "mine" });
       downloadBlob(file.blob, file.filename || item.filename);
     } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się pobrać CV."));
+      showError(
+        apiErrorMessage(
+          error,
+          pdf ? "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz plik Word." : "Nie udało się pobrać CV.",
+        ),
+      );
     }
   }
 
@@ -256,7 +273,7 @@ export function MyGeneratedCvs() {
                         onClick={() => void download(item)}
                         aria-label={`Pobierz CV: ${item.candidate_name}`}
                       >
-                        Pobierz
+                        {rowKind(item) === "pdf" ? "Pobierz PDF" : "Pobierz"}
                       </Button>
                     ) : null}
                   </td>

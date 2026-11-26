@@ -40,7 +40,7 @@ import {
 import "@/components/candidate-terms/warunki.css";
 import "./raport.css";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 type Screen = "loading" | "form" | "saved" | "invalid" | "load_error" | "optout" | "optout_done";
 

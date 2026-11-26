@@ -131,3 +131,68 @@ async def test_client_mailbox_domain_two_people_need_a_human(monkeypatch) -> Non
     await _named("Ola", last)
     await _named("Ola", last)
     assert await _resolve(f"ola.{last.lower()}@klient-osobowy.example") is None
+
+
+# ── Adres konsultanta dla komunikatów (decyzja Artura z 26.11.2026) ──────────
+
+
+async def _mail_document(contract_id: int, sender: str, name: str) -> None:
+    from app.core.scheduling import local_now
+    from app.services.consultant_portal import documents
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        await documents.store(
+            db,
+            contract_id=contract_id,
+            kind="report",
+            year=today.year,
+            month=today.month,
+            content=b"%PDF-1.4 " + name.encode(),
+            file_name=name,
+            channel="mailbox",
+            now=local_now(),
+            sender_email=sender,
+        )
+        await db.commit()
+
+
+async def test_adres_konsultanta_to_jego_skrzynka_z_poczty_nie_kierownik(
+    tmp_path, monkeypatch
+) -> None:
+    from app.services import storage_service
+    from app.services.client_settlements import reminders
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    last = f"Nowacka{tag()}"
+    person = await _named("Ewa", last)
+    alias = f"ewa.{last.lower()}@{DOMAIN}"
+    await _mail_document(person.contract_id, alias, "ts.pdf")
+    # Później plik przysłał kierownik u klienta: to nie jest adres konsultanta.
+    await _mail_document(person.contract_id, "kierownik@klient.example", "akc.pdf")
+
+    async with AsyncSessionLocal() as db:
+        found = await reminders.consultant_addresses(
+            db, {person.contract_id}, today=business_today()
+        )
+
+    assert found == {person.contract_id: alias}
+
+
+async def test_bez_dokumentu_konsultanta_brak_adresu_z_poczty(
+    tmp_path, monkeypatch
+) -> None:
+    from app.services import storage_service
+    from app.services.client_settlements import reminders
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    person = await _named("Ewa", f"Nowacka{tag()}")
+    await _mail_document(person.contract_id, "kierownik@klient.example", "akc.pdf")
+
+    async with AsyncSessionLocal() as db:
+        assert (
+            await reminders.consultant_addresses(
+                db, {person.contract_id}, today=business_today()
+            )
+            == {}
+        )

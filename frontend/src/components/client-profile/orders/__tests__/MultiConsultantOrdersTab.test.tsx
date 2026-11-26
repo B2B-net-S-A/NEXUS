@@ -2828,7 +2828,12 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
       "data-focus-order",
       "5:false",
     );
-    expect(await row("contractor-row-100")).toHaveAttribute("aria-selected", "true");
+    const contractorRow = await row("contractor-row-100");
+    expect(contractorRow).toHaveAttribute("aria-selected", "true");
+    // Umowa żyje na linii MD — wiersz mówi, kiedy skończyło się okresowe,
+    // a nie „Brak aktywnego zamówienia”.
+    expect(contractorRow).toHaveTextContent("Zakończony 31.10.2026");
+    expect(contractorRow).not.toHaveTextContent("Brak aktywnego zamówienia");
     expect(
       screen.queryByText("Zamówienie nie jest już widoczne na liście tego klienta."),
     ).not.toBeInTheDocument();

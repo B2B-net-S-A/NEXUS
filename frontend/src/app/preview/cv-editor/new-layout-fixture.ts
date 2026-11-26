@@ -8,7 +8,7 @@
  * wygeneruj PDF ponownie (opis w `nowe-cv-drugi-uklad-obok-klasycznego.md`).
  */
 
-import type { CvPage1Extras } from "@/lib/api";
+import type { CvHighlightProposal, CvPage1Extras } from "@/lib/api";
 
 const RODO =
   "Wyrażam zgodę na przetwarzanie moich danych osobowych zawartych w przekazanych przeze mnie " +
@@ -77,6 +77,25 @@ export const NEW_LAYOUT_EXTRAS: CvPage1Extras = {
     },
   ],
 };
+
+/**
+ * Propozycje AI wyróżnika po „Poszukaj w CV” (26.11.2026, fikcja). Harness nie
+ * woła modelu ani kodu sprawdzającego cytat — pokazuje tylko wygląd sekcji;
+ * PDF podglądu zostaje bez wyróżnika z propozycji.
+ */
+export const NEW_LAYOUT_HIGHLIGHT_PROPOSALS: CvHighlightProposal[] = [
+  {
+    kind: "award",
+    label: "Wyróżnienie Programista Roku",
+    token: "2023",
+    text: "**Programista Roku 2023** w Banku Przykładowym za mikroserwisy płatności kartowych.",
+    quote: "Wyróżnienie Programista Roku 2023 za mikroserwisy płatności kartowych",
+    key: "preview-award",
+    verified: true,
+    source: "role",
+    company: "Bank Przykładowy S.A.",
+  },
+];
 
 export const NEW_LAYOUT_PDF = "/preview/cv-editor/nowe-cv-przyklad.pdf";
 

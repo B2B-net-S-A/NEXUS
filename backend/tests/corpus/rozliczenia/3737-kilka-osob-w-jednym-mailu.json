@@ -1,0 +1,32 @@
+[
+ {
+  "id": "rozl-3737-protokoly-kilku-osob-jednym-mailem",
+  "poprawka": "6af676ead #3737",
+  "opis": "Koordynator z adresu firmy wysyła protokoły kilku konsultantów jednym mailem; temat i nazwy plików razem wskazywały kilka osób, więc żaden plik nie miał kontraktu",
+  "dzis": "2026-10-05",
+  "osoby": {
+   "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Paliwa Przykładowe"},
+   "B": {"imie": "Anna", "nazwisko": "Przykładowa", "email_kontraktu": "anna.przykladowa@example.com", "klient": "Paliwa Przykładowe"}
+  },
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "protokoły",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "pliki": [
+     {"nazwa": "PROTOKÓŁ_ Jan Korpusowy_WRZESIEŃ 2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 1"},
+     {"nazwa": "PROTOKÓŁ_ Anna Przykładowa_WRZESIEŃ 2026.pdf", "tekst": "%PDF-1.4 fikcyjny protokol 2"},
+     {"nazwa": "protokół zbiorczy.pdf", "tekst": "%PDF-1.4 fikcyjny zbiorczy"},
+     {"nazwa": "Umowa Jan Korpusowy.pdf", "tekst": "%PDF-1.4 fikcyjna umowa"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "PROTOKÓŁ_ Jan Korpusowy_WRZESIEŃ 2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+   {"plik": "PROTOKÓŁ_ Anna Przykładowa_WRZESIEŃ 2026.pdf", "rodzaj": "report", "osoba": "B", "okres": "2026-09"},
+   {"plik": "protokół zbiorczy.pdf", "osoba": null},
+   {"plik": "Umowa Jan Korpusowy.pdf", "osoba": null}
+  ]
+ }
+]

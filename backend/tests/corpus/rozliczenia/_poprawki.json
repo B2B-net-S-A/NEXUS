@@ -1,0 +1,263 @@
+[
+ {
+  "poprawka": "75b087dcb #4028",
+  "tytul": "akceptacja NN przekazana dalej z wierszem tabeli w jednej linii",
+  "poza_czytnikiem": "MD z treści maila NN (mail_nn) w rozliczeniu, nie pole odczytu poczty"
+ },
+ {
+  "poprawka": "f1f8643d8 #4014",
+  "tytul": "dni na kolejnych zamówieniach kontraktu, gdy pula się kończy; „zakończone” względem miesiąca",
+  "poza_czytnikiem": "podział dni na kolejne zamówienia kontraktu i „zakończone” względem miesiąca — rozliczenie, nie odczyt poczty"
+ },
+ {
+  "poprawka": "376f2104d #4003",
+  "tytul": "NIP z umowy B2B wiąże fakturę kontraktora tylko z osobą w nazwie albo równą kwotą",
+  "poza_czytnikiem": "wiązanie faktury kontraktora po NIP-ie z umowy B2B i karta w Finansach — nie poczta rozliczeń"
+ },
+ {
+  "poprawka": "dc9686467 #3994",
+  "tytul": "arkusz z „showZeroes” nie wywraca czytników XLSX ani maila z poczty",
+  "przypadki": ["rozl-3994-faktura-xlsx-showzeroes-nie-wywraca-maila"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "029c9ceb9 #3986",
+  "tytul": "kilka Time Sheetów na różne prace, raport BIK w Wordzie i z „Czas (godz.)”, „17,5MD”, stopka RODO",
+  "poza_czytnikiem": "MD z kilku Time Sheetów, raport BIK (Word, „Czas (godz.)”), „17,5MD”, miesiąc akceptacji — odczyt MD w rozliczeniu; rodzaj, osoba i okres pliku z poczty bez zmian"
+ },
+ {
+  "poprawka": "c45c59365 #3985",
+  "tytul": "nieczytelny Excel nie blokuje czytnika poczty ani przeliczenia rozliczenia",
+  "przypadki": ["rozl-3985-arkusz-showzeroes-nie-wywraca-t4t"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "3fab94ce2 #3981",
+  "tytul": "koszt linii zbiorczej ze stawki kontraktu, gdy ta obowiązuje cały miesiąc",
+  "poza_czytnikiem": "koszt linii zbiorczej ze stawki kontraktu"
+ },
+ {
+  "poprawka": "63045816c #3962",
+  "tytul": "MD ponad dni robocze i nadgodziny zaakceptowane przez klienta, faktura KSeF w wątku Time Sheet",
+  "poza_czytnikiem": "MD ponad dni robocze i nadgodziny zaakceptowane przez klienta, wybór RCP w rozliczeniu (_not_report) — kontrole rozliczenia"
+ },
+ {
+  "poprawka": "ce4434d98 #3963",
+  "tytul": "odpowiedź klienta bez akceptacji to wada — uwaga z adresem i prośba o „akceptuję”",
+  "poza_czytnikiem": "uwaga proof.request_reply i informacja zwrotna — kontrola rozliczenia"
+ },
+ {
+  "poprawka": "23c54264f #3950",
+  "tytul": "zestawienie dostawcy BNP Paribas CIB („Vendor's file”) daje MD osoby",
+  "poza_czytnikiem": "MD z zestawienia dostawcy BNP CIB (vendor_file) w rozliczeniu; plik .xlsx był raportem z rozszerzenia już przed poprawką"
+ },
+ {
+  "poprawka": "6b3fe814f #3953",
+  "tytul": "czytnik skrzynki nie staje na złym ZIP-ie ani na mailu z domeny klienta",
+  "przypadki": ["rozl-3953-zip-z-zepsutym-plikiem", "rozl-3953-kcp-konsultanta-z-domeny-klienta", "rozl-3953-mail-padajacy-porzucony-po-pieciu-biegach"],
+  "lapie_poprawke": true,
+  "uwagi": "rozl-3953-mail-padajacy-porzucony-po-pieciu-biegach: atrapa skrzynki rzuca ValueError przy załącznikach maila (pole „wyjatek”), jak test poprawki; zepsuty ZIP łapie rozl-3953-zip-z-zepsutym-plikiem"
+ },
+ {
+  "poprawka": "31bb164d0 #3945",
+  "tytul": "akceptacja kosztów delegacji przez klienta i koszt z dwóch stawek w miesiącu",
+  "poza_czytnikiem": "akceptacja kosztów delegacji i koszt z dwóch stawek w miesiącu"
+ },
+ {
+  "poprawka": "7295c9a61 #3943",
+  "tytul": "karta ewidencji pracy VeloBanku czytana jak Time Sheet",
+  "poza_czytnikiem": "MD z karty ewidencji pracy VeloBanku (timesheet.parse) w rozliczeniu; plik .xlsx był raportem z rozszerzenia już przed poprawką"
+ },
+ {
+  "poprawka": "2ea4ef408 #3939",
+  "tytul": "MD z prośby o akceptację, którą klient zaakceptował w wątku",
+  "poza_czytnikiem": "MD z prośby o akceptację zaakceptowanej w wątku — rozliczenie"
+ },
+ {
+  "poprawka": "0a4750c51 #3928",
+  "tytul": "Time Sheet z pustym polem osoby — imię i nazwisko z nazwy pliku (proof.name_match)",
+  "poza_czytnikiem": "kontrola proof.name_match (osoba z nazwy pliku przy pustym polu Time Sheet), nie przypisanie dokumentu"
+ },
+ {
+  "poprawka": "15c3e91f1 #3905",
+  "tytul": "koszt MD tylko w zł, grosze połówką w górę, jeden szkic FV za zamówienie i miesiąc",
+  "poza_czytnikiem": "koszt MD w zł, zaokrąglenie groszy, jeden szkic FV"
+ },
+ {
+  "poprawka": "47adea537 #3925",
+  "tytul": "zapłata po arkuszu zbiorczym tylko po arkuszu od klienta, nie od samej osoby",
+  "poza_czytnikiem": "zapłata po arkuszu zbiorczym (pay.per_person) tylko po arkuszu od klienta — rozliczenie"
+ },
+ {
+  "poprawka": "c36b43fe2 #3924",
+  "tytul": "raport z poczty po zmianie klienta trafia do kontraktu, który działa w jego miesiącu",
+  "przypadki": ["rozl-3924-raport-po-zmianie-klienta"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "5492ab276 #3909",
+  "tytul": "podpisany arkusz zbiorczy klienta trafia do osoby i zastępuje mail z akceptacją godzin",
+  "przypadki": ["rozl-3909-arkusz-zbiorczy-b2b-jako-raport", "rozl-3909-akceptacja-kierownika-z-tym-samym-time-sheet"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "807c9022b #3885",
+  "tytul": "stała kolejność plików miesiąca przy tym samym czasie zapisu; akceptacja i źródło KEŚU z maila z Jiry",
+  "poza_czytnikiem": "kolejność plików miesiąca w rozliczeniu (_month_reports), źródło i akceptacja KEŚU, kolejność na karcie osoby"
+ },
+ {
+  "poprawka": "572254212 #3887",
+  "tytul": "„x” w Billable Time Sheet to dzień bez godzin, nie 8 h z Total Hours (VeloBank)",
+  "poza_czytnikiem": "„x” w Billable Time Sheet VeloBanku — MD"
+ },
+ {
+  "poprawka": "45b70c2e2 #3884",
+  "tytul": "wiadomość samego konsultanta ze skrzynki u klienta to nie akceptacja klienta",
+  "poza_czytnikiem": "kontrole akceptacji klienta (Senders.consultant) w rozliczeniu"
+ },
+ {
+  "poprawka": "6d84098a0 #3881",
+  "tytul": "Time Sheet Boscha z datami DD-MM-RRRR i protokół CeZ z tabelą przestawną — osoba z numeru umowy",
+  "poza_czytnikiem": "Time Sheet Boscha z datami DD-MM-RRRR i protokół CeZ — MD i osoba z numeru umowy w rozliczeniu (service._sole_agreements), nie przypisanie CpDocument"
+ },
+ {
+  "poprawka": "202c96f14 #3877",
+  "tytul": "okres dokumentu z nazwą pliku w NFD — jednorazowa naprawa i przeliczenie IX/X",
+  "poza_czytnikiem": "jednorazowa naprawa okresu dokumentu w entrypoincie; okres z nazwy w NFD dla nowej poczty łapie rozl-3866-okres-z-nazwy-pliku-w-nfd"
+ },
+ {
+  "poprawka": "9371d812f #3876",
+  "tytul": "plik z poczty do właściwej osoby — nazwisko po zmianie, literówka, skrzynka u klienta, numer umowy",
+  "przypadki": [
+   "rozl-3876-plik-osoby-nierozpoznanej-nie-dziedziczy",
+   "rozl-3876-nazwisko-po-zmianie",
+   "rozl-3876-literowka-w-imieniu-u-klienta-dl",
+   "rozl-3876-skrzynka-external-w-poddomenie-klienta",
+   "rozl-3876-numer-umowy-wykonawczej",
+   "rozl-3876-tresc-maila-z-ts-gdy-w-watku-pisze-klient",
+   "rozl-3876-akceptacja-ze-skrzynki-konsultanta-u-klienta"
+  ],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "2b33255d7 #3866",
+  "tytul": "fałszywe blokady przy MD zgodnych z fakturą — mail w mailu, okres z nazwy w NFD, nagłówek PKO, nadgodziny BNP, daty z innego miesiąca",
+  "przypadki": ["rozl-3866-okres-z-nazwy-pliku-w-nfd"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "03c0b0a68 #3862",
+  "tytul": "MD wdrożeniowe raz na kontrakt — pula liczy nieprzyjęte miesiące, reszta tylko z miesiąca startu z regułą",
+  "poza_czytnikiem": "MD wdrożeniowe raz na kontrakt — kwota rozliczenia"
+ },
+ {
+  "poprawka": "8474817b1 #3834",
+  "tytul": "mail akceptujący w kontrolach pliku tylko od klienta",
+  "poza_czytnikiem": "kontrole pliku: mail akceptujący tylko od klienta (acceptance_mail.from_client)"
+ },
+ {
+  "poprawka": "75ddeef57 #3800",
+  "tytul": "okres z poczty — literówka roku w temacie i nazwa „TimeSheet RRMM” (PKO)",
+  "przypadki": ["rozl-3800-literowka-roku-w-temacie", "rozl-3800-timesheet-rrmm-wrzesien"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "c77d58ae2 #3781",
+  "tytul": "raport godzin klienta z poczty jako raport, nie faktura — treść sprawdzają czytniki ERGO, Orlen, Time Sheet, BIK",
+  "przypadki": ["rozl-3781-potwierdzenie-ergo-bez-slowa-klucza", "rozl-3781-time-sheet-xlsx-pod-tematem-faktura", "rozl-3781-protokol-orlen-docx-bez-slowa-klucza"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "88ceec476 #3780",
+  "tytul": "adres ze skrzynki klienta w kontrakcie 479 i litera imienia osoby z 627 — naprawa jednorazowa",
+  "poza_czytnikiem": "jednorazowa naprawa danych (adres kontraktu, litera imienia) w entrypoincie"
+ },
+ {
+  "poprawka": "cc854f311 #3778",
+  "tytul": "raport z poczty trafia do osoby — Gmail bez kropek, erste.pl, inicjał w odpowiedzi klienta, okres „MM RRRR”",
+  "przypadki": ["rozl-3778-gmail-bez-kropek", "rozl-3778-skrzynka-konsultanta-erste-pl", "rozl-3778-kcp-okres-mm-spacja-rrrr", "rozl-3778-inicjal-imienia-w-temacie-naszego-maila", "rozl-3778-wszystko-sie-zgadza-to-akceptacja"],
+  "lapie_poprawke": true
+ },
+ {"poprawka": "528a89fc2 #3772", "tytul": "stawka dzienna zwykłego zamówienia jest stawką MD", "poza_czytnikiem": "stawka MD z zamówienia dziennego"},
+ {
+  "poprawka": "782cd623e #3764",
+  "tytul": "obrazki stopki maila (image00N, image.png) to nie dokumenty konsultanta",
+  "przypadki": ["rozl-3764-obrazki-stopki-to-nie-dokumenty"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "b6d9aa354 #3755",
+  "tytul": "odpowiedź klienta bez pliku bierze plik godzin z naszego maila z Wysłanych",
+  "przypadki": ["rozl-3755-odpowiedz-klienta-bierze-plik-z-wyslanych", "rozl-3755-odpowiedz-z-odmowa-nie-bierze-pliku"],
+  "lapie_poprawke": true,
+  "uwagi": "rozl-3755-odpowiedz-z-odmowa-nie-bierze-pliku to strażnik (przechodzi też przed poprawką): odmowa klienta nie przypisuje pliku z Wysłanych"
+ },
+ {
+  "poprawka": "3dedc0d9f #3754",
+  "tytul": "akceptacja klienta w treści maila to sprawa i dokument",
+  "poza_czytnikiem": "router spraw: akceptacja klienta bez pliku zostaje też sprawą; czytnik rozliczeń czytał ją i zapisywał .eml już przed poprawką (is_settlements_mail z domenami akceptacji), więc CpDocument bez zmian"
+ },
+ {
+  "poprawka": "77978ed01 #3747",
+  "tytul": "akceptacja w samej treści maila jako dokument jednej osoby, .eml po całym bloku nagłówków",
+  "przypadki": ["rozl-3747-akceptacja-nn-w-tresci-od-koordynatora", "rozl-3747-tresc-ze-skrzynki-firmowej-konsultanta", "rozl-3747-eml-z-dlugim-blokiem-naglowkow"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "6af676ead #3737",
+  "tytul": "plik z jednym nazwiskiem w mailu kilku osób idzie do tej osoby",
+  "przypadki": ["rozl-3737-protokoly-kilku-osob-jednym-mailem"],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "c60bd24c2 #3735",
+  "tytul": "Time Sheet PKO bez ostrzeżenia z ukrytej kolumny miesiąca",
+  "poza_czytnikiem": "ostrzeżenie z ukrytej kolumny miesiąca Time Sheet PKO — kontrola"
+ },
+ {
+  "poprawka": "663d52cf1 #3728",
+  "tytul": "RCP BNP z poczty — adres u klienta, rodzaj z treści, nowe szablony, MD z SUMA",
+  "przypadki": ["rozl-3728-skrzynka-od-klienta", "rozl-3728-rcp-bnp-nazwane-jak-faktura"],
+  "lapie_poprawke": true,
+  "uwagi": "rozl-3728-skrzynka-od-klienta przed poprawką pada na braku ustawienia CONSULTANT_PORTAL_PERSONAL_DOMAINS (domena fikcyjna zamiast external.bnpparibas.pl); odczyt łapie rozl-3728-rcp-bnp-nazwane-jak-faktura"
+ },
+ {
+  "poprawka": "e9dba4f78 #3718",
+  "tytul": "suma pod tabelą Time Sheet nie jest wpisem — MD nie podwajają się",
+  "poza_czytnikiem": "suma pod tabelą Time Sheet — MD"
+ },
+ {
+  "poprawka": "bc9a8bdb9 #3716",
+  "tytul": "miesiąc RCP BNP z daty DD/MM/RRRR, DD.MM.RRRR i M/D/RR",
+  "poza_czytnikiem": "miesiąc z pola „Rozliczenie” RCP BNP dla kontroli proof.month, nie okres CpDocument"
+ },
+ {
+  "poprawka": "65e8fb09f #3685",
+  "tytul": "karta „Start rozliczeń” pyta API tylko jako admin",
+  "poza_czytnikiem": "karta „Start rozliczeń” w UI tylko dla admina"
+ },
+ {
+  "poprawka": "a1615489f #3677",
+  "tytul": "KCP Banku Pocztowego czytana ze wszystkich stron PDF",
+  "poza_czytnikiem": "KCP Banku Pocztowego ze wszystkich stron PDF — MD"
+ },
+ {
+  "poprawka": "64d8c7702 #3660",
+  "tytul": "RCP BNP jako raport, okres z krótkich form, osoba z przekazanego maila",
+  "przypadki": [
+   "rozl-3660-osoba-z-cytatu-przekazanego-maila",
+   "rozl-3660-plik-z-zalaczonego-maila",
+   "rozl-3660-nazwisko-w-temacie-od-adresu-firmy",
+   "rozl-3660-rcp-bnp-ts-kp-karta-pracy",
+   "rozl-3660-okres-z-krotkich-form",
+   "rozl-3660-akceptacja-przekazana-tresc-osobie-z-lancucha"
+  ],
+  "lapie_poprawke": true
+ },
+ {
+  "poprawka": "f0f725a81 #3625",
+  "tytul": "nadawca z adresu firmowego, bez 0 MD z pustego RCP, KCP i arkusze jako raport",
+  "przypadki": ["rozl-3625-adres-firmowy-kcp", "rozl-3625-arkusz-bez-slow-kluczy"],
+  "lapie_poprawke": true
+ }
+]

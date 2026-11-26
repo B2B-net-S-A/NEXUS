@@ -5214,20 +5214,59 @@
     "dot_anchor": "cv-editor.page1.highlight",
     "steps": [
       {
-        "anchor": "person.dock.cv",
-        "text": "W panelu osoby rozwiń sekcję „CV”.",
-        "hint": "CV do klienta tej osoby jest już w układzie „Nowe CV”."
-      },
-      {
         "anchor": "person.cv.edit",
         "text": "Kliknij „Edytuj CV”.",
         "hint": "Edytor Nowego CV otwiera się na zakładce „Strona 1”: formularz po lewej, strona PDF po prawej. Na Poligonie nic się nie zapisze."
       },
       {
         "anchor": "cv-editor.page1.highlight",
-        "text": "Sekcja „Wyróżnik”: Automatycznie, Własny albo Bez wyróżnika.",
-        "hint": "Automatycznie pokazuje wcześniejszą pracę u klienta tej rekrutacji. Własny to etykieta, znak w wieńcu i jedno zdanie.",
+        "text": "Sekcja „Wyróżnik”: Automatycznie, Propozycja AI, Własny albo Bez wyróżnika.",
+        "hint": "Automatycznie = praca u klienta tej rekrutacji. Propozycja AI = nagroda albo certyfikat z CV, do CV dopiero po „Przyjmij”. Własny = Twój wpis.",
         "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nowe-cv-wyroznik-propozycja-ai",
+    "pr": 4058,
+    "title": "Nowe CV: wyróżnik z propozycji AI — do CV dopiero po „Przyjmij”",
+    "why": "AI szuka w CV nagrody albo certyfikatu z wymagań MUST i pokazuje go z cytatem z CV. Do CV trafia dopiero po „Przyjmij”; odrzucony nie wraca, a „Popraw jako własny” daje jego słowa do poprawy.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → Edytuj CV → Strona 1 → Wyróżnik",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990108",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.page1.highlight",
+    "steps": [
+      {
+        "anchor": "person.cv.edit",
+        "text": "Kliknij „Edytuj CV”.",
+        "hint": "Edytor Nowego CV otwiera się na zakładce „Strona 1”. Sekcja „Wyróżnik” ma pod trybami część „Propozycja AI”. Na Poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "cv-editor.page1.highlight-find",
+        "text": "W „Propozycji AI” kliknij „Poszukaj w CV”.",
+        "hint": "AI szuka w CV nagrody, wyróżnienia albo certyfikatu z wymagań MUST. Bez cytatu z CV, który sprawdza NEXUS, propozycji nie ma."
+      },
+      {
+        "anchor": "cv-editor.page1.highlight-proposal",
+        "text": "Propozycja: rodzaj, zdanie pod nazwisko i cytat z CV.",
+        "hint": "Sama propozycja nie zmienia CV. „Odrzuć” usuwa ją na stałe, „Popraw jako własny” przenosi jej słowa do „Własnego”.",
+        "ack": true
+      },
+      {
+        "anchor": "cv-editor.page1.highlight-accept",
+        "text": "Kliknij „Przyjmij”.",
+        "hint": "Dopiero teraz wyróżnik staje pod nazwiskiem na stronie 1. Gdy z CV zniknie cytowany fragment, strona 1 wróci do automatu."
       }
     ]
   },
@@ -5253,11 +5292,6 @@
     "dot_anchor": "cv-editor.page1.why",
     "used_anchor": "cv-editor.page1.restore",
     "steps": [
-      {
-        "anchor": "person.dock.cv",
-        "text": "W panelu osoby rozwiń sekcję „CV”.",
-        "hint": "CV do klienta tej osoby jest już w układzie „Nowe CV”."
-      },
       {
         "anchor": "person.cv.edit",
         "text": "Kliknij „Edytuj CV”.",
@@ -5398,6 +5432,44 @@
     "practice_href": "/finance?view=settlements",
     "section": "finance",
     "dot_anchor": "settlements.cases.overdue"
+  },
+  {
+    "id": "asystent-prawny-pismo-na-kontrakcie",
+    "pr": 4032,
+    "title": "Asystent prawny: odpowiedź na wypowiedzenie Partnera",
+    "why": "Po wypowiedzeniu Partnera asystent przygotowuje szkic odpowiedzi: termin liczy z podpisanej umowy, pyta o formę wypowiedzenia, a każdy cytat sprawdza ze źródłem. Wysyłasz Ty, po „Zatwierdzam”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": { "permissions": ["amounts_view"] },
+    "where": "Kontrakty → kontrakt → wiersz „Asystent prawny” albo „Napisz pismo”",
+    "href": "/contracts",
+    "practice_href": "/contracts/990521",
+    "section": "delivery",
+    "dot_anchor": "legal-tasks.action",
+    "steps": [
+      {
+        "anchor": "legal-tasks.action",
+        "text": "Kliknij „Otwórz szkic” w wierszu „Asystent prawny”.",
+        "hint": "Wiersz pojawia się pod „Co się dzieje”, gdy Partner złożył wypowiedzenie. To samo pismo otworzysz przyciskiem „Napisz pismo” u góry kontraktu."
+      },
+      {
+        "anchor": "legal-letter.confirm-original",
+        "text": "Umowa wymaga formy pisemnej. Potwierdź, że wypowiedzenie przyszło w oryginale.",
+        "hint": "Jeśli przyszło tylko mailem, wybierz „Zamień na porozumienie” — wypowiedzenie bez wymaganej formy może być nieskuteczne. Na poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "legal-letter.citations",
+        "text": "Każdy cytat w piśmie sprawdził kod z umową i przepisem.",
+        "hint": "„Zgodne ze źródłem” znaczy, że cytat jest w podpisanej umowie albo w ustawie. Cytat bez pokrycia blokuje „Zatwierdzam”.",
+        "ack": true
+      },
+      {
+        "anchor": "legal-letter.approve",
+        "text": "„Zatwierdzam” sprawdza cytaty jeszcze raz — dopiero potem mail albo DOCX.",
+        "hint": "Nic nie wychodzi samo: pismo wysyłasz oknem maila NEXUSA albo zapisujesz jako DOCX w Dokumentach kontraktu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

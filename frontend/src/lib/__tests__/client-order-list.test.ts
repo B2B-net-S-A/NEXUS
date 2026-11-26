@@ -647,6 +647,12 @@ describe("client order list filters", () => {
     );
 
     expect(result.map((item) => item.contract_id)).toEqual([436]);
+    // Osoba pracuje dalej na linii MD: karta to sama historia — „Zakończeni”,
+    // nie „Aktywne” z czerwonym „Brak aktywnego zamówienia”.
+    expect(result[0].history_only).toBe(true);
+    expect(contractorMatchesPill(result[0], "completed", "2026-11-25")).toBe(true);
+    expect(contractorMatchesPill(result[0], "active", "2026-11-25")).toBe(false);
+    expect(contractorMatchesPill(result[0], "all", "2026-11-25")).toBe(true);
     // Link `?order=5` trafia w panel tej osoby, a nie w komunikat „niewidoczne”.
     expect(resolveOrderFocus([md], result, { orderId: 5 })).toEqual({
       kind: "contractor",
@@ -765,19 +771,19 @@ describe("reguła zakładki Zakończeni", () => {
   });
 
   it("upływ okresu zamówienia NIE przenosi do Zakończonych — zostaje dopisek", () => {
-    // Klimczak po 31.08: umowa aktywna (bezterminowa), zamówienie minęło.
-    const klimczak = contractor(469, "Piotr Klimczak", {
+    // Po 31.08: umowa aktywna (bezterminowa), zamówienie minęło.
+    const openEnded = contractor(6, "Oskar Testowy", {
       contract_status: "active",
       contract_end_date: null,
       days_to_latest_end: -3,
       orders: [past()],
     });
-    expect(contractorMatchesPill(klimczak, "active", TODAY)).toBe(true);
-    expect(contractorMatchesPill(klimczak, "completed", TODAY)).toBe(false);
-    expect(lacksCurrentOrder(klimczak, TODAY)).toBe(true);
+    expect(contractorMatchesPill(openEnded, "active", TODAY)).toBe(true);
+    expect(contractorMatchesPill(openEnded, "completed", TODAY)).toBe(false);
+    expect(lacksCurrentOrder(openEnded, TODAY)).toBe(true);
 
     // Przedłużenie dodane (zaczyna się później) — dopisek znika.
-    const extended = contractor(469, "Piotr Klimczak", {
+    const extended = contractor(6, "Oskar Testowy", {
       contract_status: "active",
       orders: [
         past(),

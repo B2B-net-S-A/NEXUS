@@ -71,7 +71,13 @@ import { useAuthStore } from "@/store/auth";
 
 import { memoryCommandApi } from "./command-fixture";
 import { memoryHistoryApi } from "./history-fixture";
-import { NEW_LAYOUT_CV_HTML, NEW_LAYOUT_EXTRAS, NEW_LAYOUT_HEADERS, NEW_LAYOUT_PDF } from "./new-layout-fixture";
+import {
+  NEW_LAYOUT_CV_HTML,
+  NEW_LAYOUT_EXTRAS,
+  NEW_LAYOUT_HEADERS,
+  NEW_LAYOUT_HIGHLIGHT_PROPOSALS,
+  NEW_LAYOUT_PDF,
+} from "./new-layout-fixture";
 import {
   GENERATOR_ONLY_WARNINGS,
   memoryIssuesApi,
@@ -224,7 +230,24 @@ function memoryApi(initial: CVBrandedState): {
       const extras: CvPage1Extras = { ...(current.page1_extras ?? {}) };
       if ("result_index" in payload) extras.result_index = payload.result_index ?? null;
       if ("result_text" in payload) extras.result_text = payload.result_text?.trim() || null;
-      if (payload.highlight) extras.highlight = payload.highlight;
+      if (payload.highlight?.mode === "ai") {
+        // Przyjęcie propozycji AI jak na serwerze: słowa i cytat z listy, bez numeru.
+        const chosen = extras.highlight_proposals?.find((p) => p.key === payload.highlight?.proposal);
+        if (chosen?.verified) {
+          const { label, token, text, quote, key, kind } = chosen;
+          extras.highlight = { mode: "ai", label, token, text, quote, key, kind };
+        }
+      } else if (payload.highlight) {
+        extras.highlight = payload.highlight;
+      }
+      if (payload.highlight_reject) {
+        const rejected = extras.highlight_proposals?.find((p) => p.key === payload.highlight_reject);
+        if (rejected) {
+          extras.highlight_proposals = (extras.highlight_proposals ?? []).filter((p) => p.key !== rejected.key);
+          extras.highlight_rejected = [...(extras.highlight_rejected ?? []), rejected.key];
+          if (extras.highlight?.mode === "ai" && extras.highlight.key === rejected.key) extras.highlight = null;
+        }
+      }
       if (payload.why) {
         // `null` = slot bez zmiany, "" = sprawdzone zdanie generatora (albo punkt z CV).
         const slots = whySlots(extras);
@@ -250,6 +273,20 @@ function memoryApi(initial: CVBrandedState): {
             results: [...verified, ...results.filter((r) => r.verified !== true)],
             result_index: 0,
             why: whySlots(current.page1_extras).map((slot, index) => slot || auto[index]),
+          };
+          current = { ...current, page1_extras: extras };
+          resolve({ data: extras } as AxiosResponse<CvPage1Extras>);
+        }, 800);
+      }),
+    // „Poszukaj w CV” bez modelu: po chwili fikcyjna propozycja z fikstury (odrzucona nie wraca).
+    refreshPage1Highlight: () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          const rejected = current.page1_extras?.highlight_rejected ?? [];
+          const extras: CvPage1Extras = {
+            ...(current.page1_extras ?? {}),
+            highlight_proposals: NEW_LAYOUT_HIGHLIGHT_PROPOSALS.filter((p) => !rejected.includes(p.key)),
+            highlight_source_sha: "preview",
           };
           current = { ...current, page1_extras: extras };
           resolve({ data: extras } as AxiosResponse<CvPage1Extras>);

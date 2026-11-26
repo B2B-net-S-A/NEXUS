@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 25.11.2026
+> **Zgodność z systemem sprawdzona:** 26.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -73,6 +73,12 @@ Nad listą masz:
   Ciebie: dodaj przedłużenie albo poproś administrację o zakończenie umowy
   w Kontraktach. Data końca wpisana tam w umowie od razu staje się datą końca
   jej otwartego zamówienia (zamówienie zaczynające się później jest anulowane).
+  Wyjątek: osoba, która po zakończonych zamówieniach okresowych pracuje dalej
+  na **zamówieniu MD albo kosztowym** tej samej umowy. Jej karta okresowa niesie
+  już tylko historię, więc stoi w „Zakończonych” z datą końca ostatniego
+  zamówienia, bez dopisku i bez **„Zakończ współpracę”** (umowa trwa na linii
+  zamówienia zbiorczego). Z tej karty poprawisz okres dawnego zamówienia albo
+  dodasz zamówienie za wcześniejszy okres.
   **W „Bez kontynuacji 30 dni" są tylko zamówienia, które nie mają jeszcze
   kontynuacji.** Gdy do zamówienia kończącego się w ciągu 30 dni dodasz już
   przyszłe zamówienie (także szkic „do uzupełnienia" z wpisaną stawką albo
@@ -439,10 +445,13 @@ jaka była.
 ### Jedna osoba nie ma dwóch równoległych zamówień na to samo
 
 Jeżeli konsultant jest już obsadzony na **zamówieniu MD** u tego klienta, system
-**odmówi** założenia mu dodatkowego zamówienia okresowego i powie o tym wprost.
-To nie jest ograniczenie na siłę: oba zapisy wiszą na tej samej umowie, więc
-duplikat mylił liczby i przy zakończeniu jednego znikał drugi. Gdy trzeba zmienić
-warunki — edytuj linię w zamówieniu zbiorczym.
+**odmówi** założenia mu zamówienia okresowego na okres, który **nachodzi** na
+okres tej linii MD, i powie o tym wprost. To nie jest ograniczenie na siłę: oba
+zapisy wiszą na tej samej umowie, więc duplikat mylił liczby i przy zakończeniu
+jednego znikał drugi. Gdy trzeba zmienić warunki — edytuj linię w zamówieniu
+zbiorczym. Zamówienie okresowe za okres **przed** linią MD (np. kwartał, za który
+klient wystawił osobne zamówienie, zanim przeszedł na rozliczenie w MD) system
+przyjmie — to wcześniejsza współpraca, a nie drugi zapis tej samej.
 
 Tak samo **„Nowy kontraktor / zamówienie”** odmówi, gdy osoba ma już u tego
 klienta żywy kontrakt (także szkic) — komunikat wskaże istniejący kontrakt, a

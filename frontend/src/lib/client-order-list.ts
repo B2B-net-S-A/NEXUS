@@ -628,16 +628,24 @@ export function filterMaterializedContractorShells(
   todayIso = localTodayIso(),
 ): ContractWithOrdersRead[] {
   const linePeriods = orderGroupLinePeriodsByContract(groups);
-  return contractors.filter((contractor) => {
+  return contractors.flatMap((contractor) => {
     const periods = linePeriods.get(contractor.contract_id);
-    if (!periods) return true;
-    return contractor.orders.some((order) => {
-      if (order.status === "cancelled") return false;
-      if (order.status === "completed") {
-        return !periods.some((period) => periodsOverlap(order, period));
-      }
-      return (dateOnly(order.end_date) ?? "9999-12-31") >= todayIso;
-    });
+    if (!periods) return [contractor];
+    const live = contractor.orders.some(
+      (order) =>
+        order.status !== "completed" &&
+        order.status !== "cancelled" &&
+        (dateOnly(order.end_date) ?? "9999-12-31") >= todayIso,
+    );
+    if (live) return [contractor];
+    const history = contractor.orders.some(
+      (order) =>
+        order.status === "completed" &&
+        !periods.some((period) => periodsOverlap(order, period)),
+    );
+    // Karta samej historii nie jest „brakiem aktywnego zamówienia": osoba
+    // pracuje dalej na linii grupy, więc karta stoi w „Zakończonych".
+    return history ? [{ ...contractor, history_only: true }] : [];
   });
 }
 
@@ -881,6 +889,7 @@ export function contractorMatchesPill(
   todayIso = localTodayIso(),
 ): boolean {
   if (pill === "all") return true;
+  if (contractor.history_only) return pill === "completed";
   if (pill === "active") {
     // Karta szkicu (żywy kontrakt bez zamówień poza szkicami) nie jest aktywną
     // obsadą — stoi w „Draft" (ticket 09.2026, sekcja „Szkice").

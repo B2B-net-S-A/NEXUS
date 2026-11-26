@@ -50,6 +50,8 @@ export interface CvNewLayoutWorkspaceProps {
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
   /** „Ułóż zdania od nowa” w „Stronie 1”: zdania 1–3 i najmocniejsze wyniki (tylko CV etapu). */
   onRecalcResults?: () => Promise<void>;
+  /** „Poszukaj w CV” w sekcji „Wyróżnik”: propozycje AI wyróżnika (tylko CV etapu). */
+  onFindHighlight?: () => Promise<void>;
   onTab: (tab: CvNewLayoutTab) => void;
   onOpenText: (section: CvSectionKey) => void;
 }
@@ -64,6 +66,7 @@ export function CvNewLayoutWorkspace({
   loadPreview,
   onSaveResult,
   onRecalcResults,
+  onFindHighlight,
   onTab,
   onOpenText,
 }: CvNewLayoutWorkspaceProps) {
@@ -116,6 +119,7 @@ export function CvNewLayoutWorkspace({
               disabled={disabled}
               onSaveResult={onSaveResult}
               onRecalcResults={onRecalcResults}
+              onFindHighlight={onFindHighlight}
               onOpenPositions={() => onTab("positions")}
               onOpenText={onOpenText}
             />

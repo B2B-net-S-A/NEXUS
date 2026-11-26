@@ -1,0 +1,103 @@
+[
+ {
+  "id": "rozl-3660-osoba-z-cytatu-przekazanego-maila",
+  "poprawka": "64d8c7702 #3660",
+  "opis": "Koordynator przekazuje Time Sheet konsultanta; pierwotny nadawca stoi tylko w cytacie „From:”, a plik czekał na ręczne przypisanie",
+  "dzis": "2026-10-05",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "koordynator@firma.example.com", "do": ["rozliczenia@firma.example.com"], "temat": "FW: raport", "odebrano": "2026-10-05T08:00:00Z",
+     "tresc": "Przesyłam.\n\nFrom: Konsultant <jan.korpusowy@example.com>\nSent: wtorek\n",
+     "pliki": [{"nazwa": "TS 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny raport"}],
+     "eml": "From: koordynator@firma.example.com\nSubject: FW: raport\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPrzesyłam.\n\nFrom: Konsultant <jan.korpusowy@example.com>\nSent: wtorek\n"}
+  ],
+  "oczekiwane": [
+    {"plik": "TS 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"}
+  ]
+ },
+ {
+  "id": "rozl-3660-plik-z-zalaczonego-maila",
+  "poprawka": "64d8c7702 #3660",
+  "opis": "Raport przyszedł jako mail załączony do maila (itemAttachment) od kierownika klienta: plik z wnętrza przepadał w całości",
+  "dzis": "2026-10-05",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "kierownik@klient.example.com", "do": ["rozliczenia@firma.example.com"], "temat": "FW: raport", "odebrano": "2026-10-05T08:00:00Z",
+     "pliki": [{"nazwa": "raport", "typ": "#microsoft.graph.itemAttachment", "tekst": ""}],
+     "eml": "From: kierownik@klient.example.com\nSubject: FW: raport\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"zewnetrzny\"\n\n--zewnetrzny\nContent-Type: text/plain; charset=\"utf-8\"\n\nw załączniku\n--zewnetrzny\nContent-Type: message/rfc822\n\nFrom: jan.korpusowy@example.com\nSubject: raport\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"wewnetrzny\"\n\n--wewnetrzny\nContent-Type: text/plain\n\nraport\n--wewnetrzny\nContent-Type: application/pdf\nContent-Disposition: attachment; filename=\"TS.pdf\"\nContent-Transfer-Encoding: base64\n\nJVBERi0xLjQgZmlrY3lqbnkgcmFwb3J0IHogd25ldHJ6YQ==\n--wewnetrzny--\n--zewnetrzny--\n"}
+  ],
+  "oczekiwane": [
+    {"plik": "TS.pdf", "rodzaj": "report", "osoba": "A"}
+  ]
+ },
+ {
+  "id": "rozl-3660-nazwisko-w-temacie-od-adresu-firmy",
+  "poprawka": "64d8c7702 #3660",
+  "opis": "Koordynator z adresu firmy: imię i nazwisko tylko w temacie; Time Sheet idzie do osoby, pismo bez słowa rozliczenia czeka",
+  "dzis": "2026-11-03",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "koordynator@firma.example.com", "do": ["rozliczenia@firma.example.com"], "temat": "Odbiór usług za 10.2026: Korpusowy Jan", "odebrano": "2026-11-03T08:00:00Z",
+     "pliki": [{"nazwa": "TimeSheet.pdf", "tekst": "%PDF-1.4 fikcyjny raport"}, {"nazwa": "pismo.pdf", "tekst": "%PDF-1.4 inne pismo"}]}
+  ],
+  "oczekiwane": [
+    {"plik": "TimeSheet.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-10"},
+    {"plik": "pismo.pdf", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-3660-rcp-bnp-ts-kp-karta-pracy",
+  "poprawka": "64d8c7702 #3660",
+  "opis": "RCP BNP jako „Nazwisko_TS_09.2026.pdf”, „KP-…-sig.pdf” i „Karta pracy …” szły jako faktury",
+  "dzis": "2026-10-05",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "jan.korpusowy@example.com", "temat": "Rozliczenie", "odebrano": "2026-10-05T08:00:00Z",
+     "pliki": [
+       {"nazwa": "Jan_Korpusowy_TS_09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny rcp 1"},
+       {"nazwa": "KP-Jan-Korpusowy-wrzesien-2026-sig.pdf", "tekst": "%PDF-1.4 fikcyjny rcp 2"},
+       {"nazwa": "Karta pracy 09.2026.pdf", "tekst": "%PDF-1.4 fikcyjny rcp 3"},
+       {"nazwa": "Dokument rozliczający czas świadczonych usług.pdf", "tekst": "%PDF-1.4 fikcyjny rcp 4"}
+     ]}
+  ],
+  "oczekiwane": [
+    {"plik": "Jan_Korpusowy_TS_09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+    {"plik": "KP-Jan-Korpusowy-wrzesien-2026-sig.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+    {"plik": "Karta pracy 09.2026.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-09"},
+    {"plik": "Dokument rozliczający czas świadczonych usług.pdf", "rodzaj": "report", "osoba": "A"}
+  ]
+ },
+ {
+  "id": "rozl-3660-okres-z-krotkich-form",
+  "poprawka": "64d8c7702 #3660",
+  "opis": "Okres bez pełnego roku („TS_sierpień”, „08.26”, „F/001/26/09”, „timesheet July”) brany z daty maila, czyli na sąsiedni miesiąc",
+  "dzis": "2026-11-05",
+  "osoby": {
+    "A": {"imie": "Jan", "nazwisko": "Korpusowy", "email_kontraktu": "jan.korpusowy@example.com", "klient": "Bank Przykładowy"}
+  },
+  "maile": [
+    {"od": "jan.korpusowy@example.com", "temat": "PD: TS_sierpień", "odebrano": "2026-10-05T08:00:00Z",
+     "pliki": [{"nazwa": "PROTOKÓŁ.pdf", "tekst": "%PDF-1.4 fikcyjny protokol"}]},
+    {"od": "jan.korpusowy@example.com", "temat": "Sierpień - time sheet", "odebrano": "2026-10-06T08:00:00Z",
+     "pliki": [{"nazwa": "TS B2B 08.26.pdf", "tekst": "%PDF-1.4 fikcyjny ts"}]},
+    {"od": "jan.korpusowy@example.com", "temat": "Fw: timesheet July", "odebrano": "2026-09-07T08:00:00Z",
+     "pliki": [{"nazwa": "confirmation.pdf", "tekst": "%PDF-1.4 fikcyjne potwierdzenie"}]},
+    {"od": "jan.korpusowy@example.com", "temat": "Faktura VAT nr F/001/26/09", "odebrano": "2026-11-05T08:00:00Z",
+     "pliki": [{"nazwa": "dokument.pdf", "tekst": "%PDF-1.4 fikcyjna faktura"}]}
+  ],
+  "oczekiwane": [
+    {"plik": "PROTOKÓŁ.pdf", "okres": "2026-08"},
+    {"plik": "TS B2B 08.26.pdf", "okres": "2026-08"},
+    {"plik": "confirmation.pdf", "okres": "2026-07"},
+    {"plik": "dokument.pdf", "rodzaj": "invoice", "okres": "2026-09"}
+  ]
+ }
+]

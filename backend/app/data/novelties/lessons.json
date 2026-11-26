@@ -183,7 +183,7 @@
       "podpis-paczka-umowa-nda",
       "podpis-dokumenty-kodem-z-maila"
     ],
-    "task": "Kandydat z rekrutacji ćwiczebnej ma gotową umowę. Otwórz jej wysyłkę do podpisu i znajdź, jaki podpis jest potrzebny przy NDA. Na Poligonie nic się nie wyśle.",
+    "task": "Kandydat z rekrutacji ćwiczebnej ma gotową umowę. W jego panelu otwórz zakładkę „Umowa”, przewiń do umowy B2B i kliknij „Wyślij do podpisu”. W oknie znajdź, jaki podpis jest potrzebny przy NDA. Na Poligonie nic się nie wyśle.",
     "solo_href": "/jobs/990001?candidate=990115",
     "check": {
       "kind": "click",
@@ -2751,15 +2751,26 @@
     "title": "Nowe CV: wyróżnik i trzy zdania strony 1",
     "novelties": [
       "nowe-cv-wyroznik",
+      "nowe-cv-wyroznik-propozycja-ai",
       "nowe-cv-zdania-strony-1"
     ],
-    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej, popraw na stronie 1 zdanie 3 i przywróć je z generatora.",
+    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej i na stronie 1 każ ułożyć trzy zdania „Dlaczego nasz kandydat” od nowa z bieżącej treści CV.",
     "solo_href": "/jobs/990001?candidate=990109",
     "check": {
       "kind": "click",
-      "anchor": "cv-editor.page1.restore"
+      "anchor": "cv-editor.page1.refresh"
     },
     "questions": [
+      {
+        "q": "AI zaproponowało wyróżnik z CV, a Ty go nie przyjąłeś. Co z tą propozycją?",
+        "options": [
+          "Nie trafi do CV — strona 1 zostaje bez zmian",
+          "Po chwili sama stanie pod nazwiskiem",
+          "Trafi do CV z dopiskiem „propozycja AI”"
+        ],
+        "answer": 0,
+        "explain": "Propozycja czeka w edytorze, dopóki nie klikniesz „Przyjmij”. Bez tego nie trafia do CV, a odrzucona przy kolejnym szukaniu już nie wraca."
+      },
       {
         "q": "Zdanie 2 strony 1 wymienia wymagania klienta. Które wymagania NEXUS w nim stawia?",
         "options": [
@@ -2779,16 +2790,6 @@
         ],
         "answer": 0,
         "explain": "Poprawione zdanie zostaje. Do zdania z generatora wracasz przyciskiem „Przywróć z generatora” pod polem."
-      },
-      {
-        "q": "Zdanie z generatora nie przeszło sprawdzenia z CV, bo ma liczbę spoza CV. Co stoi na stronie 1?",
-        "options": [
-          "Punkt z treści CV, tak jak dotąd",
-          "Zdanie z generatora z ostrzeżeniem dla klienta",
-          "Puste miejsce do uzupełnienia"
-        ],
-        "answer": 0,
-        "explain": "Niesprawdzone zdanie nie idzie do klienta. Strona 1 bierze wtedy punkt „Dlaczego nasz kandydat” z treści CV, a pod polem stoi, dlaczego."
       },
       {
         "q": "Kiedy wyróżnik „Automatycznie” pokaże coś pod nazwiskiem kandydata?",
@@ -2924,6 +2925,51 @@
         ],
         "answer": 0,
         "explain": "Mail, telefon i eskalacja to kroki. Sprawa zamyka się sama dopiero, gdy wady już nie ma albo rozliczenie jest przyjęte."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-asystent-prawny-pismo",
+    "title": "Asystent prawny: odpowiedź na wypowiedzenie",
+    "novelties": [
+      "asystent-prawny-pismo-na-kontrakcie"
+    ],
+    "task": "Konsultant z kontraktu ćwiczebnego złożył wypowiedzenie, a umowa wymaga formy pisemnej. Z listy kontraktów otwórz szkic odpowiedzi i powiedz asystentowi, że wypowiedzenie przyszło w oryginale. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "click",
+      "anchor": "legal-letter.confirm-original"
+    },
+    "questions": [
+      {
+        "q": "Partner przysłał wypowiedzenie tylko mailem, a umowa wymaga formy pisemnej. Co robisz?",
+        "options": [
+          "Proponujesz porozumienie o rozwiązaniu z tą samą datą",
+          "Wysyłasz odpowiedź, bo mail wystarczy",
+          "Czekasz, aż asystent sam wyśle pismo"
+        ],
+        "answer": 0,
+        "explain": "Wypowiedzenie bez wymaganej formy może być nieskuteczne. Panel pyta o oryginał albo podpis kwalifikowany, a „Zamień na porozumienie” przygotowuje porozumienie z tą samą datą."
+      },
+      {
+        "q": "Skąd jest data rozwiązania umowy w szkicu?",
+        "options": [
+          "Liczy ją kod z okresu w podpisanej umowie i dnia złożenia",
+          "Wpisuje ją model AI",
+          "To zawsze ostatni dzień zamówienia klienta"
+        ],
+        "answer": 0,
+        "explain": "Termin liczy kod z reguły podpisanej umowy (np. „liczony od kolejnego miesiąca”) i porównuje go z datą zapisaną w NEXUSIE."
+      },
+      {
+        "q": "Co się dzieje po kliknięciu „Zatwierdzam”?",
+        "options": [
+          "Kod sprawdza cytaty jeszcze raz, a pismo wysyłasz sam albo zapisujesz jako DOCX",
+          "Pismo od razu idzie do Partnera",
+          "Pismo trafia do prawnika do akceptacji"
+        ],
+        "answer": 0,
+        "explain": "Nic nie wychodzi samo. Zatwierdzenie sprawdza cytaty na tekście po Twoich poprawkach, a potem otwierasz okno maila albo zapisujesz DOCX w Dokumentach kontraktu."
       }
     ]
   },
