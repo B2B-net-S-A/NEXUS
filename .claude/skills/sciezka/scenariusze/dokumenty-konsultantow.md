@@ -3,7 +3,8 @@ Reguły: `docs/claude/finanse-insights/rozliczenia-nadawca-i-okres-z-poczty.md`,
 `docs/claude/ludzie/portal-konsultanta.md` (sekcja „Rozliczenia”).
 
 1. Finanse: `/back-office` → karta „Faktura bez kontraktu” → pobierz plik → „Miesiąc
-   usługi”, numer kontraktu, „Przypisz”.
+   usługi”, numer kontraktu (przycisk z kontraktem nadawcy albo wpisany), „Przypisz”.
+   Nieznany nadawca: bez przycisków, samo pole.
 2. Finanse: karta faktury stoi na kontrakcie i wybranym miesiącu; „Przyjmij fakturę”
    albo „Do poprawy”.
 3. Finanse: karta „Raport bez kontraktu” → „Miesiąc usługi” inny niż z czytnika →

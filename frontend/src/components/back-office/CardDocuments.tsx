@@ -12,6 +12,7 @@ import {
   downloadStaffDocument,
   useCardDocuments,
   useDocumentDecision,
+  type SenderContract,
   type StaffDocument,
 } from "@/lib/api/portal-staff";
 import { monthYearPl, shiftMonth } from "@/lib/date-pl";
@@ -30,6 +31,18 @@ function serviceMonths(current: string): string[] {
   const now = warsawToday().slice(0, 7);
   const months = Array.from({ length: 25 }, (_, back) => shiftMonth(now, -back));
   return months.includes(current) ? months : [current, ...months].sort().reverse();
+}
+
+/** „VeloBank · 469 · od 03.2025”; zakończony kontrakt także z miesiącem końca. */
+function contractLabel(contract: SenderContract): string {
+  const month = (iso: string) => `${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
+  const period = [
+    contract.start_date ? `od ${month(contract.start_date)}` : null,
+    contract.end_date ? `do ${month(contract.end_date)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [contract.client ?? "Bez klienta", String(contract.id), period].filter(Boolean).join(" · ");
 }
 
 function DocumentRow({ document_ }: { document_: StaffDocument }) {
@@ -104,6 +117,26 @@ function DocumentRow({ document_ }: { document_: StaffDocument }) {
               ? "Numer w nazwie faktury to często miesiąc wystawienia. Sprawdź w pliku, za który miesiąc jest."
               : "Rozliczenie policzy się za ten miesiąc. Sprawdź w pliku, za który miesiąc jest raport."}
           </p>
+        </div>
+      ) : null}
+      {unmatched && document_.sender_person?.contracts.length ? (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Nadawca{document_.sender_person.name ? `: ${document_.sender_person.name}` : ""} — kontrakty:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {document_.sender_person.contracts.map((contract) => (
+              <Button
+                key={contract.id}
+                size="sm"
+                variant={String(contract.id) === contractId ? "primary" : "outline"}
+                aria-pressed={String(contract.id) === contractId}
+                onClick={() => setContractId(String(contract.id))}
+              >
+                {contractLabel(contract)}
+              </Button>
+            ))}
+          </div>
         </div>
       ) : null}
       {unmatched ? (

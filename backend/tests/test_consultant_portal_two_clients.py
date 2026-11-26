@@ -26,7 +26,7 @@ from email.message import EmailMessage
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
@@ -655,3 +655,133 @@ async def test_invoice_named_in_dl_portfolio_of_one_client_goes_to_it() -> None:
 
     assert (await _read(reader))["created"] == 1
     assert await _by_kind() == {"invoice": person.contract_id}
+
+
+# ── „Przypisz”: kontrakty nadawcy jako podpowiedź (od 26.11.2026) ────────────
+
+STAFF = "/api/back-office/portal"
+
+
+async def _card_rows(app_client) -> list[dict]:
+    """Wiersze dokumentów z kart Back office, oczami Finansów."""
+
+    from app.models.back_office import BoCard
+    from app.services.back_office import sync
+    from tests.care_announcements_seed import headers
+
+    async with AsyncSessionLocal() as db:
+        result = await sync.sync_kinds(db, ["document"], today=business_today())
+        await db.commit()
+        assert result["failed"] == []
+        cards = (
+            await db.scalars(
+                select(BoCard)
+                .where(BoCard.source_kind == "document", BoCard.state != "done")
+                .order_by(BoCard.id)
+            )
+        ).all()
+    finance = await make_user(UserRole.finance)
+    rows: list[dict] = []
+    for card in cards:
+        listed = await app_client.get(
+            f"{STAFF}/documents/by-card/{card.id}", headers=headers(finance)
+        )
+        assert listed.status_code == 200, listed.text
+        rows += listed.json()["items"]
+    return rows
+
+
+@pytest.mark.usefixtures("internal")
+async def test_held_invoice_suggests_both_contracts_of_the_sender(
+    app_client, monkeypatch
+) -> None:
+    """Faktura ze skrzynki w banku czeka bez kontraktu, a karta podpowiada osobę
+    i oba jej kontrakty: klient, numer, okres. Bez kwot."""
+
+    bank, other, address, last = await _bank_mailbox_person(monkeypatch)
+    await _read(_mail(address, *_invoice_and_report()))
+
+    rows = {row["kind"]: row for row in await _card_rows(app_client)}
+
+    hint = rows["invoice"]["sender_person"]
+    assert hint["name"] == f"Olga {last}"
+    assert {c["id"] for c in hint["contracts"]} == {
+        bank.contract_id,
+        other.contract_id,
+    }
+    assert all(
+        set(c) == {"id", "client", "start_date", "end_date"} for c in hint["contracts"]
+    )
+    assert all(c["client"] for c in hint["contracts"])
+    # Raport ma kontrakt: nic do podpowiadania.
+    assert rows["report"]["sender_person"] is None
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_unknown_sender_gets_no_suggestion(app_client) -> None:
+    reader = _mail(f"koordynator@{COMPANY_DOMAIN}", _invoice_and_report()[0])
+    await _read(reader)
+
+    rows = await _card_rows(app_client)
+
+    assert [row["sender_person"] for row in rows] == [None]
+
+
+async def _held_invoice(sender: str):
+    """Faktura bez kontraktu od tego nadawcy, zapisana jak przez czytnik."""
+
+    from app.services.consultant_portal import documents
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        stored = await documents.store(
+            db,
+            contract_id=None,
+            kind="invoice",
+            year=today.year,
+            month=today.month,
+            content=PDF + tag().encode(),
+            file_name="Faktura.pdf",
+            channel="mailbox",
+            now=datetime.now(timezone.utc),
+            graph_message_id=f"m-{tag()}",
+            sender_email=sender,
+        )
+        await db.commit()
+        return await documents.sender_contracts(db, stored.document, today=today)
+
+
+@pytest.mark.usefixtures("internal")
+async def test_suggestion_skips_contract_ended_long_ago() -> None:
+    """Kontrakt zakończony dawniej niż 60 dni temu nie jest podpowiedzią."""
+
+    one, other = await _person_at_two_clients("Olga", f"Dawna{tag()}")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == other.contract_id)
+            .values(
+                status=ContractStatus.ended,
+                end_date=business_today() - timedelta(days=90),
+            )
+        )
+        await db.commit()
+
+    hint = await _held_invoice(one.email)
+
+    assert [c["id"] for c in hint["contracts"]] == [one.contract_id]
+
+
+@pytest.mark.usefixtures("internal")
+async def test_two_people_under_one_address_get_no_suggestion() -> None:
+    gone = await make_person(activated=False)
+    other = await make_person(activated=False)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == other.contract_id)
+            .values(candidate_email=gone.email)
+        )
+        await db.commit()
+
+    assert await _held_invoice(gone.email) is None

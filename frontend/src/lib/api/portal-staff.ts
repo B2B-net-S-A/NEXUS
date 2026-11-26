@@ -129,6 +129,20 @@ export interface StaffDocument {
   period_guessed: boolean;
   sender_email: string | null;
   invoice_signal_at: string | null;
+  /** Tylko z listy karty: osoba nadawcy pliku bez kontraktu i jej działające kontrakty. */
+  sender_person?: SenderPerson | null;
+}
+
+export interface SenderContract {
+  id: number;
+  client: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+export interface SenderPerson {
+  name: string | null;
+  contracts: SenderContract[];
 }
 
 export const portalStaffKeys = {

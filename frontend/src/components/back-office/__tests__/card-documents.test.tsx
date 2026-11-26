@@ -123,3 +123,53 @@ describe("Przypisz: miesiąc faktury z poczty (26.11.2026)", () => {
     expect(month()).not.toBeInTheDocument();
   });
 });
+
+describe("Przypisz: kontrakty nadawcy jako podpowiedź (26.11.2026)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-26T12:00:00Z") });
+    post.mockResolvedValue({ data: document_() });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  const twoClients = {
+    name: "Olga Przykładowa",
+    contracts: [
+      { id: 425, client: "Bank Przykładowy", start_date: "2026-01-01", end_date: null },
+      { id: 469, client: "Velo Przykładowy", start_date: "2025-03-01", end_date: "2026-10-31" },
+    ],
+  };
+
+  it("klik w kontrakt wpisuje jego numer, a „Przypisz” wysyła go jak wpisany", async () => {
+    show(document_({ sender_person: twoClients }));
+    expect(await screen.findByText(/Nadawca: Olga Przykładowa/)).toBeInTheDocument();
+
+    const velo = screen.getByRole("button", { name: "Velo Przykładowy · 469 · od 03.2025 do 10.2026" });
+    expect(screen.getByRole("button", { name: "Bank Przykładowy · 425 · od 01.2026" })).toBeInTheDocument();
+    await userEvent.click(velo);
+
+    expect(screen.getByRole("textbox", { name: "Numer kontraktu" })).toHaveValue("469");
+    expect(velo).toHaveAttribute("aria-pressed", "true");
+    expect(post).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Przypisz" }));
+    expect(post).toHaveBeenCalledWith("/api/back-office/portal/documents/7/assign", { contract_id: 469 });
+  });
+
+  it("nieznany nadawca: bez podpowiedzi, samo pole numeru", async () => {
+    show(document_({ sender_person: null }));
+    await screen.findByRole("textbox", { name: "Numer kontraktu" });
+
+    expect(screen.queryByText(/Nadawca/)).not.toBeInTheDocument();
+  });
+
+  it("dokument z kontraktem nie pokazuje podpowiedzi", async () => {
+    show(document_({ contract_id: 425, sender_person: twoClients }));
+    await screen.findByRole("button", { name: "Przyjmij fakturę" });
+
+    expect(screen.queryByText(/Nadawca/)).not.toBeInTheDocument();
+  });
+});

@@ -627,6 +627,65 @@ def staff_row(document: CpDocument) -> dict[str, Any]:
     }
 
 
+async def sender_contracts(
+    db: AsyncSession, document: CpDocument, *, today: date
+) -> Optional[dict[str, Any]]:
+    """Podpowiedź przy „Przypisz”: osoba nadawcy pliku bez kontraktu i jej
+    działające kontrakty (klient, numer, okres, bez kwot).
+
+    Faktura osoby u dwóch klientów czeka na Finanse bez kontraktu (od 26.11.2026,
+    ``identity.invoice_waits``), a numer kontraktu trzeba było znaleźć gdzie indziej.
+    Osoba z adresu nadawcy jak w czytniku poczty; nieznany adres albo dwie osoby pod
+    nim = ``None`` (bez podpowiedzi, jak dotąd).
+    """
+
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+
+    if document.contract_id is not None or not document.sender_email:
+        return None
+    ids = await identity.sender_contract_ids(db, document.sender_email, today=today)
+    if not ids:
+        return None
+    people = set(
+        (
+            await db.scalars(select(Contract.candidate_id).where(Contract.id.in_(ids)))
+        ).all()
+    )
+    if len(people) != 1 or None in people:
+        return None
+    person_id = next(iter(people))
+    rows = (
+        await db.execute(
+            select(Contract, Client.display_name, Client.name)
+            .outerjoin(Client, Client.id == Contract.client_id)
+            .where(Contract.candidate_id == person_id)
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    contracts = [
+        {
+            "id": contract.id,
+            "client": (shown or name or "").strip() or None,
+            "start_date": contract.start_date.isoformat()
+            if contract.start_date
+            else None,
+            "end_date": contract.end_date.isoformat() if contract.end_date else None,
+        }
+        for contract, shown, name in rows
+        if identity.eligible(contract, today)
+    ]
+    if not contracts:
+        return None
+    person = await db.get(Candidate, person_id)
+    full_name = " ".join(
+        part.strip()
+        for part in ((person.name, person.lastname) if person else ())
+        if part and part.strip()
+    )
+    return {"name": full_name or None, "contracts": contracts}
+
+
 async def _notify(
     db: AsyncSession, document: CpDocument, *, subject: str, text: str
 ) -> None:
