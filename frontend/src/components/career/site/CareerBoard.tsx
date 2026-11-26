@@ -5,7 +5,11 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CareerBoardResponse, RemotePolicy } from "@/lib/career/api";
 import { BOARD_MODES, BOARD_PAGE, filterBoard } from "@/lib/career/board";
 import { careerHref, type CareerBase } from "@/lib/career/host";
-import { facetCounts, jobFacetIds, nextBatch, openNowLabel, partialMatch } from "@/lib/career/site";
+import { inCities, onMap } from "@/lib/career/polandMap";
+import { facetCounts, jobFacetIds, nextBatch, openNowLabel, partialMatch, pluralForm } from "@/lib/career/site";
+
+import g from "./glass.module.css";
+import { CityColumnsMap, GhostMap } from "./GlassMap";
 
 import { OfferApply, type OfferApplyProps } from "./OfferApply";
 import { OfferCard } from "./OfferCard";
@@ -14,9 +18,28 @@ import { ChapterMark, siteStyles as s } from "./SiteFrame";
 
 export const CV_ID = "zostaw-cv";
 
-/** Ile miast na kartach talii i ile w wierszu pod szukajką. */
-const DECK = 4;
-const CHIPS = 8;
+/** Ile miast w chipach nad listą (reszta zostaje w szukajce). */
+const CHIPS = 12;
+
+/** „1 otwarta rekrutacja IT”, „3 otwarte rekrutacje IT”, „101 otwartych rekrutacji IT”. */
+export function openRecruitments(n: number): string {
+  const f = pluralForm(n);
+  if (f === "one") return "1 otwarta rekrutacja IT";
+  return f === "few" ? `${n} otwarte rekrutacje IT` : `${n} otwartych rekrutacji IT`;
+}
+
+/** „101 ofert” (nagłówek listy) i „Pokaż 1 ofertę” (biernik w przycisku szukajki). */
+export function offersLabel(n: number, kase: "nom" | "acc"): string {
+  const f = pluralForm(n);
+  if (f === "one") return kase === "acc" ? "1 ofertę" : "1 oferta";
+  return f === "few" ? `${n} oferty` : `${n} ofert`;
+}
+
+/** Hasło na pustej kolumnie mapy: krótkie, żeby nie wyszło poza mapę. */
+function ghostWord(query: string): string {
+  const q = query.trim();
+  return q.length > 22 ? `${q.slice(0, 21)}…` : q;
+}
 
 /**
  * Lista otwartych rekrutacji (plansze KarieraA, TelKariera, ListaBrakWynikow,
@@ -83,6 +106,7 @@ function Board({
   const [facet, setFacet] = useState<string | null>(null);
   const [cvOpen, setCvOpen] = useState(false);
   const cvRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLElement>(null);
   // „Pokaż kolejne” liczy się dla jednego zestawu filtrów; zmiana filtra wraca do pierwszej paczki.
   const filterKey = `${query}|${modes.join(",")}|${facet}`;
   const [more, setMore] = useState({ key: "", extra: 0 });
@@ -105,6 +129,7 @@ function Board({
   const total = data.jobs.length;
   const cv = data.cv;
   const rodoHref = careerHref(base, { to: "rodo" });
+  const cities = inCities(allFacets.filter((f) => onMap(f.label)).length);
 
   // Wejście z `#zostaw-cv` (np. z zamkniętej oferty) od razu otwiera formularz.
   useEffect(() => {
@@ -132,102 +157,122 @@ function Board({
     else setCvOpen(true);
   };
 
-  const searchBar = (
-        <div className={s.bar} role="search">
-              <label className={s.search}>
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
-                  <path d="M12 12l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-                <span className={s.srOnly}>Szukaj oferty</span>
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Java, Kraków, Kafka…"
-                />
-                <span className={`${s.mono} ${s.count}`} aria-live="polite">
-                  <b>{visible.length}</b> z {total}
-                </span>
-                {query ? (
-                  <button type="button" className={s.clear} aria-label="Wyczyść szukanie" onClick={() => setQuery("")}>
-                    ×
-                  </button>
-                ) : null}
-              </label>
-              <div role="group" aria-label="Tryb pracy" className={s.pills}>
-                {BOARD_MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    aria-pressed={modes.includes(m.id)}
-                    onClick={() => toggleMode(m.id)}
-                    className={s.pill}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+  const lead = total > 0 ? (
+    <>
+      <strong>{openRecruitments(total)}</strong> w bankowości, AI, danych i testach. Zdalnie, hybrydowo albo w biurze
+      {cities ? `, ${cities}` : ""}.
+    </>
+  ) : (
+    "Teraz nie prowadzimy otwartych rekrutacji. Zostaw CV, odezwiemy się, gdy pojawi się projekt."
   );
 
   return (
     <main>
-      <section className={`${s.ch} ${s.chRed} ${s.hero}`} aria-labelledby={`${uid}-t`}>
+      <section className={`${s.ch} ${s.chRed} ${g.heroA}`} aria-labelledby={`${uid}-t`}>
         <ChapterMark index={0} count={3} name="Kariera" />
-        <div className={s.wrap}>
-          <div className={s.heroHeading}>
-            <h1 id={`${uid}-t`}>
-              <span className={`${s.display} ${s.heroNum}`}>{noHits ? 0 : total}</span>
-              <span className={`${s.lead} ${s.heroLead}`}>
-                {noHits ? "Nic dla tego hasła" : "Otwarte rekrutacje IT"}
-              </span>
+        <div className={`${s.wrap} ${g.heroGrid}`}>
+          <div className={g.heroText}>
+            <h1 id={`${uid}-t`} className={g.heroTitle}>
+              Dołącz do projektów, które muszą działać.
             </h1>
-            <p className={`${s.body} ${s.heroBody}`}>
-              {noHits
-                ? `W ${total} otwartych rekrutacjach nie ma „${query.trim()}”.`
-                : "Projekty B2B: zdalnie, hybrydowo i stacjonarnie."}
-            </p>
-          </div>
-          {allFacets.length > 0 ? (
-            <div role="group" aria-label="Miasta" className={s.deck}>
-              {allFacets.slice(0, DECK).map((f, i) => (
+            <p className={g.heroLead}>{lead}</p>
+            <form
+              role="search"
+              className={g.heroSearch}
+              onSubmit={(e) => {
+                e.preventDefault();
+                listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+              }}
+            >
+              <label className={g.heroField}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <circle cx="8.5" cy="8.5" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M13.5 13.5 L18 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                <span className={s.srOnly}>Technologia, rola albo miasto</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Java, Kafka, Gdańsk…"
+                />
+                {query ? (
+                  <>
+                    <span className={g.heroCount} aria-live="polite">
+                      {visible.length} z {total}
+                    </span>
+                    <button type="button" className={g.heroClear} aria-label="Wyczyść szukanie" onClick={() => setQuery("")}>
+                      ×
+                    </button>
+                  </>
+                ) : null}
+              </label>
+              <button type="submit" className={g.heroGo}>
+                Pokaż {offersLabel(visible.length, "acc")}
+              </button>
+            </form>
+            <div role="group" aria-label="Tryb pracy" className={g.heroModes}>
+              {BOARD_MODES.map((m) => (
                 <button
-                  key={f.id}
+                  key={m.id}
                   type="button"
-                  aria-pressed={facet === f.id}
-                  onClick={() => setFacet(facet === f.id ? null : f.id)}
-                  className={`${s.card} ${s[`d${i}`]} ${facet && facet !== f.id ? s.dim : ""}`}
+                  aria-pressed={modes.includes(m.id)}
+                  onClick={() => toggleMode(m.id)}
+                  className={g.mode}
                 >
-                  <b>{countOf(f.id)}</b>
-                  <span>{f.label}</span>
-                  <i aria-hidden="true">{facet === f.id ? "×" : "→"}</i>
+                  {m.label}
                 </button>
               ))}
+              {cv ? (
+                <a
+                  href={`#${CV_ID}`}
+                  className={g.heroCv}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openCv();
+                  }}
+                >
+                  Nic dla Ciebie? Zostaw CV
+                </a>
+              ) : null}
+            </div>
+          </div>
+          {allFacets.length > 0 ? (
+            <div className={g.heroMap}>
+              <CityColumnsMap uid={`${uid}-md`} facets={allFacets} className={g.mapDesk} />
+              <CityColumnsMap uid={`${uid}-mp`} facets={allFacets} phone className={g.mapPhone} />
             </div>
           ) : null}
         </div>
+        <svg viewBox="0 0 1440 80" preserveAspectRatio="none" aria-hidden="true" className={g.wave}>
+          <path d="M0,44 C220,6 470,74 720,40 C960,8 1200,66 1440,30 L1440,80 L0,80 Z" fill="#FAF6F4" />
+        </svg>
       </section>
 
-      <section className={`${s.ch} ${s.chSnow} ${s.list}`} aria-label="Rekrutacje">
+      <section ref={listRef} className={`${s.ch} ${s.chSnow} ${s.list}`} aria-label="Rekrutacje">
         <ChapterMark index={1} count={3} name="Rekrutacje" />
         <div className={s.wrap}>
-          {searchBar}
-          {allFacets.length > DECK ? (
-            <div role="group" aria-label="Inne miasta" className={s.chips}>
-              {allFacets.slice(DECK, DECK + CHIPS).map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  aria-pressed={facet === f.id}
-                  onClick={() => setFacet(facet === f.id ? null : f.id)}
-                  className={s.chip}
-                >
-                  {f.label} <b>{countOf(f.id)}</b>
+          <div className={g.listHead}>
+            <h2 className={g.listTitle}>{offersLabel(visible.length, "nom")}</h2>
+            {allFacets.length > 0 ? (
+              <div role="group" aria-label="Miasta" className={g.cityChips}>
+                <button type="button" aria-pressed={facet === null} onClick={() => setFacet(null)} className={g.cityChip}>
+                  Wszystkie
                 </button>
-              ))}
-            </div>
-          ) : null}
+                {allFacets.slice(0, CHIPS).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    aria-pressed={facet === f.id}
+                    onClick={() => setFacet(facet === f.id ? null : f.id)}
+                    className={g.cityChip}
+                  >
+                    {f.label} {countOf(f.id)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           {shown.length > 0 ? (
             <div className={s.grid}>
               {shown.map((j) => (
@@ -250,6 +295,29 @@ function Board({
             </div>
           ) : (
             <div className={s.none}>
+              {query.trim() ? (
+                <div className={g.emptyA}>
+                  <GhostMap uid={`${uid}-gh`} word={ghostWord(query)} />
+                  <div className={s.empty} role="status">
+                    <h2>
+                      {`Nie mamy teraz projektu dla „${query.trim()}”.`}
+                    </h2>
+                    <p>
+                      Wyczyść filtry{cv ? " albo zostaw CV. Odezwiemy się, gdy pojawi się projekt w Twojej technologii." : "."}
+                    </p>
+                    <div className={s.actions}>
+                      <button type="button" className={`${s.btn} ${s.btnInk}`} onClick={clearAll}>
+                        Wyczyść filtry
+                      </button>
+                      {cv ? (
+                        <button type="button" className={`${s.btn} ${s.btnRed}`} onClick={openCv}>
+                          Zostaw CV
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className={s.empty} role="status">
                 <h2>
                   {query.trim()
@@ -270,6 +338,7 @@ function Board({
                   ) : null}
                 </div>
               </div>
+              )}
               {partial ? (
                 <div>
                   <h3 className={s.altTitle}>

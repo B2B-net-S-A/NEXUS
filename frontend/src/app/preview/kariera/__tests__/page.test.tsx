@@ -85,19 +85,15 @@ describe("/preview/kariera", () => {
     expect(open.textContent).not.toMatch(/zł\/h\s*\d|PLN\s*\d/);
   });
 
-  it("zamknięta rekrutacja: pieczątka, podobne z tablicy, prośba o CV, bez formularza", () => {
+  it("zamknięta rekrutacja: tytuł z plakietką, podobne z tablicy, prośba o CV, bez formularza", () => {
     render(<CareerPreviewPage />);
     const closed = screen.getByRole("region", { name: "rekrutacja zamknięta" });
-    expect(within(closed).getByRole("heading", { level: 1 })).toHaveTextContent(
-      "Ta rekrutacja już nie przyjmuje zgłoszeń.",
-    );
-    expect(within(closed).getByRole("complementary", { name: "Zamknięta oferta" })).toHaveTextContent(
-      "Senior Java Developer",
-    );
+    expect(within(closed).getByRole("heading", { level: 1 })).toHaveTextContent("Senior Java Developer");
+    expect(within(closed).getByText(/Ta rekrutacja już nie przyjmuje zgłoszeń\./)).toBeInTheDocument();
     const similar = within(closed).getAllByRole("link", { name: /^Zobacz: / });
     expect(similar.length).toBeGreaterThan(0);
     expect(similar.map((a) => a.getAttribute("href"))).not.toContain("/kariera/r/senior-java-developer-7kq2");
-    expect(within(closed).getByRole("link", { name: "Zostaw CV" })).toHaveAttribute("href", "/kariera#zostaw-cv");
+    expect(within(closed).getByRole("link", { name: "Zostaw CV na następny projekt" })).toHaveAttribute("href", "/kariera#zostaw-cv");
     expect(closed.querySelector("form")).toBeNull();
   });
 

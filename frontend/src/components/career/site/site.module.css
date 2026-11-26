@@ -45,6 +45,8 @@
   --shadow-red-soft: rgba(70, 8, 14, 0.34);
   --shadow-ink: rgba(31, 17, 21, 0.08);
   --line-on-red: rgba(255, 255, 255, 0.45);
+  /* Tekst drugiego planu na czerwieni (język A, 26.11.2026): 5,1:1 na #C42329. */
+  --on-red-soft: #ffe3da;
 
   --display: "Montserrat", system-ui, sans-serif;
   --text: "Source Sans 3", system-ui, sans-serif;

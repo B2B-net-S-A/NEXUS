@@ -106,10 +106,10 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
     expect((body.get("cv") as File).name).toBe("cv-anna.pdf");
     expect(body.get("first_name")).toBeNull();
     // Ekran „Wysłane” (AplikacjaWyslana) z nazwą pliku i adresem z CV.
-    expect(await screen.findByText("Wysłane")).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "CV jest u Marty." })).toBeTruthy();
     expect(screen.getByText("cv-anna.pdf")).toBeTruthy();
     expect(screen.getByText("anna@example.com")).toBeTruthy();
-    expect(screen.getByText("Marta odezwie się po przejrzeniu CV.")).toBeTruthy();
+    expect(screen.getByText("Marta odezwie się po przejrzeniu CV. Nie musisz robić nic więcej.")).toBeTruthy();
   });
 
   it("CV bez e-maila (422 na `email`): pojawia się pole e-mail z komunikatem serwera", async () => {
@@ -164,7 +164,7 @@ describe("szybka aplikacja w nagłówku oferty: samo CV i „Wyślij CV”", () 
     expect(body.get("link_slug")).toBe("tester-ab12");
     expect(body.get("consent")).toBe("true");
     expect((body.get("cv") as File).name).toBe("cv-anna.pdf");
-    expect(await screen.findByText("Wysłane")).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "CV jest u Marty." })).toBeTruthy();
   });
 
   it("bez zgody nic nie wychodzi i mówi, czego brakuje", () => {

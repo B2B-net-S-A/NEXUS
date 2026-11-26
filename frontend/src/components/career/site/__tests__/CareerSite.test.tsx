@@ -82,10 +82,12 @@ describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManag
     expect(screen.getByRole("link", { name: /Pełny formularz/ }).getAttribute("href")).toBe("#aplikuj");
   });
 
-  it("wielkie słowo i pogrubienie tylko z krótkich umiejętności tablicy", () => {
-    const { container } = render(<OfferPage data={OPEN} board={BOARD} base="" />);
-    // „metodyki PRINCE2 lub Agile” ma 26 znaków — za długie na wielkie słowo, więc „PRINCE2”.
-    expect(container.querySelector("main > section")?.querySelector("p[aria-hidden='true']")?.textContent).toBe("PRINCE2");
+  it("technologie nad tytułem i pogrubienie tylko z krótkich umiejętności tablicy", () => {
+    render(<OfferPage data={OPEN} board={BOARD} base="" />);
+    // „metodyki PRINCE2 lub Agile” ma 26 znaków — za długie na pierwszą plakietkę, więc „PRINCE2”.
+    const tags = within(screen.getByRole("list", { name: "Technologie" })).getAllByRole("listitem").map((li) => li.textContent);
+    expect(tags).toEqual(["PRINCE2", "zarządzaniu zespołem IT"]);
+    expect(screen.getByRole("link", { name: "← Wszystkie oferty (4)" }).getAttribute("href")).toBe("/");
     // Pogrubienie bierze najdłuższą pasującą nazwę.
     expect(screen.getByText("metodyki PRINCE2 lub Agile", { selector: "b" })).toBeTruthy();
     expect(screen.getByText("zarządzaniu zespołem IT", { selector: "b" })).toBeTruthy();
@@ -103,20 +105,26 @@ describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManag
     expect(screen.queryByText("Co już masz?")).toBeNull();
   });
 
-  it("bez tablicy (awaria API) strona działa: bez wielkiego słowa, bez podobnych ofert", () => {
+  it("bez tablicy (awaria API) strona działa: bez technologii, liczby ofert i podobnych ofert", () => {
     const { container } = render(<OfferPage data={OPEN} board={null} base="" />);
     expect(container.querySelectorAll("h1")).toHaveLength(1);
-    expect(container.querySelector("main > section")?.querySelector("p[aria-hidden='true']")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Technologie" })).toBeNull();
+    expect(screen.getByRole("link", { name: "← Wszystkie oferty" })).toBeTruthy();
+    // Mapa nadal pokazuje miasto oferty, tylko bez kolumn tablicy.
+    expect(screen.getByRole("img", { name: /zaznaczonym miejscem pracy: Warszawa, Łódź, biuro 1 dzień w tygodniu/ })).toBeTruthy();
     expect(container.querySelector("aside ul b")).toBeNull();
   });
 
-  it("zamknięta rekrutacja: pieczątka, podobne z tej samej kategorii i prośba o CV", () => {
+  it("zamknięta rekrutacja: tytuł z plakietką, podobne z tej samej kategorii i prośba o CV", () => {
     render(<OfferPage data={{ ...OPEN, status: "closed" }} board={BOARD} base="/kariera" />);
-    expect(screen.getByRole("heading", { level: 1, name: "Ta rekrutacja już nie przyjmuje zgłoszeń." })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Kierownik Projektów IT" })).toBeTruthy();
+    expect(screen.getByText("Rekrutacja zamknięta")).toBeTruthy();
+    expect(screen.getByText(/Ta rekrutacja już nie przyjmuje zgłoszeń\./)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Wszystkie oferty (4)" }).getAttribute("href")).toBe("/kariera");
     const links = screen.getAllByRole("link", { name: /^Zobacz: / }).map((a) => a.getAttribute("href"));
     expect(links[0]).toBe("/kariera/r/pm-2");
     expect(links).not.toContain("/kariera/r/kierownik-ab12");
-    expect(screen.getByRole("link", { name: "Zostaw CV" }).getAttribute("href")).toBe("/kariera#zostaw-cv");
+    expect(screen.getByRole("link", { name: "Zostaw CV na następny projekt" }).getAttribute("href")).toBe("/kariera#zostaw-cv");
     expect(screen.queryByRole("button", { name: "Wyślij zgłoszenie" })).toBeNull();
   });
 });
@@ -124,19 +132,35 @@ describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManag
 const DATA: CareerBoardResponse = { jobs: BOARD, cv: { slug: "olga-r", first_name: "Olga" } };
 
 describe("lista rekrutacji (KarieraA)", () => {
-  it("bez kategorii: talia miast z liczbami filtruje listę; liczby liczą się po szukaniu", () => {
+  it("pierwszy ekran: hasło, liczba otwartych w leadzie, mapa miast z danych", () => {
     render(<CareerBoard data={DATA} base="" />);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("4");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Dołącz do projektów, które muszą działać.");
+    expect(screen.getByText("4 otwarte rekrutacje IT")).toBeTruthy();
+    expect(screen.getByText(/w dwóch miastach\./)).toBeTruthy();
+    // Mapa na desktop i telefon (CSS pokazuje jedną) — liczby z tablicy, nie z makiety.
+    expect(screen.getAllByRole("img", { name: /^Szklana mapa Polski/ })).toHaveLength(1);
+    const maps = [...document.querySelectorAll("svg[role='img']")];
+    expect(maps).toHaveLength(2);
+    expect(maps[0].getAttribute("aria-label")).toBe("Szklana mapa Polski. Otwarte rekrutacje według miast: Warszawa 2, Kraków 1.");
+    expect(screen.getByRole("button", { name: "Pokaż 4 oferty" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "4 oferty" })).toBeTruthy();
+  });
+
+  it("bez kategorii: chipy miast z liczbami filtrują listę; liczby liczą się po szukaniu", () => {
+    render(<CareerBoard data={DATA} base="" />);
     expect(screen.queryByText("Development")).toBeNull();
-    const waw = screen.getByRole("button", { name: /2\s*Warszawa/ });
+    const waw = screen.getByRole("button", { name: /Warszawa\s*2/ });
     fireEvent.click(waw);
     expect(waw.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getAllByRole("article")).toHaveLength(2);
     fireEvent.click(waw);
-    fireEvent.change(screen.getByPlaceholderText("Java, Kraków, Kafka…"), { target: { value: "java" } });
+    fireEvent.change(screen.getByPlaceholderText("Java, Kafka, Gdańsk…"), { target: { value: "java" } });
     expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /0\s*Warszawa/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /1\s*Kraków/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Warszawa\s*0/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Kraków\s*1/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pokaż 1 ofertę" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Wszystkie" }));
+    expect(screen.getByRole("button", { name: "Wszystkie" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("tryb pracy zawęża listę", () => {
@@ -145,10 +169,11 @@ describe("lista rekrutacji (KarieraA)", () => {
     expect(screen.getAllByRole("article").map((a) => a.querySelector("h3")?.textContent)).toEqual(["Tester"]);
   });
 
-  it("hasło bez trafień: „0”, zdanie z hasłem, czyszczenie filtrów i podpowiedź słowa", () => {
+  it("hasło bez trafień: pusta kolumna na mapie, zdanie z hasłem, czyszczenie filtrów i podpowiedź słowa", () => {
     render(<CareerBoard data={DATA} base="" />);
-    fireEvent.change(screen.getByPlaceholderText("Java, Kraków, Kafka…"), { target: { value: "COBOL Kraków" } });
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Nic dla tego hasła");
+    fireEvent.change(screen.getByPlaceholderText("Java, Kafka, Gdańsk…"), { target: { value: "COBOL Kraków" } });
+    expect(screen.getByRole("button", { name: "Pokaż 0 ofert" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Mapa Polski z pustym miejscem na kolumnę: dziś nie ma projektu z COBOL Kraków." })).toBeTruthy();
     expect(screen.getByText("Nie mamy teraz projektu dla „COBOL Kraków”.")).toBeTruthy();
     expect(screen.getByText(/Dla „Kraków” jest teraz 1 rekrutacja/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Wyczyść filtry" }));
@@ -175,6 +200,7 @@ describe("lista rekrutacji (KarieraA)", () => {
     const section = container.querySelector<HTMLElement>("#zostaw-cv")!;
     expect(section.hidden).toBe(true);
     fireEvent.click(screen.getByRole("link", { name: "Zostaw CV" }));
+    expect(screen.getByRole("link", { name: "Nic dla Ciebie? Zostaw CV" }).getAttribute("href")).toBe("#zostaw-cv");
     expect(section.hidden).toBe(false);
     expect(section.querySelector('input[name="consent"]')).toBeTruthy();
     expect(section.querySelector('input[name="consent_future"]')).toBeNull();
@@ -211,6 +237,7 @@ describe("kontrast kolorów strony kariery", () => {
     ["warm-soft", "ink"], // stopka
     ["red-text", "red-wash"], // baner błędu
     ["placeholder", "white"],
+    ["on-red-soft", "red"], // tekst drugiego planu na pierwszym ekranie (język A)
   ];
   it.each(pairs)("%s na %s ma co najmniej 4,5:1", (fg, bg) => {
     expect(ratio(hex(css, fg), hex(css, bg))).toBeGreaterThanOrEqual(4.5);
