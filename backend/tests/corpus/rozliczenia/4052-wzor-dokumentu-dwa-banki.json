@@ -1,0 +1,119 @@
+[
+ {
+  "id": "rozl-4052-dwa-banki-jeden-mail",
+  "poprawka": "f7de4018d #4052",
+  "opis": "Osoba u dwóch banków: przekazany wątek ze skrzynki w VeloBanku przypinał do niego także kartę ewidencji drugiego banku",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Marta",
+    "nazwisko": "Dwubankowa",
+    "email": "marta.prywatna@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-07-01"},
+     {"klient": "VB", "od": "2022-07-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "marta.dwubankowa@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura lipiec",
+    "odebrano": "2026-08-10T19:00:00Z",
+    "eml": "From: marta.dwubankowa@firma.example.com\nSubject: Faktura lipiec\nContent-Type: text/plain; charset=utf-8\n\nW zalaczniku.\n\nFrom: Marta Dwubankowa <marta.dwubankowa@velobank.pl>\nSubject: Akceptacja\n\nOK\n",
+    "pliki": [
+     {
+      "nazwa": "Karta pracy - lipiec 2026r.pdf",
+      "pdf": "KARTA EWIDENCJI ŚWIADCZENIA USŁUG\nImię i Nazwisko: Dwubankowa DSI Marta\nMiesiąc: Lipiec\nRok: 2026\n1 Zadanie 1: analiza 8\nSuma dni przepracowanych 1,0\nLiczba godzin czas podstawowy 8"
+     },
+     {
+      "nazwa": "Marta Dwubankowa_TS - lipiec 2026.xlsx",
+      "arkusz": {
+       "GridTable": [
+        [null, "Time Sheet"],
+        [null, "Project Name", null, "Prace w projekcie Fino"],
+        [null, "Consultant(s)", null, "Marta Dwubankowa"],
+        [null, "Date from", null, "2026-07-01"],
+        [null, "Date to", null, "2026-07-31"],
+        [null, "Date", "Strumień", "Project", "Description", "Total Hours", "Billable", "Non-billable"],
+        [null, "2026-07-01", 10144, null, "Prace programistyczne", 8, 8, null],
+        [null, "Total Hours", null, null, null, 8]
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Karta pracy - lipiec 2026r.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-07"},
+   {"plik": "Marta Dwubankowa_TS - lipiec 2026.xlsx", "rodzaj": "report", "osoba": "A#2", "okres": "2026-07"}
+  ]
+ },
+ {
+  "id": "rozl-4052-karta-i-timesheet-osobno",
+  "poprawka": "f7de4018d #4052",
+  "opis": "Osoba u dwóch banków wysyła z adresu firmy osobne maile: karta ewidencji i Time Sheet czekały bez osoby",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Tomasz",
+    "nazwisko": "Dwustronny",
+    "email": "tomasz.prywatny@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-07-01"},
+     {"klient": "VB", "od": "2022-12-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "tomasz.dwustronny@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Fwd: FW: TimeSheet - lipiec",
+    "odebrano": "2026-08-10T19:18:00Z",
+    "pliki": [
+     {
+      "nazwa": "Time Sheet - Lipiec - Tomasz Dwustronny.xlsx",
+      "arkusz": {
+       "GridTable": [
+        [null, "Time Sheet"],
+        [null, "Project Name", null, "VeloBank"],
+        [null, "Consultant(s)", null, "Tomasz Dwustronny"],
+        [null, "Date from", null, "2026-07-01"],
+        [null, "Date to", null, "2026-07-31"],
+        [null, "Date", "Project", "Description", "Total Hours", "Billable", "Non-billable", "Nr strumienia"],
+        [null, "2026-07-01", "VeloBank", "Prace programistyczne", 8, 8, 0, 31951],
+        [null, "Total Hours", null, null, 8]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "od": "tomasz.dwustronny@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Fwd: FW: Akceptacja pracy w projekcie",
+    "odebrano": "2026-08-10T19:21:00Z",
+    "pliki": [
+     {
+      "nazwa": "Karta_pracy_lipiec_2026_Tomasz_Dwustronny.pdf",
+      "pdf": "KARTA EWIDENCJI ŚWIADCZENIA USŁUG\nImię i Nazwisko: Dwustronny Tomasz\nMiesiąc: Lipiec\nRok: 2026\n1 Zadanie 1: testy 8\nSuma dni przepracowanych 1,0\nLiczba godzin czas podstawowy 8"
+     }
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Time Sheet - Lipiec - Tomasz Dwustronny.xlsx", "rodzaj": "report", "osoba": "A#2", "okres": "2026-07"},
+   {"plik": "Karta_pracy_lipiec_2026_Tomasz_Dwustronny.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-07"}
+  ]
+ }
+]
