@@ -235,7 +235,7 @@ class NotificationType(str, enum.Enum):
     candidate_claim_handover = "candidate_claim_handover"
     candidate_claim_request = "candidate_claim_request"
     candidate_claim_request_answer = "candidate_claim_request_answer"
-    # 0796: karty bez śladu (`services/screening_stale.py`, 26.11.2026). Jeden
+    # 0795: karty bez śladu (`services/screening_stale.py`, 26.11.2026). Jeden
     # dzwonek dziennie na osobę ze wszystkimi kartami, które jej wróciły ze
     # „Screeningu” (aktualizowany po każdym przebiegu), i poranne ostrzeżenie
     # o kartach, które wrócą następnego dnia roboczego —
