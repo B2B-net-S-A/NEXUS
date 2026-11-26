@@ -969,6 +969,42 @@ def test_form_client_sends_without_company_cv_qc() -> None:
     assert result["primary"] == {"kind": "move", "label": "Przesuń na „CV wysłane”"}
 
 
+def test_form_client_jump_over_qc_cv_lists_the_form_once() -> None:
+    """26.11.2026, staging (rekrutacja z formularzem): „Zweryfikowany” →
+    „CV wysłane” dawało ``client_form`` z „QC CV” i drugi raz z „CV wysłane”,
+    a React gubił wiersze na zdublowanym kluczu. Zostaje wiersz z „QC CV” —
+    ten z bramką formularza."""
+    facts = replace(FORM_CLIENT, client_score_template="Zal 5 Tabela punktowa.xlsx")
+    result = build_requirements(facts, "cv_sent")
+    assert result["skipped_columns"] == ["cv_qc"]
+    assert _keys(result) == ["client_form", "client_score", "client_rate"]
+    form = _item(result, "client_form")
+    assert form["column"] == "cv_qc"
+    assert form["status"] == "missing" and form["blocking"] is True
+    assert result["primary"] == {
+        "kind": "blocked",
+        "label": "Najpierw uzupełnij: Formularz CV klienta",
+    }
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        VERIFIED_READY,
+        replace(FORM_CLIENT, client_score_template="Zal 5 Tabela punktowa.xlsx"),
+        replace(VERIFIED_READY, nordea=True),
+    ],
+    ids=["company_cv", "client_form", "nordea"],
+)
+def test_requirement_keys_are_unique_on_every_path(facts: PairFacts) -> None:
+    """Klucz wymagania jest kluczem wiersza na ekranie — jeden na odpowiedź."""
+    from app.services.board_stage_badges import BOARD_COLUMN_ORDER
+
+    for to_column in BOARD_COLUMN_ORDER:
+        keys = _keys(build_requirements(replace(facts, from_column=None), to_column))
+        assert len(keys) == len(set(keys)), (to_column, keys)
+
+
 def test_missing_before_qc_counts_filling_not_empty_fields() -> None:
     from app.services.client_form_status import PairFormState, missing_before_qc
 
