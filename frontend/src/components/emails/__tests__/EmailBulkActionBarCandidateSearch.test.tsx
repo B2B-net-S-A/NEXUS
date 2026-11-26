@@ -14,7 +14,7 @@ vi.mock("@/lib/api", () => ({
 // dwóch znaków czytało CV, profil i notatki całej bazy bez indeksu (na
 // produkcji 90 s z palety ⌘K). Pole „Połącz z kandydatem” pyta tak samo.
 describe("EmailBulkActionBar — wyszukiwanie kandydata", () => {
-  it("pyta listę w v2 z tekstem dosłownym — dwa znaki nie czytają całej bazy", async () => {
+  it("pyta listę w v2 z tekstem dosłownym i po trafności — dwa znaki nie czytają całej bazy", async () => {
     mocks.list.mockResolvedValue({ data: { items: [] } });
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -34,6 +34,7 @@ describe("EmailBulkActionBar — wyszukiwanie kandydata", () => {
         page_size: 10,
         semantics_version: 2,
         text_mode: "literal",
+        sort: "relevance",
       }),
     );
   });

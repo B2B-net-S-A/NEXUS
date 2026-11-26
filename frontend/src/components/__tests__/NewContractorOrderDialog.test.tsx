@@ -260,7 +260,7 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("pyta listę w v2 z tekstem dosłownym — dwa znaki nie czytają całej bazy", async () => {
+  it("pyta listę w v2 z tekstem dosłownym i po trafności — dwa znaki nie czytają całej bazy", async () => {
     const user = userEvent.setup();
     mockApi(() => Promise.resolve({ data: { items: [] } }));
     renderDialog();
@@ -269,7 +269,13 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
 
     await waitFor(() =>
       expect(api.get).toHaveBeenCalledWith("/api/candidates", {
-        params: { q: "qa", page_size: 15, semantics_version: 2, text_mode: "literal" },
+        params: {
+          q: "qa",
+          page_size: 15,
+          semantics_version: 2,
+          text_mode: "literal",
+          sort: "relevance",
+        },
       }),
     );
   });

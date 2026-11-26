@@ -13,12 +13,19 @@ zajmuje 3 z 8 vCPU serwera.
 - **Paleta ⌘K i wybieraki osób** (`ConsultantPicker`, `NewContractorOrderDialog`,
   `AddCandidateToJobModal`, „Połącz z kandydatem” w `EmailBulkActionBar`) dokładają
   `CANDIDATE_LOOKUP_PARAMS`
-  (`semantics_version: 2`, `text_mode: "literal"`, `lib/candidate-search-semantics.ts`).
-  Krótki tekst (≤ 2 znaki) jest wtedy całym słowem przez indeks
-  (`short_literal_match`, decyzja z 07.10.2026), a dłuższy daje te same osoby co v1.
-  Na kopii: „qa” 0,37 s, „c#” 0,47 s. Nie `auto`, bo tekst, który nie wygląda na
-  osobę, idzie wtedy po znaczeniu (wektory) przy każdym wpisanym znaku. Nowe pole,
-  które pyta listę w trakcie pisania, dostaje te same parametry.
+  (`semantics_version: 2`, `text_mode: "literal"`, `sort: "relevance"`,
+  `lib/candidate-search-semantics.ts`). Krótki tekst (≤ 2 znaki) jest wtedy całym
+  słowem przez indeks (`short_literal_match`, decyzja z 07.10.2026), a dłuższy daje
+  te same osoby co v1. Na kopii: „qa” 0,37 s, „c#” 0,47 s. Nie `auto`, bo tekst,
+  który nie wygląda na osobę, idzie wtedy po znaczeniu (wektory) przy każdym
+  wpisanym znaku. Nowe pole, które pyta listę w trakcie pisania, dostaje te same
+  parametry.
+- **Po trafności, nie „najnowsi”:** przy „najnowsi” z `count(*) OVER ()` i `LIMIT`
+  Postgres 16 wybiera pętlę zagnieżdżoną po `ix_candidates_added_to_base_id`
+  z filtrem złączenia na sumie identyfikatorów (kopia: v2 „qa”, 15 wierszy —
+  690 mln odrzuconych porównań, 83 s; po trafności 0,6 s), a dla szukania osoby
+  „najnowsi” i tak gubiło szukaną osobę (UAT M00-B01, paleta i `ConsultantPicker`
+  już tak miały).
 - **v1 zostaje bez zmian** dla alertów zapisanych wyszukiwań
   (`dwa-silniki-wyszukiwania-jedna-semantyka-filtrow.md`).
 - **`person_token_exists` i `_exact_person_prefilter` filtrują `search_doc_unaccented

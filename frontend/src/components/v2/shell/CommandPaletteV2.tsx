@@ -220,17 +220,12 @@ export function CommandPaletteV2({
         requests.push(
           api
             .get("/api/candidates", {
-              // `sort: "relevance"` jest load-bearing: domyślne `newest` przy
-              // zapytaniu pasującym do dziesiątek tysięcy rekordów (np. pełny
-              // e-mail rozbity na słowa łapie samą domenę) oddawało piątkę
-              // NAJNOWSZYCH, bez szukanej osoby (UAT M00-B01).
-              // `CANDIDATE_LOOKUP_PARAMS`: dwa znaki bez v2 czytały całą bazę.
-              params: {
-                q: term,
-                page_size: 5,
-                sort: "relevance",
-                ...CANDIDATE_LOOKUP_PARAMS,
-              },
+              // `CANDIDATE_LOOKUP_PARAMS` niesie `sort: "relevance"` — load-bearing:
+              // domyślne `newest` przy zapytaniu pasującym do dziesiątek tysięcy
+              // rekordów (np. pełny e-mail rozbity na słowa łapie samą domenę)
+              // oddawało piątkę NAJNOWSZYCH, bez szukanej osoby (UAT M00-B01).
+              // I v2: dwa znaki w v1 czytały całą bazę (26.11.2026).
+              params: { q: term, page_size: 5, ...CANDIDATE_LOOKUP_PARAMS },
               signal: ctrl.signal,
             })
             .then((res) => {

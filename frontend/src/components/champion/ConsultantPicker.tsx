@@ -70,14 +70,10 @@ export function ConsultantPicker({
     queryFn: () =>
       api
         .get<{ items?: BaseSearchItem[] }>("/api/candidates", {
-          // `relevance` jak w palecie poleceń: domyślne „najnowsi” przy
-          // popularnym imieniu oddawało ostatnio dodanych, bez szukanej osoby.
-          params: {
-            q: debouncedTerm,
-            page_size: 8,
-            sort: "relevance",
-            ...CANDIDATE_LOOKUP_PARAMS,
-          },
+          // `relevance` (w `CANDIDATE_LOOKUP_PARAMS`) jak w palecie poleceń:
+          // domyślne „najnowsi” przy popularnym imieniu oddawało ostatnio
+          // dodanych, bez szukanej osoby.
+          params: { q: debouncedTerm, page_size: 8, ...CANDIDATE_LOOKUP_PARAMS },
         })
         .then((r) => r.data?.items ?? []),
     enabled: value === null && debouncedTerm.length >= MIN_BASE_QUERY,
