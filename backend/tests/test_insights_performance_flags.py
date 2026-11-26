@@ -135,9 +135,7 @@ async def admin_headers() -> dict[str, str]:
 # ── 1. Kto może czytać, kto może pisać ─────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "role", [UserRole.recruiter, UserRole.finance, UserRole.admin]
-)
+@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.finance, UserRole.admin])
 @pytest.mark.asyncio
 async def test_every_role_can_read_active_flags(
     pflag_client: AsyncClient, role: UserRole

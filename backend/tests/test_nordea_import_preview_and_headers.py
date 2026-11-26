@@ -67,7 +67,10 @@ def test_renamed_rate_header_is_refused_instead_of_silently_shifting_columns():
     )
     with pytest.raises(NordeaImportError) as exc:
         parse_nordea_csv(
-            _csv(header, "279411;Paweł Przykładarczyk;M;25.02.2026;23.08.2026;CC1;185;178")
+            _csv(
+                header,
+                "279411;Paweł Przykładarczyk;M;25.02.2026;23.08.2026;CC1;185;178",
+            )
         )
     message = str(exc.value)
     assert "Stawka przychodowa" in message

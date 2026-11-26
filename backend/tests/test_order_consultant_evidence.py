@@ -177,7 +177,9 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
     # #1730 (FIN-MAIL-05) bramka widzi tylko reguły, które naprawdę zadziałały.
     extraction, applied = apply_policies(
         extraction,
-        PolicyContext(document_text=TEXT, filename="Zlecenie nr 31 Krzysztof Testala.pdf"),
+        PolicyContext(
+            document_text=TEXT, filename="Zlecenie nr 31 Krzysztof Testala.pdf"
+        ),
         active_policies(122),
     )
     assert applied == ["PFRON"]
