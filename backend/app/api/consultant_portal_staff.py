@@ -17,7 +17,7 @@ from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -487,6 +487,21 @@ async def paid_document(
 
 class AssignBody(BaseModel):
     contract_id: int = Field(gt=0)
+    # Miesiąc faktury poprawiany przy przypisaniu; bez obu pól zostaje z czytnika.
+    period_year: Optional[int] = Field(default=None, ge=2000, le=2100)
+    period_month: Optional[int] = Field(default=None, ge=1, le=12)
+
+    @model_validator(mode="after")
+    def _whole_month(self) -> "AssignBody":
+        if (self.period_year is None) != (self.period_month is None):
+            raise ValueError("Podaj rok i miesiąc razem.")
+        return self
+
+    @property
+    def period(self) -> Optional[tuple[int, int]]:
+        if self.period_year is None or self.period_month is None:
+            return None
+        return self.period_year, self.period_month
 
 
 @router.post("/documents/{document_id}/assign")
@@ -498,7 +513,11 @@ async def assign_document(
 ) -> dict[str, Any]:
     try:
         document = await documents.assign_contract(
-            db, document_id, contract_id=body.contract_id, now=_now()
+            db,
+            document_id,
+            contract_id=body.contract_id,
+            period=body.period,
+            now=_now(),
         )
     except PortalError as exc:
         raise _translate(exc) from exc

@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.core.upload_filename import fit_filename_column
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract
@@ -53,6 +54,7 @@ MAX_FILE_BYTES = documents_store.MAX_FILE_BYTES
 NOT_FOUND = "Nie ma takiego dokumentu."
 BAD_PERIOD = "Wybierz miesiąc z ostatnich dwóch lat, najpóźniej bieżący."
 BAD_KIND = "Wybierz raport albo fakturę."
+PERIOD_INVOICE_ONLY = "Miesiąc można zmienić tylko przy fakturze."
 ALREADY_DECIDED = "Ten dokument ma już decyzję."
 
 
@@ -722,13 +724,31 @@ async def mark_paid(
 
 
 async def assign_contract(
-    db: AsyncSession, document_id: int, *, contract_id: int, now: datetime
+    db: AsyncSession,
+    document_id: int,
+    *,
+    contract_id: int,
+    now: datetime,
+    period: Optional[tuple[int, int]] = None,
 ) -> CpDocument:
-    """Plik z nieznanego adresu trafia do kontraktu ręką Finansów."""
+    """Plik bez kontraktu trafia do kontraktu ręką Finansów.
+
+    ``period`` (rok, miesiąc) poprawia miesiąc faktury: czytnik bierze go z nazwy
+    pliku, a numer faktury niesie miesiąc wystawienia (decyzja Artura z 26.11.2026).
+    Miesiąc taki jak dotąd niczego nie zmienia, także flagi „zgadnięty”."""
 
     document = await _for_decision(db, document_id)
     if document.contract_id is not None:
         raise PortalError("Dokument ma już kontrakt.", status=409, code="matched")
+    if period == (document.period_year, document.period_month):
+        period = None
+    if period is not None:
+        # Miesiąc raportu liczy rozliczenie, a wybrany ręcznie udawałby tam
+        # miesiąc z nazwy pliku (``settlements._named_month``).
+        if document.kind != "invoice":
+            raise PortalError(PERIOD_INVOICE_ONLY, code="period_report")
+        if not valid_period(*period, today=business_today()):
+            raise PortalError(BAD_PERIOD)
     if await db.get(Contract, contract_id) is None:
         raise PortalError("Nie ma takiego kontraktu.", status=404, code="no_contract")
     duplicate = await _same_file(
@@ -743,6 +763,9 @@ async def assign_contract(
             "Ten plik jest już w dokumentach kontraktu.", status=409, code="duplicate"
         )
     document.contract_id = contract_id
+    if period is not None:
+        document.period_year, document.period_month = period
+        document.period_guessed = False
     document.updated_at = now
     # KEŚU albo RCP przypisane ręcznie liczy się tak samo jak przypisane przez czytnik.
     await _refresh_settlement(db, document)
