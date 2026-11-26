@@ -412,6 +412,11 @@ _SPLIT_GROUPS: dict[
             _T.request_allocation_proposals,
         ),
     ),
+    "reminders_screening_return": (
+        "Karty, które jutro wrócą ze Screeningu",
+        _C.reminders,
+        (_T.screening_cards_return_soon,),
+    ),
     "reminders_job_ads": (
         "Brakujące ogłoszenia rekrutacji",
         _C.reminders,
