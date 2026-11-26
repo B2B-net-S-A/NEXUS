@@ -333,6 +333,59 @@ async def test_public_page_never_leaks_client_or_rate(api):
         assert row.visit_count == 1
 
 
+_PLACEHOLDER_ABOUT = "Brak szczegółowych informacji o projekcie w materiale źródłowym"
+
+
+async def test_public_page_never_shows_a_placeholder_about(api):
+    """Strażnik (26.11.2026): oferta Oracle pokazywała kandydatom zaślepkę
+    szkicu AI w rozdziale „Projekt”. Opis zatwierdzony przed poprawką (wiersz
+    jak na produkcji) wychodzi z API bez niej, a ``about: null`` chowa rozdział
+    na stronie. Pada, gdy publiczne API znów zwróci taki tekst."""
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services import job_public_profile as jpp
+
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    approved = await _approve(api, headers, job_id)
+    assert approved.status_code == 200, approved.text
+
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(JobPublicProfile, job_id)
+        title = jpp.stored_approved_content(profile.sections)["text"]["title"]
+        profile.about = _PLACEHOLDER_ABOUT
+        profile.approved_hash = jpp.content_hash(
+            profile.subtitle, profile.about, profile.sections, title
+        )
+        await db.commit()
+
+    resp = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "open"
+    assert resp.json()["job"]["about"] is None
+    assert resp.json()["job"]["subtitle"]
+    for page in (
+        f"/api/public/career/r/{link['slug']}",
+        "/api/public/career/jobs",
+    ):
+        body = (await api.get(page)).text
+        assert "materiale źródłowym" not in body, page
+        assert "Brak szczegółowych informacji" not in body, page
+
+
+async def test_placeholder_about_is_not_saved(api):
+    _, headers, job_id = await _owner_with_job(api)
+    put = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={
+            "subtitle": "Rozwój platformy płatności",
+            "about": f"Budujemy nowy system rozliczeń. {_PLACEHOLDER_ABOUT}.",
+        },
+        headers=headers,
+    )
+    assert put.status_code == 200, put.text
+    assert put.json()["about"] == "Budujemy nowy system rozliczeń."
+
+
 async def test_closed_job_returns_closed_state(api):
     uid, headers, job_id = await _owner_with_job(api)
     link = await _create_job_link(api, headers, job_id)

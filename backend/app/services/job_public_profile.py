@@ -30,6 +30,7 @@ from app.services import champion_view
 from app.services.public_city import public_city
 from app.services.public_profile_lint import (
     Finding,
+    drop_placeholders,
     lint_internal_codes,
     lint_public_texts,
 )
@@ -803,8 +804,10 @@ def public_job_payload(
     return {
         "slug": link_slug,
         "title": title,
-        "subtitle": (subtitle or "").strip() or None,
-        "about": (about or "").strip() or None,
+        # Zaślepka modelu („Brak … w materiale źródłowym”) nie jest treścią —
+        # także w opisach zatwierdzonych przed 26.11.2026.
+        "subtitle": drop_placeholders(subtitle),
+        "about": drop_placeholders(about),
         "must": [{"name": name, "note": None} for name in must],
         "nice": nice,
         "params": params,
@@ -1059,6 +1062,11 @@ async def approve_profile(
     from datetime import datetime, timezone
 
     _default_title, effective_title = await public_titles(db, job, profile)
+    # Zaślepek modelu nie publikujemy (26.11.2026). Czyścimy pola PRZED
+    # skrótem: migawka tekstu bierze opis z projekcji, a skrót z pól profilu
+    # — rozjazd zdjąłby stronę przy pierwszej poprawce po zatwierdzeniu.
+    profile.subtitle = drop_placeholders(profile.subtitle)
+    profile.about = drop_placeholders(profile.about)
     # Kontrola i migawka liczą się z pól NA ŻYWO (same przełączniki, bez
     # starej migawki) — zatwierdzenie publikuje bieżący stan rekrutacji.
     preview = public_job_payload(
@@ -1133,7 +1141,9 @@ PODTYTUŁ: 40–90 znaków, zaczyna się małą literą, bez kropki na końcu, j
 komentarz pod tytułem, np. „rozwój platformy płatności w sektorze bankowym".
 
 OPIS: 2–3 krótkie akapity rozdzielone pustą linią. Gdy materiału jest mało —
-JEDEN krótki akapit z samych faktów zamiast lania wody.
+JEDEN krótki akapit z samych faktów zamiast lania wody. Gdy materiał nie
+opisuje projektu ani obowiązków, zwróć pusty opis ("about": "") — NIE pisz,
+że informacji brak: kandydat nie zna materiału.
 
 Zwróć WYŁĄCZNIE JSON bez markdown:
 {{"subtitle": "…", "about": "…"}}
@@ -1234,8 +1244,9 @@ def _parse_draft(text: str) -> dict[str, str]:
     if start < 0 or end <= start:
         raise ValueError("no JSON object in model output")
     data = json.loads(raw[start : end + 1])
-    subtitle = trim_subtitle(str(data.get("subtitle") or ""))[:SUBTITLE_MAX]
-    about = str(data.get("about") or "").strip()[:ABOUT_MAX]
+    subtitle = trim_subtitle(drop_placeholders(str(data.get("subtitle") or "")) or "")
+    subtitle = subtitle[:SUBTITLE_MAX]
+    about = (drop_placeholders(str(data.get("about") or "")) or "")[:ABOUT_MAX]
     if not subtitle and not about:
         raise ValueError("empty draft")
     return {"subtitle": subtitle, "about": about}
