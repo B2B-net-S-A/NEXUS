@@ -54,6 +54,9 @@ REVIEW_MAX_DAYS = 120
 LONG_HOLD_DAYS = 30
 DL_SILENT_DAYS = 14
 RECRUITER_WINDOW_DAYS = 7
+# Zejście z P1 jest sygnałem tylko przy prawdziwej pracy w tym tygodniu: na
+# stagingu 26.11 bez progu 8 z 10 wierszy panelu DL miało 0–1 ruchu rekrutera.
+PARKED_MIN_MOVES_7D = 3
 NOTE_WINDOW_DAYS = 30
 CHECKS_LIMIT = 10
 # Panel pyta tylko o rekrutacje, nad którymi ktoś pracuje.
@@ -155,6 +158,11 @@ def open_reports(
         if last_answer_at is None or _aware(report.at) > _aware(last_answer_at)
     ]
     return sorted(out, key=lambda report: report.at)
+
+
+def parked_still_working(*, moves_after_park: int, moves_7d: int) -> bool:
+    """Zejście z P1, po którym rekruterzy nadal pracują (co najmniej 3 ruchy w 7 dni)."""
+    return moves_after_park > 0 and moves_7d >= PARKED_MIN_MOVES_7D
 
 
 def dl_silent_since(
@@ -893,7 +901,10 @@ async def hold_checks(
         if job_id in parked and at > parked[job_id]:
             after_park[job_id] = after_park.get(job_id, 0) + 1
     for job_id, at in parked.items():
-        if after_park.get(job_id):
+        if parked_still_working(
+            moves_after_park=after_park.get(job_id, 0),
+            moves_7d=moves_7d.get(job_id, 0),
+        ):
             signals[job_id].append(
                 {
                     "kind": "parked_still_working",

@@ -81,7 +81,7 @@ describe("usePipelineMoveCore — rekrutacja wstrzymana", () => {
     void send({ candidate_id: 3, job_id: 7, stage: "screening" }).then((o) => (outcome = o));
 
     expect(await screen.findByText("Ta rekrutacja jest wstrzymana")).toBeInTheDocument();
-    expect(screen.getByText(/Celina W\. do „Screening”/)).toBeInTheDocument();
+    expect(screen.getByText(/Przesuwasz kartę: Celina W\. → „Screening”/)).toBeInTheDocument();
     expect(screen.getByText(/„Klient wstrzymał budżet”/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Nie przesuwaj" }));
 

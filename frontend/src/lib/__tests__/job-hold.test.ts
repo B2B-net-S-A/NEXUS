@@ -7,6 +7,7 @@ import {
   holdSignalText,
   holdViewOf,
   isHoldExemptMove,
+  movesWord,
   reviewDistanceText,
   validateHoldForm,
   type JobHold,
@@ -87,12 +88,13 @@ describe("ostrzeżenie przy ruchu karty", () => {
       targetLabel: "Screening",
     });
     expect(title).toBe("Ta rekrutacja jest wstrzymana");
-    expect(description).toContain("Celina W. do „Screening”");
+    expect(description).toContain("Przesuwasz kartę: Celina W. → „Screening”");
     expect(description).toContain("26.11");
     expect(description).toContain("Gosia D.");
     expect(description).toContain("„Klient wstrzymał budżet”");
     expect(description).toContain("DL sprawdzi z klientem 08.12.");
-    expect(holdMoveWarning(view, { count: 3 }).description).toContain("3 osoby");
+    expect(holdMoveWarning(view, { count: 3 }).description).toContain("Przesuwasz 3 karty");
+    expect(holdMoveWarning(view, { count: 5 }).description).toContain("Przesuwasz 5 kart");
   });
 
   it("widok wstrzymania: GET wygrywa z polami rekrutacji", () => {
@@ -119,3 +121,19 @@ describe("panel „Czy te rekrutacje nadal trwają?”", () => {
     expect(holdChecksAudience(null)).toEqual({ enabled: false, all: false });
   });
 });
+
+describe("movesWord", () => {
+  it("odmienia „ruch” po polsku", () => {
+    expect([1, 2, 4, 5, 12, 13, 22, 25, 172].map((n) => `${n} ${movesWord(n)}`)).toEqual([
+      "1 ruch",
+      "2 ruchy",
+      "4 ruchy",
+      "5 ruchów",
+      "12 ruchów",
+      "13 ruchów",
+      "22 ruchy",
+      "25 ruchów",
+      "172 ruchy",
+    ])
+  })
+})

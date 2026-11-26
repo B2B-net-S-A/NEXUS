@@ -266,16 +266,23 @@ export function isHoldExemptMove(
   return Boolean(payload.rejection_reason_id || payload.rejection_reason || payload.ended_by);
 }
 
+/** „2 karty”, „5 kart”, „22 karty”. */
+function cardsWord(count: number): string {
+  const last = count % 10;
+  const lastTwo = count % 100;
+  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? "karty" : "kart";
+}
+
 /** Treść okna „Ta rekrutacja jest wstrzymana” przy ruchu karty. */
 export function holdMoveWarning(
   view: HoldView,
   move: { candidateName?: string | null; targetLabel?: string | null; count?: number },
 ): { title: string; description: string } {
-  const who =
-    move.count && move.count > 1
-      ? `${move.count} osoby`
-      : (shortName(move.candidateName) ?? "tę osobę");
-  const target = move.targetLabel ? ` do „${move.targetLabel}”` : "";
+  const many = move.count && move.count > 1 ? move.count : 0;
+  const who = many
+    ? `${many} ${cardsWord(many)}`
+    : `kartę${shortName(move.candidateName) ? `: ${shortName(move.candidateName)}` : ""}`;
+  const target = move.targetLabel ? ` → „${move.targetLabel}”` : "";
   const since = view.since ? ` ${formatDayMonthPl(view.since)}` : "";
   const by = shortName(view.byName);
   const reason = view.reason ? `: „${view.reason}”` : "";
@@ -283,7 +290,7 @@ export function holdMoveWarning(
   return {
     title: "Ta rekrutacja jest wstrzymana",
     description:
-      `Chcesz przesunąć ${who}${target}. Klient wstrzymał rekrutację${since}` +
+      `Przesuwasz ${who}${target}. Klient wstrzymał rekrutację${since}` +
       `${by ? ` (ustawił(a) ${by})` : ""}${reason}. ` +
       `Jeśli zadzwonisz teraz, kandydat usłyszy o projekcie, którego na razie nie ma.${review}`,
   };
@@ -299,10 +306,18 @@ export function holdSignalText(signal: HoldSignal): string {
   return signal.text;
 }
 
+/** „1 ruch”, „2 ruchy”, „5 ruchów”, „22 ruchy”, „12 ruchów”. */
+export function movesWord(count: number): string {
+  if (count === 1) return "ruch";
+  const last = count % 10;
+  const lastTwo = count % 100;
+  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? "ruchy" : "ruchów";
+}
+
 export function recruiterMovesText(item: Pick<HoldCheckItem, "recruiter_moves_7d" | "recruiters_7d">): string | null {
   if (!item.recruiter_moves_7d) return null;
   const people = item.recruiters_7d === 1 ? "1 rekrutera" : `${item.recruiters_7d} rekruterów`;
-  return `${item.recruiter_moves_7d} ruchów ${people} w 7 dni`;
+  return `${item.recruiter_moves_7d} ${movesWord(item.recruiter_moves_7d)} ${people} w 7 dni`;
 }
 
 export function stateLabelOf(state: unknown): string {

@@ -24,6 +24,7 @@ from app.services.job_hold import (
     dl_silent_since,
     held_notice_text,
     long_hold_days,
+    parked_still_working,
     open_reports,
     resumed_notice_text,
     review_due,
@@ -217,6 +218,15 @@ def test_panel_order_is_report_note_parked_silence_then_recruiter_moves() -> Non
     )
     assert [s["kind"] for s in signals] == ["report", "report", "dl_silent"]
     assert signals[0]["at"] == NOW.isoformat()
+
+
+def test_parked_signal_needs_real_work_this_week() -> None:
+    # Staging 26.11: 8 z 10 wierszy panelu DL to zejście z P1 przy 0–1 ruchu
+    # rekrutera w tygodniu — szum, który uczy DL ignorować panel.
+    assert parked_still_working(moves_after_park=0, moves_7d=5) is False
+    assert parked_still_working(moves_after_park=4, moves_7d=0) is False
+    assert parked_still_working(moves_after_park=4, moves_7d=2) is False
+    assert parked_still_working(moves_after_park=3, moves_7d=3) is True
 
 
 def test_review_and_30_days_rules() -> None:
