@@ -139,7 +139,10 @@ def _parsed_fields(case: dict) -> dict[str, list[dict]]:
         "daty": roles,
         "edukacja": schools,
         "nazwa": [{"imie": out.get("first_name"), "nazwisko": out.get("last_name")}],
-        "jezyki": [{"jezyk": x} if isinstance(x, str) else x for x in out.get("languages") or []],
+        "jezyki": [
+            {"jezyk": x} if isinstance(x, str) else x
+            for x in out.get("languages") or []
+        ],
     }
 
 
@@ -534,6 +537,79 @@ def _attachment(spec: dict, folder: str) -> dict:
     }
 
 
+def _addresses(value: Optional[str]) -> list[dict]:
+    from email.utils import getaddresses
+
+    return [
+        {"emailAddress": {"address": addr, "name": name}}
+        for name, addr in getaddresses([value or ""])
+        if addr
+    ]
+
+
+def _from_eml(raw: bytes, mid: str) -> tuple[dict, list[dict]]:
+    """Mail z archiwum (.eml) w kształcie Graph: nagłówki, treść tekstowa,
+    załączniki jako ``fileAttachment``, załączone maile jako ``itemAttachment``
+    (czytnik bierze je przez ``mime``)."""
+
+    import email
+    import email.policy
+    from email.utils import parsedate_to_datetime
+
+    message = email.message_from_bytes(raw, policy=email.policy.default)
+    files: list[dict] = []
+    body = ""
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        disposition = (part.get_content_disposition() or "").lower()
+        name = part.get_filename()
+        kind = part.get_content_type()
+        if kind == "message/rfc822" or (name and name.lower().endswith(".eml")):
+            files.append(
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "name": name or "mail.eml",
+                    "isInline": False,
+                }
+            )
+            continue
+        if name or disposition == "attachment":
+            data = part.get_payload(decode=True) or b""
+            files.append(
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": name or "plik",
+                    "isInline": disposition == "inline",
+                    "contentType": kind,
+                    "contentId": (part.get("Content-ID") or "").strip("<>") or None,
+                    "contentBytes": base64.b64encode(data).decode(),
+                }
+            )
+        elif kind == "text/plain" and not body:
+            body = part.get_content()
+    try:
+        received = parsedate_to_datetime(message.get("Date")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        received = datetime.now(timezone.utc)
+    graph = {
+        "id": mid,
+        "internetMessageId": message.get("Message-ID"),
+        "subject": str(message.get("Subject") or ""),
+        "hasAttachments": bool(files),
+        "from": (
+            _addresses(message.get("From")) or [{"emailAddress": {"address": ""}}]
+        )[0],
+        "toRecipients": _addresses(message.get("To")),
+        "ccRecipients": _addresses(message.get("Cc")),
+        "receivedDateTime": received.isoformat().replace("+00:00", "Z"),
+        "conversationId": message.get("Thread-Index") or mid,
+        "body": {"contentType": "text", "content": body},
+        "bodyPreview": body[:255],
+    }
+    return graph, files
+
+
 class _Box:
     def __init__(self, case: dict) -> None:
         self.messages: list[dict] = []
@@ -542,6 +618,13 @@ class _Box:
         folder = case["_katalog"]
         for index, mail in enumerate(case.get("maile") or []):
             mid = mail.get("id") or f"m{index + 1}"
+            if mail.get("eml_plik"):
+                raw = (Path(folder) / mail["eml_plik"]).read_bytes()
+                message, files = _from_eml(raw, f"korpus-{mid}")
+                self.messages.append(message)
+                self.files[message["id"]] = files
+                self.raw[message["id"]] = raw
+                continue
             files = [_attachment(f, folder) for f in mail.get("pliki") or []]
             message = {
                 "id": mid,
@@ -579,13 +662,31 @@ class _Box:
         return None
 
 
+def _schema_fingerprint(metadata) -> str:
+    import hashlib
+
+    lines = [
+        f"{table.name}:"
+        + ",".join(f"{c.name} {c.type!r} {c.nullable}" for c in table.columns)
+        for table in sorted(metadata.tables.values(), key=lambda t: t.name)
+    ]
+    return hashlib.sha1("\n".join(lines).encode()).hexdigest()
+
+
 async def _prepare_schema(url: str) -> None:
-    """Czysta baza ze schematem tej rewizji (``Base.metadata``)."""
+    """Czysta baza ze schematem tej rewizji (``Base.metadata``).
+
+    Baza z poprzedniego biegu zostaje, gdy ma ten sam odcisk schematu: przypadki
+    się cofają, więc jest czysta, a ``create_all`` 599 tabel to ~15 s."""
 
     from sqlalchemy import text
     from sqlalchemy.engine import make_url
     from sqlalchemy.ext.asyncio import create_async_engine
 
+    import app.models  # noqa: F401  (rejestr modeli)
+    from app.core.database import Base
+
+    fingerprint = _schema_fingerprint(Base.metadata)
     target = make_url(url)
     admin = create_async_engine(
         target.set(database="postgres"), isolation_level="AUTOCOMMIT"
@@ -596,14 +697,18 @@ async def _prepare_schema(url: str) -> None:
             {"name": target.database},
         )
     if exists:
-        # Baza tej rewizji z poprzedniego biegu: przypadki się cofają, więc jest czysta.
         probe = create_async_engine(url)
         async with probe.connect() as conn:
             ready = await conn.scalar(
                 text("SELECT to_regclass('public._eval_reader_ready')")
             )
+            stored = (
+                await conn.scalar(text("SELECT fp FROM _eval_reader_ready LIMIT 1"))
+                if ready
+                else None
+            )
         await probe.dispose()
-        if ready:
+        if stored == fingerprint:
             await admin.dispose()
             return
     async with admin.connect() as conn:
@@ -613,15 +718,15 @@ async def _prepare_schema(url: str) -> None:
         await conn.execute(text(f'CREATE DATABASE "{target.database}"'))
     await admin.dispose()
 
-    import app.models  # noqa: F401  (rejestr modeli)
-    from app.core.database import Base
-
     engine = create_async_engine(url)
     async with engine.begin() as conn:
         for extension in ("pg_trgm", "unaccent", "btree_gin"):
             await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
         await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text("CREATE TABLE _eval_reader_ready ()"))
+        await conn.execute(text("CREATE TABLE _eval_reader_ready (fp text)"))
+        await conn.execute(
+            text("INSERT INTO _eval_reader_ready VALUES (:fp)"), {"fp": fingerprint}
+        )
     await engine.dispose()
 
 
@@ -643,21 +748,43 @@ def _match(documents: list, want: dict, used: set[int]):
 
 
 async def _settlement_case(case: dict, engine, storage_root: Path) -> list[dict]:
+    """Jeden przypadek; podmiany (ustawienia, magazyn plików, domena firmy) wracają
+    po przypadku, bo test w CI biegnie w jednym procesie z innymi testami."""
+
     from app.core.config import settings
     from app.services import storage_service
+    from app.services.consultant_portal import identity
 
     today = date.fromisoformat(case.get("dzis") or "2026-11-24")
-    storage_service.STORAGE_ROOT = storage_root
     moment = datetime.combine(today, time(12), tzinfo=timezone.utc)
-    previous = {key: getattr(settings, key) for key in case.get("ustawienia") or {}}
-    for key, value in (case.get("ustawienia") or {}).items():
-        setattr(settings, key, value)
+    patches: list[tuple[Any, str, Any]] = [
+        (settings, key, value) for key, value in (case.get("ustawienia") or {}).items()
+    ]
+    patches.append((storage_service, "STORAGE_ROOT", storage_root))
+    # Domena firmy (skrzynki konsultantów i koordynatorów) jak w testach ``_db``:
+    # fikcyjna w repo, prawdziwa w korpusie lokalnym (``domeny_firmy``).
+    if hasattr(identity, "_company_domains"):
+        domains = frozenset(case.get("domeny_firmy") or ["firma.example.com"])
+        patches.append((identity, "_company_domains", lambda: domains))
+    previous = [(target, name, getattr(target, name)) for target, name, _ in patches]
+    for target, name, value in patches:
+        setattr(target, name, value)
     try:
         documents, contracts = await _read_mail(case, today, moment, engine)
     finally:
-        for key, value in previous.items():
-            setattr(settings, key, value)
+        for target, name, value in reversed(previous):
+            setattr(target, name, value)
     return _score_documents(case, documents, contracts)
+
+
+async def _clear_mail_state(db) -> None:
+    """Kopia produkcji ma już dokumenty i stan skrzynki: w transakcji przypadku
+    (cofanej) zaczynamy od pustych, żeby czytnik nie uznał pliku za duplikat."""
+
+    from sqlalchemy import text
+
+    for table in ("cp_documents", "cp_mailbox_state"):
+        await db.execute(text(f"DELETE FROM {table}"))
 
 
 async def _read_mail(case: dict, today: date, moment: datetime, engine):
@@ -670,15 +797,10 @@ async def _read_mail(case: dict, today: date, moment: datetime, engine):
 
     from app.models.app_setting import AppSetting
     from app.models.consultant_portal import CpDocument
-    from app.services.consultant_portal import identity, mailbox
+    from app.services.consultant_portal import mailbox
     from app.services.consultant_portal_schema import PORTAL_SETTING
     from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 
-    # Domena firmy (skrzynki konsultantów i koordynatorów) jak w testach ``_db``:
-    # fikcyjna w repo, prawdziwa w korpusie lokalnym (``domeny_firmy``).
-    if hasattr(identity, "_company_domains"):
-        domains = frozenset(case.get("domeny_firmy") or ["firma.example.com"])
-        identity._company_domains = lambda: domains
     async with engine.connect() as conn:
         outer = await conn.begin()
         try:
@@ -688,18 +810,24 @@ async def _read_mail(case: dict, today: date, moment: datetime, engine):
                     join_transaction_mode="create_savepoint",
                     expire_on_commit=False,
                 )
-                db.add(
-                    AppSetting(
-                        key=HR_MODULES_SETTING, value={k: True for k in HR_MODULE_KEYS}
+                if case.get("baza") == "kopia":
+                    # Kartoteka, klienci, zamówienia i ustawienia portalu z produkcji.
+                    await _clear_mail_state(db)
+                    contracts: dict[str, int] = {}
+                else:
+                    db.add(
+                        AppSetting(
+                            key=HR_MODULES_SETTING,
+                            value={k: True for k in HR_MODULE_KEYS},
+                        )
                     )
-                )
-                db.add(
-                    AppSetting(
-                        key=PORTAL_SETTING,
-                        value={"state": case.get("portal", "internal")},
+                    db.add(
+                        AppSetting(
+                            key=PORTAL_SETTING,
+                            value={"state": case.get("portal", "internal")},
+                        )
                     )
-                )
-                contracts = await _seed(db, case, today)
+                    contracts = await _seed(db, case, today)
                 await db.commit()
                 outcome = await mailbox.run_once(db, mailbox=_Box(case), now=moment)
                 await db.commit()
@@ -755,11 +883,20 @@ def _score_documents(
     return units
 
 
-async def run_settlements(cases: list[dict], url: str) -> list[dict]:
+async def run_settlements(
+    cases: list[dict], url: str, copy_url: Optional[str] = None
+) -> list[dict]:
+    """``copy_url`` = kopia produkcji dla przypadków ``"baza": "kopia"`` (korpus
+    lokalny); bez niej takie przypadki kończą się błędem „brak kopii”."""
+
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    await _prepare_schema(url)
-    engine = create_async_engine(url)
+    seeded = [c for c in cases if c.get("baza") != "kopia"]
+    engine = None
+    if seeded:
+        await _prepare_schema(url)
+        engine = create_async_engine(url)
+    copy_engine = create_async_engine(copy_url) if copy_url else None
     units: list[dict] = []
     with tempfile.TemporaryDirectory(prefix="eval-reader-") as tmp:
         for case in cases:
@@ -772,7 +909,10 @@ async def run_settlements(cases: list[dict], url: str) -> list[dict]:
                 }
             )
             try:
-                units.extend(await _settlement_case(case, engine, Path(tmp)))
+                target = copy_engine if case.get("baza") == "kopia" else engine
+                if target is None:
+                    raise RuntimeError("brak kopii produkcji (EVAL_READER_COPY_URL)")
+                units.extend(await _settlement_case(case, target, Path(tmp)))
                 if os.environ.get("EVAL_READER_TRACE"):
                     print(f"{case['id']}: ok", file=sys.stderr)
             except Exception as exc:
@@ -780,7 +920,9 @@ async def run_settlements(cases: list[dict], url: str) -> list[dict]:
                     traceback.format_exception_only(type(exc), exc)
                 ).strip()
                 units.extend(_failed(case, fields, detail[:400]))
-    await engine.dispose()
+    for item in (engine, copy_engine):
+        if item is not None:
+            await item.dispose()
     return units
 
 
@@ -813,7 +955,13 @@ def main() -> int:
     if args.czytnik == "cv":
         units = run_cv(cases)
     else:
-        units = asyncio.run(run_settlements(cases, os.environ["DATABASE_URL"]))
+        units = asyncio.run(
+            run_settlements(
+                cases,
+                os.environ["DATABASE_URL"],
+                os.environ.get("EVAL_READER_COPY_URL"),
+            )
+        )
     Path(args.wynik).write_text(
         json.dumps(
             {"przypadki": len(cases), "jednostki": units},

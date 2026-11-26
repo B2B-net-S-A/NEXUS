@@ -157,6 +157,39 @@ def corpus_dirs(
     return dirs
 
 
+def copy_database(reader: str, dirs: list[tuple[str, str]]) -> Optional[str]:
+    """Kopia produkcji dla przypadków lokalnych ``"baza": "kopia"`` (eksport zapisuje
+    nazwę w ``_srodowisko.json``; gdy nocna rotacja ją usunęła, najnowsza kopia)."""
+
+    local = [d for d, label in dirs if label == "lokalny"]
+    if reader != "rozliczenia" or not local:
+        return None
+    env_url = os.environ.get("EVAL_READER_COPY_URL")
+    if env_url:
+        return env_url
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import eval_reader_export as export
+
+    wanted = ""
+    meta = Path(local[0]) / "_srodowisko.json"
+    if meta.is_file():
+        wanted = json.loads(meta.read_text(encoding="utf-8")).get("baza_kopii", "")
+    try:
+        newest = export.newest_copy()
+        listed = subprocess.run(
+            ["docker", "exec", export.PG_CONTAINER, "psql", "-U", "nexus", "-d", "postgres", "-At",
+             "-c", "SELECT datname FROM pg_database"],
+            capture_output=True, text=True, check=True,
+        ).stdout.split()  # fmt: skip
+        return export.copy_url(wanted if wanted in listed else newest)
+    except (subprocess.CalledProcessError, SystemExit, FileNotFoundError):
+        print(
+            "Uwaga: brak kopii stagingu — przypadki lokalne rozliczeń nie pobiegną.",
+            file=sys.stderr,
+        )
+        return None
+
+
 def run_revision(
     reader: str,
     sha: str,
@@ -172,6 +205,9 @@ def run_revision(
         env["DATABASE_URL"] = f"{base}/eval_{reader}_{sha[:10]}"
     else:
         env["DATABASE_URL"] = "postgresql+asyncpg://eval:eval@127.0.0.1:1/brak"
+    copy = copy_database(reader, dirs)
+    if copy:
+        env["EVAL_READER_COPY_URL"] = copy
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
         out = Path(handle.name)
     command = [
