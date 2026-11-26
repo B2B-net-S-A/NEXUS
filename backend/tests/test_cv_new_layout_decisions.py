@@ -260,6 +260,23 @@ def test_w03_language_pills_only_from_b1():
     assert "<div class='pills'>" in trow  # w tym samym rzędzie co tytuł
 
 
+def test_w03b_one_pill_per_language_with_higher_level():
+    """Decyzja Artura 26.11.2026: dwa wpisy tego samego języka (czytanie / mówienie)
+    to jedna pastylka z wyższym poziomem; ojczysty wygrywa z CEFR, poziom poniżej B1
+    nie wypiera wyższego, kolejność jak przy pierwszym wpisie języka."""
+    data = long_cv()
+    data["languages"] = [
+        "Polish - C2",
+        "English (reading/listening) - C1",
+        "English (speaking/writing) - B1",
+        "Niemiecki (pisanie) - A2",
+        "Niemiecki (mówienie) - B2",
+        "Angielski - ojczysty",
+    ]
+    trow = _page1(_html(data))[: _page1(_html(data)).index("<div class='blk'>")]
+    assert _pills(trow) == [("PL", " C2"), ("EN", " ojczysty"), ("DE", " B2")]
+
+
 def test_w04_city_pill_with_pin():
     """W4: miasto kandydata w pastylce z pinezką: „, PL” obcięte, inny kraj zostaje
     kodem; bez miasta albo w CV Blind — bez pastylki."""
