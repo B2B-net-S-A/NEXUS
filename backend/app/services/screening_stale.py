@@ -25,7 +25,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Iterable, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
@@ -53,6 +53,9 @@ from app.services.board_stage_badges import (
     board_column_for,
 )
 from app.services.pipeline_latest import latest_stage_ids
+
+if TYPE_CHECKING:
+    from app.models.notification import NotificationType
 
 logger = logging.getLogger(__name__)
 
@@ -782,57 +785,319 @@ def people(count: int) -> str:
     return f"{count} osób"
 
 
-def bell_title(count: int, job_title: str) -> str:
-    return f"{people(count)} znów dla wszystkich · {job_title}"
+_WEEKDAY_ACC = (
+    "poniedziałek",
+    "wtorek",
+    "środę",
+    "czwartek",
+    "piątek",
+    "sobotę",
+    "niedzielę",
+)
+# Ostrzeżenie dzień wcześniej (26.11.2026): w dzień roboczy od 8:00 do 20:00.
+WARN_FROM_HOUR = 8
+WARN_UNTIL_HOUR = 20
+STOP_HINT = "Notatka, „Nie odebrał” albo umówiony telefon zatrzyma kartę u Ciebie."
 
 
-def bell_text(count: int, names: Sequence[str]) -> str:
-    shown = ", ".join(names[:3])
-    more = count - min(len(names), 3)
-    tail = f" i {more} więcej" if more > 0 else ""
-    return (
-        f"{shown}{tail}: 2 dni robocze bez śladu. Ze „Screeningu” wracają do "
-        "„Nowych”, a „Biorę” wygasa. Dzwonisz? Weź ponownie."
+def _day_start(moment: datetime) -> datetime:
+    """Północ dnia kalendarzowego w Warszawie (granica dziennego dzwonka)."""
+    local = _aware(moment).astimezone(ZoneInfo(DEFAULT_TZ))
+    return datetime.combine(local.date(), time(0), tzinfo=ZoneInfo(DEFAULT_TZ))
+
+
+def next_workday(day: date) -> date:
+    day += timedelta(days=1)
+    while not _is_workday(day):
+        day += timedelta(days=1)
+    return day
+
+
+def returned_bell_title(returned: int, released: int) -> str:
+    if returned:
+        return f"Wróciło do „Nowych”: {people(returned)}"
+    return f"„Biorę” wygasło: {people(released)}"
+
+
+def soon_bell_title(count: int, today: date, day: date) -> str:
+    when = (
+        "Jutro"
+        if day == today + timedelta(days=1)
+        else f"W {_WEEKDAY_ACC[day.weekday()]}"
+    )
+    return f"{when} wrócą do „Nowych”: {people(count)}"
+
+
+def _job_lines(
+    by_job: Mapping[int, Sequence[int]],
+    titles: Mapping[int, str],
+    names: Mapping[int, str],
+) -> list[str]:
+    """„Tytuł rekrutacji: Jan K., Ola M.” — od rekrutacji z największą liczbą kart."""
+    lines = []
+    for job_id, cids in sorted(by_job.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        shown = ", ".join(names.get(c, "Kandydat") for c in cids)
+        lines.append(f"{titles.get(job_id, 'Rekrutacja')} ({len(cids)}): {shown}")
+    return lines
+
+
+async def _names(db: AsyncSession, candidate_ids: Iterable[int]) -> dict[int, str]:
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                Candidate.id.in_(ids)
+            )
+        )
+    ).all()
+    return {cid: f"{n or ''} {ln or ''}".strip() or "Kandydat" for cid, n, ln in rows}
+
+
+async def _titles(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, str]:
+    ids = sorted(set(job_ids))
+    if not ids:
+        return {}
+    return dict(
+        (await db.execute(select(Job.id, Job.title).where(Job.id.in_(ids)))).all()
     )
 
 
-async def send_bells(db: AsyncSession, result: SweepResult) -> int:
-    """Jeden dzwonek na osobę i rekrutację (ten sam typ co „przejął(a) osobę”,
-    kategoria przekazań). Własne savepointy w ``emit``; nigdy nie rzuca."""
-    from app.models.notification import NotificationType
+async def _upsert_daily(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    ntype: NotificationType,
+    title: str,
+    message: str,
+    link: str,
+    refresh: bool = True,
+) -> bool:
+    """Jeden dzwonek dziennie na osobę: dzisiejszy aktualizuje treść i wraca
+    jako nieprzeczytany (``refresh=False``: zostaje, jaki był), a gdy go nie ma
+    — ``emit`` (bramka odbiorcy, dedup). „Dziś” z zegara, nie z ``--as-of``:
+    dzwonek ma czas zapisu. Szukamy po osobie, której dzwonek dotyczy
+    (``related_entity``), nie po odbiorcy: przy zastępstwie ``emit`` zapisuje
+    wiersz na zastępcę."""
+    from app.models.notification import Notification
     from app.services.notification_triggers import emit
 
+    existing = await db.scalar(
+        select(Notification)
+        .where(
+            Notification.notification_type == ntype,
+            Notification.related_entity_type == "user",
+            Notification.related_entity_id == user_id,
+            Notification.created_at >= _day_start(datetime.now(timezone.utc)),
+        )
+        .order_by(Notification.id.desc())
+        .limit(1)
+    )
+    if existing is not None:
+        if not refresh or (existing.title == title and existing.message == message):
+            return False
+        existing.title = title
+        existing.message = message
+        existing.link = link
+        existing.is_read = False
+        # „Przed chwilą” w okienku zamiast czasu pierwszego przebiegu.
+        existing.created_at = datetime.now(timezone.utc)
+        return True
+    notification = await emit(
+        db,
+        user_id=user_id,
+        title=title,
+        message=message,
+        ntype=ntype,
+        related_entity_type="user",
+        related_entity_id=user_id,
+        link=link,
+    )
+    return notification is not None
+
+
+async def send_bells(db: AsyncSession, result: SweepResult) -> int:
+    """Dzwonek „wróciło do Nowych” (26.11.2026): jeden na osobę dziennie, liczony
+    ze WSZYSTKICH dzisiejszych powrotów (wpisy ``stale_card_returned``), a nie
+    z jednego przebiegu. Przebieg oddaje najwyżej 200 kart, więc pierwsza fala
+    szła w kilku przebiegach, a dzienny dedup puszczał tylko dzwonek z pierwszego
+    (24.11: 593 z 1 632 kart bez dzwonka). „Dziś” z zegara, bo wpisy powrotu
+    mają czas zapisu (także przy ``--as-of`` na stagingu). Nigdy nie rzuca."""
+    from app.models.notification import NotificationType
+
+    holders = sorted({user_id for user_id, _job in result.bells})
+    if not holders:
+        return 0
+    moment = datetime.now(timezone.utc)
     sent = 0
-    for (user_id, job_id), candidate_ids in sorted(result.bells.items()):
-        try:
-            job = await db.get(Job, job_id)
-            user = await db.get(User, user_id)
-            if job is None or user is None or not user.is_active:
-                continue
-            people = (
-                await db.execute(
-                    select(Candidate.name, Candidate.lastname).where(
-                        Candidate.id.in_(candidate_ids)
-                    )
+    try:
+        rows = (
+            await db.execute(
+                select(Activity.details).where(
+                    Activity.entity_type == "pipeline",
+                    Activity.action == ACTION_RETURNED,
+                    Activity.created_at >= _day_start(moment),
                 )
-            ).all()
-            names = [f"{n or ''} {ln or ''}".strip() or "Kandydat" for n, ln in people]
-            count = len(candidate_ids)
-            title = bell_title(count, job.title)
-            notification = await emit(
-                db,
-                user_id=user_id,
-                title=title,
-                message=bell_text(count, names),
-                ntype=NotificationType.candidate_claim_taken,
-                related_entity_type="job",
-                related_entity_id=job_id,
-                link=f"/jobs/{job_id}",
             )
-            if notification is not None:
+        ).all()
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "screening_stale: odczyt dzisiejszych powrotów nie powiódł się"
+        )
+        return 0
+    # osoba → rodzaj → rekrutacja → kandydaci (bez powtórzeń, w kolejności powrotu)
+    today: dict[int, dict[str, dict[int, list[int]]]] = {}
+    wanted = set(holders)
+    for (details,) in rows:
+        details = details or {}
+        try:
+            holder = int(details["holder_user_id"])
+            job_id = int(details["job_id"])
+            cid = int(details["candidate_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if holder not in wanted:
+            continue
+        kind = details.get("kind") or KIND_SCREENING
+        bucket = (
+            today.setdefault(holder, {}).setdefault(kind, {}).setdefault(job_id, [])
+        )
+        if cid not in bucket:
+            bucket.append(cid)
+    all_jobs = {j for kinds in today.values() for jobs in kinds.values() for j in jobs}
+    all_cands = {
+        c
+        for kinds in today.values()
+        for jobs in kinds.values()
+        for cids in jobs.values()
+        for c in cids
+    }
+    titles = await _titles(db, all_jobs)
+    names = await _names(db, all_cands)
+    for user_id in holders:
+        kinds = today.get(user_id)
+        if not kinds:
+            continue
+        try:
+            user = await db.get(User, user_id)
+            if user is None or not user.is_active:
+                continue
+            returned = kinds.get(KIND_SCREENING, {})
+            released = kinds.get(KIND_CLAIM, {})
+            n_returned = sum(len(c) for c in returned.values())
+            n_released = sum(len(c) for c in released.values())
+            parts: list[str] = []
+            if returned:
+                parts.append(
+                    "2 dni robocze bez śladu w „Screeningu”. Stoją w „Nowych” "
+                    "i bierze je każdy; chcesz dalej dzwonić, weź ponownie:"
+                )
+                parts += _job_lines(returned, titles, names)
+            if released:
+                parts.append("„Biorę” wygasło (2 dni robocze bez śladu):")
+                parts += _job_lines(released, titles, names)
+            main = returned or released
+            top_job = sorted(main.items(), key=lambda kv: (-len(kv[1]), kv[0]))[0][0]
+            async with db.begin_nested():
+                changed = await _upsert_daily(
+                    db,
+                    user_id=user_id,
+                    ntype=NotificationType.screening_cards_returned,
+                    title=returned_bell_title(n_returned, n_released),
+                    message="\n".join(parts),
+                    link=f"/jobs/{top_job}",
+                )
+            if changed:
                 sent += 1
         except Exception:  # noqa: BLE001
             logger.exception("screening_stale: dzwonek do %s nie poszedł", user_id)
+    return sent
+
+
+async def soon_cards(
+    db: AsyncSession, *, now: datetime, job_ids: Optional[Iterable[int]] = None
+) -> tuple[date, dict[int, list[StaleCard]]]:
+    """Karty w „Screeningu”, które wrócą następnego dnia roboczego, po osobie,
+    która je trzyma (``holder_id``) — ta sama reguła co automat."""
+    day = next_workday(business_date(now))
+    cards = [c for c in await cards_for_jobs(db, job_ids) if c.kind == KIND_SCREENING]
+    traces = await last_traces(db, cards)
+    out: dict[int, list[StaleCard]] = defaultdict(list)
+    for card in cards:
+        if card.holder_id is not None and return_day(traces[card.pair]) == day:
+            out[card.holder_id].append(card)
+    return day, dict(out)
+
+
+async def send_soon_bells(
+    db: AsyncSession, *, now: datetime, job_ids: Optional[Iterable[int]] = None
+) -> int:
+    """Poranne ostrzeżenie (26.11.2026): „Jutro wrócą do „Nowych”: N osób” —
+    jeden dzwonek na osobę dziennie. Tylko w dzień roboczy. Nigdy nie rzuca."""
+    from app.models.notification import NotificationType
+
+    if not is_business_day(now):
+        return 0
+    try:
+        day, by_holder = await soon_cards(db, now=now, job_ids=job_ids)
+    except Exception:  # noqa: BLE001
+        logger.exception("screening_stale: ostrzeżenie — odczyt kart nie powiódł się")
+        return 0
+    if not by_holder:
+        return 0
+    titles = await _titles(db, {c.job_id for cs in by_holder.values() for c in cs})
+    names = await _names(db, {c.candidate_id for cs in by_holder.values() for c in cs})
+    today = business_date(now)
+    sent = 0
+    for user_id, cards in sorted(by_holder.items()):
+        try:
+            user = await db.get(User, user_id)
+            if user is None or not user.is_active:
+                continue
+            by_job: dict[int, list[int]] = defaultdict(list)
+            for card in sorted(cards, key=lambda c: (c.job_id, c.candidate_id)):
+                by_job[card.job_id].append(card.candidate_id)
+            top_job = sorted(by_job.items(), key=lambda kv: (-len(kv[1]), kv[0]))[0][0]
+            async with db.begin_nested():
+                changed = await _upsert_daily(
+                    db,
+                    user_id=user_id,
+                    ntype=NotificationType.screening_cards_return_soon,
+                    title=soon_bell_title(len(cards), today, day),
+                    message="\n".join([STOP_HINT, *_job_lines(by_job, titles, names)]),
+                    link=f"/jobs/{top_job}",
+                    # Po restarcie wieczorem (wdrożenia od 18:00) poranne
+                    # ostrzeżenie zostaje, jakie było — bez drugiego dzwonka.
+                    refresh=False,
+                )
+            if changed:
+                sent += 1
+        except Exception:  # noqa: BLE001
+            logger.exception("screening_stale: ostrzeżenie do %s nie poszło", user_id)
+    return sent
+
+
+def warn_due(now: datetime) -> bool:
+    """Pora na poranne ostrzeżenie: dzień roboczy, 8:00–20:00 w Warszawie."""
+    local = _aware(now).astimezone(ZoneInfo(DEFAULT_TZ))
+    return is_business_day(now) and WARN_FROM_HOUR <= local.hour < WARN_UNTIL_HOUR
+
+
+async def warn_once_safely(now: Optional[datetime] = None) -> Optional[int]:
+    """Własna sesja i commit; nigdy nie rzuca. ``None`` = błąd."""
+    from app.core.database import AsyncSessionLocal
+
+    moment = now or datetime.now(timezone.utc)
+    try:
+        async with AsyncSessionLocal() as db:
+            sent = await send_soon_bells(db, now=moment)
+            await db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("screening_stale: ostrzeżenie nie powiodło się")
+        return None
+    if sent:
+        logger.info("screening_stale: ostrzeżenia %s", sent)
     return sent
 
 

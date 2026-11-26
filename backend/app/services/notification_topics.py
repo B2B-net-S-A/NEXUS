@@ -67,6 +67,8 @@ _JOBS = (
     _T.candidate_claim_handover,
     _T.candidate_claim_request,
     _T.candidate_claim_request_answer,
+    _T.screening_cards_returned,
+    _T.screening_cards_return_soon,
     _T.candidate_followup_signal,
     # 0506: umowa przedwstępna osoby (prośba, podpisy, terminy).
     _T.pre_contract,
@@ -184,6 +186,8 @@ _JOBS_TOAST = (
     _T.candidate_claim_handover,
     _T.candidate_claim_request,
     _T.candidate_claim_request_answer,
+    _T.screening_cards_returned,
+    _T.screening_cards_return_soon,
     _T.request_review_needed,
     _T.client_job_opened,
     _T.job_p0_set,

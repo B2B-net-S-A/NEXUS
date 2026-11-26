@@ -677,6 +677,8 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
         "candidate_claim_handover",
         "candidate_claim_request",
         "candidate_claim_request_answer",
+        "screening_cards_returned",
+        "screening_cards_return_soon",
     ),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
     "cpro_invoice_buyer": ("cpro_invoice_buyer",),

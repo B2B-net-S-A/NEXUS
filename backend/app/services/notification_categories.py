@@ -151,6 +151,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.candidate_claim_handover: _C.mentions,
     _T.candidate_claim_request: _C.mentions,
     _T.candidate_claim_request_answer: _C.mentions,
+    # Karty bez śladu: wróciły Twoje osoby — imienne, jak „przejął(a) osobę”;
+    # ostrzeżenie dzień wcześniej to przypomnienie (do wyciszenia).
+    _T.screening_cards_returned: _C.mentions,
+    _T.screening_cards_return_soon: _C.reminders,
     # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).
     _T.note_reply: _C.mentions,
     # Ktoś przydzielił Ci request (akceptacja propozycji automatu, poranne
@@ -415,6 +419,11 @@ _SPLIT_GROUPS: dict[
             _T.job_idle_reminder,
             _T.request_allocation_proposals,
         ),
+    ),
+    "reminders_screening_return": (
+        "Karty, które jutro wrócą ze Screeningu",
+        _C.reminders,
+        (_T.screening_cards_return_soon,),
     ),
     "reminders_job_ads": (
         "Brakujące ogłoszenia rekrutacji",

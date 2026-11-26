@@ -4,10 +4,12 @@ Na produkcji robi to pętla ``screening_stale`` co 15 minut. Na stagingu pętla
 jest zatrzymana (wspólna kopia produkcji), więc tu: domyślnie podgląd bez
 zapisu, ``--apply`` wykonuje przebieg z dzwonkami. ``--job`` zawęża do
 rekrutacji, ``--as-of`` liczy dni tak, jakby był inny moment (sprawdzenie
-ścieżki bez czekania dwóch dni).
+ścieżki bez czekania dwóch dni). ``--warn`` liczy poranne ostrzeżenie „Jutro
+wrócą do „Nowych”” (z ``--apply`` wysyła je).
 
     python -m scripts.screening_stale_return --job 758737
     python -m scripts.screening_stale_return --job 758737 --as-of 2026-11-27T08:00+01:00 --apply
+    python -m scripts.screening_stale_return --warn --as-of 2026-11-26T09:00+01:00 --apply
 """
 
 import argparse
@@ -26,6 +28,7 @@ async def main() -> None:
     parser.add_argument("--job", type=int, action="append", dest="jobs")
     parser.add_argument("--as-of", dest="as_of")
     parser.add_argument("--limit", type=int, default=screening_stale.MAX_PER_RUN)
+    parser.add_argument("--warn", action="store_true")
     args = parser.parse_args()
     now = (
         datetime.fromisoformat(args.as_of).astimezone(timezone.utc)
@@ -33,6 +36,26 @@ async def main() -> None:
         else datetime.now(timezone.utc)
     )
     async with AsyncSessionLocal() as db:
+        if args.warn:
+            day, by_holder = await screening_stale.soon_cards(
+                db, now=now, job_ids=args.jobs
+            )
+            summary = {
+                "as_of": now.isoformat(),
+                "returns_on": day.isoformat(),
+                "holders": len(by_holder),
+                "cards": sum(len(cards) for cards in by_holder.values()),
+            }
+            if args.apply:
+                summary["sent"] = await screening_stale.send_soon_bells(
+                    db, now=now, job_ids=args.jobs
+                )
+                await db.commit()
+            else:
+                await db.rollback()
+            await engine.dispose()
+            print(json.dumps(summary, ensure_ascii=False))
+            return
         due = await screening_stale.due_cards(db, now=now, job_ids=args.jobs)
         summary = {
             "as_of": now.isoformat(),
