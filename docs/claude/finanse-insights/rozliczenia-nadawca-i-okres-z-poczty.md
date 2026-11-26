@@ -1,6 +1,6 @@
 # Rozliczenia: nadawca i okres raportu z poczty — Gmail bez kropek, erste.pl, „MM RRRR”
 
-<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467 -->
+<!-- indeks: brak dokumentu, brak wejścia, nadawca rozliczeń, Gmail, kropki w adresie, _by_gmail_alias, googlemail, erste.pl, KNOWN_SENDER_DOMAINS, skrzynka u klienta, _by_company_address, KCP, Bank Pocztowy, period_for, _PERIOD_NUMERIC, okres zgadnięty, period_guessed, zmiana klienta, dwa kontrakty, ENDED_GRACE_DAYS, resolve_sender_in_month, works_in_month, VeloBank 466 467, faktura kontraktora, przekazany wątek, thread_invoice_waits, dwóch klientów -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (powtórka na kopii produkcji) 24 przypadki poza
 Nordeą miały status „bez dokumentu”, choć Finanse wystawiły za nie faktury. Przegląd archiwum
@@ -70,6 +70,25 @@ z okresu 01.09–20.11, ten sam kod (#3909) raz bez poprawki, raz z nią.
 - 412 IX to skutek kopii: drugi kontrakt tej osoby wpisano w NEXUS-ie 29.10, po mailu
   z 15.09. Na produkcji tak samo bywa, gdy następny kontrakt jest wpisany przed startem
   (tu tydzień wcześniej), a raport za bieżący miesiąc przychodzi w tym czasie.
+
+## Faktura z przekazanym wątkiem u osoby z dwoma klientami czeka (od 26.11.2026)
+
+Konsultant z kontraktami w dwóch bankach wysłał z adresu firmy fakturę za VII z przekazanym
+wątkiem ze skrzynki w jednym z nich. Czytnik dawał kontrakt z wątku (`mailbox._forwarded_contract`)
+każdemu plikowi z nazwy raportu albo faktury, więc faktura sama trafiła do tego banku, choć
+wyglądała na jedną za oba kontrakty (tak bywa, `resolve_report_owner`).
+
+- Faktura (rodzaj po sprawdzeniu treści pliku) nie bierze kontraktu z przekazanego wątku, gdy
+  osoba z tego kontraktu albo jedyna osoba pod adresem nadawcy ma działające kontrakty u co
+  najmniej dwóch klientów (`identity.thread_invoice_waits`). Działający to też zakończony do
+  60 dni temu, więc dotyczy to osoby po zmianie klienta. Faktura czeka na ręczne przypisanie.
+- Pozostałe pliki tego maila idą jak dotąd: wzór klienta, wątek.
+- Treść maila z akceptacją dalej zapisuje się przy kontrakcie z wątku, także gdy jedynym
+  plikiem była faktura.
+- Osoba u jednego klienta: faktura z wątku trafia do kontraktu jak dotąd.
+- Inne drogi bez zmian: skrzynka konsultanta u klienta jako nadawca i nazwisko z nazwy pliku
+  w portfelu Delivery Leada. Dokumentów zapisanych wcześniej czytnik nie przepina, a okres
+  faktury dalej bierze z numeru w nazwie.
 
 ## Czego ta zmiana nie robi
 

@@ -1,0 +1,126 @@
+[
+ {
+  "id": "rozl-faktura-dwoch-bankow-z-watku",
+  "opis": "Osoba u dwóch banków: faktura z maila z przekazanym wątkiem ze skrzynki w VeloBanku trafiała sama do kontraktu w VeloBanku, pod okres z numeru faktury",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Marta",
+    "nazwisko": "Dwubankowa",
+    "email": "marta.prywatna@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-07-01"},
+     {"klient": "VB", "od": "2022-07-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "marta.dwubankowa@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "Faktura lipiec",
+    "odebrano": "2026-08-10T19:26:00Z",
+    "eml": "From: marta.dwubankowa@firma.example.com\nSubject: Faktura lipiec\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"granica\"\n\n--granica\nContent-Type: text/plain; charset=utf-8\n\nW zalaczniku.\n\n--granica\nContent-Type: message/rfc822\nContent-Disposition: attachment; filename=\"FW Timesheet lipiec.eml\"\n\nFrom: Kierownik Testowy <kierownik@velobank.pl>\nSubject: FW: Timesheet lipiec\nContent-Type: text/plain; charset=utf-8\n\nOK\n\nFrom: Marta Dwubankowa <marta.dwubankowa@velobank.pl>\nSubject: Timesheet lipiec\n\nProsze o akceptacje.\n\n--granica--\n",
+    "pliki": [
+     {"nazwa": "Faktura_FV1_8_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura za dwa kontrakty"},
+     {
+      "nazwa": "Karta pracy - lipiec 2026r.pdf",
+      "pdf": "KARTA EWIDENCJI ŚWIADCZENIA USŁUG\nImię i Nazwisko: Dwubankowa DSI Marta\nMiesiąc: Lipiec\nRok: 2026\n1 Zadanie 1: analiza 8\nSuma dni przepracowanych 1,0\nLiczba godzin czas podstawowy 8"
+     },
+     {
+      "nazwa": "Marta Dwubankowa_TS - lipiec 2026.xlsx",
+      "arkusz": {
+       "GridTable": [
+        [null, "Time Sheet"],
+        [null, "Project Name", null, "Prace w projekcie Fino"],
+        [null, "Consultant(s)", null, "Marta Dwubankowa"],
+        [null, "Date from", null, "2026-07-01"],
+        [null, "Date to", null, "2026-07-31"],
+        [null, "Date", "Strumień", "Project", "Description", "Total Hours", "Billable", "Non-billable"],
+        [null, "2026-07-01", 10144, null, "Prace programistyczne", 8, 8, null],
+        [null, "Total Hours", null, null, null, 8]
+       ]
+      }
+     },
+     {"nazwa": "FW Timesheet lipiec.eml", "typ": "#microsoft.graph.itemAttachment"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura_FV1_8_2026.pdf", "rodzaj": "invoice", "osoba": null},
+   {"plik": "Karta pracy - lipiec 2026r.pdf", "rodzaj": "report", "osoba": "A", "okres": "2026-07"},
+   {"plik": "Marta Dwubankowa_TS - lipiec 2026.xlsx", "rodzaj": "report", "osoba": "A#2", "okres": "2026-07"}
+  ],
+  "liczba_dokumentow": 3
+ },
+ {
+  "id": "rozl-faktura-od-koordynatora-z-watkiem-dwoch-bankow",
+  "opis": "Koordynator przekazuje fakturę z wątkiem ze skrzynki konsultanta w VeloBanku, a konsultant ma też kontrakt w Banku Pocztowym: faktura trafiała sama do VeloBanku",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "BP": {"nazwa": "Bank Pocztowy Przykładowy", "nip": "5540314271"},
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Piotr",
+    "nazwisko": "Przekazany",
+    "email": "piotr.prywatny@example.com",
+    "kontrakty": [
+     {"klient": "BP", "od": "2026-01-01"},
+     {"klient": "VB", "od": "2025-03-01"}
+    ]
+   }
+  },
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "FW: Faktura lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "eml": "From: koordynator@firma.example.com\nSubject: FW: Faktura lipiec\nContent-Type: text/plain; charset=utf-8\n\nPrzesylam.\n\nFrom: Piotr Przekazany <piotr.przekazany@velobank.pl>\nSubject: Faktura lipiec\n\nW zalaczniku.\n",
+    "pliki": [
+     {"nazwa": "Faktura_FV2_8_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura z przekazanego maila"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura_FV2_8_2026.pdf", "rodzaj": "invoice", "osoba": null}
+  ]
+ },
+ {
+  "id": "rozl-faktura-z-watku-osoby-u-jednego-klienta",
+  "opis": "Osoba z jednym kontraktem: faktura przekazana z wątkiem z jej skrzynki u klienta dalej trafia do tego kontraktu",
+  "dzis": "2026-08-10",
+  "klienci": {
+   "VB": {"nazwa": "Velo Przykładowy", "nip": "7011105189"}
+  },
+  "osoby": {
+   "A": {
+    "imie": "Ewa",
+    "nazwisko": "Jednoklientowa",
+    "email": "ewa.prywatna@example.com",
+    "kontrakty": [{"klient": "VB", "od": "2025-03-01"}]
+   }
+  },
+  "maile": [
+   {
+    "od": "koordynator@firma.example.com",
+    "do": ["rozliczenia@firma.example.com"],
+    "temat": "FW: Faktura lipiec",
+    "odebrano": "2026-08-10T09:00:00Z",
+    "eml": "From: koordynator@firma.example.com\nSubject: FW: Faktura lipiec\nContent-Type: text/plain; charset=utf-8\n\nPrzesylam.\n\nFrom: Ewa Jednoklientowa <ewa.jednoklientowa@velobank.pl>\nSubject: Faktura lipiec\n\nW zalaczniku.\n",
+    "pliki": [
+     {"nazwa": "Faktura_FV3_8_2026.pdf", "tekst": "%PDF-1.4 fikcyjna faktura jednego klienta"}
+    ]
+   }
+  ],
+  "oczekiwane": [
+   {"plik": "Faktura_FV3_8_2026.pdf", "rodzaj": "invoice", "osoba": "A"}
+  ]
+ }
+]
