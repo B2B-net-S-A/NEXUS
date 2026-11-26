@@ -1,0 +1,23 @@
+[
+  {
+    "id": "cv-3982-pusta-linia-stanowiska-to-stanowisko",
+    "poprawka": "9c16681ce #3982",
+    "opis": "Rekruter skasował w edytorze nazwę i daty drugiego stanowiska, została firma: QC gubiło pusty akapit stanowiska, firma i obowiązki wchodziły do poprzedniej roli, a uwaga wskazywała w edytorze sąsiednie stanowisko",
+    "wejscie": {
+      "qc": {
+        "html": "<h1>Java Developer – Jan Korpusowy</h1><h2 data-cv-section=\"experience\">DOŚWIADCZENIE</h2><p data-cv-section=\"role\"><strong>Java Developer</strong> 03.2021 - obecnie</p><p data-cv-section=\"employer\">Firma Przykładowa A</p><ul><li><p>Rozwój systemu płatności w Javie.</p></li></ul><p data-cv-section=\"role\"></p><p data-cv-section=\"employer\">Firma Przykładowa B</p><ul><li><p>Testy integracyjne usług.</p></li></ul><h2 data-cv-section=\"education\">EDUKACJA</h2><p>Uniwersytet Przykładowy</p>"
+      }
+    },
+    "oczekiwane": {
+      "daty": [
+        {"firma": "Firma Przykładowa A", "stanowisko": "Java Developer 03.2021 - obecnie"},
+        {"firma": "Firma Przykładowa B", "stanowisko": ""}
+      ],
+      "liczba_daty": 2,
+      "nazwa": [
+        {"stanowisko_roli": "Java Developer 03.2021 - obecnie", "bez_nazwy": false},
+        {"stanowisko_roli": "", "bez_nazwy": true}
+      ]
+    }
+  }
+]

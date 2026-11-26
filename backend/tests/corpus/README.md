@@ -72,20 +72,47 @@ Każdy przypadek biegnie w transakcji cofanej na końcu. Domena firmy: `firma.ex
 
 - `osoba`: klucz osoby (`"A"`, drugi kontrakt `"A#2"`) albo `null` = plik czeka na
   ręczne przypisanie. `rodzaj`: `report` / `invoice` (jak `CpDocument.kind`).
-  `okres`: `RRRR-MM`.
+  `okres`: `RRRR-MM`. `{"plik": "…", "_brak": true}` = takiego pliku ma nie być
+  (jednostka w polu `rodzaj`).
 - Klucze klientów w `osoby.*.klient` bez wpisu w `klienci` tworzą klienta o tej nazwie.
 - `id` klienta tylko wtedy, gdy czytnik ma politykę po ID produkcji (BIK 18 itd.).
 - `pdf` to tekst (linie, kolumny po tabulatorze) zapisany jako PDF z polskimi literami.
+- `klienci.*.reguly` = reguły rozliczeń klienta (`ClientSettlementRuleSet.rules`,
+  od miesiąca `reguly_od`, domyślnie `2020-01`), np.
+  `{"proof.excel_with_mail": {"level": "warn", "params": {"domain": "bank.example.com"}}}`.
+  Od nich zależy, czy czytnik zapisuje treść maila (`proof.excel_with_mail`,
+  `proof.accept_has_hours`, `extra.mail_accept`) i czy domena klienta jest domeną
+  akceptacji (`cl.client_acceptance`). Klient z regułami ma pozostałe reguły
+  z poziomem z katalogu (`rules_catalog.effective`).
+- `wyslane` = nasze maile z folderu Wysłane (`sent_messages`): `id`, `od`, `do`, `dw`,
+  `temat`, `wyslano` (ISO, `sentDateTime`), `watek`, `pliki` jak w `maile`. Odpowiedź
+  klienta bez pliku bierze z nich plik godzin. Odpowiedź, którą czytnik czyta przez
+  MIME, potrzebuje `eml`.
+- `przebiegi` = tyle razy z rzędu woła się `run_once` (domyślnie 1); stan skrzynki
+  (znacznik, licznik porażek maila) przechodzi z biegu na bieg.
+- `maile.*.wyjatek` = atrapa rzuca `ValueError` z tym tekstem przy pobraniu
+  załączników tego maila w każdym biegu (mail, którego czytnik nie umie przeczytać).
 
 ## `cv` — treść Nowego CV
 
-Bez bazy. Dwa etapy, przypadek używa jednego:
+Bez bazy. Trzy etapy, przypadek używa jednego:
 
 - **odczyt pliku** (`cv_parser`): `wejscie.odczyt = {"tekst": "tekst CV", "model": {…}}` —
   wynik modelu zapisany przy odczycie przechodzi `finalize_claude_cv_output`
   (nazwa z nagłówka, kontakt z regexu, normalizacja dat i szkół); `model: null` =
-  sama heurystyka. Pola: `daty` (`od`, `do`, `firma`, `stanowisko`), `edukacja`
-  (`uczelnia`, `kierunek`, `stopien`, `rok`), `nazwa` (`imie`, `nazwisko`), `jezyki`.
+  sama heurystyka. Rewizje sprzed #3110 (bez `finalize_claude_cv_output`) składają
+  te same kroki z funkcji prywatnych, jak wtedy `parse_cv`. Zamiast `tekst` może
+  stać `plik` (ścieżka względna do katalogu przypadku): tekst daje
+  `cv_text_extractor.extract_text`, a nieznany format (`UnsupportedCvFormat`) to
+  pusty tekst, jak przy wgraniu. Tylko formaty bez LibreOffice i tesseracta (ODT,
+  DOCX z python-docx, PDF z tekstem): tych narzędzi nie ma w jobie strażnika w CI.
+  Pola: `daty` (`od`, `do`, `firma`, `stanowisko`), `edukacja` (`uczelnia`,
+  `kierunek`, `stopien`, `rok`), `nazwa` (`imie`, `nazwisko`, `z_naglowka` = pola
+  wzięte z nagłówka CV, nie od modelu: `["imie", "nazwisko"]`), `jezyki`.
+- **stanowiska w QC** (`cv_qc`): `wejscie.qc = {"html": "HTML edytora"}` →
+  `dz_review.html_blocks` i `cv_qc.cv_roles`. `daty` = stanowiska po kolei (`firma`,
+  `stanowisko` = cała linia stanowiska), `nazwa` = te same stanowiska
+  (`stanowisko_roli`, `bez_nazwy` z uwagi „Każde stanowisko ma nazwę”).
 - **treść Nowego CV** — wejście jak w generatorze: `generator` (zapis `render_payload`), opcjonalnie
 `zrodlo` (tekst oryginału CV → `restore_experience_dates`) i `html` (HTML edytora →
 `cv_json_from_editor_html` z `generator` jako `fallback`), potem
@@ -111,5 +138,8 @@ Bez bazy. Dwa etapy, przypadek używa jednego:
 
 Każdy wpis listy porównuje się z wpisem o tym samym numerze i tylko po podanych
 kluczach. `nazwa[0]` to osoba i tytuł CV, dalsze wpisy to nazwy stanowisk po kolei.
+Wpis języka ma też `pastylka` = to, co pokazuje pastylka na stronie 1
+(`page1.shown_language`): etykieta poziomu, `""` = sam kod języka, `null` = bez
+pastylki (poziom poniżej B1).
 `_brak: true` = wpisu z tymi polami nie może być pod tym numerem; `liczba_<pole>` =
 dokładna liczba wpisów.

@@ -1,0 +1,155 @@
+[
+ {
+  "id": "rozl-3755-odpowiedz-klienta-bierze-plik-z-wyslanych",
+  "poprawka": "b6d9aa354 #3755",
+  "opis": "Koordynator wysyła klientowi zestawienie godzin z plikiem, klient odpisuje samym „Potwierdzam zestawienie”: plik był tylko w naszych Wysłanych, a odpowiedź z obcego adresu nikogo nie wskazywała, więc osoba nie miała rozliczenia",
+  "dzis": "2026-10-05",
+  "klienci": {
+   "K1": {
+    "nazwa": "Bank Inwestycyjny Przykładowy",
+    "kontakty": [
+     "kierownik@bank-inwestycyjny.example.com"
+    ]
+   }
+  },
+  "osoby": {
+   "A": {
+    "imie": "Jan",
+    "nazwisko": "Korpusowy",
+    "email_kontraktu": "jan.korpusowy@example.com",
+    "klient": "K1"
+   }
+  },
+  "wyslane": [
+   {
+    "id": "w1",
+    "od": "koordynator@firma.example.com",
+    "do": [
+     "kierownik@bank-inwestycyjny.example.com"
+    ],
+    "temat": "Zestawienie godzin 2026.09 - Jan Korpusowy",
+    "wyslano": "2026-10-01T09:00:00Z",
+    "watek": "watek-zestawienie",
+    "pliki": [
+     {
+      "nazwa": "Zestawienie godzin 09.2026.xlsx",
+      "arkusz": {
+       "Arkusz1": [
+        [
+         "Imię i nazwisko",
+         "Jan Korpusowy"
+        ],
+        [
+         "Miesiąc",
+         "09.2026"
+        ],
+        [
+         "Suma godzin",
+         168
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maile": [
+   {
+    "id": "m1",
+    "od": "kierownik@bank-inwestycyjny.example.com",
+    "do": [
+     "rozliczenia@firma.example.com"
+    ],
+    "temat": "RE: Zestawienie godzin 2026.09 - Jan Korpusowy",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "watek": "watek-zestawienie",
+    "tresc": "Potwierdzam zestawienie.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\nSubject: Zestawienie godzin 2026.09 - Jan Korpusowy\n\nW załączniku zestawienie godzin za wrzesień, proszę o potwierdzenie.\n",
+    "eml": "From: Kierownik <kierownik@bank-inwestycyjny.example.com>\nTo: rozliczenia@firma.example.com\nSubject: RE: Zestawienie godzin 2026.09 - Jan Korpusowy\nDate: Mon, 05 Oct 2026 10:00:00 +0200\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nPotwierdzam zestawienie.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\nSubject: Zestawienie godzin 2026.09 - Jan Korpusowy\n\nW załączniku zestawienie godzin za wrzesień, proszę o potwierdzenie.\n"
+   }
+  ],
+  "oczekiwane": [
+   {
+    "plik": "Zestawienie godzin 09.2026.xlsx",
+    "rodzaj": "report",
+    "osoba": "A",
+    "okres": "2026-09"
+   },
+   {
+    "plik": "RE: Zestawienie godzin 2026.09 - Jan Korpusowy.eml",
+    "rodzaj": "report",
+    "osoba": "A",
+    "okres": "2026-09"
+   }
+  ],
+  "liczba_dokumentow": 2
+ },
+ {
+  "id": "rozl-3755-odpowiedz-z-odmowa-nie-bierze-pliku",
+  "poprawka": "b6d9aa354 #3755",
+  "opis": "Ta sama odpowiedź na nasz mail z Wysłanych, ale klient pisze „nie akceptuję”: plik z naszego maila nie trafia do osoby jako zaakceptowany raport",
+  "dzis": "2026-10-05",
+  "klienci": {
+   "K1": {
+    "nazwa": "Bank Inwestycyjny Przykładowy",
+    "kontakty": [
+     "kierownik@bank-inwestycyjny.example.com"
+    ]
+   }
+  },
+  "osoby": {
+   "A": {
+    "imie": "Jan",
+    "nazwisko": "Korpusowy",
+    "email_kontraktu": "jan.korpusowy@example.com",
+    "klient": "K1"
+   }
+  },
+  "wyslane": [
+   {
+    "id": "w1",
+    "od": "koordynator@firma.example.com",
+    "do": [
+     "kierownik@bank-inwestycyjny.example.com"
+    ],
+    "temat": "Zestawienie godzin 2026.09 - Jan Korpusowy",
+    "wyslano": "2026-10-01T09:00:00Z",
+    "pliki": [
+     {
+      "nazwa": "Zestawienie godzin 09.2026.xlsx",
+      "arkusz": {
+       "Arkusz1": [
+        [
+         "Imię i nazwisko",
+         "Jan Korpusowy"
+        ],
+        [
+         "Suma godzin",
+         168
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maile": [
+   {
+    "id": "m1",
+    "od": "kierownik@bank-inwestycyjny.example.com",
+    "do": [
+     "rozliczenia@firma.example.com"
+    ],
+    "temat": "RE: Zestawienie godzin 2026.09 - Jan Korpusowy",
+    "odebrano": "2026-10-05T08:00:00Z",
+    "tresc": "Nie akceptuję, brakuje dwóch dni urlopu.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\n",
+    "eml": "From: Kierownik <kierownik@bank-inwestycyjny.example.com>\nTo: rozliczenia@firma.example.com\nSubject: RE: Zestawienie godzin 2026.09 - Jan Korpusowy\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"utf-8\"\n\nNie akceptuję, brakuje dwóch dni urlopu.\n\nFrom: Koordynator <koordynator@firma.example.com>\nSent: Thursday, October 1, 2026 11:00 AM\n"
+   }
+  ],
+  "oczekiwane": [
+   {
+    "plik": "Zestawienie godzin 09.2026.xlsx",
+    "_brak": true
+   }
+  ]
+ }
+]
