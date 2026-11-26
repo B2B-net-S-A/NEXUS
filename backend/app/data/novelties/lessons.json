@@ -3020,6 +3020,96 @@
     ]
   },
   {
+    "id": "lekcja-rekrutacja-wstrzymana-rekruter",
+    "title": "Wstrzymana rekrutacja: zanim zadzwonisz do kandydata",
+    "novelties": [
+      "rekrutacja-wstrzymana-zglos-dl"
+    ],
+    "task": "Na rekrutacji ćwiczebnej otwórz pigułkę statusu i zgłoś DL-owi, że klient chyba wstrzymał rekrutację. Na Poligonie nic nie wyjdzie.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "job.hold.report"
+    },
+    "questions": [
+      {
+        "q": "Nad Tablicą stoi pas „Rekrutacja wstrzymana przez klienta”. Co robisz z kandydatem, któremu chcesz zaproponować ten projekt?",
+        "options": [
+          "Nie proponuję mu tego projektu, dopóki DL nie wznowi rekrutacji",
+          "Dzwonię, bo pas to informacja tylko dla DL-a",
+          "Przesuwam go na „Zweryfikowany”, żeby czekał"
+        ],
+        "answer": 0,
+        "explain": "Pas mówi wprost: nie proponuj projektu i nie umawiaj weryfikacji. Kandydat usłyszałby o projekcie, którego teraz nie ma."
+      },
+      {
+        "q": "Kiedy klikasz „Zgłoś DL-owi”?",
+        "options": [
+          "Gdy słyszysz, że klient wstrzymał, a rekrutacja dalej ma stan „Szukamy”",
+          "Po każdym screeningu kandydata",
+          "Gdy chcesz zamknąć rekrutację"
+        ],
+        "answer": 0,
+        "explain": "Zgłoszenie trafia do DL-a jako pytanie. DL potwierdza „Szukamy” albo wstrzymuje rekrutację, a odpowiedź przychodzi Ci w dzwonku."
+      },
+      {
+        "q": "Ruch karty we wstrzymanej rekrutacji pyta „Przesuń mimo to”. Co to znaczy?",
+        "options": [
+          "To ostrzeżenie: ruch przejdzie, gdy DL uzgodnił wyjątek",
+          "Ruch jest zablokowany do wznowienia rekrutacji",
+          "Karta wraca do „Nowych”"
+        ],
+        "answer": 0,
+        "explain": "NEXUS ostrzega, ale nie blokuje. „Nie przesuwaj” zostawia kartę tam, gdzie była."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-rekrutacja-wstrzymana-dl",
+    "title": "Wstrzymana rekrutacja: ustaw, zanim rekruter zadzwoni",
+    "novelties": [
+      "rekrutacja-wstrzymana-dl"
+    ],
+    "task": "Wstrzymaj rekrutację ćwiczebną z powodem „Klient wstrzymał budżet”. Na Poligonie nic się nie zapisze ani nie wyśle.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "job.hold.submit"
+    },
+    "questions": [
+      {
+        "q": "Klient mówi: „wstrzymujemy do stycznia”. Co ustawiasz?",
+        "options": [
+          "„Wstrzymana” z powodem i datą „Sprawdzę z klientem”",
+          "Zamknięcie z powodem „wstrzymana”",
+          "Nic, rekruterzy i tak się dowiedzą"
+        ],
+        "answer": 0,
+        "explain": "Wstrzymanie zostawia rekrutację otwartą, z zespołem i kartami. Zamknięcie z powodem „wstrzymana” jest na koniec, gdy klient nie wróci — NEXUS zaproponuje je po 30 dniach."
+      },
+      {
+        "q": "Co się dzieje w dniu „Sprawdzę z klientem”?",
+        "options": [
+          "Dostajesz dzwonek „Wznawiamy?”: wznów, przesuń termin albo zamknij",
+          "Rekrutacja sama wraca do „Szukamy”",
+          "Rekrutacja zamyka się jako przegrana"
+        ],
+        "answer": 0,
+        "explain": "Wstrzymana rekrutacja nigdy nie zmienia się sama. Decyzja zostaje u DL-a."
+      },
+      {
+        "q": "Na pulpicie widzisz „Czy te rekrutacje nadal trwają?”. Skąd tam rekrutacja?",
+        "options": [
+          "Rekruter zgłosił wstrzymanie albo są inne sygnały, a rekruterzy dalej nad nią pracują",
+          "Klient przysłał nowe CV",
+          "Termin rekrutacji mija jutro"
+        ],
+        "answer": 0,
+        "explain": "Panel zbiera rekrutacje, które mogą stać: zgłoszenie rekrutera, notatkę z „on hold”, zejście z P1 przy dalszej pracy albo Twoją ciszę przy ich ruchach. Odpowiadasz jednym kliknięciem."
+      }
+    ]
+  },
+  {
     "id": "lekcja-zwijane-wyszukiwanie",
     "title": "Więcej kandydatów na ekranie",
     "novelties": ["kandydaci-zwijane-wyszukiwanie"],

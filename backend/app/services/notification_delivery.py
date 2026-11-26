@@ -205,6 +205,19 @@ CATALOG = (
         "po 21 dniach i przy zamknięciu także Head of Recruitment. Jeden zbiorczy "
         "mail dziennie na osobę.",
     ),
+    # Mail obowiązkowy (26.11.2026) — `services/job_hold.py`.
+    dict(
+        id="job_hold",
+        label="Rekrutacja wstrzymana albo wznowiona",
+        module="Rekrutacje",
+        trigger="Delivery Lead wstrzymał rekrutację, nad którą pracujesz (klient "
+        "wstrzymał projekt), albo ją wznowił. Zmiana powodu lub terminu nie wysyła "
+        "drugi raz.",
+        recipient_rule="Rekruterzy z kartami w toku w tej rekrutacji, jej zespół "
+        "(przypisani i współpracownicy) i osoby, które zgłosiły wstrzymanie; bez "
+        "osoby, która wstrzymała. W mailu: rekrutacja, klient, powód i termin "
+        "sprawdzenia.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -511,6 +524,7 @@ JOB_CLOSED_KIND = "job_closed"
 DEPARTED_CARE_KIND = "departed_care"
 ANNOUNCEMENT_KIND = "announcement"
 JOB_IDLE_KIND = "job_idle"
+JOB_HOLD_KIND = "job_hold"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -530,6 +544,7 @@ REQUIRED_KINDS = frozenset(
         DEPARTED_CARE_KIND,
         ANNOUNCEMENT_KIND,
         JOB_IDLE_KIND,
+        JOB_HOLD_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -670,6 +685,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     DEPARTED_CARE_KIND: ("departed_pairs_care",),
     ANNOUNCEMENT_KIND: ("announcement_important",),
     JOB_IDLE_KIND: ("job_idle_reminder",),
+    JOB_HOLD_KIND: ("job_hold_changed",),
 }
 
 

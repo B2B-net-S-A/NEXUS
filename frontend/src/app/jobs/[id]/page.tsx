@@ -69,6 +69,12 @@ import { ClientWaitStrip } from "@/components/v2/jobs/ClientWaitStrip";
 import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
 import { ClientLessonsStrip } from "@/components/v2/jobs/ClientLessonsStrip";
 import { JobOverdueBanner } from "@/components/v2/jobs/JobOverdueBanner";
+import { JobHoldBanner } from "@/components/v2/jobs/hold/JobHoldBanner";
+import { JobHoldDialog } from "@/components/v2/jobs/hold/JobHoldDialog";
+import { JobHoldPopoverSection } from "@/components/v2/jobs/hold/JobHoldPopoverSection";
+import { useJobHoldActions } from "@/components/v2/jobs/hold/useJobHoldActions";
+import { holdViewOf } from "@/lib/job-hold";
+import { useJobHold } from "@/lib/job-hold-api";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
 import { fetchJobCproEvents } from "@/lib/cpro-events-api";
@@ -798,6 +804,14 @@ export default function JobDetailPage() {
     retry: false,
     staleTime: 5 * 60_000,
   });
+  // Rekrutacja „Wstrzymana” (26.11.2026): stan, adresaci i prawo zapisu z
+  // `GET …/hold`; pas i ostrzeżenie przy ruchu karty czytają ten sam cache.
+  const holdQuery = useJobHold(
+    jobId,
+    Boolean(job && (job.status === "published" || job.work_state === "on_hold")),
+  );
+  const holdActions = useJobHoldActions(jobId, holdQuery.data);
+  const [holdDialogOpen, setHoldDialogOpen] = useState(false);
   const [idleSnoozing, setIdleSnoozing] = useState(false);
   const onIdleSnooze = useCallback(async () => {
     setIdleSnoozing(true);
@@ -863,6 +877,9 @@ export default function JobDetailPage() {
   // rekrutacji (409), więc tam plakietka tylko pokazuje listę.
   const canEditChampions =
     canMarkChampion && job.status !== "closed" && job.work_state !== "finished";
+  // Pas „Wstrzymana” stoi od pierwszego renderu (pola rekrutacji), `GET …/hold`
+  // tylko go uzupełnia i mówi, czy patrzący może wznowić.
+  const holdView = job.status === "published" ? holdViewOf(holdQuery.data, job) : null;
   // Plakietka statusu stoi przy znanym statusie requestu (starszy cache —
   // „Aktywna/Szkic”); okienko championów kotwiczy się na niej.
   const championsStatusShown = requestStatusOf(job.request_status) != null;
@@ -962,6 +979,30 @@ export default function JobDetailPage() {
                 cproEnabled={job.cpro_enabled === true}
                 onOpenPerson={openPersonPanel}
                 requestStage={job.request_stage}
+                holdSection={
+                  job.status === "published" &&
+                  (holdQuery.data?.can_manage || canWritePipeline) ? (
+                    <JobHoldPopoverSection
+                      hold={holdQuery.data}
+                      view={holdView}
+                      canReport={canWritePipeline}
+                      busy={holdActions.resuming || holdActions.reporting}
+                      onHold={() => {
+                        setChampionsOpen(false);
+                        setHoldDialogOpen(true);
+                      }}
+                      onEdit={() => {
+                        setChampionsOpen(false);
+                        setHoldDialogOpen(true);
+                      }}
+                      onResume={() => {
+                        setChampionsOpen(false);
+                        void holdActions.resume();
+                      }}
+                      onReport={holdActions.report}
+                    />
+                  ) : undefined
+                }
               />
             ) : job.status === "closed" ? null : (
               // Zamknięta bez statusu requestu: „Zamknięta · powód” niżej
@@ -1267,6 +1308,16 @@ export default function JobDetailPage() {
         initialSection={orderSection}
         hiredCount={kanban ? countHired(kanbanColumns) : 0}
       />
+      {holdQuery.data?.can_manage && job.status === "published" ? (
+        <JobHoldDialog
+          jobId={jobId}
+          jobTitle={jobDisplayTitle(job)}
+          open={holdDialogOpen}
+          onOpenChange={setHoldDialogOpen}
+          onSaved={() => void refetchJob()}
+        />
+      ) : null}
+      {holdActions.confirmDialog}
       {canCloseJob && job.status !== "closed" ? (
         <JobCloseWithReasonDialog
           open={showCloseJob}
@@ -1442,9 +1493,23 @@ export default function JobDetailPage() {
             onChangeReason={canCloseJob && job.status === "closed" ? () => setShowChangeCloseReason(true) : undefined}
             onReopen={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
           />
+          {holdView ? (
+            <JobHoldBanner
+              view={holdView}
+              variant={
+                holdQuery.data?.can_manage ? "manage" : canWritePipeline ? "recruiter" : "read"
+              }
+              reportedAt={holdQuery.data?.my_open_report?.at ?? null}
+              busy={holdActions.resuming || holdActions.reporting}
+              onResume={() => void holdActions.resume()}
+              onChangeTerm={() => setHoldDialogOpen(true)}
+              onAskDl={() => void holdActions.report("")}
+            />
+          ) : null}
           {canCloseJob && job.status === "published" ? (
             <JobIdleBanner
               idle={jobIdle}
+              onHold={holdQuery.data?.can_manage ? () => setHoldDialogOpen(true) : undefined}
               onClose={() => setShowCloseJob(true)}
               onSnooze={() => void onIdleSnooze()}
               snoozing={idleSnoozing}

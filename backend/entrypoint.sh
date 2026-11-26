@@ -908,6 +908,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_overdue'",
     # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_idle_reminder'",
+    # 0795: rekrutacja „Wstrzymana” — zmiana stanu (mail obowiązkowy) i pytanie do DL.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_changed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_check'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -7009,6 +7012,22 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """CREATE UNIQUE INDEX IF NOT EXISTS ux_job_work_assignments_live ON job_work_assignments (job_id, user_id) WHERE state <> 'released'""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_user_state ON job_work_assignments (user_id, state)""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_changed ON job_work_assignments (assigned_at, released_at)""",
+    # 0795: „Wstrzymana” — powód, termin „Sprawdzę z klientem”, chwila wznowienia
+    # i CHECK stanu pracy z `on_hold` (po CHECK-u z 0371 wyżej). Jedno źródło:
+    # `app/services/job_hold_schema.py` — pilnuje `test_job_hold.py`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hold_reason TEXT NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hold_review_on DATE NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hold_ended_at TIMESTAMPTZ NULL",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_jobs_work_state'
+              AND pg_get_constraintdef(oid) LIKE '%on_hold%'
+        ) THEN
+            ALTER TABLE jobs DROP CONSTRAINT IF EXISTS ck_jobs_work_state;
+            ALTER TABLE jobs ADD CONSTRAINT ck_jobs_work_state CHECK (work_state IN ('to_review', 'searching', 'client_silent', 'on_hold', 'finished'));
+        END IF;
+    END $$""",
     # 0374: praktykant — rola w CHECK-ach RBAC i wyłączności (przed seedem
     # macierzy w `_DATA_STATEMENTS`, który wstawia wiersze `trainee`), fakty
     # z telefonu w `candidates` i tabele listy. Lustro 1:1 z migracją —

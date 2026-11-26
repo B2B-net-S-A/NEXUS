@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Trophy } from "lucide-react";
@@ -52,6 +52,12 @@ export interface JobChampionsStatusProps {
   onOpenPerson?: (candidateId: number) => void;
   /** Stan requestu z serwera (`request_stage`) — „Po terminie”, „Klient milczy”… */
   requestStage?: unknown;
+  /**
+   * Sekcja „Stan rekrutacji” na górze dymka (26.11.2026): DL wstrzymuje
+   * i wznawia, rekruter zgłasza „klient wstrzymał?” (`JobHoldPopoverSection`).
+   * Z nią plakietka otwiera dymek także bez championów.
+   */
+  holdSection?: ReactNode;
 }
 
 const BADGE_CLASS =
@@ -71,6 +77,7 @@ function toneClass(view: ChampionStatusView, stage: RequestStage | null): string
 const STAGES_OVER_SEARCHING: ReadonlySet<RequestStage> = new Set([
   "overdue",
   "client_silent",
+  "on_hold",
   "to_review",
   "finished",
 ]);
@@ -91,7 +98,15 @@ export function stageStatusView(view: ChampionStatusView, stage: RequestStage): 
   };
 }
 
-function StatusContent({ view, chevron }: { view: ChampionStatusView; chevron: boolean }) {
+function StatusContent({
+  view,
+  chevron,
+  hold = false,
+}: {
+  view: ChampionStatusView;
+  chevron: boolean;
+  hold?: boolean;
+}) {
   return (
     <>
       {view.kind === "partial" ? (
@@ -103,7 +118,7 @@ function StatusContent({ view, chevron }: { view: ChampionStatusView; chevron: b
         </>
       ) : (
         <>
-          <RequestStatusMark champion={view.tone === "champion"} />
+          <RequestStatusMark champion={view.tone === "champion"} hold={hold} />
           <span className="truncate">{view.label}</span>
         </>
       )}
@@ -133,14 +148,17 @@ export function JobChampionsStatus({
   cproEnabled = false,
   onOpenPerson,
   requestStage,
+  holdSection,
 }: JobChampionsStatusProps) {
   const baseView = championStatusView(job);
   if (!baseView) return <span className="text-xs text-muted-foreground">—</span>;
   const stage = headerStage(baseView, requestStage);
   const view = stage ? stageStatusView(baseView, stage) : baseView;
   const hasChampions = Array.isArray(job.champions) && job.champions.length > 0;
+  const hold = stage === "on_hold" || baseView.tone === "hold";
+  const showChampions = canEdit || hasChampions;
 
-  if (!canEdit && !hasChampions) {
+  if (!showChampions && !holdSection) {
     return (
       <span
         title={view.title}
@@ -148,8 +166,9 @@ export function JobChampionsStatus({
         data-help="job.champion.found"
         data-testid="job-champions-status"
         data-kind={view.kind}
+        data-hold={hold ? "true" : undefined}
       >
-        <StatusContent view={view} chevron={false} />
+        <StatusContent view={view} chevron={false} hold={hold} />
       </span>
     );
   }
@@ -161,17 +180,24 @@ export function JobChampionsStatus({
         <button
           type="button"
           title={view.title}
-          aria-label={`${view.label} — championi tej rekrutacji`}
+          aria-label={
+            showChampions
+              ? `${view.label} — championi tej rekrutacji`
+              : `${view.label} — stan rekrutacji`
+          }
           className={cn(
             BADGE_CLASS,
             toneClass(view, stage),
             "hit-area hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
           data-help="job.champion.found"
+          // Kotwica lekcji „Wstrzymana rekrutacja” (26.11.2026): dymek pigułki.
+          data-tour="job.status-pill"
           data-testid="job-champions-status"
           data-kind={view.kind}
+          data-hold={hold ? "true" : undefined}
         >
-          <StatusContent view={view} chevron={canEdit} />
+          <StatusContent view={view} chevron={canEdit || Boolean(holdSection)} hold={hold} />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -184,15 +210,20 @@ export function JobChampionsStatus({
         // klik poza nim, Escape albo „Anuluj” — nie sam ruch fokusu.
         onFocusOutside={(event) => event.preventDefault()}
       >
-        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
-          <Trophy className="h-3.5 w-3.5 text-medal-gold-foreground" aria-hidden="true" />
-          Championi tej rekrutacji
-        </p>
-        {canEdit ? (
-          <ChampionsEditor jobId={jobId} cproEnabled={cproEnabled} onClose={close} />
-        ) : (
-          <ChampionsReadList jobId={jobId} onOpenPerson={onOpenPerson} onClose={close} />
-        )}
+        {holdSection}
+        {showChampions ? (
+          <div className={cn("space-y-3", holdSection ? "border-t border-border pt-3" : null)}>
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
+              <Trophy className="h-3.5 w-3.5 text-medal-gold-foreground" aria-hidden="true" />
+              Championi tej rekrutacji
+            </p>
+            {canEdit ? (
+              <ChampionsEditor jobId={jobId} cproEnabled={cproEnabled} onClose={close} />
+            ) : (
+              <ChampionsReadList jobId={jobId} onOpenPerson={onOpenPerson} onClose={close} />
+            )}
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

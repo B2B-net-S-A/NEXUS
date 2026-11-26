@@ -42,9 +42,13 @@ const STATE_TONE: Record<VisibleState, "neutral" | "info" | "success" | "warning
   searching: "info",
   champion: "success",
   client_silent: "warning",
+  on_hold: "warning",
   finished: "soft",
 }
 
+// „Wstrzymana” nie ma przycisku: wymaga powodu, ustawia się ją w rekrutacji
+// (`JobHoldDialog`, serwer odmawia `on_hold` w zmianie zbiorczej). Z zakładki
+// „Wstrzymana” można za to przejść na każdy stan poniżej.
 const ACTIONS: { state: WorkState; label: string }[] = [
   { state: "searching", label: "Szukamy" },
   { state: "client_silent", label: "Klient milczy" },
@@ -95,7 +99,7 @@ export function RequestReviewView({
   loadingMore?: boolean
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const total = Object.values(data.counts).reduce((a, b) => a + b, 0)
+  const total = Object.values(data.counts).reduce((a, b) => a + (b ?? 0), 0)
   const suggestions = useMemo(
     () =>
       data.rows
@@ -120,8 +124,8 @@ export function RequestReviewView({
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {(["searching", "champion", "client_silent", "finished"] as const).map((state) => (
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {(["searching", "champion", "client_silent", "on_hold", "finished"] as const).map((state) => (
           <div key={state} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-4">
             <Badge variant={STATE_TONE[state]} className="self-start">
               {STATE_LABEL[state]}

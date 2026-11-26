@@ -44,10 +44,11 @@ STALE_JOB_DAYS = 14
 # Precyzja rekomendacji (30 dni) poniżej tej wartości = sygnał dla lidera.
 LOW_PRECISION_PCT = 50.0
 # Stany requestu, w których brak ruchu jest ŚWIADOMY: „Klient milczy" czeka na
-# klienta, „Zakończony" zniknął z list (status z Traffita zostaje `published`).
-# Bez tego porządkowanie requestów w `/jobs/review-states` nie zmniejszało
-# sygnału „bez ruchu" (audyt 24.09.2026).
-QUIET_WORK_STATES = ("client_silent", "finished")
+# klienta, „Wstrzymana" czeka na decyzję klienta (26.11.2026), „Zakończony"
+# zniknął z list (status z Traffita zostaje `published`). Bez tego
+# porządkowanie requestów w `/jobs/review-states` nie zmniejszało sygnału
+# „bez ruchu" (audyt 24.09.2026).
+QUIET_WORK_STATES = ("client_silent", "on_hold", "finished")
 assert set(QUIET_WORK_STATES) <= set(WORK_STATES)
 
 

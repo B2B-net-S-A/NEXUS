@@ -5646,6 +5646,63 @@
     ]
   },
   {
+    "id": "rekrutacja-wstrzymana-zglos-dl",
+    "pr": 4084,
+    "title": "Wstrzymana rekrutacja: pas na Tablicy i zgłoszenie DL-owi",
+    "why": "Wstrzymaną rekrutację widać po pasie nad Tablicą, a ruch karty pyta „Przesuń mimo to”. Słyszysz o wstrzymaniu, a stan to „Szukamy”? Zgłoś to DL-owi z pigułki statusu.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Rekrutacja → pigułka statusu w nagłówku → „Zgłoś DL-owi”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.status-pill",
+    "steps": [
+      {
+        "anchor": "job.status-pill",
+        "text": "Kliknij pigułkę statusu w nagłówku rekrutacji.",
+        "hint": "Tu widać stan rekrutacji. Gdy klient się wstrzyma, pigułka ma paski i napis „Wstrzymana”, a nad Tablicą stoi pas."
+      },
+      {
+        "anchor": "job.hold.report",
+        "text": "Napisz, skąd wiesz o wstrzymaniu, i kliknij „Zgłoś DL-owi”.",
+        "hint": "DL dostaje pytanie i odpowiada jednym kliknięciem: „Szukamy” albo „Wstrzymana”. Odpowiedź przyjdzie Ci w dzwonku. Na poligonie nic nie wychodzi."
+      }
+    ]
+  },
+  {
+    "id": "rekrutacja-wstrzymana-dl",
+    "pr": 4084,
+    "title": "Wstrzymaj rekrutację z nagłówka",
+    "why": "Klient wstrzymał? Ustaw powód i datę „Sprawdzę z klientem”, rekruterzy dostaną wiadomość. Rekrutacja zostaje otwarta, a w dniu terminu NEXUS zapyta „Wznawiamy?”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-26",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacja → pigułka statusu → „Wstrzymaj rekrutację…”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.status-pill",
+    "steps": [
+      {
+        "anchor": "job.status-pill",
+        "text": "Kliknij pigułkę statusu w nagłówku rekrutacji.",
+        "hint": "W dymku jest sekcja „Stan rekrutacji”."
+      },
+      {
+        "anchor": "job.hold.start",
+        "text": "Kliknij „Wstrzymaj rekrutację…”.",
+        "hint": "Wstrzymanie nie zamyka rekrutacji: karty i zespół zostają, rekrutacja wypada tylko z automatów i z licznika „bez ruchu”."
+      },
+      {
+        "anchor": "job.hold.submit",
+        "text": "Wybierz powód i kliknij „Wstrzymaj rekrutację”.",
+        "hint": "Rekruterzy z osobami w toku dostaną dzwonek i mail, a nad Tablicą zobaczą pas. Na poligonie nic nie wychodzi."
+      }
+    ]
+  },
+  {
     "id": "kandydaci-zwijane-wyszukiwanie",
     "title": "Więcej kandydatów na ekranie: zwinięte wyszukiwanie",
     "why": "Po „Szukaj” słowa kluczowe i filtry zwijają się do jednej linii, więc tabela zaczyna się wyżej. Fragmenty CV pod osobą są domyślnie schowane — włączasz je w „Kolumny”.",

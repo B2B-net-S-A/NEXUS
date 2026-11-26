@@ -281,7 +281,8 @@ export interface ReviewRow {
 
 export interface ReviewResponse {
   tab: VisibleState
-  counts: Record<VisibleState, number>
+  /** Starszy backend nie zna zakładki „Wstrzymana” (26.11.2026) — brak = 0. */
+  counts: Partial<Record<VisibleState, number>>
   rows: ReviewRow[]
   /** Wszystkich w zakładce (po filtrach) — lista idzie stronami. */
   total?: number

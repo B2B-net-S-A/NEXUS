@@ -104,6 +104,8 @@ REQUEST_STATUSES = (
     "closed",
     "filled",
     "contract",
+    # 26.11.2026: „Wstrzymana” — po faktach z pipeline'u, przed championem.
+    "on_hold",
     "champion",
     "incomplete",
     "searching",
@@ -117,6 +119,7 @@ REQUEST_STAGES = (
     "closed",
     "filled",
     "contract",
+    "on_hold",
     "champion",
     "incomplete",
     "finished",
@@ -1424,6 +1427,9 @@ def request_status_expr(sq):
         (Job.status == JobStatus.closed, "closed"),
         (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
         (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
+        # 26.11.2026 (decyzja Artura): „Wstrzymana” zaraz po „Umowie” —
+        # zamknięcie, obsadzenie i umowa są faktami i wygrywają.
+        (Job.work_state == "on_hold", "on_hold"),
         (
             and_(Job.work_state == "searching", Job.champion_found_at.is_not(None)),
             "champion",
@@ -1450,6 +1456,9 @@ def request_stage_expr(sq):
         (Job.status == JobStatus.closed, "closed"),
         (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
         (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
+        # 26.11.2026 (decyzja Artura): „Wstrzymana” zaraz po „Umowie” —
+        # zamknięcie, obsadzenie i umowa są faktami i wygrywają.
+        (Job.work_state == "on_hold", "on_hold"),
         (
             and_(Job.work_state == "searching", Job.champion_found_at.is_not(None)),
             "champion",

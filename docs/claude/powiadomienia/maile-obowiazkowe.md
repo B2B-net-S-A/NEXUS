@@ -17,7 +17,9 @@ alerty klientów i umów, „Czas i ludzie”, „Masz nową premię”, masowe
 przeglądanie CV, awaria automatu, brakujące ogłoszenia rekrutacji (27.10.2026,
 `rekrutacja-tworzenie/ogloszenia-przypomnienia-mailem.md`), P0 na rekrutacji, zamknięta
 rekrutacja z Twoimi osobami od „CV wysłane” (28.10.2026,
-`rekrutacja-tablica/zamkniecie-rekrutacji-osoby-w-toku.md`), kandydaci po osobie,
+`rekrutacja-tablica/zamkniecie-rekrutacji-osoby-w-toku.md`), rekrutacja
+wstrzymana albo wznowiona (`job_hold`, 26.11.2026,
+`rekrutacja-tablica/rekrutacja-wstrzymana-on-hold.md`), kandydaci po osobie,
 która odeszła z firmy (28.10.2026,
 `rekrutacja-tablica/odejscie-rekrutera-opieka-delivery-leada.md`), ważne ogłoszenie
 na pulpicie (28.10.2026, `ui/ogloszenia-na-pulpicie.md`), od 29.10.2026 nowa

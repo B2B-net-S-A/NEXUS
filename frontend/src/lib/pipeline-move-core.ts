@@ -117,6 +117,8 @@ export type MoveRefusal =
   | { kind: "cv_qc_failed"; failure: CvQcFailure; message: string }
   | { kind: "version_conflict"; message: string }
   | { kind: "twin_required"; twin: TwinScreeningRequired; message: string }
+  /** Rekrutacja „Wstrzymana” (26.11.2026): osoba wybrała „Nie przesuwaj”. Bez żądania. */
+  | { kind: "hold_declined"; message: string }
   | { kind: "other"; message: string };
 
 /** 409 `TWIN_SCREENING_REQUIRED` (0614): „Zweryfikowany” bez screeningu pod bliźniaka. */

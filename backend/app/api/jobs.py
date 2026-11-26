@@ -1283,7 +1283,7 @@ async def list_jobs(
         None,
         description=(
             "Filter by computed request status (0341): closed · filled · "
-            "contract · champion · incomplete · searching. Repeatable, "
+            "contract · on_hold · champion · incomplete · searching. Repeatable, "
             "OR-combined. Same rule as the `request_status` field of each row."
         ),
     ),
@@ -1291,7 +1291,7 @@ async def list_jobs(
         None,
         description=(
             "0371: stan pracy nad requestem widoczny dla ludzi — to_review · "
-            "searching · champion · client_silent · finished. Powtarzalny, "
+            "searching · champion · client_silent · on_hold · finished. Powtarzalny, "
             "łączony przez LUB (`request_work_state.visible_state`)."
         ),
     ),
@@ -1300,7 +1300,7 @@ async def list_jobs(
         description=(
             "Stan requestu z jednego rzędu pigułek listy (25.09.2026): "
             "incomplete · to_review · searching · champion · contract · "
-            "client_silent (oraz filled · finished · closed). Jedna wartość na "
+            "client_silent · on_hold (oraz filled · finished · closed). Jedna wartość na "
             "rekrutację (`job_similarity.request_stage_expr`), powtarzalny, "
             "łączony przez LUB."
         ),
@@ -1634,6 +1634,8 @@ async def list_jobs(
             default_template_id=default_template_id_for_counts,
         )
         query = query.outerjoin(attention, attention.c.job_id == Job.id).order_by(
+            # „Wstrzymana” na końcu (26.11.2026) — nikt nad nią teraz nie pracuje.
+            case((Job.work_state == "on_hold", 1), else_=0).asc(),
             p0_rank_expr().asc(),
             # P1 („Pilne”) zawsze na górze (02.10.2026) — tak samo ustawia
             # kolejkę automat przydziału (`job_priority.priority_rank`). P1
@@ -1938,6 +1940,10 @@ async def list_jobs(
     hired_names = await hired_names_by_job(
         db, [i for i, o in outcome_by_job.items() if o == "won"]
     )
+    # 26.11.2026: „Wstrzymana od DD.MM” w wierszu (od kiedy i kto).
+    from app.services.job_hold import hold_fields  # noqa: PLC0415
+
+    hold_by_job = await hold_fields(db, jobs)
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
@@ -2005,6 +2011,7 @@ async def list_jobs(
         d["request_status"] = request_status_value
         d["request_stage"] = request_stage_value
         d["visible_work_state"] = _visible_work_state(j.work_state, j.champion_found_at)
+        d.update(hold_by_job.get(j.id, {}))
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         d["outcome"] = outcome_by_job.get(j.id)
@@ -2533,6 +2540,10 @@ async def get_job(
     payload["request_status"], payload["request_stage"] = states.get(
         job.id, (None, None)
     )
+    # 26.11.2026: „Wstrzymana” — od kiedy i kto (pigułka i pasek nad Tablicą).
+    from app.services.job_hold import hold_fields  # noqa: PLC0415
+
+    payload.update((await hold_fields(db, [job])).get(job.id, {}))
     # 0450 (D1–D9): championi, miejsca, zatrudnieni (okno odrzucenia) i P1
     # wstrzymany przez championa — plakietki nagłówka.
     from app.services import job_champions  # noqa: PLC0415
