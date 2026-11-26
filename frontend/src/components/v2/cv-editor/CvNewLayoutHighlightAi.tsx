@@ -236,18 +236,18 @@ function ProposalCard({
       className="space-y-1.5 rounded-md border border-border bg-card p-2.5"
       data-testid={accepted ? "cv-new-highlight-accepted" : "cv-new-highlight-proposal"}
     >
-      <div className="flex min-w-0 items-start gap-2">
+      {/* Rodzaj nad etykietą, zdanie na całą szerokość karty — w 1280 × 720 rodzaj obok
+          etykiety ściskał zdanie do wąskiej kolumny (ścieżka na stagingu 26.11.2026). */}
+      {kind ? <p className="text-xs text-muted-foreground">{KIND_LABEL[kind]}</p> : null}
+      <div className="flex min-w-0 items-center gap-2">
         {token ? (
           <span className="flex-none rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-foreground">
             {token}
           </span>
         ) : null}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">{label}</p>
-          <p className="text-xs leading-relaxed text-foreground">{plainText(text)}</p>
-        </div>
-        {kind ? <span className="flex-none text-xs text-muted-foreground">{KIND_LABEL[kind]}</span> : null}
+        <p className="min-w-0 flex-1 text-sm font-medium text-foreground">{label}</p>
       </div>
+      <p className="text-xs leading-relaxed text-foreground">{plainText(text)}</p>
       {quote ? (
         <p className="text-xs leading-relaxed text-muted-foreground">
           Z CV: „{quote}”{company ? ` · ${company}` : ""}
