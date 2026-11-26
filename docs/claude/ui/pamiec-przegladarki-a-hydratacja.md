@@ -38,6 +38,11 @@ powłoki zdążą wtedy pobrać dane, a serwer zawsze renderuje z pustym cache'e
   i `["candidate", id]` dla profilu kandydata (24.11.2026). Oba ekrany trzymają
   stan ładowania do `useHydrated()`. Nowy wspólny klucz okruszka = taka sama
   bramka na ekranie.
+- Przycisk w pasku górnym pobiera ten sam klucz co ekran: `P0TopbarButton`
+  i „Pilne u klientów” (`P0NowPanel`, 26.11.2026) oraz `ReviewBatchTopbarButton`
+  i „Porcja dnia” (`ReviewBatchScreen`, `["review-batch", "me"]`, 26.11.2026,
+  lekcje „Porcja” na Poligonie CI wyrzucały z kolejki PR-y bez zmian we
+  froncie). Ekran z takim kluczem trzyma ładowanie do `useHydrated()`.
 - Na Poligonie odpowiedź przychodzi z zestawu w pamięci, bez sieci, więc
   przy pełnym wczytaniu wyprzedza hydratację strony (React #418 na profilu
   ćwiczebnym, 24.11.2026). Na prawdziwych danych idzie przez sieć i zwykle
