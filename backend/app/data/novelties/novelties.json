@@ -5214,11 +5214,6 @@
     "dot_anchor": "cv-editor.page1.highlight",
     "steps": [
       {
-        "anchor": "person.dock.cv",
-        "text": "W panelu osoby rozwiń sekcję „CV”.",
-        "hint": "CV do klienta tej osoby jest już w układzie „Nowe CV”."
-      },
-      {
         "anchor": "person.cv.edit",
         "text": "Kliknij „Edytuj CV”.",
         "hint": "Edytor Nowego CV otwiera się na zakładce „Strona 1”: formularz po lewej, strona PDF po prawej. Na Poligonie nic się nie zapisze."
@@ -5253,11 +5248,6 @@
     "dot_anchor": "cv-editor.page1.why",
     "used_anchor": "cv-editor.page1.restore",
     "steps": [
-      {
-        "anchor": "person.dock.cv",
-        "text": "W panelu osoby rozwiń sekcję „CV”.",
-        "hint": "CV do klienta tej osoby jest już w układzie „Nowe CV”."
-      },
       {
         "anchor": "person.cv.edit",
         "text": "Kliknij „Edytuj CV”.",
