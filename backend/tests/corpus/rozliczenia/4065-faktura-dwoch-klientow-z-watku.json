@@ -1,6 +1,7 @@
 [
  {
-  "id": "rozl-faktura-dwoch-bankow-z-watku",
+  "id": "rozl-4065-faktura-dwoch-bankow-z-watku",
+  "poprawka": "49804faf0 #4065",
   "opis": "Osoba u dwóch banków: faktura z maila z przekazanym wątkiem ze skrzynki w VeloBanku trafiała sama do kontraktu w VeloBanku, pod okres z numeru faktury",
   "dzis": "2026-08-10",
   "klienci": {
@@ -58,7 +59,8 @@
   "liczba_dokumentow": 3
  },
  {
-  "id": "rozl-faktura-od-koordynatora-z-watkiem-dwoch-bankow",
+  "id": "rozl-4065-faktura-od-koordynatora-z-watkiem",
+  "poprawka": "49804faf0 #4065",
   "opis": "Koordynator przekazuje fakturę z wątkiem ze skrzynki konsultanta w VeloBanku, a konsultant ma też kontrakt w Banku Pocztowym: faktura trafiała sama do VeloBanku",
   "dzis": "2026-08-10",
   "klienci": {
@@ -93,7 +95,8 @@
   ]
  },
  {
-  "id": "rozl-faktura-z-watku-osoby-u-jednego-klienta",
+  "id": "rozl-4065-faktura-z-watku-jeden-klient",
+  "poprawka": "49804faf0 #4065",
   "opis": "Osoba z jednym kontraktem: faktura przekazana z wątkiem z jej skrzynki u klienta dalej trafia do tego kontraktu",
   "dzis": "2026-08-10",
   "klienci": {
