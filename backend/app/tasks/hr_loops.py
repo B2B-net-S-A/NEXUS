@@ -196,10 +196,22 @@ async def consultant_portal_ratings_loop() -> None:
 
 
 async def consultant_portal_mailbox_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.invoice_read import read_pending
     from app.services.consultant_portal.mailbox import run_once
 
     result = await run_once(db)
-    return None if result.get("status") == "disabled" else result
+    # Pola faktur PDF (koszt w kontroli miesiąca) także przy wyłączonym czytniku:
+    # faktura z portalu też czeka na odczyt. Awaria nie zatrzymuje poczty.
+    try:
+        invoices = await read_pending(db)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — odczyt to dodatek do dokumentu
+        await db.rollback()
+        logger.exception("consultant_portal_mailbox: odczyt faktur nieudany")
+        invoices = None
+    if result.get("status") == "disabled":
+        return {"invoices": invoices} if invoices and invoices.get("read") else None
+    return {**result, "invoices": invoices}
 
 
 async def consultant_portal_mailbox_loop() -> None:

@@ -56,10 +56,31 @@ przesunięcie o miesiąc (dwa miesiące razem się zgadzają), nie jest sprawą.
 - Faktura papierowa spoza KSeF (archiwum eBI24, `finance_archive_documents`,
   `kind='cost'` bez `ksef_number`) liczy się jak faktura konsultanta: osoba po
   NIP-ie z `partner_id`, bez niego po nazwie. Decyzja Artura 27.11.2026 po
-  odpowiedzi Finansów: Abdelmoneim IX, Balcerzak VIII, Tracz i Gawryluk IV
-  wystawili poza KSeF i są zapłaceni, a kontrola zgłaszała „sprzedaż bez kosztu”.
-  Archiwum to stan z eksportu (16.11.2026) — późniejsze papierowe faktury
-  wejdą dopiero z przyrostem.
+  odpowiedzi Finansów: cztery osoby (IV, VIII, IX) wystawiły poza KSeF i są
+  zapłacone, a kontrola zgłaszała „sprzedaż bez kosztu”. Archiwum to stan
+  z eksportu (16.11.2026) — późniejsze papierowe faktury wejdą z przyrostem.
+- Faktura PDF z rozliczenia@ albo z portalu (`cp_documents`, rodzaj `invoice`,
+  nieodrzucona) liczy się tak samo, **równolegle z eBI24**, nie dopiero po jego
+  wyłączeniu (decyzja Artura 27.11.2026). Pola czyta model z rejestru
+  (`expense_document_read`, `consultant_portal/invoice_read.py`, po 10 plików
+  na przebieg pętli czytnika poczty) do `cp_documents.invoice_fields`. Finanse
+  widzą odczyt na karcie dokumentu w Back Office. Osoba z kontraktu dokumentu,
+  a dokument jeszcze bez kontraktu — po NIP-ie z faktury, potem po nazwie
+  sprzedawcy. NIP z faktury należący do kogoś innego niż osoba z kontraktu =
+  nie liczy się nikomu (`pdf_other_nip`). Kwota to netto z faktury, a brutto
+  tylko przy VAT jawnie zerowym: nieodczytany VAT to nie zwolnienie.
+  Odpowiedź modelu bez kwoty = `failed` na stałe, a awaria modelu (429, 529)
+  albo chwilowy brak pliku = `retry`, najwyżej 3 próby
+  (`invoice_read.MAX_ATTEMPTS`), bo jedna awaria oznaczałaby prawdziwe
+  faktury jako nieczytelne na zawsze.
+- **Ta sama faktura z kilku źródeł liczy się raz** (`collect._twin`): KSeF,
+  potem archiwum eBI24, potem PDF z NEXUSA. Ten sam numer u tej samej osoby
+  (bez spacji, kresek i wielkości liter). Ten sam dzień wystawienia i ta sama
+  kwota netto łączą tylko wtedy, gdy jednej z faktur brakuje numeru: dwie
+  faktury z różnymi numerami (stała stawka, dwa kontrakty) to dwa koszty. Konsultanci wysyłają też PDF faktury,
+  która jest w KSeF, a Finanse wprowadzają papierową fakturę do eBI24, gdy
+  ta sama leży już w NEXUSIE z maila. Liczona dwa razy dawała „inną liczbę
+  godzin”. Liczniki: `archive_duplicate`, `pdf_duplicate`.
 
 ## Pominięcia (liczone osobno, widać je na ekranie)
 
