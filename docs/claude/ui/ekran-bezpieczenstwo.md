@@ -83,7 +83,7 @@ koncie go nie zwalnia.
     ponownie.
   Waga z `labels.severity`: `critical`/`high` → wysoka, `warning` → średnia,
   reszta i brak → niska. Z alertu bierzemy tylko `labels.alertname` (tytuł),
-  `labels.grafana_folder` (gdzie) i `annotations.summary` (dowód, po `scrub`).
+  `labels.grafana_folder` (gdzie: „folder …”) i `annotations.summary` (dowód, po `scrub`).
   Pozostałych etykiet, `description`, `values`, `valueString` ani adresów
   (`generatorURL`, `silenceURL`) nie zapisujemy — bywa w nich instancja,
   adres albo login. Ref zdarzenia `grafana:<fingerprint>:<startsAt>:<status>`,

@@ -313,9 +313,10 @@ def grafana_severity(labels: dict[str, str]) -> Severity:
     return _GRAFANA_SEVERITY.get(labels.get("severity", "").strip().lower(), "low")
 
 
-def _grafana_where(alert: GrafanaAlert) -> str:
+def _grafana_where(alert: GrafanaAlert) -> Optional[str]:
+    """Folder reguły; źródło „Grafana” ekran pokazuje osobnym chipem."""
     folder = alert.labels.get("grafana_folder", "").strip()
-    return f"Grafana · folder {folder}" if folder else "Grafana"
+    return f"folder {folder}" if folder else None
 
 
 @dataclass(frozen=True)
@@ -363,7 +364,7 @@ def grafana_to_batch(payload: GrafanaWebhook) -> GrafanaIngest:
                     fingerprint=alert.fingerprint,
                     severity=severity,
                     title=rule[:200],
-                    location=where[:300],
+                    location=where[:300] if where else None,
                     evidence=summary[:2000] if summary else None,
                     steps=[
                         "Otwórz regułę w Grafanie i sprawdź przyczynę",

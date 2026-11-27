@@ -228,7 +228,7 @@ def test_grafana_example_firing_is_finding_resolved_is_closed() -> None:
     assert [f.fingerprint for f in batch.findings] == ["c6eadffa33fcdf37"]
     finding = batch.findings[0]
     assert finding.title == "High memory usage"
-    assert finding.location == "Grafana · folder Serwer"
+    assert finding.location == "folder Serwer"
     assert finding.severity == "medium"
     assert parsed.resolved == ["b1d3a8e0f2c4d6e8"]
     kinds = [(e.kind, e.ref) for e in batch.events]
@@ -236,10 +236,7 @@ def test_grafana_example_firing_is_finding_resolved_is_closed() -> None:
         ("alert_firing", "grafana:c6eadffa33fcdf37:1795855863:firing"),
         ("alert_resolved", "grafana:b1d3a8e0f2c4d6e8:1795849200:resolved"),
     ]
-    assert (
-        batch.events[1].summary
-        == "Disk almost full · Grafana · folder Serwer — ustąpił"
-    )
+    assert batch.events[1].summary == "Disk almost full · folder Serwer — ustąpił"
     # Z etykiet tylko nazwa reguły, folder i waga; opis, wartości i reszta etykiet — nie.
     dumped = batch.model_dump_json()
     for leak in ("blue", "admin@example.com", "runbook", "9100", "91.2"):
