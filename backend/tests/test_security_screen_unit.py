@@ -312,9 +312,11 @@ def test_entrypoint_runs_the_single_ddl_source() -> None:
         assert _squash(statement) in squashed
 
 
-def test_migration_follows_0798_and_reads_the_single_source() -> None:
-    migration = (ROOT / "alembic/versions/0799_security_screen.py").read_text()
-    assert 'down_revision = "0798_stage_przygotowanie_cv"' in migration
+def test_migration_reads_the_single_source() -> None:
+    # Numer migracji zmienia przepięcie w pasie migracji — szukamy po nazwie.
+    (path,) = (ROOT / "alembic/versions").glob("*_security_screen.py")
+    migration = path.read_text()
+    assert f'revision = "{path.stem}"' in migration
     assert "schema.TABLE_DDL" in migration and "schema.ENUM_STATEMENTS" in migration
     assert "schema.SEED_DDL" in migration
 
