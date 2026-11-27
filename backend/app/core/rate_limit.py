@@ -28,11 +28,13 @@ skrajnie lewy, czyli ten kontrolowany przez klienta — dlatego NIE naprawiamy
 tego flagą uvicorna, bo dałaby trywialne omijanie limitu logowania przez
 podrzucenie własnego nagłówka.
 
-UWAGA na przyszłość: to jest poprawne dla łańcucha ``klient → Traefik → backend``.
-``api.nexus.dynaminds.pl`` jest dziś gray-cloud (poza proxy Cloudflare —
-sprawdzone: brak nagłówka ``cf-ray``). Gdyby ktoś przełączył ten host na orange
-cloud, doszedłby hop i prawy wpis stałby się adresem edge'a Cloudflare — wtedy
-trzeba czytać ``CF-Connecting-IP``.
+Cloudflare przed Traefikiem (27.11.2026). Dziś API jest poza proxy Cloudflare
+(``server: uvicorn``, brak ``cf-ray``; obie domeny API wskazują wprost serwer).
+Po włączeniu proxy dochodzi hop i prawy wpis to adres EDGE'A Cloudflare, wspólny
+dla wszystkich z jednego PoP-a — wróciłby jeden kubełek dla firmy. Dlatego gdy
+prawy wpis (albo peer bez nagłówka) leży w zakresach Cloudflare, kluczem jest
+``CF-Connecting-IP``. Spoza tych zakresów nagłówek jest ignorowany: tam ustawia
+go sam klient. Zakresy: ``app/core/cloudflare_ips.py``.
 """
 
 import inspect
@@ -42,6 +44,7 @@ from limits import parse_many
 from slowapi import Limiter
 from starlette.requests import Request
 
+from app.core.cloudflare_ips import cloudflare_client_ip
 from app.core.process_role import web_process_count
 
 # Nagłówki, którym ufamy — w kolejności pierwszeństwa.
@@ -54,13 +57,8 @@ def _peer_address(request: Request) -> str:
     return client.host if client and client.host else "127.0.0.1"
 
 
-def client_ip_key(request: Request) -> str:
-    """Klucz limitu = prawdziwy IP klienta.
-
-    Zwraca skrajnie PRAWY wpis z ``X-Forwarded-For`` (dopisany przez nasze
-    proxy), a gdy nagłówka nie ma — adres bezpośredniego peera. Dzięki temu
-    limity działają per użytkownik/sieć, a nie globalnie dla całej instancji.
-    """
+def _proxy_seen_address(request: Request) -> str:
+    """Adres, który zobaczyło NASZE proxy: prawy wpis XFF albo peer TCP."""
     forwarded: Optional[str] = request.headers.get(_FORWARDED_HEADER)
     if forwarded:
         # "klient-podrobiony, prawdziwy-klient" → bierzemy ostatni niepusty.
@@ -69,6 +67,18 @@ def client_ip_key(request: Request) -> str:
             if value:
                 return value
     return _peer_address(request)
+
+
+def client_ip_key(request: Request) -> str:
+    """Klucz limitu = prawdziwy IP klienta.
+
+    Zwraca skrajnie PRAWY wpis z ``X-Forwarded-For`` (dopisany przez nasze
+    proxy), a gdy nagłówka nie ma — adres bezpośredniego peera. Gdy ten adres
+    to edge Cloudflare, zwraca ``CF-Connecting-IP``. Dzięki temu limity działają
+    per użytkownik/sieć, a nie globalnie dla całej instancji.
+    """
+    seen = _proxy_seen_address(request)
+    return cloudflare_client_ip(seen, request.headers.get("cf-connecting-ip")) or seen
 
 
 def user_or_ip_key(request: Request) -> str:
