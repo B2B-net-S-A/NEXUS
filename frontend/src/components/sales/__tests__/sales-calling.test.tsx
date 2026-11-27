@@ -662,7 +662,8 @@ describe("kolejka", () => {
     render(<CallQueueView />);
     expect(screen.queryByText("Zadzwoń")).not.toBeInTheDocument();
     expect(screen.queryByText("W rozmowie")).not.toBeInTheDocument();
-    expect(screen.getByText("+48 514 641 516")).toBeInTheDocument();
+    // Spacje w numerze nie mogą łamać go w kolumnę obok przycisku LinkedIn (ścieżka 28.11.2026).
+    expect(screen.getByText("+48 514 641 516")).toHaveClass("whitespace-nowrap");
     fireEvent.click(screen.getByRole("button", { name: /Kopiuj numer/ }));
     expect(writeText).toHaveBeenCalledWith("+48514641516");
     await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Skopiowano numer +48514641516."));

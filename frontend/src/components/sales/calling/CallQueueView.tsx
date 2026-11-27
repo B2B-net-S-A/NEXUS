@@ -142,7 +142,7 @@ function GroupSwitch({
   onChange: (value: QueueGroup) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-1.5" role="group" aria-label="Grupa kolejki">
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Grupa kolejki">
       {QUEUE_GROUPS.map((group) => (
         <Button
           key={group}
@@ -196,54 +196,57 @@ function QueueBoard({ queue, canEdit, meetingStage }: QueueBoardProps) {
   };
 
   return (
-    <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
-      <div data-tour="sales.calling.queue" className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
-        <GroupSwitch queue={queue} value={group} onChange={chooseGroup} />
-        {items.length === 0 && (
-          <p className="border-b border-border px-3 py-4 text-sm text-muted-foreground">{otherGroupsLine(queue, group)}</p>
-        )}
-        {groupSections(group).filter((section) => queue[section].length > 0).map((section) => (
-          <section key={section} aria-label={SECTION_TITLES[section]}>
-            <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {SECTION_TITLES[section]}
-              </h2>
-              {sectionHint(queue, section) && (
-                <span className="text-xs text-muted-foreground">{sectionHint(queue, section)}</span>
-              )}
-            </header>
-            <ul className="divide-y divide-border border-b border-border">
-              {queue[section].map((item) => (
-                <QueueRow
-                  key={item.key}
-                  item={item}
-                  today={queue.today}
-                  active={selected?.key === item.key}
-                  onSelect={() => setSelectedKey(item.key)}
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
-        <p className="px-3 py-1.5 text-xs text-muted-foreground">
-          „Oddzwonić” i oferta z ponownym kontaktem wracają tu same w wybranym
-          dniu.
-        </p>
-      </div>
-      {selected && (
-        <div className="lg:sticky lg:top-2 lg:max-h-[calc(100dvh-1rem)] lg:overflow-y-auto">
-          <CallCard
-            key={selected.key}
-            item={selected}
-            position={`${selectedIndex + 1} z ${items.length}`}
-            today={queue.today}
-            nextCompany={upcoming?.company.name ?? null}
-            canEdit={canEdit}
-            meetingStage={meetingStage}
-            onSaved={() => setSelectedKey(upcomingKey)}
-          />
+    <div className="space-y-2">
+      {/* Nad listą i kartą: w kolumnie listy przy 1280 px przełącznik łamał się na dwa wiersze. */}
+      <GroupSwitch queue={queue} value={group} onChange={chooseGroup} />
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
+        <div data-tour="sales.calling.queue" className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+          {items.length === 0 && (
+            <p className="border-b border-border px-3 py-4 text-sm text-muted-foreground">{otherGroupsLine(queue, group)}</p>
+          )}
+          {groupSections(group).filter((section) => queue[section].length > 0).map((section) => (
+            <section key={section} aria-label={SECTION_TITLES[section]}>
+              <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1">
+                <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {SECTION_TITLES[section]}
+                </h2>
+                {sectionHint(queue, section) && (
+                  <span className="text-xs text-muted-foreground">{sectionHint(queue, section)}</span>
+                )}
+              </header>
+              <ul className="divide-y divide-border border-b border-border">
+                {queue[section].map((item) => (
+                  <QueueRow
+                    key={item.key}
+                    item={item}
+                    today={queue.today}
+                    active={selected?.key === item.key}
+                    onSelect={() => setSelectedKey(item.key)}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
+          <p className="px-3 py-1.5 text-xs text-muted-foreground">
+            „Oddzwonić” i oferta z ponownym kontaktem wracają tu same w wybranym
+            dniu.
+          </p>
         </div>
-      )}
+        {selected && (
+          <div className="lg:sticky lg:top-2 lg:max-h-[calc(100dvh-1rem)] lg:overflow-y-auto">
+            <CallCard
+              key={selected.key}
+              item={selected}
+              position={`${selectedIndex + 1} z ${items.length}`}
+              today={queue.today}
+              nextCompany={upcoming?.company.name ?? null}
+              canEdit={canEdit}
+              meetingStage={meetingStage}
+              onSaved={() => setSelectedKey(upcomingKey)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

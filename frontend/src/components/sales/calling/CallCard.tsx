@@ -442,8 +442,9 @@ function PhoneNumber({ phone }: { phone: string }) {
       .catch(() => showError("Nie udało się skopiować numeru. Zaznacz go i skopiuj ręcznie."));
   };
   return (
-    <div className="flex flex-1 items-center gap-2">
-      <span className="flex select-all items-center gap-1.5 text-lg font-semibold tabular-nums tracking-wide text-foreground">
+    <div className="flex basis-full flex-wrap items-center gap-2">
+      {/* Numer w trójkach ma spacje: bez `nowrap` łamał się w kolumnę obok przycisku LinkedIn. */}
+      <span className="flex select-all items-center gap-1.5 whitespace-nowrap text-lg font-semibold tabular-nums tracking-wide text-foreground">
         <Phone className="h-4 w-4 text-muted-foreground" aria-hidden />
         {formatPhone(phone)}
       </span>
