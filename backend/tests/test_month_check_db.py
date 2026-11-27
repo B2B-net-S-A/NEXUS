@@ -20,6 +20,7 @@ from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.finance_archive import FinanceArchiveDocument
 from app.models.hr_approval import ApprovalDocument
@@ -281,6 +282,161 @@ async def test_paper_invoice_from_ebi24_archive_counts_as_cost():
                 file_type="pdf",
                 file_path=f"test/{tag}.pdf",
                 file_sha256=hashlib.sha256(tag.encode()).hexdigest(),
+            )
+        )
+        await db.commit()
+    await _run()
+    cases = await _cases(candidate_id)
+    assert cases[f"{rules.SALE_WITHOUT_COST}:2026-10"].state == service.CLOSED
+
+
+# ── Faktura PDF z poczty rozliczeń (27.11.2026): równolegle z eBI24 ──────────
+
+
+def _pdf_fields(tag: str, person: str, **patch) -> dict:
+    net = HOURS * COST
+    fields = {
+        "version": "expense_read:v1",
+        "status": "read",
+        "doc_type": "invoice",
+        "seller_name": f"{person} Usługi Informatyczne",
+        "seller_nip": None,
+        "invoice_number": f"P/{tag}/10",
+        "issue_date": "2026-10-30",
+        "currency": "PLN",
+        "net_amount": str(net),
+        "vat_amount": "0.00",
+        "gross_amount": str(net),
+    }
+    fields.update(patch)
+    return fields
+
+
+async def _contract_of(candidate_id: int) -> int:
+    async with AsyncSessionLocal() as db:
+        return (
+            await db.scalars(
+                select(Contract.id).where(Contract.candidate_id == candidate_id)
+            )
+        ).one()
+
+
+def _pdf(tag: str, fields: dict, *, contract_id, status: str = "received", n: int = 0):
+    return CpDocument(
+        contract_id=contract_id,
+        kind="invoice",
+        period_year=2026,
+        period_month=10,
+        channel="mailbox",
+        status=status,
+        file_path=f"consultant_portal/test/{tag}-{n}.pdf",
+        file_name=f"faktura-{n}.pdf",
+        mime="application/pdf",
+        size_bytes=100,
+        sha256=hashlib.sha256(f"{tag}-{n}".encode()).hexdigest(),
+        invoice_fields=fields,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pdf_invoice_from_settlements_mailbox_counts_as_cost():
+    """Faktura PDF spoza KSeF z rozliczenia@ zamyka „sprzedaż bez kosztu”, odrzucona nie."""
+
+    candidate_id, tag, person = await _seed()
+    contract_id = await _contract_of(candidate_id)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            _pdf(
+                tag,
+                _pdf_fields(tag, person),
+                contract_id=contract_id,
+                status="rejected",
+            )
+        )
+        await db.commit()
+    await _run()
+    cases = await _cases(candidate_id)
+    assert cases[f"{rules.SALE_WITHOUT_COST}:2026-10"].state == service.NEW
+
+    async with AsyncSessionLocal() as db:
+        db.add(_pdf(tag, _pdf_fields(tag, person), contract_id=contract_id, n=1))
+        await db.commit()
+    await _run()
+    cases = await _cases(candidate_id)
+    assert cases[f"{rules.SALE_WITHOUT_COST}:2026-10"].state == service.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_same_invoice_in_ebi24_and_pdf_counts_once():
+    """eBI24 i NEXUS równolegle: ta sama faktura z archiwum i z maila to jeden koszt.
+
+    Liczona dwa razy dałaby 320 h kosztu przy 160 h sprzedaży (inna liczba godzin)."""
+
+    candidate_id, tag, person = await _seed()
+    contract_id = await _contract_of(candidate_id)
+    net = HOURS * COST
+    async with AsyncSessionLocal() as db:
+        db.add(
+            FinanceArchiveDocument(
+                source="ebi24",
+                source_id=f"mc-{tag}-twin",
+                schema_name="test",
+                kind="cost",
+                invoice_number=f"P/{tag}/10",
+                issue_date=date(2026, 10, 30),
+                partner_name=f"{person} Usługi Informatyczne",
+                partner_id="2222222222",
+                currency="PLN",
+                net_amount=net,
+                gross_amount=net,
+                file_type="pdf",
+                file_path=f"test/{tag}-twin.pdf",
+                file_sha256=hashlib.sha256(f"{tag}-twin".encode()).hexdigest(),
+            )
+        )
+        # Ten sam numer zapisany inaczej i drugi plik tej samej faktury bez numeru.
+        db.add(
+            _pdf(
+                tag,
+                _pdf_fields(tag, person, invoice_number=f"p {tag} 10"),
+                contract_id=contract_id,
+                n=2,
+            )
+        )
+        db.add(
+            _pdf(
+                tag,
+                _pdf_fields(tag, person, invoice_number=None),
+                contract_id=contract_id,
+                n=3,
+            )
+        )
+        await db.commit()
+    await _run()
+    cases = await _cases(candidate_id)
+    # Koszt jest od pierwszego przebiegu: ani „bez kosztu”, ani „inna liczba godzin”.
+    assert f"{rules.SALE_WITHOUT_COST}:2026-10" not in cases
+    assert f"{rules.HOURS_MISMATCH}:2026-10" not in cases
+
+
+@pytest.mark.asyncio
+async def test_pdf_without_contract_is_bound_by_invoice_nip():
+    """Dokument czeka na „Przypisz”, ale NIP z faktury wskazuje jedną osobę z kontraktem."""
+
+    candidate_id, tag, person = await _seed()
+    await _run()
+    assert f"{rules.SALE_WITHOUT_COST}:2026-10" in await _cases(candidate_id)
+    # Zmyślony, unikatowy w bazie testów (wspólnej i nieczyszczonej).
+    nip = "9" + str(int(tag, 16) % 10**9).zfill(9)
+    async with AsyncSessionLocal() as db:
+        cand = await db.get(Candidate, candidate_id)
+        cand.nip = nip
+        db.add(
+            _pdf(
+                tag,
+                _pdf_fields(tag, "Inna Nazwa Firmy", seller_nip=nip),
+                contract_id=None,
+                n=4,
             )
         )
         await db.commit()

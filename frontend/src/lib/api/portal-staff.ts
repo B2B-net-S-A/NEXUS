@@ -129,8 +129,24 @@ export interface StaffDocument {
   period_guessed: boolean;
   sender_email: string | null;
   invoice_signal_at: string | null;
+  /** Faktura: pola odczytane z pliku — to liczy kontrola miesiąca; `null` = jeszcze nieczytana. */
+  invoice_read?: InvoiceRead | null;
   /** Tylko z listy karty: osoba nadawcy pliku bez kontraktu i jej działające kontrakty. */
   sender_person?: SenderPerson | null;
+}
+
+export interface InvoiceRead {
+  /** `retry` — odczyt nie wyszedł chwilowo, NEXUS spróbuje jeszcze raz. */
+  status: "read" | "failed" | "retry";
+  seller_name: string | null;
+  seller_nip: string | null;
+  invoice_number: string | null;
+  issue_date: string | null;
+  currency: string | null;
+  net_amount: string | null;
+  gross_amount: string | null;
+  /** Kontrola miesiąca liczy tę fakturę (jest kwota netto). */
+  counts: boolean;
 }
 
 export interface SenderContract {

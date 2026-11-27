@@ -342,6 +342,11 @@ class CpDocument(Base):
     invoice_signal_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Faktura: pola odczytane z PDF (``invoice_read``) — wersja, stan, NIP,
+    #: numer, data, kwoty; ``None`` = jeszcze nieczytana.
+    invoice_fields: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
