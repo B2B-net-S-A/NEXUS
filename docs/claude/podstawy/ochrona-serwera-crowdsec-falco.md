@@ -71,6 +71,9 @@ Scenariusze `nexus/*` (`serwer-ochrona/crowdsec/config/scenarios/nexus-alerts.ya
 - `nexus/http-401-403-series` — ponad 40 odpowiedzi 401/403 dla jednego adresu w krótkim czasie;
 - `nexus/sso-denied` — 3 odmowy SSO z adresu (`/login?error=<kod odmowy>` po callbacku Microsoftu);
 - `nexus/large-export` — odpowiedź eksportu CSV/XLSX z API ponad 20 MB.
+Na ekran Ustawienia → Bezpieczeństwo trafiają przez plugin powiadomień `http_nexus`
+(`serwer-ochrona/crowdsec/config/notifications/`): bany jako `ban`, AppSec jako `appsec_block`, scenariusze
+`nexus/*` jako `alert`. Szablon czeka na klucz konta `crowdsec-nexus` (jedno konto = jedno źródło).
 Te same progi są regułami Loki w `alloy/loki-rules-bezpieczenstwo.yaml`. Alloy czyta log Traefika
 (kody i tokeny w adresach maskowane przed wysyłką), ale ruszy dopiero, gdy Artur da token Grafana Cloud
 i `COMPOSE_PROFILES` z `observability` przez workflow „Coolify set env” (27.11 zmienne `GRAFANA_LOKI_*`
