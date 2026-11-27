@@ -4,7 +4,7 @@ Decyzja Artura z 13.11.2026 (krok 6 planu botów): NIP, KRS, REGON, nazwa
 prawna i miasto siedziby mają być potwierdzone u źródła. Dwa darmowe,
 publiczne API bez klucza:
 
-* Wykaz podatników VAT MF (``wl-api.mf.gov.pl``, metoda ``search``): po NIP-ie
+* Wykaz podatników VAT MF (``wykazpodatnikowvat.mf.gov.pl``, metoda ``search``): po NIP-ie
   nazwa, REGON, KRS, adres siedziby i status VAT. Limit: 100 zapytań ``search``
   dziennie (do 30 NIP-ów w jednym), po wyczerpaniu blokada do 0:00. Ten sam
   limit zużywają Rozliczenia (``services/hr/white_list.py``), więc Sprzedaż
@@ -33,13 +33,14 @@ from typing import Annotated, Any, Optional
 import httpx
 from pydantic import AfterValidator, BaseModel, ConfigDict, ValidationError
 
+from app.services.mf_white_list_hosts import MF_WHITE_LIST_LIVE
 from app.services.order_client_identity import nip_checksum_valid
 from app.services.sales import companies as company_service
 from app.services.sales.signals import _clean
 
 logger = logging.getLogger(__name__)
 
-MF_BASE = "https://wl-api.mf.gov.pl"
+MF_BASE = MF_WHITE_LIST_LIVE
 KRS_BASE = "https://api-krs.ms.gov.pl"
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 #: Próby jednego zapytania: timeout, błąd sieci i 5xx ponawiamy, 4xx nie.

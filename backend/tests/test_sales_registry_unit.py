@@ -52,7 +52,7 @@ def test_vat_batch_reads_active_missing_and_removed_subjects() -> None:
     )
     assert (active.vat_status, active.removed) == ("active", False)
     assert active.url == (
-        "https://wl-api.mf.gov.pl/api/search/nip/1112223332?date=2026-11-13"
+        "https://wykazpodatnikowvat.mf.gov.pl/api/search/nip/1112223332?date=2026-11-13"
     )
     assert found[MISSING_NIP] is None
     removed = found[REMOVED_NIP]
@@ -408,7 +408,7 @@ def test_card_history_maps_registry_lines_and_survives_junk() -> None:
                         "before": "Ręczna",
                         "after": "Z REJESTRU",
                         "result": "kept",
-                        "url": "https://wl-api.mf.gov.pl/x",
+                        "url": "https://wykazpodatnikowvat.mf.gov.pl/x",
                     },
                     {
                         "field": "nip",
@@ -416,7 +416,7 @@ def test_card_history_maps_registry_lines_and_survives_junk() -> None:
                         "result": "taken",
                         "other_id": 9,
                         "other_name": "Druga",
-                        "url": "https://wl-api.mf.gov.pl/x",
+                        "url": "https://wykazpodatnikowvat.mf.gov.pl/x",
                     },
                     {"field": "nieznane", "after": "x", "result": "applied"},
                 ],
