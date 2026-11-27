@@ -185,6 +185,53 @@ async def _move_sent(
     return None
 
 
+def closed_request_numbers(run: CproBotRun, summary: dict[str, Any]) -> list[str]:
+    """Numery requestów, które robot zastał zamknięte (czysta reguła)."""
+
+    refs = {
+        ref
+        for ref, item in summary["items"].items()
+        if item["outcome"] == "failed" and item["reason"] == "request_closed"
+    }
+    numbers = {
+        str(item["request_number"])
+        for item in (run.request or {}).get("items", [])
+        if str(item.get("ref")) in refs and item.get("request_number")
+    }
+    return sorted(numbers)
+
+
+async def close_requests_seen_closed(
+    db: AsyncSession, run: CproBotRun, summary: dict[str, Any]
+) -> None:
+    """Zamknięty request w CPro zamyka rekrutację w NEXUSIE (Artur, 27.11.2026).
+
+    Błąd zamknięcia nie cofa zapisanego raportu: savepoint, log, dalej.
+    """
+    from app.services import cpro_mail  # noqa: PLC0415
+    from app.services.job_lifecycle import PostCommit, run_post_commit  # noqa: PLC0415
+
+    for number in closed_request_numbers(run, summary):
+        effects = PostCommit()
+        try:
+            async with db.begin_nested():
+                result = await cpro_mail.close_from_robot(db, number, effects)
+            await db.commit()
+        except Exception:  # noqa: BLE001 — raport biegu już zapisany
+            logger.exception(
+                "cpro_bot run=%s request=%s: zamknięcie nie wyszło", run.id, number
+            )
+            continue
+        logger.info(
+            "cpro_bot run=%s request=%s closed_request outcome=%s job=%s",
+            run.id,
+            number,
+            result.outcome,
+            result.job_id,
+        )
+        await run_post_commit(effects)
+
+
 async def apply_report(
     db: AsyncSession, run: CproBotRun, report: CproReport, *, now: datetime
 ) -> dict[str, Any]:
@@ -196,6 +243,7 @@ async def apply_report(
     run.token_hash = None
     run.report = summary
     await db.commit()
+    await close_requests_seen_closed(db, run, summary)
 
     # Osobny bezpiecznik obok normalizacji raportu: również wcześniejszy bieg
     # submit=true nie przesunie karty po włączeniu trybu szkiców.
