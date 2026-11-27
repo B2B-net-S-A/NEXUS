@@ -41,7 +41,7 @@ router = APIRouter()
 # ── Schematy ─────────────────────────────────────────────────────────────────
 
 
-class FindingOut(BaseModel):
+class SecurityFindingOut(BaseModel):
     id: int
     source: str
     scanner: Optional[str]
@@ -63,7 +63,7 @@ class FindingOut(BaseModel):
     last_seen_at: datetime
 
 
-class EventOut(BaseModel):
+class SecurityEventOut(BaseModel):
     id: int
     source: str
     kind: str
@@ -74,7 +74,7 @@ class EventOut(BaseModel):
     occurred_at: datetime
 
 
-class RoutineOut(BaseModel):
+class SecurityRoutineOut(BaseModel):
     id: int
     key: str
     title: str
@@ -87,7 +87,7 @@ class RoutineOut(BaseModel):
     state: Literal["ok", "soon", "overdue"]
 
 
-class SourceOut(BaseModel):
+class SecuritySourceOut(BaseModel):
     key: str
     name: str
     where: str
@@ -99,31 +99,31 @@ class SourceOut(BaseModel):
     link: Optional[str]
 
 
-class OwnerOut(BaseModel):
+class SecurityOwnerOut(BaseModel):
     id: int
     name: str
 
 
-class OverviewOut(BaseModel):
+class SecurityOverviewOut(BaseModel):
     today: date
     workflow_url: str
     tiles: dict
-    waiting: list[FindingOut]
-    excepted: list[FindingOut]
-    recently_closed: list[FindingOut]
-    events: list[EventOut]
-    sources: list[SourceOut]
+    waiting: list[SecurityFindingOut]
+    excepted: list[SecurityFindingOut]
+    recently_closed: list[SecurityFindingOut]
+    events: list[SecurityEventOut]
+    sources: list[SecuritySourceOut]
     routines_overdue: int
-    owners: list[OwnerOut]
+    owners: list[SecurityOwnerOut]
 
 
-class OwnerIn(BaseModel):
+class SecurityOwnerIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     owner_user_id: Optional[int] = None
 
 
-class ExceptionIn(BaseModel):
+class SecurityExceptionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=10, max_length=1000)
@@ -138,13 +138,13 @@ class ExceptionIn(BaseModel):
         return value
 
 
-class CloseIn(BaseModel):
+class SecurityCloseIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
-class RoutineDoneIn(BaseModel):
+class SecurityRoutineDoneIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     done_on: Optional[date] = None
@@ -154,9 +154,9 @@ class RoutineDoneIn(BaseModel):
 # ── Pomocnicze ───────────────────────────────────────────────────────────────
 
 
-def _finding_out(row: SecurityFinding, today: date) -> FindingOut:
+def _finding_out(row: SecurityFinding, today: date) -> SecurityFindingOut:
     status = effective_status(row, today)
-    return FindingOut(
+    return SecurityFindingOut(
         id=row.id,
         source=row.source,
         scanner=row.scanner,
@@ -179,8 +179,8 @@ def _finding_out(row: SecurityFinding, today: date) -> FindingOut:
     )
 
 
-def _event_out(row: SecurityEvent) -> EventOut:
-    return EventOut(
+def _event_out(row: SecurityEvent) -> SecurityEventOut:
+    return SecurityEventOut(
         id=row.id,
         source=row.source,
         kind=row.kind,
@@ -192,8 +192,8 @@ def _event_out(row: SecurityEvent) -> EventOut:
     )
 
 
-def _routine_out(row: SecurityRoutine, today: date) -> RoutineOut:
-    return RoutineOut(
+def _routine_out(row: SecurityRoutine, today: date) -> SecurityRoutineOut:
+    return SecurityRoutineOut(
         id=row.id,
         key=row.key,
         title=row.title,
@@ -207,11 +207,11 @@ def _routine_out(row: SecurityRoutine, today: date) -> RoutineOut:
     )
 
 
-def _source_out(row: SourceRow) -> SourceOut:
-    return SourceOut(**row.__dict__)
+def _source_out(row: SourceRow) -> SecuritySourceOut:
+    return SecuritySourceOut(**row.__dict__)
 
 
-async def _admins(db: AsyncSession) -> list[OwnerOut]:
+async def _admins(db: AsyncSession) -> list[SecurityOwnerOut]:
     rows = await db.execute(
         select(User.id, User.name)
         .where(
@@ -220,7 +220,10 @@ async def _admins(db: AsyncSession) -> list[OwnerOut]:
         )
         .order_by(User.name)
     )
-    return [OwnerOut(id=uid, name=name or f"Konto {uid}") for uid, name in rows.all()]
+    return [
+        SecurityOwnerOut(id=uid, name=name or f"Konto {uid}")
+        for uid, name in rows.all()
+    ]
 
 
 async def _finding(db: AsyncSession, finding_id: int) -> SecurityFinding:
@@ -245,13 +248,13 @@ def _trail(db: AsyncSession, row: SecurityFinding, kind: str, text: str) -> None
 # ── Trasy ────────────────────────────────────────────────────────────────────
 
 
-@router.get("/overview", response_model=OverviewOut)
+@router.get("/overview", response_model=SecurityOverviewOut)
 async def security_overview(
     _: AdminUser, db: AsyncSession = Depends(get_db)
-) -> OverviewOut:
+) -> SecurityOverviewOut:
     data = await build_overview(db)
     today = data["today"]
-    return OverviewOut(
+    return SecurityOverviewOut(
         today=today,
         workflow_url=data["workflow_url"],
         tiles=data["tiles"],
@@ -265,12 +268,12 @@ async def security_overview(
     )
 
 
-@router.get("/findings", response_model=list[FindingOut])
+@router.get("/findings", response_model=list[SecurityFindingOut])
 async def list_findings(
     _: AdminUser,
     status: Literal["all", "waiting", "excepted", "fixed"] = "all",
     db: AsyncSession = Depends(get_db),
-) -> list[FindingOut]:
+) -> list[SecurityFindingOut]:
     today = business_today()
     rows = [
         _finding_out(r, today)
@@ -283,17 +286,20 @@ async def list_findings(
     return rows
 
 
-@router.get("/findings/{finding_id}", response_model=FindingOut)
+@router.get("/findings/{finding_id}", response_model=SecurityFindingOut)
 async def get_finding(
     finding_id: int, _: AdminUser, db: AsyncSession = Depends(get_db)
-) -> FindingOut:
+) -> SecurityFindingOut:
     return _finding_out(await _finding(db, finding_id), business_today())
 
 
-@router.patch("/findings/{finding_id}", response_model=FindingOut)
+@router.patch("/findings/{finding_id}", response_model=SecurityFindingOut)
 async def set_owner(
-    finding_id: int, body: OwnerIn, _: AdminUser, db: AsyncSession = Depends(get_db)
-) -> FindingOut:
+    finding_id: int,
+    body: SecurityOwnerIn,
+    _: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityFindingOut:
     row = await _finding(db, finding_id)
     if body.owner_user_id is not None:
         if body.owner_user_id not in {o.id for o in await _admins(db)}:
@@ -307,13 +313,13 @@ async def set_owner(
     return _finding_out(row, business_today())
 
 
-@router.post("/findings/{finding_id}/exception", response_model=FindingOut)
+@router.post("/findings/{finding_id}/exception", response_model=SecurityFindingOut)
 async def except_finding(
     finding_id: int,
-    body: ExceptionIn,
+    body: SecurityExceptionIn,
     user: AdminUser,
     db: AsyncSession = Depends(get_db),
-) -> FindingOut:
+) -> SecurityFindingOut:
     today = business_today()
     if body.until <= today:
         raise HTTPException(
@@ -336,10 +342,13 @@ async def except_finding(
     return _finding_out(row, today)
 
 
-@router.post("/findings/{finding_id}/close", response_model=FindingOut)
+@router.post("/findings/{finding_id}/close", response_model=SecurityFindingOut)
 async def close_finding(
-    finding_id: int, body: CloseIn, user: AdminUser, db: AsyncSession = Depends(get_db)
-) -> FindingOut:
+    finding_id: int,
+    body: SecurityCloseIn,
+    user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityFindingOut:
     row = await _finding(db, finding_id)
     row.status = "fixed"
     row.closed_note = (body.note or "").strip() or None
@@ -351,10 +360,10 @@ async def close_finding(
     return _finding_out(row, business_today())
 
 
-@router.post("/findings/{finding_id}/reopen", response_model=FindingOut)
+@router.post("/findings/{finding_id}/reopen", response_model=SecurityFindingOut)
 async def reopen_finding(
     finding_id: int, _: AdminUser, db: AsyncSession = Depends(get_db)
-) -> FindingOut:
+) -> SecurityFindingOut:
     row = await _finding(db, finding_id)
     row.status = "open"
     row.closed_at = None
@@ -366,23 +375,23 @@ async def reopen_finding(
     return _finding_out(row, business_today())
 
 
-@router.get("/events", response_model=list[EventOut])
+@router.get("/events", response_model=list[SecurityEventOut])
 async def list_events(
     _: AdminUser,
     source: Optional[str] = Query(default=None, max_length=20),
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-) -> list[EventOut]:
+) -> list[SecurityEventOut]:
     stmt = select(SecurityEvent).order_by(SecurityEvent.occurred_at.desc()).limit(limit)
     if source:
         stmt = stmt.where(SecurityEvent.source == source)
     return [_event_out(e) for e in await db.scalars(stmt)]
 
 
-@router.get("/routines", response_model=list[RoutineOut])
+@router.get("/routines", response_model=list[SecurityRoutineOut])
 async def list_routines(
     _: AdminUser, db: AsyncSession = Depends(get_db)
-) -> list[RoutineOut]:
+) -> list[SecurityRoutineOut]:
     today = business_today()
     rows = await db.scalars(
         select(SecurityRoutine).order_by(SecurityRoutine.position, SecurityRoutine.id)
@@ -390,13 +399,13 @@ async def list_routines(
     return [_routine_out(r, today) for r in rows]
 
 
-@router.post("/routines/{routine_id}/done", response_model=RoutineOut)
+@router.post("/routines/{routine_id}/done", response_model=SecurityRoutineOut)
 async def routine_done(
     routine_id: int,
-    body: RoutineDoneIn,
+    body: SecurityRoutineDoneIn,
     user: AdminUser,
     db: AsyncSession = Depends(get_db),
-) -> RoutineOut:
+) -> SecurityRoutineOut:
     today = business_today()
     done_on = body.done_on or today
     if done_on > today:

@@ -123,6 +123,8 @@ FORBIDDEN_FLAGS = frozenset(
         "LAW_RADAR_ENABLED",
         "LEGAL_CORPUS_REFRESH_ENABLED",
         "BOARD_KRS_ENABLED",
+        # Ekran Bezpieczeństwo: odczyt biegów z GitHub API (0800).
+        "SECURITY_SYNC_ENABLED",
         "AUTENTI_ENABLED",
         "PROXYCURL_ENABLED",
         "TRAFFIT_SYNC_ENABLED",
