@@ -1,4 +1,4 @@
-"""Ekran Ustawienia → Bezpieczeństwo (0799) — DDL w ``services/security_schema.py``."""
+"""Ekran Ustawienia → Bezpieczeństwo (0800) — DDL w ``services/security_schema.py``."""
 
 from datetime import date, datetime
 from typing import Optional

@@ -1,5 +1,5 @@
 # Ustawienia → Bezpieczeństwo: znaleziska, zdarzenia, rutyny (27.11.2026)
-<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0799 -->
+<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800 -->
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”, „zbuduj wszystko
 z raportu”). Jeden ekran admina zbiera skany CI, zdarzenia z serwera,
@@ -32,7 +32,7 @@ wcześniej każde źródło było w innym miejscu albo w niczyjej pamięci.
 ## Dane i prywatność
 
 Tabele `security_findings`, `security_events`, `security_routines`,
-`security_source_states` (0799, DDL: `app/services/security_schema.py`, lustro
+`security_source_states` (0800, DDL: `app/services/security_schema.py`, lustro
 w `entrypoint.sh`, sondy w `/api/health/deep`). Repo i logi Actions są publiczne,
 a zdarzenia z serwera niosą adresy atakujących i loginy, więc
 `security_ingest.scrub` zamienia w każdym tekście adresy IPv4/IPv6 na

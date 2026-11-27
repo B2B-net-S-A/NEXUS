@@ -1,7 +1,7 @@
 """Ekran Ustawienia → Bezpieczeństwo: znaleziska, zdarzenia, rutyny.
 
-Revision ID: 0799_security_screen
-Revises: 0798_stage_przygotowanie_cv
+Revision ID: 0800_security_screen
+Revises: 0799_cp_document_invoice_fields
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”, polecenie „zbuduj
 wszystko z raportu”): tabele ``security_findings``, ``security_events``,
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services import security_schema as schema
 
-revision = "0799_security_screen"
-down_revision = "0798_stage_przygotowanie_cv"
+revision = "0800_security_screen"
+down_revision = "0799_cp_document_invoice_fields"
 branch_labels = None
 depends_on = None
 
@@ -30,7 +30,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'security_routine_overdue'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0799 odmawia: są dzwonki security_routine_overdue, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0800 odmawia: są dzwonki security_routine_overdue, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

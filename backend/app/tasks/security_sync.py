@@ -1,4 +1,4 @@
-"""Pętla ekranu Ustawienia → Bezpieczeństwo (0799) — reguły w ``services``.
+"""Pętla ekranu Ustawienia → Bezpieczeństwo (0800) — reguły w ``services``.
 
 Co 30 min (``SECURITY_SYNC_INTERVAL_SECONDS``): biegi ``security-weekly.yml``
 z GitHub API, znaleziska z DefectDojo (gdy skonfigurowane), wyjątki po

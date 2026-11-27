@@ -606,7 +606,7 @@ async def callback(
     db: AsyncSession = Depends(get_db),
 ):
     """OAuth redirect target — wynik idzie też na kafelek „Logowania, 24 h”
-    ekranu Bezpieczeństwo (0799): tylko udane/odrzucone i kod błędu, bez osoby."""
+    ekranu Bezpieczeństwo (0800): tylko udane/odrzucone i kod błędu, bez osoby."""
     response = await _callback(request, code, state, error, error_description, db)
     location = response.headers.get("location", "")
     query = parse_qs(urlparse(location).query)

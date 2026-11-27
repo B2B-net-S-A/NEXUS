@@ -1307,7 +1307,7 @@ class Settings(BaseSettings):
     # składa raporty po odczycie CV i wysyła je po terminie. Mail i tak przechodzi
     # przez politykę z Ustawień (rodzaj `competence_report`, domyślnie wyłączony).
     COMPETENCE_REPORT_SENDER_ENABLED: bool = True
-    # Ustawienia → Bezpieczeństwo (0799, `tasks/security_sync.py`): co 30 min
+    # Ustawienia → Bezpieczeństwo (0800, `tasks/security_sync.py`): co 30 min
     # biegi `security-weekly.yml` z GitHub API (repo publiczne, token opcjonalny
     # — tylko dla limitu), wyjątki po terminie i rutyny po terminie. DefectDojo,
     # Wazuh, CrowdSec i Falco same wysyłają dane na `/api/security/ingest*`.

@@ -1,4 +1,4 @@
-"""Ustawienia → Bezpieczeństwo (0799): przegląd, znaleziska, rutyny — tylko admin.
+"""Ustawienia → Bezpieczeństwo (0800): przegląd, znaleziska, rutyny — tylko admin.
 
 Każda trasa za ``AdminUser`` (bramka sekcji niepotrzebna: admin ma zapis
 w każdej sekcji, ``test_section_ceiling_contract``). Źródła wysyłają dane

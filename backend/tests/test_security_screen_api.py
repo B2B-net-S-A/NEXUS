@@ -1,4 +1,4 @@
-"""Ekran Bezpieczeństwo (0799) na Postgresie: bramki, webhook, wyjątek po terminie, rutyny.
+"""Ekran Bezpieczeństwo (0800) na Postgresie: bramki, webhook, wyjątek po terminie, rutyny.
 
 Dane fikcyjne: adresy z puli dokumentacyjnej, e-maile z ``example.com``.
 """

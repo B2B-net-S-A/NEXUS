@@ -915,7 +915,7 @@ _ENUM_STATEMENTS = [
     # 0795: rekrutacja „Wstrzymana” — zmiana stanu (mail obowiązkowy) i pytanie do DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_check'",
-    # 0799: Ustawienia → Bezpieczeństwo — rutyna po terminie (tylko admini, mail od razu).
+    # 0800: Ustawienia → Bezpieczeństwo — rutyna po terminie (tylko admini, mail od razu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'security_routine_overdue'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
@@ -1338,7 +1338,7 @@ except Exception as _competence_report_err:  # noqa: BLE001
     print(f"competence report DDL unavailable: {_competence_report_err!r}")
     _COMPETENCE_REPORT_DDL = []
 
-# Ustawienia → Bezpieczeństwo (migracja 0799) — JEDNO źródło z migracją
+# Ustawienia → Bezpieczeństwo (migracja 0800) — JEDNO źródło z migracją
 # (`app/services/security_schema.py`): tabele i zasiew rutyn.
 try:
     from app.services import security_schema as _security_schema

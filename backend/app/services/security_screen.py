@@ -1,4 +1,4 @@
-"""Reguły ekranu Ustawienia → Bezpieczeństwo (0799): stan znaleziska, rutyny, przegląd.
+"""Reguły ekranu Ustawienia → Bezpieczeństwo (0800): stan znaleziska, rutyny, przegląd.
 
 Wszystko, co zależy od „dziś”, bierze datę z kalendarza firmy
 (``business_today``) albo z parametru — testy nie zależą od zegara.

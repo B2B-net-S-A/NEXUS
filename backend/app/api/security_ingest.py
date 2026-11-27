@@ -1,4 +1,4 @@
-"""Wejście źródeł dla ekranu Bezpieczeństwo (0799): CrowdSec, Falco, Wazuh, CI.
+"""Wejście źródeł dla ekranu Bezpieczeństwo (0800): CrowdSec, Falco, Wazuh, CI.
 
 Wyłącznie klucz konta serwisowego ze scope'em ``security:ingest``
 (``allow_admin_jwt=False`` — przeglądarka nie ma tu czego szukać), limit

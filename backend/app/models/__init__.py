@@ -980,5 +980,5 @@ from app.models import cv_parse_batch as _cv_parse_batch_models  # noqa: F401,E4
 # 0785: raporty kompetencji w 24 godziny i lista opiekunów.
 from app.models import competence_report as _competence_report_models  # noqa: F401,E402
 
-# 0799: Ustawienia → Bezpieczeństwo (znaleziska, zdarzenia, rutyny, źródła).
+# 0800: Ustawienia → Bezpieczeństwo (znaleziska, zdarzenia, rutyny, źródła).
 from app.models import security as _security_models  # noqa: F401,E402

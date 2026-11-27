@@ -1,4 +1,4 @@
-"""DDL ekranu Ustawienia → Bezpieczeństwo (0799) — JEDNO źródło dla migracji
+"""DDL ekranu Ustawienia → Bezpieczeństwo (0800) — JEDNO źródło dla migracji
 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”): jeden ekran admina
@@ -75,7 +75,7 @@ TABLE_DDL: list[str] = [
            CONSTRAINT ck_security_findings_exception
                CHECK (status <> 'excepted' OR (exception_reason IS NOT NULL AND exception_until IS NOT NULL))
        )""",
-    # Kolumna dołożona przed wdrożeniem 0799 (pełny skan w paczkach) — bazy,
+    # Kolumna dołożona przed wdrożeniem 0800 (pełny skan w paczkach) — bazy,
     # które już wykonały wcześniejszą wersję DDL (staging), dostają ją tutaj.
     "ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS last_run_id VARCHAR(80) NULL",
     """CREATE UNIQUE INDEX IF NOT EXISTS uq_security_findings_fingerprint

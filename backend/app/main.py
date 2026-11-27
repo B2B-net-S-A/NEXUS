@@ -1059,7 +1059,7 @@ async def lifespan(app: FastAPI):
             "teams_prep_scope_alerts": asyncio.create_task(
                 teams_prep_scope_alerts_loop()
             ),
-            # 0799: Ustawienia → Bezpieczeństwo — biegi CI, DefectDojo, wyjątki
+            # 0800: Ustawienia → Bezpieczeństwo — biegi CI, DefectDojo, wyjątki
             # i rutyny po terminie (dzwonek do adminów).
             "security_sync": asyncio.create_task(security_sync_loop()),
             "fx_refresh": asyncio.create_task(fx_refresh_loop()),
@@ -2884,7 +2884,7 @@ app.include_router(
     prefix="/api/competence-reports",
     tags=["competence-reports"],
 )
-# 0799: Ustawienia → Bezpieczeństwo (admin) i wejście źródeł (klucz `security:ingest`).
+# 0800: Ustawienia → Bezpieczeństwo (admin) i wejście źródeł (klucz `security:ingest`).
 app.include_router(security_api.router, prefix="/api/security", tags=["security"])
 app.include_router(
     security_ingest_api.router, prefix="/api/security", tags=["security-ingest"]
@@ -5298,7 +5298,7 @@ async def api_health_deep_check(request: Request):
         ("cv_stage_draft_snapshots", CvStageDraftSnapshot),
         # 0447: poprzedni rekruterzy rekrutacji.
         ("job_previous_recruiters", JobPreviousRecruiter),
-        # 0799: Ustawienia → Bezpieczeństwo.
+        # 0800: Ustawienia → Bezpieczeństwo.
         ("security_findings", SecurityFinding),
         ("security_events", SecurityEvent),
         ("security_routines", SecurityRoutine),

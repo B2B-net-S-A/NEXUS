@@ -176,7 +176,7 @@ class NotificationType(str, enum.Enum):
     # dzienna lista do dopisania, tylko admini, mail od razu
     # (`services/teams_prep_scope.py`).
     teams_prep_scope_missing = "teams_prep_scope_missing"
-    # 0799: rutyna bezpieczeństwa po terminie (Ustawienia → Bezpieczeństwo →
+    # 0800: rutyna bezpieczeństwa po terminie (Ustawienia → Bezpieczeństwo →
     # Rutyny) — tylko admini, mail od razu (`services/security_routines.py`).
     security_routine_overdue = "security_routine_overdue"
     # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza

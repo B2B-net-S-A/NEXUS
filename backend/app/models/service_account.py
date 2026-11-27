@@ -152,7 +152,7 @@ class ServiceScope(str, enum.Enum):
     # Sprzęt w API v1: wydania i zwroty (egzemplarz bez wartości z cennika
     # i bez numerów seryjnych, IMEI, ICCID).
     equipment_read = "equipment:read"
-    # Ustawienia → Bezpieczeństwo (0799, 27.11.2026): CrowdSec, Falco, Wazuh i CI
+    # Ustawienia → Bezpieczeństwo (0800, 27.11.2026): CrowdSec, Falco, Wazuh i CI
     # wysyłają zdarzenia i znaleziska na `/api/security/ingest*`. Tylko zapis
     # do tych dwóch tabel — klucz nie czyta niczego z NEXUSA.
     security_ingest = "security:ingest"

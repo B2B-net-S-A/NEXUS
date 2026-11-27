@@ -1,4 +1,4 @@
-"""Źródło, które NEXUS czyta sam (0799): biegi ``security-weekly.yml``.
+"""Źródło, które NEXUS czyta sam (0800): biegi ``security-weekly.yml``.
 
 * GitHub Actions: lista ukończonych biegów workflow z publicznego API (token
   opcjonalny, tylko dla limitu 5000/h zamiast 60/h). Każdy bieg zostaje

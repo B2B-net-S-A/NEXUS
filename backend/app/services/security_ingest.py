@@ -1,4 +1,4 @@
-"""Przyjmowanie zdarzeń i znalezisk bezpieczeństwa (0799).
+"""Przyjmowanie zdarzeń i znalezisk bezpieczeństwa (0800).
 
 Kontrakt dla źródeł (CrowdSec, Falco, Wazuh, CI) jest w
 ``docs/claude/ui/ekran-bezpieczenstwo.md``. Trzy wejścia, jeden zapis:

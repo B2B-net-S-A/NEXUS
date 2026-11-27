@@ -1,4 +1,4 @@
-"""Ekran Bezpieczeństwo (0799) bez bazy: czyszczenie, mapowanie źródeł, terminy, lustro DDL.
+"""Ekran Bezpieczeństwo (0800) bez bazy: czyszczenie, mapowanie źródeł, terminy, lustro DDL.
 
 Dane w testach są fikcyjne — adresy z puli dokumentacyjnej (RFC 5737/3849),
 e-maile z ``example.com`` (repo i logi Actions są publiczne).
