@@ -388,7 +388,14 @@ export function StageCvPreview({
   );
 
   return (
-    <section ref={rootRef} aria-label="CV kandydata" className="space-y-2">
+    // Nowe CV w `fill`: kolumna flex na całą wysokość, bo `flex-1` pola z
+    // kartkami w zwykłym bloku zostawiało 28 rem i ucięty podgląd (27.11.2026).
+    // Klasyczny Word rośnie z treścią i przewija go rodzic — jak dotąd.
+    <section
+      ref={rootRef}
+      aria-label="CV kandydata"
+      className={fill && pdfLayout ? "flex h-full min-h-0 flex-col gap-2" : "space-y-2"}
+    >
       <header className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold">CV</h3>
         {searchable && render === "ready" ? (
