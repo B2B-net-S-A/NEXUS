@@ -399,7 +399,7 @@ function OwnerDialog({
           <div className="mb-1 font-semibold text-foreground">Na nową osobę przechodzi</div>
           <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
             <li>imię na karcie i w panelu, filtr „Kto dodał”, „Moi ludzie”, dzwonki, kto ma ruch</li>
-            <li>Liga Mistrzów i cele za „Zweryfikowany” i dalsze kroki</li>
+            <li>Liga Mistrzów i cele za weryfikację (liczoną od „QC CV”) i dalsze kroki</li>
             <li>premia rekrutera za placement (jeszcze nieprzyznana)</li>
           </ul>
         </div>

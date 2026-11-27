@@ -91,6 +91,21 @@ export interface FoldBoardOptions {
   cproEnabled?: boolean;
 }
 
+/** Skróty nazw kolumn do ciasnych miejsc: nagłówek kolumny na Tablicy
+ *  i krokomierz okna „Przesuń dalej” (decyzja Artura 27.11.2026). Na laptopie
+ *  1280×720 „Przygotowanie CV” ucinało się do „Przygotow…”, a krokomierz łamał
+ *  słowo w środku. Pełna nazwa zostaje w dymku i dla czytnika ekranu. */
+export const BOARD_COLUMN_SHORT_LABEL: Partial<Record<BoardColumnKey, string>> = {
+  verified: "Przyg. CV",
+};
+
+/** Nazwa kolumny do ciasnego miejsca — skrót tylko dla kanonicznej nazwy
+ *  kolumny; własna nazwa etapu z szablonu zostaje bez zmian. */
+export function boardColumnShortLabel(key: BoardColumnKey | null | undefined, label: string): string {
+  if (!key || label !== BOARD_COLUMN_LABEL[key]) return label;
+  return BOARD_COLUMN_SHORT_LABEL[key] ?? label;
+}
+
 export function boardColumnLabel(key: BoardColumnKey, options: FoldBoardOptions = {}): string {
   if (key === "cv_sent" && options.cproEnabled) return CPRO_SENT_COLUMN_LABEL;
   return BOARD_COLUMN_LABEL[key];

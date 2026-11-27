@@ -134,6 +134,7 @@ import {
  SETTABLE_BADGES,
  STAGE_BADGE_LABEL,
  STAGE_BADGE_TITLE,
+ boardColumnShortLabel,
  boardColumnStep,
  foldBoardColumns,
  impliedBadges,
@@ -2215,7 +2216,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  audyt 24.09.2026). */}
  <h3 className={cn("text-foreground flex-1 min-w-0 truncate leading-tight", "text-[13px] font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:whitespace-normal xl:pointer-fine:text-xs xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl"
  data-tour={boardKey === "verified" ? "board.column.prep-cv" : undefined}>
- {titleOverride ?? columnLabel(col)}
+ {boardColumnShortLabel(boardKey, titleOverride ?? columnLabel(col))}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn("tabular-nums", desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")} data-testid="column-count">
  {countText}

@@ -11,6 +11,7 @@ import {
   impliedBadges,
   isQcStageName,
   placeStage,
+  boardColumnShortLabel,
 } from "@/lib/board-stages";
 
 describe("etap szablonu → kolumna Tablicy + odznaka (prawdziwe nazwy z trzech szablonów)", () => {
@@ -265,5 +266,17 @@ describe("isAtClientColumn (D3, 14.10.2026)", () => {
       expect(isAtClientColumn(key as never)).toBe(false);
     }
     expect(isAtClientColumn(null)).toBe(false);
+  });
+});
+
+
+describe("boardColumnShortLabel — ciasne miejsca (27.11.2026)", () => {
+  it("skraca kanoniczną nazwę „Przygotowanie CV” do „Przyg. CV”", () => {
+    expect(boardColumnShortLabel("verified", "Przygotowanie CV")).toBe("Przyg. CV");
+  });
+  it("zostawia własną nazwę etapu z szablonu i inne kolumny bez zmian", () => {
+    expect(boardColumnShortLabel("verified", "Zweryfikowany")).toBe("Zweryfikowany");
+    expect(boardColumnShortLabel("cv_qc", "QC CV")).toBe("QC CV");
+    expect(boardColumnShortLabel(null, "Przygotowanie CV")).toBe("Przygotowanie CV");
   });
 });

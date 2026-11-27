@@ -114,7 +114,9 @@ FUNNEL_STAGES: list[dict] = [
     },
     {
         "stage": "verified",
-        "label": "Zweryfikowany",
+        # 0797: kamień liczy się od wejścia na QC CV — to weryfikacja, nie
+        # kolumna „Przygotowanie CV”.
+        "label": "Weryfikacja",
         "in_milestones": True,
     },
     {

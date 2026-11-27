@@ -83,7 +83,7 @@ export function SummaryTiles({ data }: { data: AutofillQualitySummary }) {
       />
       <Tile label="„Dzwonię”" value={pct(data.called_pct)} sub="z osób z decyzją" />
       <Tile
-        label="Doszli do „Zweryfikowany”"
+        label="Doszli do „Przygotowania CV”"
         value={pct(system.verified_pct)}
         sub={`dodani ręcznie: ${pct(manual.verified_pct)}`}
       />
