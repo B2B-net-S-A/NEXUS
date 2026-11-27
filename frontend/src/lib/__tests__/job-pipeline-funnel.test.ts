@@ -29,7 +29,7 @@ describe("buildStageFunnel — osiem kolumn Tablicy (lista v5)", () => {
     expect(groups.map((g) => g.label)).toEqual([
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      "Przygotowanie CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
@@ -67,7 +67,7 @@ describe("buildStageFunnel — osiem kolumn Tablicy (lista v5)", () => {
   it("etap QC CV z kodem technicznym `interview` NIE liczy się do „Zweryfikowanych”", () => {
     const groups = byKey({
       stage_columns: [
-        { stage: "verified", name: "Zweryfikowany", category: "internal", count: 2 },
+        { stage: "verified", name: "Przygotowanie CV", category: "internal", count: 2 },
         { stage: "interview", name: "QC CV", category: "internal", count: 3 },
         { stage: "new", name: "Wysłać do Cpro", category: "internal", count: 1 },
       ],
@@ -81,7 +81,7 @@ describe("buildStageFunnel — osiem kolumn Tablicy (lista v5)", () => {
       { stage: "posting", name: "Ogłoszenia", category: "internal" as const, count: 4 },
       { stage: "new", name: "Nowi", category: "internal" as const, count: 1 },
       { stage: "screening", name: "Screening", category: "internal" as const, count: 2 },
-      { stage: "verified", name: "Zweryfikowany", category: "internal" as const, count: 3 },
+      { stage: "verified", name: "Przygotowanie CV", category: "internal" as const, count: 3 },
       { stage: "interview", name: "QC CV", category: "internal" as const, count: 5 },
       { stage: "cv_sent", name: "CV Wysłane", category: "internal" as const, count: 6 },
       { stage: "new", name: "Preparation Meeting", category: "internal" as const, count: 1 },

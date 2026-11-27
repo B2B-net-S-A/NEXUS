@@ -188,7 +188,7 @@ describe("RequestBoardView", () => {
 
   it("ma kolumny listy rekrutacji: kategoria, Delivery Lead, data otwarcia, priorytet", () => {
     render(<Board />)
-    for (const header of ["Request", "Kategoria", "Delivery Lead", "Otwarta", "Termin", "Zweryf.", "QC CV", "Wysłani", "Rekruter"]) {
+    for (const header of ["Request", "Kategoria", "Delivery Lead", "Otwarta", "Termin", "Przyg. CV", "QC CV", "Wysłani", "Rekruter"]) {
       // Nagłówek kolumny (filtry mają etykiety o tych samych nazwach).
       expect(screen.getAllByText(header).length).toBeGreaterThan(0)
     }
@@ -205,7 +205,7 @@ describe("RequestBoardView", () => {
     const champion = within(rowOf("React Developer"))
     expect(champion.getByTestId("request-lead-cell")).toHaveTextContent("—")
     expect(champion.getByTestId("request-opened-cell")).toHaveTextContent("—")
-    // „Zweryf.” i „QC CV” (23.10.2026): liczby z API, stara odpowiedź bez pól = 0.
+    // „Przyg. CV” (dawniej „Zweryf.”) i „QC CV” (23.10.2026): liczby z API, stara odpowiedź bez pól = 0.
     expect(row.getByTestId("request-verified-cell")).toHaveTextContent("2")
     expect(row.getByTestId("request-cv-qc-cell")).toHaveTextContent("1")
     expect(champion.getByTestId("request-verified-cell")).toHaveTextContent("0")

@@ -133,7 +133,7 @@ describe("ZrodlaView", () => {
     expect(within(panel).getByText("CV wysłane: 5")).toBeTruthy();
     await waitFor(() => expect(within(panel).getByText("Fikcyjna Osoba")).toBeTruthy());
     // `interview` to na Tablicy kolumna „Zweryfikowany”.
-    expect(within(panel).getByText("Zweryfikowany")).toBeTruthy();
+    expect(within(panel).getByText("Przygotowanie CV")).toBeTruthy();
     expect(sourcePeople.mock.calls[0][1]).toMatchObject({ source: "pracuj", metric: "cv_sent" });
     expect(screen.queryByTestId("sources-cell-jjit:people")).toBeNull();
     expect(within(panel).getByRole("button", { name: /Pokaż więcej/ })).toBeTruthy();

@@ -1056,7 +1056,7 @@ export function CvHandoffWorkbench({
               className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
             >
               Wysyłka do klienta (stawka i „Oznacz CV Wysłane”) będzie dostępna na etapie
-              „Zweryfikowany”. CV możesz przygotować już teraz.
+              „Przygotowanie CV”. CV możesz przygotować już teraz.
             </p>
           )}
         </>
@@ -1079,7 +1079,7 @@ export function CvHandoffWorkbench({
         panelFallback
       ) : !selected ? (
         <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
-          Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”.
+          Przekazanie CV klientowi jest dostępne na etapie „Przygotowanie CV”.
           Ta osoba jest dziś na innym etapie tej rekrutacji.
         </p>
       ) : (

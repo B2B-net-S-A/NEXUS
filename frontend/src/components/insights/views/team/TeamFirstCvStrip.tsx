@@ -87,7 +87,7 @@ export function TeamFirstCvStrip() {
           caption="mediana"
         />
         <StripTile
-          label="Pierwszy „Zweryfikowany”"
+          label="Pierwsze „Przygotowanie CV”"
           value={workdaysLabel(data.median_first_verified_workdays)}
           caption="mediana"
         />

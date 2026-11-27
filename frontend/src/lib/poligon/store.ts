@@ -357,7 +357,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
         items,
         primary: first
           ? { kind: "blocked", label: `Najpierw uzupełnij: ${first.label}`, target_stage_def_id: null }
-          : { kind: "move", label: "Przesuń: Zweryfikowany", target_stage_def_id: toDef },
+          : { kind: "move", label: "Przesuń: Przygotowanie CV", target_stage_def_id: toDef },
       },
     };
   }
@@ -486,7 +486,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
               card_fields: missing.filter((m) => m.key !== "screening_sheet").map((m) => m.key),
               client_required: [],
               screening_stage_id: entryOf(candidateId),
-              message: `Przed „Zweryfikowany” uzupełnij: ${labels.join(", ")}.`,
+              message: `Przed „Przygotowaniem CV” uzupełnij: ${labels.join(", ")}.`,
             },
           },
         };

@@ -160,6 +160,10 @@ async def test_portal_counts_only_stages_after_the_application() -> None:
         # Znana osoba: weryfikacja PRZED zgłoszeniem się nie liczy.
         known = await _candidate(db, created_at=day - timedelta(days=30))
         db.add(_stage(known, job_id, PipelineStage.verified, day - timedelta(days=20)))
+        # 0797: bez wejścia na QC CV albo dalej nie byłoby tu weryfikacji.
+        db.add(
+            _stage(known, job_id, PipelineStage.negotiation, day - timedelta(days=20))
+        )
         db.add(_event(known, day, "pracuj", "Tester"))
         # Etap „Z ogłoszenia” to jeszcze nie rekrutacja.
         waiting = await _candidate(db, created_at=day - timedelta(days=30))
@@ -195,13 +199,15 @@ async def test_person_returning_after_old_verification_counts_when_verified_agai
     async with AsyncSessionLocal() as db:
         old_job, new_job = await _job(db), await _job(db)
         person = await _candidate(db, created_at=day - timedelta(days=90))
-        db.add(
-            _stage(person, old_job, PipelineStage.verified, day - timedelta(days=60))
-        )
+        # 0797: weryfikacja liczy się w chwili wejścia pary na QC CV albo
+        # dalej — tu w tej samej chwili („Negocjacje” leżą dalej).
+        old_at = day - timedelta(days=60)
+        db.add(_stage(person, old_job, PipelineStage.verified, old_at))
+        db.add(_stage(person, old_job, PipelineStage.negotiation, old_at))
         db.add(_event(person, day, "pracuj"))
-        db.add(
-            _stage(person, new_job, PipelineStage.verified, day + timedelta(hours=2))
-        )
+        new_at = day + timedelta(hours=2)
+        db.add(_stage(person, new_job, PipelineStage.verified, new_at))
+        db.add(_stage(person, new_job, PipelineStage.negotiation, new_at))
         await db.commit()
 
         result = await compute_sources(db, since=since, until=until)
@@ -347,6 +353,40 @@ async def test_links_agree_with_who_brought_what() -> None:
     assert [r["key"] for r in breakdown["rows"]] == [owner]
     assert scoped["total"] == 1
     assert scoped["rows"][0]["link_owner"] is not None
+
+
+@pytest.mark.asyncio
+async def test_link_verified_counts_like_the_portals_from_qc_cv() -> None:
+    """0797: „Zweryfikowani” przy linkach liczą się jak przy portalach — para
+    musi po weryfikacji wejść na QC CV albo dalej (decyzja z 27.11.2026)."""
+    since, until = _window()
+    day = since + timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        owner = await _owner(db)
+        job_id = await _job(db)
+        stuck = await _candidate(db, created_at=day)
+        await _link_application(
+            db, owner_id=owner, job_id=None, candidate_id=stuck, at=day
+        )
+        db.add(_stage(stuck, job_id, PipelineStage.verified, day + timedelta(hours=1)))
+        # Jeden link ogólny na osobę (`ux_candidate_invite_links_one_recruiter_link`).
+        other_owner = await _owner(db)
+        moved_on = await _candidate(db, created_at=day)
+        await _link_application(
+            db, owner_id=other_owner, job_id=None, candidate_id=moved_on, at=day
+        )
+        db.add(
+            _stage(moved_on, job_id, PipelineStage.verified, day + timedelta(hours=1))
+        )
+        db.add(
+            _stage(moved_on, job_id, PipelineStage.cv_sent, day + timedelta(hours=2))
+        )
+        await db.commit()
+        table = await compute_sources(db, since=since, until=until)
+
+    by_source = {row["source"]: row for row in table["career"]}
+    assert by_source["link_general"]["in_process"] == 2
+    assert by_source["link_general"]["verified"] == 1
 
 
 @pytest.mark.asyncio

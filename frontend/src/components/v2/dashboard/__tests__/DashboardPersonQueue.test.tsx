@@ -125,7 +125,7 @@ describe("Pracuj po kolei — panel osoby na pulpicie (23.11.2026)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Pracuj po kolei" }));
     await userEvent.click(await screen.findByRole("button", { name: "›" }));
     expect(await screen.findByText(/rekrutacja 2 · osoba 21 · Czeka na Ciebie 2 z 3/)).toBeTruthy();
-    expect(screen.getByTestId("person-queue-list")).toHaveTextContent("Zweryfikowani czekają na CV");
+    expect(screen.getByTestId("person-queue-list")).toHaveTextContent("Przygotowanie CV — czekają na CV");
     await userEvent.click(screen.getByTestId("person-queue-next"));
     expect(await screen.findByText(/rekrutacja 3 · osoba 31 · Czeka na Ciebie 3 z 3/)).toBeTruthy();
     expect(screen.getByTestId("person-queue-list")).toHaveTextContent("Od systemu czeka na decyzję");

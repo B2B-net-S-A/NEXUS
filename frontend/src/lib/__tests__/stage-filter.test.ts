@@ -41,7 +41,7 @@ describe("stage-filter", () => {
     expect(stageMatchHeadline({ column: "cv_qc", moved_at: "2026-10-04T23:30:00Z" })).toBe(
       "QC CV · 05.10.2026",
     );
-    expect(stageMatchHeadline({ column: "verified", moved_at: null })).toBe("Zweryfikowany");
+    expect(stageMatchHeadline({ column: "verified", moved_at: null })).toBe("Przygotowanie CV");
     expect(stageMatchMover({ moved_by_name: "Jan Kowalski" })).toBe("Jan Kowalski");
     expect(stageMatchMover({ moved_by_name: null })).toBe("Import systemowy");
   });

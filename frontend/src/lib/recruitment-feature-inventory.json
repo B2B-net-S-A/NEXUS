@@ -585,7 +585,7 @@
   {
    "id": "move.rejection-email-other-processes",
    "area": "ruch",
-   "opis": "Mail odrzucenia od „Zweryfikowany” w górę, treść „przed klientem” albo „po kliencie” i dopisek o pozostałych rekrutacjach osoby („To dotyczy tylko tej rekrutacji — nadal bierzesz udział w…”), liczony w chwili wysyłki; przy kilku osobach przełącznik treści i „+N w toku” (17.10.2026)",
+   "opis": "Mail odrzucenia od „Przygotowania CV” w górę, treść „przed klientem” albo „po kliencie” i dopisek o pozostałych rekrutacjach osoby („To dotyczy tylko tej rekrutacji — nadal bierzesz udział w…”), liczony w chwili wysyłki; przy kilku osobach przełącznik treści i „+N w toku” (17.10.2026)",
    "file": "components/v2/modals/RejectionEmailField.tsx",
    "marker": "Dopisz pozostałe rekrutacje",
    "v3_home": "RejectionV2"
@@ -625,7 +625,7 @@
   {
    "id": "move.verified-rate",
    "area": "ruch",
-   "opis": "Stawka przy „Zweryfikowany” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",
+   "opis": "Stawka przy „Przygotowaniu CV” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",
    "file": "hooks/usePipelineMove.tsx",
    "marker": "VerifiedRateModal",
    "v3_home": "usePipelineMove"
@@ -900,7 +900,7 @@
   {
    "id": "screening.rate-lower-known",
    "area": "screening",
-   "opis": "Ramka „ponad budżet” dopisuje niższą znaną stawkę w budżecie („Znana też niższa stawka: … — mieści się w budżecie.”) z „Użyj”; formularz screeningu i okno „Przesuń na Zweryfikowany” (R2, 17.10.2026)",
+   "opis": "Ramka „ponad budżet” dopisuje niższą znaną stawkę w budżecie („Znana też niższa stawka: … — mieści się w budżecie.”) z „Użyj”; formularz screeningu i okno „Przesuń na Przygotowanie CV” (R2, 17.10.2026)",
    "file": "components/v2/screening/VerifiedRateFields.tsx",
    "marker": "rate-lower-known",
    "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
@@ -1232,7 +1232,7 @@
   {
    "id": "cv.to-client-card",
    "area": "cv",
-   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału; od 14.10.2026 (Edytor CV 3) gotowe CV to miniatura prawdziwej pierwszej strony z liczbą stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (Pobierz PDF, Użyj innego CV, Historia wersji, Wygeneruj ponownie); od 14.10.2026 (D3) także dla osoby za „Zweryfikowanym”, a od „CV wysłane” (`lockedAfterSend`) bez „Użyj innego CV” i generowania",
+   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału; od 14.10.2026 (Edytor CV 3) gotowe CV to miniatura prawdziwej pierwszej strony z liczbą stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (Pobierz PDF, Użyj innego CV, Historia wersji, Wygeneruj ponownie); od 14.10.2026 (D3) także dla osoby za „Przygotowaniem CV”, a od „CV wysłane” (`lockedAfterSend`) bez „Użyj innego CV” i generowania",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "export function CvToClientCard",
    "v3_home": "panel → CV"
@@ -1304,7 +1304,7 @@
   {
    "id": "cv.to-client-confirm",
    "area": "cv",
-   "opis": "Trzy potwierdzenia przed generacją CV w karcie „CV do klienta” (21.10.2026): plik CV (domyślnie kopia „Oryginał CV” rekrutacji, do wyboru każdy plik CV osoby z opisem: główne, nieaktualne), odpowiedzi ze screeningu (podgląd treści, „Popraw w formularzu”) i dodatkowe notatki do CV (zapis w rekrutacji przed generacją, „Nie mam nic do dodania”); „Generuj” dopiero po trzech; ruch na „Zweryfikowany” nie generuje CV, panel otwiera się sam po „Zapisz i przekaż dalej”",
+   "opis": "Trzy potwierdzenia przed generacją CV w karcie „CV do klienta” (21.10.2026): plik CV (domyślnie kopia „Oryginał CV” rekrutacji, do wyboru każdy plik CV osoby z opisem: główne, nieaktualne), odpowiedzi ze screeningu (podgląd treści, „Popraw w formularzu”) i dodatkowe notatki do CV (zapis w rekrutacji przed generacją, „Nie mam nic do dodania”); „Generuj” dopiero po trzech; ruch na „Przygotowanie CV” nie generuje CV, panel otwiera się sam po „Zapisz i przekaż dalej”",
    "file": "components/v2/recruitment/CvGenerateConfirm.tsx",
    "marker": "Potwierdź plik",
    "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
@@ -1408,7 +1408,7 @@
   {
    "id": "cv.to-client-before-verified",
    "area": "cv",
-   "opis": "Karta „CV do klienta” także dla osób w „Nowych” i „Screeningu” (bez sekcji wysyłki) — gotowe CV da się wskazać, zanim automat po „Zweryfikowany” wygeneruje nowe",
+   "opis": "Karta „CV do klienta” także dla osób w „Nowych” i „Screeningu” (bez sekcji wysyłki) — gotowe CV da się wskazać, zanim automat po wejściu na „Przygotowanie CV” wygeneruje nowe",
    "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
    "marker": "cv-send-later-note",
    "v3_home": "panel → CV"
@@ -1892,7 +1892,7 @@
   {
    "id": "dashboard.person-queue",
    "area": "pulpit",
-   "opis": "„Pracuj po kolei · N” w nagłówku „Czeka na Ciebie” (23.11.2026): panel osoby z Tablicy nad pulpitem, „‹ N z M ›” i „Dalej: <osoba> ›” przez listy Screening bez arkusza → Zweryfikowani czekają na CV → od systemu i przez wszystkie rekrutacje; pasek kolejki (lista, rekrutacja, od kiedy czeka, „Otwórz Tablicę”); po odrzuceniu z panelu następna osoba z paskiem „Odrzucono”; zwykły klik w osobę z tych list też otwiera panel na pulpicie (⌘-klik — Tablica)",
+   "opis": "„Pracuj po kolei · N” w nagłówku „Czeka na Ciebie” (23.11.2026): panel osoby z Tablicy nad pulpitem, „‹ N z M ›” i „Dalej: <osoba> ›” przez listy Screening bez arkusza → Przygotowanie CV — czekają na CV → od systemu i przez wszystkie rekrutacje; pasek kolejki (lista, rekrutacja, od kiedy czeka, „Otwórz Tablicę”); po odrzuceniu z panelu następna osoba z paskiem „Odrzucono”; zwykły klik w osobę z tych list też otwiera panel na pulpicie (⌘-klik — Tablica)",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "person-queue-start",
    "v3_home": "Pulpit → Czeka na Ciebie → Pracuj po kolei"
@@ -2000,7 +2000,7 @@
   {
    "id": "dl-review.return",
    "area": "przegląd DL",
-   "opis": "„Wróć do poprawy”: karta wraca z „QC CV” na „Zweryfikowany”, rekruter dostaje dzwonek z uwagą",
+   "opis": "„Wróć do poprawy”: karta wraca z „QC CV” na „Przygotowanie CV”, rekruter dostaje dzwonek z uwagą",
    "file": "components/v2/recruitment/DlReviewPanel.tsx",
    "marker": "Wróć do poprawy",
    "v3_home": "Pulpit → przegląd DL → Przejrzyj"
@@ -2280,7 +2280,7 @@
   {
    "id": "screening-form.forward",
    "area": "formularz screeningu",
-   "opis": "„Zapisz i przekaż dalej → Zweryfikowany” i „Odrzuć” z formularza (te same okna ruchu co Tablica)",
+   "opis": "„Zapisz i przekaż dalej → Przygotowanie CV” i „Odrzuć” z formularza (te same okna ruchu co Tablica)",
    "file": "components/v2/screening-form/ScreeningFullForm.tsx",
    "marker": "Zapisz i przekaż dalej",
    "v3_home": "panel osoby → formularz screeningu → stopka"
@@ -2392,7 +2392,7 @@
   {
    "id": "screening-form.conversation-sheet",
    "area": "formularz screeningu",
-   "opis": "„Arkusz rozmowy” (23.11.2026): w „Trybie rozmowy” formularz screeningu w lewej połowie panelu jako pierwsza zakładka obok CV, Wymagań i Po ludzku — pasek braków do „Zweryfikowany”, dwie kolumny, „Sprawdź w rozmowie” z ✓ / ✕ / ?, stopka z „Nie odebrał”, „Odrzuć” i „Zapisz i przekaż dalej”; ten sam formularz i zapis",
+   "opis": "„Arkusz rozmowy” (23.11.2026): w „Trybie rozmowy” formularz screeningu w lewej połowie panelu jako pierwsza zakładka obok CV, Wymagań i Po ludzku — pasek braków do „Przygotowania CV”, dwie kolumny, „Sprawdź w rozmowie” z ✓ / ✕ / ?, stopka z „Nie odebrał”, „Odrzuć” i „Zapisz i przekaż dalej”; ten sam formularz i zapis",
    "file": "components/v2/screening-form/ScreeningFullForm.tsx",
    "marker": "conversation-sheet-gaps",
    "v3_home": "Tablica → osoba z „Nowych”/„Screeningu” → Rozwiń → Tryb rozmowy → lewa połowa"
@@ -2584,7 +2584,7 @@
   {
    "id": "cv.editor-issues-override-in-panel",
    "area": "cv",
-   "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Zweryfikowany” i jest prawo obejścia",
+   "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Przygotowaniu CV” i jest prawo obejścia",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "onOverride={handoff && gate.kind === \"override\" ? openOverride : undefined}",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
@@ -3196,10 +3196,10 @@
   {
    "id": "card.cv-state",
    "area": "pipeline",
-   "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy”, „CV gotowe · QC bez uwag”",
+   "opis": "Plakietka CV na karcie w „Przygotowaniu CV”: „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy”, „CV gotowe · QC bez uwag”",
    "file": "lib/board-card-badges.ts",
    "marker": "cvStateBadge",
-   "v3_home": "Tablica → karta w „Zweryfikowany”"
+   "v3_home": "Tablica → karta w „Przygotowaniu CV”"
   },
   {
    "id": "board.dl-waiting",
@@ -3364,7 +3364,7 @@
   {
    "id": "cv.editor-handoff",
    "area": "CV",
-   "opis": "Stopka edytora CV na „Zweryfikowany”: „Uwaga dla Delivery Leada”, „Gotowe, przekaż do DL” (do 14.10.2026: „Zapisz i przekaż do DL”), „Przekaż mimo uwag…” (D6)",
+   "opis": "Stopka edytora CV na „Przygotowaniu CV”: „Uwaga dla Delivery Leada”, „Gotowe, przekaż do DL” (do 14.10.2026: „Zapisz i przekaż do DL”), „Przekaż mimo uwag…” (D6)",
    "file": "components/v2/cv-editor/CvEditorHandoffBar.tsx",
    "marker": "Gotowe, przekaż do DL",
    "v3_home": "panel osoby → CV → „Sprawdź i popraw” → stopka edytora"

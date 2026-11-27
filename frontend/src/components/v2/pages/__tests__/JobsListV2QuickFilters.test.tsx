@@ -462,7 +462,7 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
     renderJobs();
     const cell = await screen.findByTestId("job-stage-counts");
     expect(cell).toHaveAccessibleName(
-      "Etapy: Nowi 3, Screening 2, Zweryfikowany 0, QC CV 0, CV wysłane 0, " +
+      "Etapy: Nowi 3, Screening 2, Przygotowanie CV 0, QC CV 0, CV wysłane 0, " +
         "Rozmowa u klienta 0, Akceptacja i umowa 0, Zatrudniony 1",
     );
     // `rejected` jest poza ośmioma kolumnami — nigdzie nie ma „5".
@@ -480,7 +480,7 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
         stage_columns: [
           { stage: "new", name: "Nowy", count: 2, category: "internal", order: 0 },
           { stage: "screening", name: "Screening", count: 1, category: "internal", order: 1 },
-          { stage: "verified", name: "Zweryfikowany", count: 1, category: "internal", order: 2 },
+          { stage: "verified", name: "Przygotowanie CV", count: 1, category: "internal", order: 2 },
           { stage: "interview", name: "Przepuszczony przez DZ", count: 4, category: "internal", order: 3 },
           { stage: "new", name: "Wysłać do Cpro", count: 1, category: "internal", order: 4 },
         ],

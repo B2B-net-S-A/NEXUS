@@ -275,7 +275,7 @@ function rateColumns(
   return [
     {
       stage: "verified",
-      name: "Zweryfikowany",
+      name: "Przygotowanie CV",
       category: "internal",
       stage_def_id: null,
       count: cards.length,
@@ -301,7 +301,7 @@ function pendingColumns() {
   return [
     {
       stage: "verified",
-      name: "Zweryfikowany",
+      name: "Przygotowanie CV",
       category: "internal",
       stage_def_id: null,
       count: 1,
@@ -328,7 +328,7 @@ function focusColumns() {
   const names = [
     "Nowy",
     "Screening",
-    "Zweryfikowany",
+    "Przygotowanie CV",
     "Przedstawiony",
     "Rozmowa HR",
     "Rozmowa techniczna",
@@ -1184,7 +1184,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
       },
       {
         stage: "verified",
-        name: "Zweryfikowany",
+        name: "Przygotowanie CV",
         category: "internal",
         stage_def_id: 302,
         count: 0,
@@ -1260,7 +1260,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     renderBoard(gateColumns(VETO));
     const menu = await openDockStageMenu();
 
-    for (const name of ["Zweryfikowany", "CV wysłane", "Odrzucony"]) {
+    for (const name of ["Przygotowanie CV", "CV wysłane", "Odrzucony"]) {
       const option = within(menu).getByRole("menuitem", { name });
       expect(option).not.toHaveAttribute("aria-disabled", "true");
       expect(option.getAttribute("title")).toBeNull();
@@ -1751,7 +1751,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } } as never);
     renderBoard(gateColumns({ candidate_expected_rate_hourly: "120.00" }));
     const menu = await openDockStageMenu();
-    await userEvent.click(within(menu).getByRole("menuitem", { name: "Zweryfikowany" }));
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Przygotowanie CV" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Kwota")).toHaveValue(120);
@@ -2142,7 +2142,7 @@ function defaultB2BColumns() {
   const spec: Array<[string, string, string, number]> = [
     ["new", "Nowi / Analiza CV", "internal", 2],
     ["screening", "Screening", "internal", 1],
-    ["verified", "Zweryfikowany", "internal", 0],
+    ["verified", "Przygotowanie CV", "internal", 0],
     ["new", "Przepuszczony przez DZ", "internal", 0],
     ["new", "Wysłać do Cpro", "internal", 0],
     ["cv_sent", "CV Wysłane", "internal", 0],
@@ -2445,7 +2445,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(headers).toEqual([
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      // 27.11.2026: w nagłówku skrót, pełna nazwa w `title` i aria-label.
+      "Przyg. CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
@@ -2837,7 +2838,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
                   action: { kind: "open_screening", label: "Otwórz arkusz", stage_id: 1100 },
                 },
               ],
-              primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+              primary: { kind: "move", label: "Przesuń na „Przygotowanie CV”" },
               owner_note: null,
             },
           })
@@ -2884,8 +2885,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
     const heading = container.querySelector('[data-colid="def:302"] h3') as HTMLElement;
-    expect(heading).toHaveTextContent("Zweryfikowany");
-    expect(heading).toHaveAttribute("title", "Zweryfikowany");
+    expect(heading).toHaveTextContent("Przyg. CV");
+    expect(heading).toHaveAttribute("title", "Przygotowanie CV");
     expect(heading).toHaveAttribute("lang", "pl");
     expect(heading.className).toMatch(/xl:pointer-fine:hyphens-auto/);
     expect(heading.className).toMatch(/xl:pointer-fine:\[overflow-wrap:anywhere\]/);
@@ -3585,7 +3586,7 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     renderWithWorkbench(null, [
       {
         stage: "verified",
-        name: "Zweryfikowany",
+        name: "Przygotowanie CV",
         category: "internal",
         stage_def_id: 13,
         count: 1,
@@ -3623,7 +3624,7 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
       },
       {
         stage: "verified",
-        name: "Zweryfikowany",
+        name: "Przygotowanie CV",
         category: "internal",
         stage_def_id: 13,
         count: 1,
@@ -3704,7 +3705,7 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
       },
       {
         stage: "verified",
-        name: "Zweryfikowany",
+        name: "Przygotowanie CV",
         category: "internal",
         stage_def_id: 503,
         count: 0,
@@ -3962,7 +3963,7 @@ describe("KanbanBoardV2 — „Rozwiń”: po odrzuceniu widok zostaje jak po �
               },
               {
                 stage: "verified",
-                name: "Zweryfikowany",
+                name: "Przygotowanie CV",
                 category: "internal",
                 stage_def_id: 13,
                 count: 1,
@@ -4011,10 +4012,10 @@ describe("KanbanBoardV2 — „Rozwiń”: po odrzuceniu widok zostaje jak po �
     // innej kolumny (D1), ale pasek końca kolejki prowadzi dalej (D4).
     const end = within(panel).getByRole("status", { name: "Koniec kolejki" });
     expect(end).toHaveTextContent("To jedyna osoba w kolejce.");
-    fireEvent.click(within(end).getByRole("button", { name: /Dalej: Zweryfikowany \(1\)/ }));
+    fireEvent.click(within(end).getByRole("button", { name: /Dalej: Przygotowanie CV \(1\)/ }));
     await waitFor(() => expect(panel).toHaveAttribute("data-size", "dock"));
     expect(within(panel).getAllByText("Marta Lis").length).toBeGreaterThan(0);
-    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Zweryfikowany");
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Przygotowanie CV");
   });
 });
 
@@ -4266,7 +4267,7 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     expect(arrow).toHaveAttribute("data-gap", "true");
     expect(arrow).toHaveAttribute("title", expect.stringContaining("Brak: lokalizacja, tryb pracy"));
     fireEvent.click(arrow);
-    expect(await screen.findByText("Kandydat Minimum → Zweryfikowany")).toBeTruthy();
+    expect(await screen.findByText("Kandydat Minimum → Przygotowanie CV")).toBeTruthy();
     expect(screen.queryByTestId("move-next-dialog")).toBeNull();
     // Karta stoi w „Screeningu” i nic nie idzie do serwera, dopóki pola nie są zapisane.
     expect(moveCalls()).toHaveLength(0);
@@ -4307,7 +4308,7 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     expect(screen.queryByLabelText("Kwota")).toBeNull();
     expect(columnOf(container, 2102)).toBe("def:302");
     expect(toastAction.mock.calls[0][0]).toBe(
-      "Kandydat Dlowy → Zweryfikowany · bez: arkusza screeningu, stawki kandydata, lokalizacja",
+      "Kandydat Dlowy → Przygotowanie CV · bez: arkusza screeningu, stawki kandydata, lokalizacja",
     );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
@@ -4349,7 +4350,7 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     const arrow = within(card).getByRole("button", { name: /Przesuń Kandydat Wyłączony na następny etap/ });
     expect(arrow).toHaveAttribute("data-gap", "true");
     fireEvent.click(arrow);
-    expect(await screen.findByText("Kandydat Wyłączony → Zweryfikowany")).toBeTruthy();
+    expect(await screen.findByText("Kandydat Wyłączony → Przygotowanie CV")).toBeTruthy();
     expect(moveCalls()).toHaveLength(0);
     expect(columnOf(container, 2103)).toBe("def:301");
   });
@@ -4560,7 +4561,7 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     return [
       col(601, "new", "Nowi / Analiza CV", nowi),
       col(602, "screening", "Screening", screening),
-      col(603, "verified", "Zweryfikowany", []),
+      col(603, "verified", "Przygotowanie CV", []),
       col(608, "rejected", "Odrzucony", [], { category: "terminal", terminal_type: "rejected" }),
     ] as never;
   }
@@ -4628,7 +4629,7 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     columns[2] = { ...columns[2], items: verified, count: verified.length };
     renderFiltered({ kind: "user", userId: 7 }, columns as never);
     expect(
-      await screen.findByRole("group", { name: "Zweryfikowany, liczba kandydatów: 1" }),
+      await screen.findByRole("group", { name: "Przygotowanie CV, liczba kandydatów: 1" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Gabriela Pająk" })).toBeInTheDocument();
     // Ta sama osoba przed weryfikacją (Screening) liczy się u dodającej.
@@ -4779,7 +4780,7 @@ describe("KanbanBoardV2 — „Pracuj po kolei” na pulpicie: sam panel (23.11.
       },
       {
         stage: "verified",
-        name: "Zweryfikowany",
+        name: "Przygotowanie CV",
         category: "internal",
         stage_def_id: 503,
         count: 1,

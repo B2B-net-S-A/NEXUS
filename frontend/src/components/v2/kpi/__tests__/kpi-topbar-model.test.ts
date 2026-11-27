@@ -21,7 +21,7 @@ const VERIFICATIONS = kpi({
   kpi_id: "daily_first_verifications",
   title_pl: "Weryfikacje dziś",
   short_title_pl: "Weryfikacje",
-  description_pl: "Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
+  description_pl: "Liczy się pierwsze wejście pary na „QC CV” albo dalej, po weryfikacji.",
   current: 1,
   target: 4,
   state: "behind",
@@ -197,7 +197,7 @@ describe("licznik celów — rekruter", () => {
       progressPct: 25,
       expectedPct: 50,
       status: "Poniżej planu (na tę godzinę: 2).",
-      description: "Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
+      description: "Liczy się pierwsze wejście pary na „QC CV” albo dalej, po weryfikacji.",
     });
     expect(model!.groups[1].rows[0]).toMatchObject({ status: "W tempie.", expectedPct: 30 });
     // Cel 1 nie ma tempa: bez kreski i bez oceny w środku miesiąca.

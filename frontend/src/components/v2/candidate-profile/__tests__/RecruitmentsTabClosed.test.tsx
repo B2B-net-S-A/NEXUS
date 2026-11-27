@@ -192,7 +192,7 @@ describe("RecruitmentsTab — zakończone rekrutacje jako tabela", () => {
     await user.click(screen.getByRole("button", { name: "Szczegóły: Java Lead" }));
 
     const path = await screen.findByRole("list", { name: "Ścieżka etapów" });
-    expect(path).toHaveTextContent(/Zweryfikowany.*Rozmowa u klienta/);
+    expect(path).toHaveTextContent(/Przygotowanie CV.*Rozmowa u klienta/);
     // Jedyna karta z „Generuj CV” to proces w toku — zakończony go nie ma.
     expect(screen.queryAllByRole("button", { name: "Generuj CV" }).length).toBeLessThanOrEqual(1);
     expect(screen.queryByRole("button", { name: /Więcej akcji: Java Lead/ })).toBeNull();

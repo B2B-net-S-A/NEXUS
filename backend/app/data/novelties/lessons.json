@@ -2074,7 +2074,7 @@
       "arkusz-rozmowy-na-lewej-polowie",
       "arkusz-rozmowy-obok-cv"
     ],
-    "task": "W panelu osoby ze „Screeningu” włącz „Tryb rozmowy” i kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
+    "task": "W panelu osoby ze „Screeningu” włącz „Tryb rozmowy” i kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Przygotowania CV”. Niczego nie zapisuj.",
     "solo_href": "/jobs/990001?candidate=990106&panel=screening",
     "check": {
       "kind": "click",
@@ -2366,7 +2366,7 @@
         "options": [
           "Dalej stoi: potrzebna nowa prośba albo wyjątek",
           "Może iść dalej, bo prośby już nie ma",
-          "Wraca na „Zweryfikowany”"
+          "Wraca na „Przygotowanie CV”"
         ],
         "answer": 0,
         "explain": "Anulowanie nie jest furtką. Przy ustawieniu rekrutacji karta czeka na nową prośbę z podpisem albo na wyjątek DL-a lub HoR."
@@ -3038,7 +3038,7 @@
         "options": [
           "Nie proponuję mu tego projektu, dopóki DL nie wznowi rekrutacji",
           "Dzwonię, bo pas to informacja tylko dla DL-a",
-          "Przesuwam go na „Zweryfikowany”, żeby czekał"
+          "Przesuwam go na „Przygotowanie CV”, żeby czekał"
         ],
         "answer": 0,
         "explain": "Pas mówi wprost: nie proponuj projektu i nie umawiaj weryfikacji. Kandydat usłyszałby o projekcie, którego teraz nie ma."
@@ -3172,6 +3172,41 @@
         ],
         "answer": 0,
         "explain": "Projekt bez powodu zamknięcia trafia do „Bez wyniku”. Uzupełnienie wyniku poprawia hit ratio i statystyki klienta."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-przygotowanie-cv",
+    "title": "Kolumna „Przygotowanie CV” i weryfikacje od „QC CV”",
+    "novelties": [
+      "tablica-kolumna-przygotowanie-cv"
+    ],
+    "task": "Na Tablicy ćwiczebnej znajdź kolumnę „Przygotowanie CV” (dawniej „Zweryfikowany”) i kliknij jej nazwę.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "board.column.prep-cv"
+    },
+    "questions": [
+      {
+        "q": "Kiedy weryfikacja kandydata liczy się do Twoich celów?",
+        "options": [
+          "Gdy osoba wejdzie na „QC CV”",
+          "Gdy przesuniesz osobę na „Przygotowanie CV”",
+          "Gdy zapiszesz arkusz screeningu"
+        ],
+        "answer": 0,
+        "explain": "„Weryfikacje” w celach liczą się od wejścia osoby na „QC CV”, czyli gdy CV firmowe jest gotowe do kontroli."
+      },
+      {
+        "q": "Co robisz z osobą w kolumnie „Przygotowanie CV”?",
+        "options": [
+          "Przygotowuję CV firmowe i przesuwam kartę do „QC CV”",
+          "Czekam, aż Delivery Lead wyśle CV klientowi",
+          "Dzwonię do niej z pierwszym screeningiem"
+        ],
+        "answer": 0,
+        "explain": "W tej kolumnie powstaje CV firmowe. Gotowe CV przesuwasz do „QC CV”, gdzie sprawdza je kontrola jakości, a potem Delivery Lead."
       }
     ]
   }

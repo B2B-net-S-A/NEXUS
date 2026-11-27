@@ -203,7 +203,7 @@ export function boardCardBadge(
       label: `Screening: brakuje ${card.missing}`,
       tone: "wait",
       title:
-        "W screeningu brakuje pól warunków albo oceny. Lokalizacja, tryb pracy, dostępność i „Dlaczego ten kandydat” blokują przekazanie na „Zweryfikowany”, reszta nie.",
+        "W screeningu brakuje pól warunków albo oceny. Lokalizacja, tryb pracy, dostępność i „Dlaczego ten kandydat” blokują przekazanie na „Przygotowanie CV”, reszta nie.",
     };
   }
   if (column !== "screening") {

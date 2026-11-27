@@ -113,7 +113,9 @@ async def _seed(db, *, verified_status: VerificationStatus, second_user_cv_sent:
 )
 async def test_verified_counts_only_when_accepted(status, should_count):
     async with AsyncSessionLocal() as db:
-        ids = await _seed(db, verified_status=status, second_user_cv_sent=False)
+        # Od 0797 weryfikacja liczy się dopiero z wejściem na QC CV albo dalej
+        # — „CV wysłane” jest dalej, więc para dochodzi do kamienia.
+        ids = await _seed(db, verified_status=status, second_user_cv_sent=True)
         row = (
             await db.execute(
                 text(

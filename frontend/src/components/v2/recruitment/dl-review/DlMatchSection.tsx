@@ -101,7 +101,7 @@ export function summarizeResults(results: readonly DlMatchSendResult[]): {
       .filter((r) => r.status !== "sent")
       .map((r) =>
         r.status === "verified_only"
-          ? `${label(r)}: dodano na „Zweryfikowany”, wysyłka nie przeszła — ${r.reason ?? "odmowa"}`
+          ? `${label(r)}: dodano na „Przygotowanie CV”, wysyłka nie przeszła — ${r.reason ?? "odmowa"}`
           : `${label(r)}: ${r.reason ?? "nie wysłano"}`,
       ),
   };

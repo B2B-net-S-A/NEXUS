@@ -116,7 +116,7 @@ describe("TeamFirstCvStrip", () => {
       await screen.findByText("Od otwarcia rekrutacji do pierwszego CV u klienta"),
     ).toBeInTheDocument()
     expect(screen.getByText("Pierwsza ruszona karta")).toBeInTheDocument()
-    expect(screen.getByText("Pierwszy „Zweryfikowany”")).toBeInTheDocument()
+    expect(screen.getByText("Pierwsze „Przygotowanie CV”")).toBeInTheDocument()
     expect(screen.getByText(/65 z 79 z CV/)).toBeInTheDocument()
     expect(screen.getByText("CV w 5 dni rob.")).toBeInTheDocument()
     expect(screen.getByText("86,4%")).toBeInTheDocument()

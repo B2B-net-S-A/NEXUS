@@ -551,7 +551,7 @@ export function candidateJobsBadge(item: RecruitmentActivityDetailItem): string 
 
 export const WHO_COUNTS_FOOTNOTES: Record<WhoCountsMetric, string> = {
   verification:
-    "Liczy się pierwsze przejście kandydata na „Zweryfikowany” w danej rekrutacji.",
+    "Liczy się pierwsze wejście pary na „QC CV” albo dalej po weryfikacji, w danej rekrutacji.",
   recommendation:
     "Liczy się pierwsza wysyłka CV osoby do klienta w danej rekrutacji. Zasługa idzie do osoby, która zweryfikowała kandydata, także gdy CV wysłał Delivery Lead. Ta sama osoba w dwóch rekrutacjach to dwie rekomendacje.",
   interview:

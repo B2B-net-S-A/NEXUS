@@ -263,7 +263,9 @@ async def assert_verified_requirements(
             "card_fields": card_missing,
             "client_required": list(facts.client_required_fields),
             "screening_stage_id": facts.screening_stage_id,
-            "message": "Przed „Zweryfikowany” uzupełnij: " + ", ".join(labels) + ".",
+            "message": "Przed „Przygotowaniem CV” uzupełnij: "
+            + ", ".join(labels)
+            + ".",
         },
     )
 

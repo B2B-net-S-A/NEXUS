@@ -82,7 +82,7 @@ SCREEN_DECISION_MESSAGES: dict[str, str] = {
     ),
     "client_rate": "Stawkę do klienta wpisuje Delivery Lead na ekranie.",
     "candidate_rate": (
-        "Stawkę kandydata zapisuje się na ekranie (okno „Zweryfikowany” albo "
+        "Stawkę kandydata zapisuje się na ekranie (okno „Przygotowanie CV” albo "
         "profil kandydata)."
     ),
     "delivery_lead_decision": (

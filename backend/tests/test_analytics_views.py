@@ -141,7 +141,9 @@ async def test_first_milestones_first_verifier_attribution(seeded_pipeline):
     # atrybucja = PIERWSZY verifier (user A), nie ostatni.
     assert "verified" in by_stage
     assert by_stage["verified"].first_moved_by == ids["user_a_id"]
-    assert by_stage["verified"].first_reached_at == T0 + timedelta(days=1)
+    # 0797: data weryfikacji = pierwsze wejście pary na QC CV albo dalej po
+    # niej (tu „CV wysłane” z dnia 2), autor zostaje z weryfikacji (A).
+    assert by_stage["verified"].first_reached_at == T0 + timedelta(days=2)
 
     assert "cv_sent" in by_stage
     # rejected/new nie są milestone'ami

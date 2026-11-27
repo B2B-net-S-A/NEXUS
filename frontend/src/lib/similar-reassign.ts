@@ -158,7 +158,7 @@ const STAGE_LABEL: Record<string, string> = {
   // „Pozostali” — najdalszy etap przed wysłaniem do klienta.
   prep_call: "screening",
   screening: "screening",
-  verified: "zweryfikowany",
+  verified: "przygotowanie CV",
   interview: "QC CV",
 };
 

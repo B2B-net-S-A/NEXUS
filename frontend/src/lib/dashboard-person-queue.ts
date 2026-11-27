@@ -20,7 +20,7 @@ export type PersonQueueList = "screening" | "verified" | "autofill";
 
 export const PERSON_QUEUE_LIST_LABEL: Record<PersonQueueList, string> = {
   screening: "Screening bez arkusza",
-  verified: "Zweryfikowani czekają na CV",
+  verified: "Przygotowanie CV — czekają na CV",
   autofill: "Od systemu czeka na decyzję",
 };
 

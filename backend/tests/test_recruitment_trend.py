@@ -70,6 +70,19 @@ async def _seed_stage(stage: PipelineStage, moved_at: datetime) -> tuple[int, in
                 moved_by=user.id,
             )
         )
+        if stage is PipelineStage.verified:
+            # 0797: weryfikacja liczy się w chwili wejścia pary na QC CV albo
+            # dalej. „Negocjacje” leżą dalej i same nie są kamieniem trendu,
+            # więc pozostałe pola zostają bez zmian.
+            db.add(
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.negotiation,
+                    moved_at=moved_at,
+                    moved_by=user.id,
+                )
+            )
         await db.commit()
         return user.id, candidate.id, job.id
 

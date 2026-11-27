@@ -43,6 +43,7 @@ import {
 import {
   BOARD_COLUMN_ORDER,
   boardColumnLabel,
+  boardColumnShortLabel,
   type BoardColumnKey,
 } from "@/lib/board-stages";
 import { itemFullName } from "@/lib/pipeline-flow";
@@ -141,8 +142,8 @@ function StepBar({
             <span className="font-semibold tabular-nums" aria-hidden="true">
               {index + 1}
             </span>
-            <span className="line-clamp-2 [overflow-wrap:anywhere]" aria-hidden="true">
-              {label}
+            <span className="line-clamp-2 [overflow-wrap:anywhere]" aria-hidden="true" title={label}>
+              {boardColumnShortLabel(key, label)}
             </span>
           </li>
         );

@@ -138,12 +138,13 @@ def _sd(id_: int, name: str, enum: str | None, terminal: bool = False):
 
 
 # Szablon „Default B2B" z produkcji (rekrutacje bez własnego szablonu) po
-# migracji 0361: „Przepuszczony przez DZ" nazywa się „QC CV".
+# migracji 0361: „Przepuszczony przez DZ" nazywa się „QC CV", a po 0798
+# „Zweryfikowany" — „Przygotowanie CV".
 DEFAULT_B2B = [
     _sd(10763, "Ogłoszenia", "posting"),
     _sd(1, "Nowi / Analiza CV", "new"),
     _sd(3, "Screening", "screening"),
-    _sd(13, "Zweryfikowany", "verified"),
+    _sd(13, "Przygotowanie CV", "verified"),
     _sd(823, "QC CV", "interview"),
     _sd(824, "Wysłać do Cpro", None),
     _sd(5, "CV Wysłane", "cv_sent"),
@@ -164,6 +165,9 @@ DEFAULT_B2B = [
     [
         # Etapy szablonu Traffita „B2B" → kolumna tablicy „Default B2B".
         ("Kandydat Zweryfikowany", "verified", 13),
+        # Traffit dalej nazywa etap „Zweryfikowany" (0798 zmienia tylko szablony
+        # NEXUSA) — trafia na „Przygotowanie CV" po kodzie.
+        ("Zweryfikowany", "verified", 13),
         # Traffit dalej nazywa etap „DZ" — trafia na „QC CV" po rodzaju.
         ("Przepuszczony przez DZ", "interview", 823),
         ("Screening", "screening", 3),

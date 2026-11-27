@@ -513,7 +513,7 @@
        "stage": "verified",
        "category": null,
        "stage_def_id": 13,
-       "name": "Zweryfikowany",
+       "name": "Przygotowanie CV",
        "order": 3,
        "terminal_type": null,
        "count": 1
@@ -2332,7 +2332,7 @@
       }
      ],
      "stage_def_id": 13,
-     "name": "Zweryfikowany",
+     "name": "Przygotowanie CV",
      "order": 3,
      "terminal_type": null
     },
@@ -3686,7 +3686,7 @@
     {
      "id": 13,
      "template_id": 1,
-     "name": "Zweryfikowany",
+     "name": "Przygotowanie CV",
      "order": 3,
      "category": null,
      "is_terminal": false,
@@ -10547,7 +10547,7 @@
        "stage": "verified",
        "category": null,
        "stage_def_id": 13,
-       "name": "Zweryfikowany",
+       "name": "Przygotowanie CV",
        "order": 3,
        "terminal_type": null,
        "count": 1

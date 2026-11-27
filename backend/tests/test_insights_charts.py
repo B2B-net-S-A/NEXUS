@@ -378,6 +378,9 @@ async def test_conversion_is_null_without_denominator_and_is_not_capped(
 
     _, job_v, cand_v = await _seed_job_candidate()
     await _seed_stage(cand_v, job_v, PipelineStage.verified, when)
+    # 0797: weryfikacja liczy się od wejścia pary na QC CV albo dalej;
+    # „Negocjacje” leżą dalej i nie dokładają rekomendacji.
+    await _seed_stage(cand_v, job_v, PipelineStage.negotiation, when)
     verified_after = int(before["verified"]) + 1
 
     # Tyle rekomendacji, żeby licznik PRZEBIŁ mianownik niezależnie od tego,

@@ -163,7 +163,18 @@ _LINK_FLAGS = f"""
                apps.link_key, apps.candidate_id, apps.first_at,
                NOT apps.was_duplicate AS fresh,
                COALESCE(BOOL_OR(cs.stage::text <> 'posting'), FALSE) AS in_process,
-               COALESCE(BOOL_OR(cs.stage::text = 'verified'), FALSE) AS verified,
+               -- 0797: zaakceptowana weryfikacja tej pary, która ma już kamień
+               -- w widoku (wejście na QC CV albo dalej) — jak wiersze portali.
+               COALESCE(BOOL_OR(
+                   cs.stage::text = 'verified'
+                   AND cs.verification_status::text = 'active'
+                   AND EXISTS (
+                       SELECT 1 FROM analytics_first_milestones vm
+                       WHERE vm.candidate_id = cs.candidate_id
+                         AND vm.job_id = cs.job_id
+                         AND vm.stage::text = 'verified'
+                   )
+               ), FALSE) AS verified,
                COALESCE(BOOL_OR(cs.stage::text = 'cv_sent'), FALSE) AS cv_sent,
                COALESCE(BOOL_OR(cs.stage::text = 'hired'), FALSE) AS hired
         FROM apps

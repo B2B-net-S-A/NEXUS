@@ -188,7 +188,7 @@ const ConfirmFullySignedDialog = dynamic(
 );
 
 export const RATE_EDIT_DENIED_MESSAGE =
-  "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, Delivery Lead, Talent Community Manager, Head of Recruitment, Finanse lub administrator.";
+  "Ruch na „Przygotowanie CV” może zapisać stawkę kandydata — mogą go wykonać: rekruter, Delivery Lead, Talent Community Manager, Head of Recruitment, Finanse lub administrator.";
 
 export type { RejectFollowUp };
 

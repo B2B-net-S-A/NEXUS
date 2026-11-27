@@ -800,7 +800,7 @@ describe("JobReadinessDock — variant \"list\" (krok 01), zakładki fali 3", ()
     for (const label of [
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      "Przygotowanie CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",

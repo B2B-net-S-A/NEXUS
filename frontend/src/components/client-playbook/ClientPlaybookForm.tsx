@@ -360,7 +360,7 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
         <legend className="text-xs font-medium">{PLAYBOOK_FIELD_LABELS.verified_required_fields}</legend>
         <p className="text-xs text-muted-foreground">
           Lokalizację, tryb pracy, dostępność i „Dlaczego ten kandydat” rekruter wpisuje zawsze. Zaznaczone
-          pola też zatrzymają przekazanie osoby na „Zweryfikowany”, dopóki ich nie wpisze.
+          pola też zatrzymają przekazanie osoby na „Przygotowanie CV”, dopóki ich nie wpisze.
         </p>
         {VERIFIED_EXTRA_FIELD_OPTIONS.map((option) => {
           const checked = form.verified_required_fields.includes(option.key);

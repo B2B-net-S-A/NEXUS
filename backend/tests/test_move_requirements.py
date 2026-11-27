@@ -638,7 +638,10 @@ def test_job_without_questions_moves_once_the_assessment_is_written() -> None:
     result = build_requirements(facts, "verified")
     item = _item(result, "why_candidate")
     assert item["status"] == "ok" and item["action"] is None
-    assert result["primary"] == {"kind": "move", "label": "Przesuń na „Zweryfikowany”"}
+    assert result["primary"] == {
+        "kind": "move",
+        "label": "Przesuń na „Przygotowanie CV”",
+    }
 
 
 def test_assessment_does_not_replace_the_sheet_when_the_job_has_questions() -> None:
@@ -826,7 +829,10 @@ def test_delivery_lead_sees_the_gaps_but_they_do_not_block() -> None:
         from_column="screening", stage_id=5, screening_stage_id=4, skips_fill_gates=True
     )
     result = build_requirements(facts, "verified")
-    assert result["primary"] == {"kind": "move", "label": "Przesuń na „Zweryfikowany”"}
+    assert result["primary"] == {
+        "kind": "move",
+        "label": "Przesuń na „Przygotowanie CV”",
+    }
     sheet = _item(result, "screening_sheet")
     assert sheet["status"] == "missing" and sheet["blocking"] is False
     assert "przesuwasz jako Delivery Lead" in sheet["detail"]

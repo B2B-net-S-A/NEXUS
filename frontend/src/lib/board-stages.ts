@@ -1,9 +1,12 @@
 /**
- * Tablica rekrutacji: 8 kolumn — Nowi · Screening · Zweryfikowany · QC CV ·
+ * Tablica rekrutacji: 8 kolumn — Nowi · Screening · Przygotowanie CV · QC CV ·
  * CV wysłane · Rozmowa u klienta · Umowa · Zatrudniony (Rekrutacja v5,
  * decyzja Artura 23.09.2026, makiety
  * https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW). Screening znów jest
  * kolumną, a etap DZ stał się kolumną „QC CV” (kontrola CV przed wysłaniem).
+ * Kolumna `verified` nazywa się od 27.11.2026 „Przygotowanie CV” (wcześniej
+ * „Zweryfikowany”) — tu powstaje CV firmowe. Kody etapów się nie zmieniają,
+ * a szablon z Traffita dalej ma etap „Zweryfikowany” (ląduje tu po kodzie).
  *
  * Szablony etapów w bazie ZOSTAJĄ — nocny import z Traffita zapisuje ruch na
  * dokładny stan swojego procesu (15 i 18 stanów), a usunięcie etapu wrzuciłoby
@@ -62,7 +65,7 @@ export const BOARD_COLUMN_ORDER: readonly BoardColumnKey[] = [
 export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
   new: "Nowi",
   screening: "Screening",
-  verified: "Zweryfikowany",
+  verified: "Przygotowanie CV",
   cv_qc: "QC CV",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",
@@ -86,6 +89,21 @@ export interface FoldBoardOptions {
   /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro",
    *  a kolejka Cpro to własna kolumna „Do Cpro". */
   cproEnabled?: boolean;
+}
+
+/** Skróty nazw kolumn do ciasnych miejsc: nagłówek kolumny na Tablicy
+ *  i krokomierz okna „Przesuń dalej” (decyzja Artura 27.11.2026). Na laptopie
+ *  1280×720 „Przygotowanie CV” ucinało się do „Przygotow…”, a krokomierz łamał
+ *  słowo w środku. Pełna nazwa zostaje w dymku i dla czytnika ekranu. */
+export const BOARD_COLUMN_SHORT_LABEL: Partial<Record<BoardColumnKey, string>> = {
+  verified: "Przyg. CV",
+};
+
+/** Nazwa kolumny do ciasnego miejsca — skrót tylko dla kanonicznej nazwy
+ *  kolumny; własna nazwa etapu z szablonu zostaje bez zmian. */
+export function boardColumnShortLabel(key: BoardColumnKey | null | undefined, label: string): string {
+  if (!key || label !== BOARD_COLUMN_LABEL[key]) return label;
+  return BOARD_COLUMN_SHORT_LABEL[key] ?? label;
 }
 
 export function boardColumnLabel(key: BoardColumnKey, options: FoldBoardOptions = {}): string {
@@ -319,7 +337,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
       continue;
     }
     // Nazwę i rolę kolumny Tablicy dostaje wyłącznie etap o KANONICZNYM
-    // kodzie („verified" → „Zweryfikowany"). Kod `new` jest zastępczy dla
+    // kodzie („verified" → „Przygotowanie CV"). Kod `new` jest zastępczy dla
     // własnych etapów — znaczenie „Nowi" ma tylko pierwszy taki etap; inne
     // kody (np. `interview` = rozmowa wewnętrzna) zostają własną kolumną
     // z własną nazwą.

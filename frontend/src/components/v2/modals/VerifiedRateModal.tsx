@@ -118,7 +118,7 @@ export function VerifiedRateModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Przesuń na „Zweryfikowany”</DialogTitle>
+          <DialogTitle>Przesuń na „Przygotowanie CV”</DialogTitle>
           <DialogDescription>
             Stawka kandydata{" "}
             <span className="font-semibold">{candidateName}</span>

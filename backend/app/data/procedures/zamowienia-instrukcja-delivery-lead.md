@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 26.11.2026
+> **Zgodność z systemem sprawdzona:** 27.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -249,7 +249,7 @@ stawkami stoi linia **„Z rekrutacji „[tytuł]” ([kto], [data]): 165 zł/h 
 kandydat 140 zł/h”**. Pierwsza liczba to **stawka do klienta**, za którą
 Delivery Lead wysłał osobę przy „CV wysłane” — punkt odniesienia dla stawki
 **„Klient płaci”**. Druga to **stawka kandydata** z rekrutacji (okno
-„Zweryfikowany” albo zmiana stawki w procesie) — punkt odniesienia dla stawki
+„Przygotowanie CV” albo zmiana stawki w procesie) — punkt odniesienia dla stawki
 **„My płacimy kontraktorowi”** i dla stawki w umowie B2B. Stawki porównujemy
 po sprowadzeniu do złotych za godzinę (MD = 8 godzin; stawki miesięcznej nie
 porównujemy z godzinową, a stawki w innej walucie niż PLN — wcale).

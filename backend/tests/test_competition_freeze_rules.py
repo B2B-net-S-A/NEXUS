@@ -35,6 +35,7 @@ from app.models.skill import Skill as _Skill  # noqa: F401
 from app.models.user import User, UserRole
 from app.services import competition_rules, competitions
 from app.tasks import competition_autofreeze
+from tests._qc_cv_stage import qc_cv_move, qc_cv_stage_def_id
 
 _BACKEND = Path(__file__).resolve().parents[1]
 
@@ -489,7 +490,18 @@ async def test_recommendation_tie_is_broken_by_precision_then_time() -> None:
                 at=_at(year, 8, day),
                 stages=(PipelineStage.cv_sent,),
             )
-        await _pair(db, user=imprecise, job=job, at=_at(year, 8, 6), stages=())
+        # Czwarta weryfikacja bez rekomendacji: od 0797 liczy się dopiero po
+        # wejściu pary na „QC CV”.
+        no_cv = await _pair(db, user=imprecise, job=job, at=_at(year, 8, 6), stages=())
+        db.add(
+            qc_cv_move(
+                candidate_id=no_cv.id,
+                job_id=job.id,
+                moved_at=_at(year, 8, 6) + timedelta(minutes=10),
+                moved_by=imprecise.id,
+                stage_def_id=await qc_cv_stage_def_id(db),
+            )
+        )
         for day in (3, 4, 5):
             await _pair(
                 db,

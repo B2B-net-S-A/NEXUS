@@ -135,14 +135,14 @@ export function rateFromContextLine(rateFrom: {
 const SOURCE_LABEL: Record<string, string> = {
   card: "Screening (z notatki)",
   card_manual: "Screening (wpisane ręcznie)",
-  stage: "Okno „Zweryfikowany”",
+  stage: "Okno „Przygotowanie CV”",
   application: "Formularz zgłoszenia",
   profile: "Profil",
   profile_manual: "Profil, wpisane ręcznie",
   profile_manual_minimum: "Profil — minimum ustawione ręcznie",
   // 17.11.2026: kandydat sam podał minimum formularzem warunków z maila.
   profile_candidate_terms: "Od kandydata (formularz warunków)",
-  profile_stage_minimum: "Minimum z okna „Zweryfikowany”",
+  profile_stage_minimum: "Minimum z okna „Przygotowanie CV”",
   profile_trainee_call: "Telefon praktykanta (minimum)",
   profile_notes_confirmed: "Z notatek, zatwierdzone",
   profile_notes_ai: "Z notatek (AI)",

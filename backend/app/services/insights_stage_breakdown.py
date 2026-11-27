@@ -59,7 +59,7 @@ ROWS: tuple[BreakdownRow, ...] = (
     BreakdownRow("new", "Nowi", "added", "Dodani", True),
     BreakdownRow("new", "Nowi", "reassign", "Przepięcie", False),
     BreakdownRow("screening", "Screening", "screening", "Screening", True),
-    BreakdownRow("verified", "Zweryfikowany", "verified", "Zweryfikowani", True),
+    BreakdownRow("verified", "Przygotowanie CV", "verified", "Zweryfikowani", True),
     BreakdownRow("cv_qc", "QC CV", "qc", "QC CV", True),
     BreakdownRow("cv_qc", "QC CV", "cpro", "W kolejce Cpro", False),
     BreakdownRow("cv_sent", "CV wysłane", "cv_sent", "Wysłani do klienta", True),

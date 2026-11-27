@@ -49,7 +49,7 @@ export const STAGE_LABELS: Record<string, string> = {
   new: "Nowy",
   prep_call: "Prep call",
   screening: "Screening",
-  verified: "Zweryfikowany",
+  verified: "Przygotowanie CV",
   interview: "Interview",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",

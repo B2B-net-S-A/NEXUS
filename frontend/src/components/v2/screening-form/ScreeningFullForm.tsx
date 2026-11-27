@@ -163,7 +163,7 @@ import { ScreeningLegacyText, ScreeningSummaryView } from "./ScreeningSummaryVie
 function requiredByClient(state: ScreeningFormState, key: string): string | undefined {
   const extra = state.card?.required_by_client;
   if (!extra || !extra.fields.includes(key)) return undefined;
-  return `Wymaga ${extra.client_name ?? "klient"} przed „Zweryfikowany”`;
+  return `Wymaga ${extra.client_name ?? "klient"} przed „Przygotowaniem CV”`;
 }
 
 /** Brudne pola bez wpisów z innej rekrutacji (D2) — to podpowiedź, nie wpis rekrutera. */
@@ -1130,7 +1130,7 @@ export function ScreeningFullFormView({
           {state.rate_change_notifies && state.can_edit_rate ? (
             <p className="flex items-start gap-1.5 text-[11px] text-warning-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-              Kandydat jest od „Zweryfikowany” — zmiana stawki otworzy sprawę „zmiana stawki” u Delivery Leada.
+              Kandydat jest od „Przygotowania CV” — zmiana stawki otworzy sprawę „zmiana stawki” u Delivery Leada.
             </p>
           ) : null}
         </div>
