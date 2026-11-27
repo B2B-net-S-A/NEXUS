@@ -15,8 +15,12 @@ linii okresowej.
 * Osoba jest w rozliczeniach klienta, ale bez przyjętego RCP albo z godzinami
   niezatwierdzonymi w T4T — linia zostaje policzona z zamówienia (podgląd),
   z powodem w ``awaiting``; szkic faktury jej nie wystawi (``issue._row_block``).
-* Osoby nie ma w rozliczeniach klienta (klient bez modułu, miesiąc sprzed
-  rozliczeń w NEXUSIE) — linia z zamówienia jak dotąd.
+* Klient bez żadnego rozliczenia w NEXUSIE za ten miesiąc
+  (``client_settlements``: klient spoza rozliczeń, miesiąc sprzed rozliczeń
+  w NEXUSIE) albo osoba spoza jego rozliczeń — linia z zamówienia jak dotąd.
+  Bez tego warunku każda osoba z kontraktem u takiego klienta czekałaby na
+  RCP, którego nie będzie (CI 27.11.2026). Zestaw reguł klienta tego nie
+  rozstrzyga: trzyma też same reguły faktury (``cl.*``).
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -140,10 +145,28 @@ async def for_clients(
 ) -> dict[tuple[int, Optional[int]], Settled]:
     """„Do faktury dla klienta” wszystkich wskazanych klientów za miesiąc."""
 
+    from app.models.client_settlement import ClientSettlement
     from app.services.client_settlements import client_invoice
 
+    wanted = sorted(set(client_ids))
+    if not wanted:
+        return {}
+    settling = set(
+        (
+            await db.scalars(
+                select(ClientSettlement.client_id)
+                .where(
+                    ClientSettlement.client_id.in_(wanted),
+                    ClientSettlement.period_month == period,
+                )
+                .distinct()
+            )
+        ).all()
+    )
     out: dict[tuple[int, Optional[int]], Settled] = {}
-    for client_id in sorted(set(client_ids)):
+    for client_id in wanted:
+        if client_id not in settling:
+            continue
         try:
             # Savepoint: błąd SQL w rozliczeniach jednego klienta nie może
             # przerwać transakcji, w której liczymy resztę „Do faktury”.
