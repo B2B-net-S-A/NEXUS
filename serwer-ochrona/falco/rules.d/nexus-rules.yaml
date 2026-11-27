@@ -21,6 +21,16 @@
   priority: ERROR
   tags: [nexus, container, shell, mitre_execution]
 
+# Agent Wazuha: skany SCA i FIM czytaja /etc/shadow, sudoers, pam.d (27.11.2026: 182 z 200 zdarzen).
+# Wyjatek waski (decyzja Artura 27.11): nazwa procesu I sciezka binarki w /var/ossec/bin/.
+- macro: nexus_wazuh_agent
+  condition: (proc.name in (wazuh-modulesd, wazuh-syscheckd) and proc.exepath startswith /var/ossec/bin/)
+
+- rule: Read sensitive file untrusted
+  condition: and not nexus_wazuh_agent
+  override:
+    condition: append
+
 # 2. Odczyt sekretow Coolify i kluczy SSH na hoscie przez cos innego niz sshd/Coolify.
 - list: nexus_secret_readers
   items: [sshd, sshd-session, php, php-fpm, php-fpm8.4, php8.4, falco, crowdsec, rsync, tar, gzip]
@@ -30,7 +40,7 @@
   condition: >
     open_read and (fd.name = /data/coolify/source/.env or fd.name startswith /data/coolify/ssh/keys/
     or fd.name = /root/.ssh/authorized_keys or fd.name startswith /data/coolify/applications/)
-    and not proc.name in (nexus_secret_readers)
+    and not proc.name in (nexus_secret_readers) and not nexus_wazuh_agent
   output: >
     Odczyt pliku z sekretami (plik=%fd.name proces=%proc.name rodzic=%proc.pname
     uzytkownik=%user.name kontener=%container.name cmd=%proc.cmdline)
