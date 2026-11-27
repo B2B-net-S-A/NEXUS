@@ -169,3 +169,33 @@ describe("podpis obok kolumny mieści się w mapie (0–600)", () => {
     expect(inside(x, [{ text, size }], prefer)).toBe(true);
   });
 });
+
+describe("podpis przy kilku podświetlonych miastach", () => {
+  const lines = [{ text: "Warszawa, Gdańsk", size: 34 }];
+
+  it("stoi po lewej od skrajnie lewej kolumny, gdy się tam mieści w pełnym rozmiarze", async () => {
+    const { mapLabelColumn } = await import("../polandMap");
+    const got = mapLabelColumn([{ x: 520 }, { x: 400 }, { x: 460 }], lines);
+    expect(got?.column.x).toBe(400);
+    expect(got?.fit.anchor).toBe("end");
+    expect(got?.fit.scale).toBe(1);
+  });
+
+  it("po lewej brak miejsca — po prawej od skrajnie prawej, nigdy między kolumnami", async () => {
+    const { mapLabelColumn } = await import("../polandMap");
+    const got = mapLabelColumn([{ x: 60 }, { x: 120 }], lines);
+    expect(got?.column.x).toBe(120);
+    expect(got?.fit.anchor).toBe("start");
+  });
+
+  it("nigdzie się nie mieści — bez podpisu (miasta są w linii pod tytułem)", async () => {
+    const { mapLabelColumn } = await import("../polandMap");
+    expect(mapLabelColumn([{ x: 200 }, { x: 330 }], [{ text: "Warszawa, Gdańsk, Gdynia, Łódź", size: 34 }])).toBeNull();
+    expect(mapLabelColumn([], lines)).toBeNull();
+  });
+
+  it("jedno miasto jak dotąd: zawsze z podpisem", async () => {
+    const { mapLabelColumn, fitLabel } = await import("../polandMap");
+    expect(mapLabelColumn([{ x: 378 }], lines)?.fit).toEqual(fitLabel(378, lines, "left"));
+  });
+});

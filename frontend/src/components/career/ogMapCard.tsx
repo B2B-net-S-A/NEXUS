@@ -9,7 +9,7 @@
  * zwykłe bloki, bo tekst w obrazku SVG nie dostaje fontów satori.
  */
 import { svgDataUri, type MapSvg } from "@/lib/career/mapSvg";
-import { fitLabel, type MapLabel } from "@/lib/career/polandMap";
+import { mapLabelColumn, type MapLabel } from "@/lib/career/polandMap";
 
 import { B2BLogo } from "./B2BLogo";
 
@@ -224,15 +224,12 @@ export function OgOfferCard({
           : null;
   const textWidth = placed ? 590 : 1000;
   const chips = status ? [status] : tags;
-  const first = map.kind === "focus" ? map.lit[0] : null;
-  const fit =
-    map.kind === "focus" && first
-      ? fitLabel(
-          first.x,
-          [{ text: map.cities, size: 34 }, ...(map.note ? [{ text: map.note, size: 22 }] : [])],
-          "left",
-        )
+  const label =
+    map.kind === "focus"
+      ? mapLabelColumn(map.lit, [{ text: map.cities, size: 34 }, ...(map.note ? [{ text: map.note, size: 22 }] : [])])
       : null;
+  const first = label?.column ?? null;
+  const fit = label?.fit ?? null;
   const head = first ? first.base - first.height : 0;
   // Miejsce na tytuł: od y = 160 do 16 px nad adresem (y ≈ 554), minus plakietki
   // (68), linia „miasto · tryb · B2B” (62) i druga linia (36), gdy są.

@@ -22,6 +22,9 @@ import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { GeneralLinkTab } from "@/components/v2/career-share/GeneralLinkTab";
 import { JobShareTab } from "@/components/v2/career-share/JobShareTab";
+import { LinkedInPostTab } from "@/components/v2/career-share/LinkedInPostTab";
+import { remoteSvg } from "@/lib/career/mapSvg";
+import { postDataQueryKey, type PostDataResponse } from "@/lib/career/postGraphic";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import {
   type CareerLinkState,
@@ -289,6 +292,33 @@ function Case({ id, title, children }: { id: string; title: string; children: Re
   );
 }
 
+/** Fikcyjna grafika posta (zakładka „Post na LinkedIn”) — bez zapytań do tras grafiki. */
+const POST_DATA: PostDataResponse = {
+  post: {
+    tags: ["Java", "Spring Boot", "Kafka"],
+    word: "Java",
+    title: "Senior Java Developer",
+    line: "Zdalnie z całej Polski · B2B",
+    sub: "Czas projektu: 12 miesięcy · prowadzi Marta",
+    map: { kind: "remote", map: remoteSvg() },
+    host: "kariera.b2bnetwork.pl",
+    duties: ["Rozwój platformy płatności w Javie 17", "Projektowanie usług w Spring Boot", "Integracje przez Kafkę"],
+    must: ["Min. 5 lat z Javą", "Spring Boot w produkcji", "Kafka lub inny broker"],
+    nice: ["Kubernetes"],
+    skills: ["Java", "Spring Boot", "Kafka"],
+    steps: [
+      { title: "rozmowa z Martą", note: "poznajemy się" },
+      { title: "weryfikacja techniczna", note: "z ekspertem" },
+      { title: "spotkanie z zespołem", note: "po stronie klienta" },
+      { title: "decyzja i start", note: "umowa B2B" },
+    ],
+    subtitle: "Rozwój platformy płatności dla banku.",
+    office: null,
+  },
+  text: "Nowa rekrutacja: Senior Java Developer\nZdalnie z całej Polski · B2B\n\nRozwój platformy płatności dla banku.\n\nCzego szukamy: Java, Spring Boot, Kafka.\n\nLink do aplikacji w pierwszym komentarzu ↓ Wystarczy samo CV.\n\n#java #springboot #kafka #praca #b2b",
+  slides: ["cover", "duties", "must", "apply"],
+};
+
 export default function CareerSharePreviewPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryClient = useMemo(() => {
@@ -311,6 +341,7 @@ export default function CareerSharePreviewPage() {
     qc.setQueryData(careerLinkQueryKey(), CAREER_LINK, future);
     qc.setQueryData(linkResultsQueryKey(30), LINK_RESULTS, future);
     qc.setQueryData(linkPeopleQueryKey(30), LINK_PEOPLE, future);
+    qc.setQueryData(postDataQueryKey("senior-java-developer-7kq2"), POST_DATA, future);
     return qc;
   }, []);
 
@@ -332,6 +363,10 @@ export default function CareerSharePreviewPage() {
 
           <Case id="case-job" title="1. Link do tej rekrutacji — opis ze znaleziskiem (kwota)">
             <JobShareTab enabled defaultJobId={101} />
+          </Case>
+
+          <Case id="case-post" title="1a. Post na LinkedIn — grafika, treść posta i komentarz z linkiem">
+            <LinkedInPostTab enabled jobId={101} onGoToLink={() => undefined} />
           </Case>
 
           <Case id="case-general" title="2. Mój link ogólny — link aktywny, „O mnie”, statystyki, widoczność">

@@ -112,6 +112,21 @@
         "Head of Recruitment",
         "Delivery Lead"
       ]
+    },
+    "post-na-linkedin": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/post-na-linkedin.md",
+      "sciezki": [
+        "frontend/src/components/v2/career-share/**",
+        "frontend/src/components/v2/modals/GenerateInviteLinkV2.tsx",
+        "frontend/src/components/career/ogPostCard.tsx",
+        "frontend/src/app/kariera/r/*/grafika-posta/**",
+        "frontend/src/lib/career/postGraphic.ts",
+        "frontend/src/lib/career/carouselPdf.ts"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead"
+      ]
     }
   }
 }
