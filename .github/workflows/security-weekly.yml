@@ -16,7 +16,10 @@ name: Security weekly
 # Każdy job wysyła swój raport do DefectDojo (`defectdojo_import.sh`, krok
 # z `continue-on-error`, bez sekretów kończy się notką) przez tunel WireGuard
 # do serwera bezpieczeństwa — wprost z joba, bez artefaktu, bo artefakty
-# publicznego repo pobierze każdy zalogowany.
+# publicznego repo pobierze każdy zalogowany. Każdy job ma własnego peera
+# (`DEFECTDOJO_WG_CONF_<JOB>`): joby biegną równolegle, a WireGuard trzyma
+# jeden endpoint na peera, więc wspólny klucz wypierałby sesje. Nowy job
+# z importem = nowy peer od sesji SOC.
 # Poniedziałek 05:30 UTC (06:30 zimą / 07:30 latem w Warszawie), pół godziny po
 # Dependabocie (06:00 Warszawa), więc jego PR-y z podbiciami już czekają.
 # Codziennie nie: minuty Actions są płatne, a nowa podatność bez PR-a
@@ -81,7 +84,7 @@ jobs:
         continue-on-error: true
         env:
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
-          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_SEMGREP }}
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
         run: bash .github/scripts/defectdojo_import.sh "Semgrep JSON Report" "Semgrep" semgrep.json
 
@@ -126,7 +129,7 @@ jobs:
         continue-on-error: true
         env:
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
-          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_DEPS }}
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
         run: |
           bash .github/scripts/defectdojo_import.sh \
@@ -168,7 +171,7 @@ jobs:
         continue-on-error: true
         env:
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
-          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_ZIZMOR }}
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
         run: bash .github/scripts/defectdojo_import.sh "SARIF" "zizmor" zizmor.sarif
 
@@ -275,7 +278,7 @@ jobs:
         continue-on-error: true
         env:
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
-          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_TRIVY }}
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
         run: |
           args=()

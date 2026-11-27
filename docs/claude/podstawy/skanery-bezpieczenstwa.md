@@ -155,7 +155,14 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   z poprawką (gosu na starym Go, libxml2), `qdrant/qdrant:v1.17.1` 135 (Debian
   13.4, openssl, paczki Node.js z UI), `grafana/alloy:latest` i `traefik:v3.7`
   po 0; obraz stagingu backendu 6 (urllib3, msgpack, setuptools, libzstd),
-  frontu 20 (Alpine openssl/musl/zlib, npm wbudowany w obraz Node).
+  frontu 20 (Alpine openssl/musl/zlib, npm wbudowany w obraz Node). Bieg na
+  runnerze (46062454294, obrazy z wdrożonego `a613205d0`) dał te same liczby.
+- Stan wyjściowy w `.trivyignore-images`: 122 identyfikatory w czterech
+  grupach. Własne obrazy mają termin 31.12.2026, bo poprawka to nasz PR
+  (wersje w requirements, digest obrazu bazowego, npm poza etapem runner).
+  Postgres i Qdrant mają termin 31.01.2027: Postgres czeka na nowy build
+  obrazu tagu, Qdrant na świadome podbicie wersji. Identyfikator wspólny
+  dla kilku obrazów stoi raz, przy najkrótszym terminie.
 
 ### DefectDojo
 - Każdy job biegu tygodniowego kończy się krokiem „Import do DefectDojo”
@@ -163,16 +170,18 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   produkt „NEXUS”, engagement „CI tygodniowy”, testy „Semgrep”, „pip-audit”,
   „npm audit”, „zizmor” (SARIF), „Trivy <obraz>”. DefectDojo nie ma
   publicznego adresu: krok podnosi tunel WireGuard z sekretu
-  `DEFECTDOJO_WG_CONF` (peer CI widzi w tunelu tylko DefectDojo,
+  `DEFECTDOJO_WG_CONF_{SEMGREP,DEPS,ZIZMOR,TRIVY}` — osobny peer na job, bo
+  joby biegną równolegle, a wspólny klucz wypierałby sesje (peer widzi w tunelu tylko DefectDojo,
   `http://10.66.0.1:8080`, nadpisywane zmienną repo `DEFECTDOJO_URL`)
   i zamyka go na końcu. Token `DEFECTDOJO_TOKEN` to konto `ci-import`
   (Writer tylko na produkcie NEXUS); produkt i engagement zakłada sesja SOC.
-  Oba sekrety ustawia Artur; bez nich krok kończy się notką. Raport idzie
+  Sekrety ustawia Artur; bez nich krok kończy się notką. Raport idzie
   wprost z joba, bez artefaktu (artefakty publicznego repo pobierze każdy
   zalogowany), a log ma tylko kod HTTP i liczby, bez wyjścia `wg-quick`.
-- Serwer stawia sesja SOC (Wazuh + DefectDojo); ekran Ustawienia →
-  Bezpieczeństwo czyta znaleziska z DefectDojo i biegi `security-weekly.yml`
-  z API GitHuba.
+- Serwer stawia sesja SOC (Wazuh + DefectDojo). Znaleziska do ekranu
+  Ustawienia → Bezpieczeństwo wypycha serwer bezpieczeństwa co 30 min, a wynik
+  jobów `security-weekly.yml` ekran czyta z API GitHuba — nazwy pliku i jobów
+  zmieniaj tylko razem z ekranem (`SECURITY_GITHUB_WORKFLOW`, nazwy jobów idą na ekran wprost).
 
 ### Gitleaks na pełnej historii (jednorazowo, 27.11.2026)
 - gitleaks 8.21.2, `.gitleaks.toml`, `--log-opts=--all`, `--redact`: 13 558
