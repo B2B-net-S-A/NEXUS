@@ -25,7 +25,7 @@ from app.services.security_ingest import (
     wazuh_to_event,
 )
 from app.services.security_screen import add_cadence, effective_status, routine_state
-from app.services.security_sync import dojo_to_finding, runs_to_events
+from app.services.security_sync import run_done_on, runs_to_events
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,6 +42,21 @@ def test_scrub_removes_ipv4_ipv6_and_emails() -> None:
     assert "203.0.113" not in cleaned and "198.51.100" not in cleaned
     assert "2001:db8" not in cleaned and "example.com" not in cleaned
     assert cleaned.count("[adres IP]") == 3 and "[e-mail]" in cleaned
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Blocked 203.0.113.7.",
+        "from 198.51.100.4. Next",
+        "(203.0.113.7)",
+        "ip=203.0.113.7;",
+    ],
+)
+def test_scrub_removes_ip_at_sentence_end_and_in_punctuation(text: str) -> None:
+    cleaned = scrub(text, 300)
+    assert "203.0.113" not in cleaned and "198.51.100" not in cleaned
+    assert "[adres IP]" in cleaned
 
 
 def test_scrub_keeps_times_versions_and_paths() -> None:
@@ -63,6 +78,24 @@ def _event(**over):
         "summary": "Ban 4 h: skan ścieżek",
     }
     return {**base, **over}
+
+
+def test_batch_keeps_last_of_duplicate_fingerprints() -> None:
+    batch = IngestBatch.model_validate(
+        {
+            "source": "ci",
+            "scanner": "zizmor",
+            "findings": [
+                {"fingerprint": "a", "severity": "low", "title": "pierwszy"},
+                {"fingerprint": "b", "severity": "low", "title": "inny"},
+                {"fingerprint": "a", "severity": "high", "title": "drugi"},
+            ],
+        }
+    )
+    assert [(f.fingerprint, f.title) for f in batch.findings] == [
+        ("a", "drugi"),
+        ("b", "inny"),
+    ]
 
 
 def test_batch_accepts_contract_example() -> None:
@@ -247,24 +280,18 @@ def test_github_runs_become_idempotent_events() -> None:
     assert events[1].severity == "high" and "czerwony" in events[1].summary
 
 
-def test_defectdojo_finding_mapping() -> None:
-    finding = dojo_to_finding(
-        {
-            "id": 42,
-            "title": "Outdated OpenSSL",
-            "severity": "High",
-            "component_name": "openssl",
-            "component_version": "3.0.1",
-            "description": "Host 203.0.113.7 uses vulnerable version",
-            "mitigation": "- Upgrade openssl\n- Restart containers\n",
-            "date": "2026-11-20",
-        }
+def test_manual_run_after_midnight_warsaw_counts_for_the_next_day() -> None:
+    # 23:30 UTC = 00:30 w Warszawie — rutyna jest wykonana „jutro”, nie dziś.
+    assert run_done_on(datetime(2026, 11, 30, 23, 30, tzinfo=timezone.utc)) == date(
+        2026, 12, 1
     )
-    assert finding.fingerprint == "defectdojo:42"
-    assert finding.severity == "high"
-    assert finding.location == "openssl 3.0.1"
-    assert finding.steps == ["Upgrade openssl", "Restart containers"]
-    assert finding.detected_at == datetime(2026, 11, 20, tzinfo=timezone.utc)
+
+
+def test_new_column_reaches_databases_that_already_ran_0799() -> None:
+    assert any(
+        "ADD COLUMN IF NOT EXISTS last_run_id" in statement
+        for statement in schema.TABLE_DDL
+    )
 
 
 # ── Lustro DDL ───────────────────────────────────────────────────────────────

@@ -14,8 +14,8 @@ zbiera znaleziska ze skanerów (CI, DefectDojo, Wazuh), zdarzenia z serwera
   ponowienia webhooków (unikalny per źródło).
 * ``security_routines`` — rytm testów i przeglądów z terminem; po terminie
   dzwonek i mail do adminów.
-* ``security_source_states`` — ostatnia synchronizacja źródeł, które NEXUS
-  czyta sam (GitHub Actions, DefectDojo).
+* ``security_source_states`` — kiedy źródło ostatnio się odezwało (każda
+  paczka webhooka) i wynik odczytu GitHub Actions.
 
 Same dodania — stary kod działa na nowym schemacie.
 """
@@ -70,10 +70,14 @@ TABLE_DDL: list[str] = [
            closed_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           last_run_id VARCHAR(80) NULL,
            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
            CONSTRAINT ck_security_findings_exception
                CHECK (status <> 'excepted' OR (exception_reason IS NOT NULL AND exception_until IS NOT NULL))
        )""",
+    # Kolumna dołożona przed wdrożeniem 0799 (pełny skan w paczkach) — bazy,
+    # które już wykonały wcześniejszą wersję DDL (staging), dostają ją tutaj.
+    "ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS last_run_id VARCHAR(80) NULL",
     """CREATE UNIQUE INDEX IF NOT EXISTS uq_security_findings_fingerprint
            ON security_findings (source, fingerprint)""",
     """CREATE INDEX IF NOT EXISTS ix_security_findings_status

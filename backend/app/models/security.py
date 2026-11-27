@@ -64,6 +64,9 @@ class SecurityFinding(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Bieg skanu (pełny skan w kilku paczkach): `complete` zamyka znaleziska
+    # scannera, których żadna paczka tego biegu nie przyniosła.
+    last_run_id: Mapped[Optional[str]] = mapped_column(String(80))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

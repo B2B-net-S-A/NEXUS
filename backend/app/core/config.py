@@ -1309,16 +1309,14 @@ class Settings(BaseSettings):
     COMPETENCE_REPORT_SENDER_ENABLED: bool = True
     # Ustawienia → Bezpieczeństwo (0799, `tasks/security_sync.py`): co 30 min
     # biegi `security-weekly.yml` z GitHub API (repo publiczne, token opcjonalny
-    # — tylko dla limitu), znaleziska z DefectDojo (pusty URL albo token =
-    # źródło „nieskonfigurowane”), wyjątki po terminie i rutyny po terminie.
+    # — tylko dla limitu), wyjątki po terminie i rutyny po terminie. DefectDojo,
+    # Wazuh, CrowdSec i Falco same wysyłają dane na `/api/security/ingest*`.
     # Env na produkcji ustawia wyłącznie workflow „Coolify set env”.
     SECURITY_SYNC_ENABLED: bool = True
     SECURITY_SYNC_INTERVAL_SECONDS: int = 1800
     SECURITY_GITHUB_REPO: str = "B2B-net-S-A/NEXUS"
     SECURITY_GITHUB_WORKFLOW: str = "security-weekly.yml"
     SECURITY_GITHUB_TOKEN: str = ""
-    DEFECTDOJO_URL: str = ""
-    DEFECTDOJO_API_TOKEN: str = ""
     # Webhook `/api/security/ingest*` na klucz konta serwisowego.
     SECURITY_INGEST_RATE_LIMIT: str = "120/minute"
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi

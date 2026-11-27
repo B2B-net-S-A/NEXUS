@@ -182,7 +182,7 @@ export function SecurityOverviewPanel({ data }: SecurityOverviewPanelProps) {
         <h2 id="security-sources" className="border-b border-border px-4 py-2 text-sm font-semibold">
           Źródła
         </h2>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr className="border-b border-border">

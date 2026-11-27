@@ -377,3 +377,61 @@ async def test_overdue_routine_rings_admins_once_a_day_and_done_moves_the_date(
         headers=app_auth_headers,
     )
     assert future.status_code == 422
+
+
+async def test_full_scan_in_several_batches_closes_by_run_id(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """DefectDojo wysyła aktywne znaleziska paczkami po 200; `complete` idzie tylko
+    w ostatniej. Zamyka się to, czego nie było w ŻADNEJ paczce tego `run_id`."""
+    key = await _key(app_client, app_auth_headers, ["security:ingest"])
+    scanner = f"dojo{uuid.uuid4().hex[:6]}"
+
+    def batch(run_id: str, fps: list[str], complete: bool) -> dict:
+        return {
+            "source": "defectdojo",
+            "scanner": scanner,
+            "run_id": run_id,
+            "complete": complete,
+            "findings": [
+                {
+                    "fingerprint": f"defectdojo:{scanner}:{fp}",
+                    "severity": "high",
+                    "title": fp,
+                }
+                for fp in fps
+            ],
+        }
+
+    await app_client.post(
+        f"{API}/ingest", json=batch("r1", ["a", "b", "c"], True), headers=key
+    )
+    first = await app_client.post(
+        f"{API}/ingest", json=batch("r2", ["a"], False), headers=key
+    )
+    assert first.json()["findings_closed"] == 0
+    last = await app_client.post(
+        f"{API}/ingest", json=batch("r2", ["b"], True), headers=key
+    )
+    assert last.status_code == 202, last.text
+    assert last.json()["findings_closed"] == 1
+    async with AsyncSessionLocal() as db:
+        statuses = dict(
+            (
+                await db.execute(
+                    select(SecurityFinding.fingerprint, SecurityFinding.status).where(
+                        SecurityFinding.scanner == scanner
+                    )
+                )
+            ).all()
+        )
+    assert statuses == {
+        f"defectdojo:{scanner}:a": "open",
+        f"defectdojo:{scanner}:b": "open",
+        f"defectdojo:{scanner}:c": "fixed",
+    }
+    overview = (
+        await app_client.get(f"{API}/overview", headers=app_auth_headers)
+    ).json()
+    dojo = next(s for s in overview["sources"] if s["key"] == "defectdojo")
+    assert dojo["state"] == "live"

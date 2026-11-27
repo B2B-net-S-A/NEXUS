@@ -231,6 +231,15 @@ class SourceRow:
     link: Optional[str] = None
 
 
+def _failed_jobs(detail: dict) -> Optional[str]:
+    failed = [
+        j.get("name")
+        for j in detail.get("jobs") or []
+        if j.get("conclusion") not in (None, "success", "skipped")
+    ]
+    return f"czerwone: {', '.join(failed)}"[:300] if failed else None
+
+
 def _ago_label(when: datetime, now: datetime) -> str:
     hours = int((now - when).total_seconds() // 3600)
     if hours < 48:
@@ -276,7 +285,7 @@ async def build_sources(
             state=state,
             state_label=label,
             last_at=datetime.fromisoformat(run_at) if run_at else None,
-            detail=ci.last_error if ci and ci.last_error else None,
+            detail=(ci.last_error if ci and ci.last_error else _failed_jobs(detail)),
             link=detail.get("html_url"),
         )
     )
@@ -326,29 +335,22 @@ async def build_sources(
             )
         )
 
+    # DefectDojo wypycha aktywne znaleziska co 30 min (także pustą paczką).
     dojo = states.get("defectdojo")
-    if not (settings.DEFECTDOJO_URL and settings.DEFECTDOJO_API_TOKEN):
-        state, label, last, err = "unconfigured", "nieskonfigurowane", None, None
-    elif dojo and dojo.last_error:
-        state, label, last, err = (
-            "failing",
-            "błąd odczytu",
-            dojo.last_ok_at,
-            dojo.last_error,
-        )
-    elif dojo and dojo.last_ok_at:
-        state, label, last, err = "ok", "zsynchronizowane", dojo.last_ok_at, None
+    if dojo is None or dojo.last_ok_at is None:
+        state, label, last = "unconfigured", "nieskonfigurowane", None
+    elif now - dojo.last_ok_at <= timedelta(hours=2):
+        state, label, last = "live", "na żywo", dojo.last_ok_at
     else:
-        state, label, last, err = "quiet", "czeka na pierwszy odczyt", None, None
+        state, label, last = "quiet", _ago_label(dojo.last_ok_at, now), dojo.last_ok_at
     rows.append(
         SourceRow(
             key="defectdojo",
-            name="DefectDojo",
-            where="osobny serwer",
+            name="DefectDojo (Semgrep, audyty, zizmor, Trivy)",
+            where="serwer bezpieczeństwa",
             state=state,
             state_label=label,
             last_at=last,
-            detail=err,
         )
     )
 

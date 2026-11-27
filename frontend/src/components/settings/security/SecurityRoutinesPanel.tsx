@@ -118,7 +118,7 @@ export function SecurityRoutinesPanel({ today }: SecurityRoutinesPanelProps) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <div className="grid min-w-[640px] grid-cols-7 gap-1.5" data-testid="security-calendar">
           {WEEKDAYS_PL.map((d) => (
             <span key={d} className="px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -159,7 +159,7 @@ export function SecurityRoutinesPanel({ today }: SecurityRoutinesPanelProps) {
             {doneError}
           </p>
         ) : null}
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr className="border-b border-border">

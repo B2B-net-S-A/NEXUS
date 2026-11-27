@@ -24,11 +24,11 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import func, select, true, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.security import SecurityEvent, SecurityFinding
+from app.models.security import SecurityEvent, SecurityFinding, SecuritySourceState
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
 IngestSource = Literal["crowdsec", "falco", "wazuh", "ci", "defectdojo", "pentest"]
@@ -37,7 +37,11 @@ MAX_EVENTS = 500
 MAX_FINDINGS = 200
 
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-_IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?(?![\d.])")
+# Kropka po adresie to zwykle koniec zdania („Blocked 203.0.113.7.”) — odrzucamy
+# tylko ciąg dalszy liczby (cyfra albo „.cyfra”), nie samą kropkę.
+_IPV4 = re.compile(
+    r"(?<!\d)(?<!\d\.)(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?(?!\d)(?!\.\d)"
+)
 # Kandydat na IPv6: co najmniej dwa dwukropki w ciągu znaków szesnastkowych.
 _IPV6 = re.compile(
     r"(?<![\w:])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?:/\d{1,3})?(?![\w:])"
@@ -110,6 +114,9 @@ class IngestBatch(BaseModel):
 
     source: IngestSource
     scanner: Optional[str] = Field(default=None, pattern=_SCANNER)
+    # Pełny skan w kilku paczkach: każda paczka biegu niesie ten sam `run_id`,
+    # `complete: true` tylko ostatnia.
+    run_id: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,80}$")
     complete: bool = False
     events: list[IngestEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
     findings: list[IngestFinding] = Field(default_factory=list, max_length=MAX_FINDINGS)
@@ -120,6 +127,22 @@ class IngestBatch(BaseModel):
         if value and not info.data.get("scanner"):
             raise ValueError("complete wymaga pola scanner")
         return value
+
+    @field_validator("findings")
+    @classmethod
+    def _one_per_fingerprint(
+        cls, value: list["IngestFinding"]
+    ) -> list["IngestFinding"]:
+        return dedupe_findings(value)
+
+
+def dedupe_findings(findings: list[IngestFinding]) -> list[IngestFinding]:
+    """Jeden wpis na odcisk (ostatni wygrywa) — skanery powtarzają to samo trafienie,
+    a dwa wiersze o jednym odcisku złamałyby unikalny indeks i całą paczkę."""
+    by_fingerprint: dict[str, IngestFinding] = {}
+    for item in findings:
+        by_fingerprint[item.fingerprint] = item
+    return list(by_fingerprint.values())
 
 
 @dataclass(frozen=True)
@@ -301,14 +324,18 @@ async def upsert_findings(
     *,
     scanner: Optional[str] = None,
     complete: bool = False,
+    run_id: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> tuple[int, int, int]:
     """Nowe znaleziska, aktualizacja znanych, zamknięcie nieobecnych w pełnym skanie.
 
     Status ustawiony w NEXUSIE (wyjątek, właściciel) zostaje. Znalezisko
     zamknięte jako naprawione, które wraca w skanie, otwiera się ponownie.
+    Z ``run_id`` pełny skan zamyka to, czego nie przyniosła żadna paczka tego
+    biegu; bez niego — to, czego nie ma w tej paczce.
     """
     now = now or datetime.now(timezone.utc)
+    findings = dedupe_findings(findings)
     new = updated = 0
     fingerprints = [f.fingerprint for f in findings]
     existing: dict[str, SecurityFinding] = {}
@@ -329,6 +356,7 @@ async def upsert_findings(
             "impact": scrub(item.impact, 2000),
             "steps": [scrub(step, 300) for step in item.steps],
             "last_seen_at": now,
+            "last_run_id": run_id,
             "updated_at": now,
         }
         row = existing.get(item.fingerprint)
@@ -357,17 +385,23 @@ async def upsert_findings(
         updated += 1
     closed = 0
     if complete and scanner:
+        await db.flush()
+        missing = (
+            SecurityFinding.last_run_id.is_distinct_from(run_id)
+            if run_id
+            else (
+                SecurityFinding.fingerprint.notin_(fingerprints)
+                if fingerprints
+                else true()
+            )
+        )
         result = await db.execute(
             update(SecurityFinding)
             .where(
-                and_(
-                    SecurityFinding.source == source,
-                    SecurityFinding.scanner == scanner,
-                    SecurityFinding.status != "fixed",
-                    SecurityFinding.fingerprint.notin_(fingerprints)
-                    if fingerprints
-                    else True,
-                )
+                SecurityFinding.source == source,
+                SecurityFinding.scanner == scanner,
+                SecurityFinding.status != "fixed",
+                missing,
             )
             .values(
                 status="fixed",
@@ -381,6 +415,19 @@ async def upsert_findings(
     return new, updated, closed
 
 
+async def mark_source_seen(db: AsyncSession, source: str) -> None:
+    """Źródło się odezwało — także pustą paczką (timer DefectDojo bez zmian)."""
+    now = datetime.now(timezone.utc)
+    stmt = pg_insert(SecuritySourceState).values(
+        source=source, last_ok_at=now, detail={}
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["source"], set_={"last_ok_at": now, "last_error": None}
+        )
+    )
+
+
 async def ingest_batch(
     db: AsyncSession, batch: IngestBatch, *, service_account_id: Optional[int] = None
 ) -> IngestResult:
@@ -388,7 +435,13 @@ async def ingest_batch(
         db, batch.source, batch.events, service_account_id=service_account_id
     )
     new, updated, closed = await upsert_findings(
-        db, batch.source, batch.findings, scanner=batch.scanner, complete=batch.complete
+        db,
+        batch.source,
+        batch.findings,
+        scanner=batch.scanner,
+        complete=batch.complete,
+        run_id=batch.run_id,
     )
+    await mark_source_seen(db, batch.source)
     await db.commit()
     return IngestResult(accepted, skipped, new, updated, closed)

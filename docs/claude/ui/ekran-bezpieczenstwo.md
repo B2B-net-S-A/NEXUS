@@ -48,12 +48,14 @@ Wejście: klucz konta serwisowego ze scope'em `security:ingest` w nagłówku
 klucz nie czyta ekranu.
 
 - `POST /api/security/ingest` — format ogólny:
-  `{source, scanner?, complete?, events: [{occurred_at (ze strefą), kind,
+  `{source, scanner?, run_id?, complete?, events: [{occurred_at (ze strefą), kind,
   severity, summary ≤ 300, count, ref?}], findings: [{fingerprint, severity,
   title, location?, evidence?, impact?, steps?, detected_at?}]}`. Najwyżej 500
   zdarzeń i 200 znalezisk, nieznane pole = 422. Ten sam `(source, ref)` drugi
   raz jest pomijany. `complete: true` (wymaga `scanner`) zamyka jako naprawione
-  otwarte znaleziska tego scannera, których nie ma w liście; znalezisko
+  otwarte znaleziska tego scannera, których nie ma w liście. Pełny skan w kilku
+  paczkach: każda paczka niesie ten sam `run_id`, `complete` tylko ostatnia —
+  zamyka się to, czego nie przyniosła żadna paczka biegu. Znalezisko
   naprawione, które wraca, otwiera się ponownie. Status ustawiony w NEXUSIE
   (wyjątek, właściciel) zostaje przy ponownym imporcie.
 - `POST /api/security/ingest/falco` — zdarzenie Falcosidekicka (webhook,
@@ -63,11 +65,16 @@ klucz nie czyta ekranu.
 - Kafelek „Ruch z internetu” sumuje `count` zdarzeń CrowdSec `ban`
   i `appsec_block` z 24 h.
 
-NEXUS czyta sam (pętla `security_sync`, co 30 min, na stagingu zatrzymana):
-biegi `SECURITY_GITHUB_WORKFLOW` z `SECURITY_GITHUB_REPO` (token
-`SECURITY_GITHUB_TOKEN` opcjonalny, tylko dla limitu) oraz aktywne znaleziska
-DefectDojo (`DEFECTDOJO_URL` + `DEFECTDOJO_API_TOKEN`; adres `next` musi zostać
-na tym serwerze). Env na produkcji ustawia wyłącznie workflow „Coolify set env”.
+- **DefectDojo** (Semgrep, audyty zależności, zizmor, Trivy obrazów z CI) stoi
+  za WireGuardem (decyzja Artura 27.11.2026), więc NEXUS go nie czyta: timer
+  na serwerze bezpieczeństwa co 30 min wypycha aktywne znaleziska
+  (`source: "defectdojo"`, `scanner: "defectdojo"`, `run_id`, paczki po 200).
+  Każda paczka, także pusta, odświeża stan źródła (`security_source_states`).
+
+NEXUS czyta sam tylko GitHub Actions (pętla `security_sync`, co 30 min, na
+stagingu zatrzymana): biegi `SECURITY_GITHUB_WORKFLOW` z `SECURITY_GITHUB_REPO`
+i wyniki jobów ostatniego biegu (token `SECURITY_GITHUB_TOKEN` opcjonalny,
+tylko dla limitu). Env na produkcji ustawia wyłącznie workflow „Coolify set env”.
 
 Pilnują: `tests/test_security_screen_unit.py`, `tests/test_security_screen_api.py`,
 wzorce `tests/data/authz_golden/security*.json`,
