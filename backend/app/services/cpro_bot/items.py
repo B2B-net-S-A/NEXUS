@@ -64,7 +64,6 @@ BLOCK_NO_CV = "Brak zatwierdzonego CV firmowego"
 BLOCK_QC = "QC CV ma błędy blokujące"
 BLOCK_NO_WHY = "CV bez punktów „Why our candidate”"
 BLOCK_NO_CITY = "Brak miasta kandydata w Warunkach"
-BLOCK_NO_CITIZENSHIP = "Brak narodowości w Warunkach"
 BLOCK_NO_CPRO_ACCOUNT = "Delivery Lead rekrutacji nie ma aktywnego konta Cpro bota"
 
 # Tożsamość konta wybiera zapisany DL TEJ rekrutacji, nigdy osoba prowadząca
@@ -240,9 +239,10 @@ def build_payload(
     )
     if city is None:
         blockers.append(BLOCK_NO_CITY)
+    # Narodowość jest potrzebna tylko do nowego profilu w Cpro — robot sam
+    # stanie, gdy profilu nie ma, a narodowości brak (27.11.2026: karta osoby
+    # z profilem w Cpro czekała na „Brak narodowości”).
     citizenship = offer_text.citizenship((card.get("nationality") or {}).get("raw"))
-    if citizenship is None:
-        blockers.append(BLOCK_NO_CITIZENSHIP)
     if blockers:
         return tuple(blockers), None
 

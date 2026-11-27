@@ -353,3 +353,15 @@ def test_cv_link_in_draft_view_matches_file_name_variants():
     assert not match("Anna_Nowak_CV.pdf", name)
     assert not match("", name)
     assert not match("Download", "")
+
+
+def test_new_profile_without_nationality_stops_before_cpro():
+    from cpro_robot.portal import ItemRun, Outcome
+
+    item = {"candidate": {"citizenship": None}, "offer": {}, "request_number": "42283"}
+    run = ItemRun(
+        None, server.PORTAL_BASE, item, rules.Account("IGOR", "u", "p", "x"), b"", False
+    )
+    with pytest.raises(Outcome) as exc:
+        run.add_consultant()
+    assert "narodowość" in exc.value.message

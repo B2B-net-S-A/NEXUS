@@ -325,8 +325,15 @@ def test_blockers_name_every_gap_and_hold_the_item() -> None:
         bot_items.BLOCK_NO_CV,
         bot_items.BLOCK_QC,
         bot_items.BLOCK_NO_CITY,
-        bot_items.BLOCK_NO_CITIZENSHIP,
     )
+
+
+def test_missing_nationality_does_not_hold_a_person_with_a_cpro_profile() -> None:
+    """Brak narodowości blokuje tylko nowy profil — to rozstrzyga robot."""
+
+    blockers, payload = _payload(card={"location": {"raw": "Gdynia"}})
+    assert blockers == ()
+    assert payload["candidate"]["citizenship"] is None
 
 
 def test_daily_rate_and_cv_without_why_points_are_blockers() -> None:

@@ -139,6 +139,10 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   Gdynia/Gdańsk z rekrutacji), inaczej pierwsze miasto rekrutacji. **Dni z karty kandydata**
   („2 dni w tygodniu w biurze” → `2x/week`, 26.11.2026), bez nich
   z `jobs.onsite_days_per_week`, domyślnie 3. Praca zdalna → `working remotely`.
+- **Narodowość** nie blokuje karty (27.11.2026): potrzebna tylko do nowego
+  profilu w Cpro — robot staje przed „Add Consultant”, gdy osoby nie ma
+  w Cpro, a narodowości brak. Wyszukiwarka profili na requeście bywa ukryta —
+  robot wpisuje nazwisko i klika „Search” skryptem.
 - **QC CV:** „przepuszczone mimo QC” (`overridden`) nie zatrzymuje bota,
   choć licznik błędów blokujących zostaje (26.11.2026).
 - **Former employee / consultant:** z karty „Czy pracował u Klienta” (UoP =
