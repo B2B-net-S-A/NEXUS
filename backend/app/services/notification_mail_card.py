@@ -253,6 +253,9 @@ SPECS: dict[str, _Spec] = {
     ),
     "automation_failing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "teams_prep_scope_missing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
+    "security_routine_overdue": _Spec(
+        "Wykonaj rutynę", chip="Bezpieczeństwo", label="Otwórz rutyny"
+    ),
     "hr_m365_scope_missing": _Spec(
         "Dopisz osoby do grupy", chip="Awaria", label="Otwórz kartę"
     ),

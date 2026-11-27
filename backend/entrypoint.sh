@@ -915,6 +915,8 @@ _ENUM_STATEMENTS = [
     # 0795: rekrutacja „Wstrzymana” — zmiana stanu (mail obowiązkowy) i pytanie do DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_check'",
+    # 0799: Ustawienia → Bezpieczeństwo — rutyna po terminie (tylko admini, mail od razu).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'security_routine_overdue'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -1335,6 +1337,16 @@ try:
 except Exception as _competence_report_err:  # noqa: BLE001
     print(f"competence report DDL unavailable: {_competence_report_err!r}")
     _COMPETENCE_REPORT_DDL = []
+
+# Ustawienia → Bezpieczeństwo (migracja 0799) — JEDNO źródło z migracją
+# (`app/services/security_schema.py`): tabele i zasiew rutyn.
+try:
+    from app.services import security_schema as _security_schema
+
+    _SECURITY_SCREEN_DDL = list(_security_schema.TABLE_DDL) + list(_security_schema.SEED_DDL)
+except Exception as _security_schema_err:  # noqa: BLE001
+    print(f"security screen DDL unavailable: {_security_schema_err!r}")
+    _SECURITY_SCREEN_DDL = []
 
 # Wersje Profilu Championa i „Przeczytane” (migracja 0731) — JEDNO źródło
 # z migracją (`app/services/champion_profile_revisions_schema.py`).
@@ -1761,6 +1773,7 @@ _COLUMN_STATEMENTS = [
     *_JOB_ROLE_PROFILE_DDL,
     *_CANDIDATE_TERMS_DDL,
     *_COMPETENCE_REPORT_DDL,
+    *_SECURITY_SCREEN_DDL,
     *_CHAMPION_REVISIONS_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
