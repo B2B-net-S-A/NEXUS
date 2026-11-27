@@ -282,19 +282,26 @@ class ItemRun:
         uploadu i bez kolejnego zakładania, gdy profilu nadal nie widać.
         """
 
-        self.step = "profile"
         page = self.page
         self.open_request()
-        page.locator("#profileSearch").fill(
-            f"{self.candidate['first_name']} {self.candidate['last_name']}"
-        )
+        self.step = "profile"
+        search = page.locator("#profileSearch")
+        if search.count() == 0 or page.locator("#searchButton").count() == 0:
+            raise _fail(
+                "other", "Na requeście w Cpro nie ma wyszukiwarki profili konsultantów."
+            )
+        # Pole bywa ukryte (request 43137, 27.11.2026: fill czekał 30 s na
+        # widoczność) — wartość i klik skryptem, jak w pozostałych polach.
+        who = f"{self.candidate['first_name']} {self.candidate['last_name']}"
+        if not search.first.evaluate(_PUT_JS, who):
+            raise _fail("other", "Cpro nie przyjął nazwiska w wyszukiwarce profili.")
         # Wyszukiwarka to AJAX (loadDiv → ProfileController…dosearchwithjq);
         # czekamy na jej odpowiedź, a nie tylko na ciszę sieci.
         try:
             with page.expect_response(
                 lambda r: "dosearchwithjq" in r.url, timeout=STEP_TIMEOUT_MS
             ):
-                page.locator("#searchButton").click()
+                _js_click(page.locator("#searchButton"), "Search")
         except Exception:
             pass
         page.wait_for_load_state("networkidle")
@@ -367,6 +374,12 @@ class ItemRun:
     def add_consultant(self) -> None:
         self.step = "add_consultant"
         self.before_write("Add Consultant")
+        if not (self.candidate.get("citizenship") or "").strip():
+            raise _fail(
+                "other",
+                "Osoby nie ma w Cpro, a do nowego profilu potrzebna jest "
+                "narodowość — uzupełnij ją w Warunkach i ponów szkic.",
+            )
         page = self.page
         self.step = "add_consultant:open"
         if not page.evaluate(_OPEN_ADD_CONSULTANT_JS, self.request_no):
