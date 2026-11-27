@@ -3,7 +3,7 @@ name: nexus/whitelist
 description: "Laptop Artura i zaufane sciezki (API Coolify z tokenem dla GitHub Actions)"
 whitelist:
   reason: "nexus allowlist"
-  # Adresy (laptop Artura, sam serwer) sa tylko w pliku na serwerze: repo i logi Actions sa publiczne.
+  # Adresy (laptop Artura, sam serwer, serwer bezpieczenstwa z Wazuhem) sa tylko w pliku na serwerze: repo i logi Actions sa publiczne.
   ip: []
   expression:
     # GitHub Actions (Deploy, set env, Coolify Ops) woluja /api/v1/ Coolify z tokenem z tysiecy adresow Azure.

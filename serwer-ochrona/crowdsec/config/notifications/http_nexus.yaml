@@ -1,0 +1,17 @@
+# Powiadomienia CrowdSec -> ekran Ustawienia -> Bezpieczenstwo w NEXUSIE (kontrakt ingest v1, 27.11.2026).
+# Nieaktywne, dopoki nie ma klucza konta serwisowego `crowdsec-nexus` (scope security:ingest; konto pisze
+# tylko do zrodla `crowdsec`). Wlaczenie: plik do /opt/crowdsec/config/notifications/ (chmod 600), w miejsce
+# __NEXUS_KEY__ klucz, profile jak w profiles-nexus.yaml obok, `docker restart crowdsec`.
+# Bez adresow IP w summary (repo i ekran ich nie trzymaja); count=1 na alert.
+type: http
+name: http_nexus
+log_level: info
+group_wait: 30s
+group_threshold: 50
+format: |
+  {"source":"crowdsec","events":[{{range $i, $a := .}}{{if $i}},{{end}}{"occurred_at":"{{$a.StopAt}}","kind":"{{if hasPrefix "nexus/" $a.Scenario}}alert{{else if hasPrefix "crowdsecurity/appsec" $a.Scenario}}appsec_block{{else}}ban{{end}}","severity":"{{if eq $a.Scenario "nexus/large-export"}}high{{else if hasPrefix "nexus/" $a.Scenario}}medium{{else}}info{{end}}","summary":"{{if hasPrefix "nexus/" $a.Scenario}}Alarm{{else}}Ban 4 h{{end}}: {{$a.Scenario}}","count":1,"ref":"crowdsec:alert:{{$a.ID}}"}{{end}}]}
+url: https://api.nexus.dynaminds.pl/api/security/ingest
+method: POST
+headers:
+  Content-Type: application/json
+  X-API-Key: __NEXUS_KEY__

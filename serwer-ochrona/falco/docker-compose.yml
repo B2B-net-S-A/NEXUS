@@ -22,6 +22,7 @@ services:
       - /etc:/host/etc:ro
       - /opt/falco/config.d/nexus.yaml:/etc/falco/config.d/zz-nexus.yaml:ro
       - /opt/falco/rules.d:/etc/falco/rules.d:ro
+      - /var/log/falco:/var/log/falco
     networks: [falco]
     depends_on: [falcosidekick]
     healthcheck:
