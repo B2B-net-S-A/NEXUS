@@ -99,6 +99,19 @@
         "Delivery Lead",
         "Admin"
       ]
+    },
+    "rytm-dnia": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/rytm-dnia.md",
+      "sciezki": [
+        "frontend/src/components/insights/views/RytmDniaView.tsx",
+        "frontend/src/components/insights/views/Rhythm*",
+        "backend/app/api/insights_work_rhythm.py",
+        "backend/app/services/work_rhythm.py"
+      ],
+      "role": [
+        "Head of Recruitment",
+        "Delivery Lead"
+      ]
     }
   }
 }

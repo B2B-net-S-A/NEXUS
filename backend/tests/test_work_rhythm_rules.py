@@ -398,14 +398,17 @@ def test_only_nexus_preps_count_as_meetings():
         (("delivery_lead", "recruiter"), True),
         (("talent_community_manager", "recruiter"), True),
         (("talent_community_manager",), False),
-        (("delivery_lead",), False),
+        (("delivery_lead",), True),
+        (("delivery_lead", "talent_community_manager"), True),
+        (("head_of_recruitment", "delivery_lead"), False),
         (("admin", "head_of_recruitment", "recruiter"), False),
         (("head_of_recruitment", "recruiter"), False),
     ],
 )
 def test_everyone_with_recruiter_role_is_shown(roles, shown):
-    """Decyzja Artura 29.10.2026: każdy z rolą rekrutera (też DL), bez samych
-    TCM; HoR i admin to widzowie, nie wiersze."""
+    """Decyzja Artura 29.10.2026: każdy z rolą rekrutera, bez samych TCM;
+    HoR i admin to widzowie, nie wiersze. Od 27.11.2026 także każdy DL,
+    również bez dopisanego rekrutera."""
     from app.services.work_rhythm import is_rhythm_person
 
     assert is_rhythm_person(_user(*roles)) is shown

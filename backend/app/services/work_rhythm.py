@@ -2,7 +2,7 @@
 
 Insights → „Rytm dnia”: kiedy i jak intensywnie rekruterzy pracują w NEXUSIE,
 godzina po godzinie. Widzą to tylko Head of Recruitment i admin (29.10.2026);
-pokazujemy każdego z rolą rekrutera, także DL-i z dopisanym rekruterem
+pokazujemy każdego z rolą rekrutera i każdego DL-a (27.11.2026)
 (bez samych TCM, Head of Recruitment i adminów), bez formy współpracy.
 Liczymy od 12.10.2026 — od tego dnia zespół pracuje w NEXUSIE.
 
@@ -124,9 +124,10 @@ GUARD_FIELDS: tuple[str, ...] = (
 )
 _FLOAT_GUARDS = frozenset({"auto_cv_points", "stage_return_points"})
 
-# Każdy z rolą rekrutera, także DL z dopisanym rekruterem; sam TCM nie
-# (decyzja Artura 29.10.2026). HoR i admin oglądają, nie są wierszami.
-_INCLUDED_ROLES = (UserRole.recruiter,)
+# Każdy z rolą rekrutera (decyzja Artura 29.10.2026) i każdy Delivery Lead,
+# także bez dopisanego rekrutera (27.11.2026); sam TCM nie. HoR i admin
+# oglądają, nie są wierszami.
+_INCLUDED_ROLES = (UserRole.recruiter, UserRole.delivery_lead)
 _EXCLUDED_ROLES = (UserRole.head_of_recruitment, UserRole.admin)
 # Na razie całą zakładkę widzą tylko Head of Recruitment i admin (decyzja
 # Artura 29.10.2026, po wcześniejszym „widzi cały zespół”); oni też zmieniają reguły.
@@ -734,7 +735,7 @@ def is_rhythm_person(user: User) -> bool:
 
 
 async def rhythm_people(db: AsyncSession) -> list[User]:
-    """Aktywne osoby z rolą rekrutera (bez HoR i adminów), alfabetycznie.
+    """Aktywne osoby z rolą rekrutera albo DL (bez HoR i adminów), alfabetycznie.
 
     Konto, w imieniu którego działa integracja (``oauth_clients.acting_user_id``,
     np. „Integracje: …” z rolą TCM), nie jest człowiekiem — pomijamy je.
