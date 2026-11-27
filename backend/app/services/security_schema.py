@@ -125,8 +125,10 @@ TABLE_DDL: list[str] = [
            last_run_at TIMESTAMPTZ NULL,
            last_ok_at TIMESTAMPTZ NULL,
            last_error VARCHAR(300) NULL,
+           owner_service_account_id INTEGER NULL,
            detail JSONB NOT NULL DEFAULT '{}'::jsonb
        )""",
+    "ALTER TABLE security_source_states ADD COLUMN IF NOT EXISTS owner_service_account_id INTEGER NULL",
 ]
 
 # Rytm z raportu „Tarcza NEXUSA” (27.11.2026). Zasiew raz: ON CONFLICT

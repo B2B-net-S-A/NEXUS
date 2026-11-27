@@ -45,7 +45,12 @@ wyłącznie wynik i kod błędu, bez osoby.
 Wejście: klucz konta serwisowego ze scope'em `security:ingest` w nagłówku
 `X-API-Key` (Ustawienia → Klucze API, jedno konto na źródło), limit
 `SECURITY_INGEST_RATE_LIMIT` (120/min na konto). JWT admina nie działa (401),
-klucz nie czyta ekranu.
+klucz nie czyta ekranu. Źródło należy do konta, które pierwsze do niego
+napisało (`security_source_states.owner_service_account_id`): inny klucz dostaje
+403 `source_owned_by_other_account`, bo klucz Falco leży w pliku na serwerze
+NEXUSA i bez tego mógłby zamknąć znaleziska DefectDojo pustym pełnym skanem.
+Wyłączenie albo usunięcie konta zwalnia źródło; rotacja kluczy w tym samym
+koncie go nie zwalnia.
 
 - `POST /api/security/ingest` — format ogólny:
   `{source, scanner?, run_id?, complete?, events: [{occurred_at (ze strefą), kind,

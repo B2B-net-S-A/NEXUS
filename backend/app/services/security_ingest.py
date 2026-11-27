@@ -415,6 +415,40 @@ async def upsert_findings(
     return new, updated, closed
 
 
+class SourceOwnedByOtherAccount(Exception):
+    """Źródło jest przypięte do innego, aktywnego konta serwisowego."""
+
+
+async def claim_source(db: AsyncSession, source: str, service_account_id: int) -> None:
+    """Pierwsze konto, które pisze do źródła, dostaje je na wyłączność.
+
+    Bo klucz Falco leży w pliku na serwerze NEXUSA, a bez przypięcia mógłby
+    nadpisać znaleziska DefectDojo albo zamknąć je pustym pełnym skanem.
+    Wyłączone albo usunięte konto zwalnia źródło (rotacja kluczy zostaje
+    w tym samym koncie, więc jej to nie dotyczy).
+    """
+    from app.models.service_account import ServiceAccount  # noqa: PLC0415
+
+    await db.execute(
+        pg_insert(SecuritySourceState)
+        .values(source=source, detail={})
+        .on_conflict_do_nothing(index_elements=["source"])
+    )
+    state = await db.scalar(
+        select(SecuritySourceState)
+        .where(SecuritySourceState.source == source)
+        .with_for_update()
+    )
+    owner = state.owner_service_account_id
+    if owner is not None and owner != service_account_id:
+        owner_active = await db.scalar(
+            select(ServiceAccount.is_active).where(ServiceAccount.id == owner)
+        )
+        if owner_active:
+            raise SourceOwnedByOtherAccount(source)
+    state.owner_service_account_id = service_account_id
+
+
 async def mark_source_seen(db: AsyncSession, source: str) -> None:
     """Źródło się odezwało — także pustą paczką (timer DefectDojo bez zmian)."""
     now = datetime.now(timezone.utc)
@@ -431,6 +465,8 @@ async def mark_source_seen(db: AsyncSession, source: str) -> None:
 async def ingest_batch(
     db: AsyncSession, batch: IngestBatch, *, service_account_id: Optional[int] = None
 ) -> IngestResult:
+    if service_account_id is not None:
+        await claim_source(db, batch.source, service_account_id)
     accepted, skipped = await store_events(
         db, batch.source, batch.events, service_account_id=service_account_id
     )

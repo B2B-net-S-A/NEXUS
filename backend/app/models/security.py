@@ -144,6 +144,9 @@ class SecuritySourceState(Base):
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_ok_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[Optional[str]] = mapped_column(String(300))
+    # Konto serwisowe, które pierwsze pisało do źródła — inne klucze `security:ingest`
+    # nie mogą go nadpisać ani zamknąć jego znalezisk (bez FK: konto można usunąć).
+    owner_service_account_id: Mapped[Optional[int]] = mapped_column(Integer)
     detail: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )

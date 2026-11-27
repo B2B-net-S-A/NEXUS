@@ -16,12 +16,28 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.core.security import create_access_token
 from app.models.notification import Notification, NotificationType
-from app.models.security import SecurityEvent, SecurityFinding, SecurityRoutine
+from app.models.security import (
+    SecurityEvent,
+    SecurityFinding,
+    SecurityRoutine,
+    SecuritySourceState,
+)
 from app.models.user import User, UserRole
 from app.services.security_screen import expire_exceptions, notify_overdue_routines
 from tests.test_service_accounts import _account_with_key
 
 API = "/api/security"
+
+
+@pytest.fixture(autouse=True)
+async def _free_sources():
+    """Każdy test zakłada własne konto serwisowe; źródło przypina się do pierwszego,
+    więc między testami zdejmujemy przypięcie (na produkcji robi to tylko
+    wyłączenie albo usunięcie konta)."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(SecuritySourceState))
+        await db.commit()
+    yield
 
 
 async def _user(role: UserRole) -> User:
@@ -435,3 +451,25 @@ async def test_full_scan_in_several_batches_closes_by_run_id(
     ).json()
     dojo = next(s for s in overview["sources"] if s["key"] == "defectdojo")
     assert dojo["state"] == "live"
+
+
+async def test_source_belongs_to_the_account_that_wrote_it_first(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    dojo = await _key(app_client, app_auth_headers, ["security:ingest"])
+    falco = await _key(app_client, app_auth_headers, ["security:ingest"])
+    body = {
+        "source": "defectdojo",
+        "scanner": "defectdojo",
+        "complete": True,
+        "findings": [],
+    }
+    assert (
+        await app_client.post(f"{API}/ingest", json=body, headers=dojo)
+    ).status_code == 202
+    # Klucz Falco (leży w konfiguracji na serwerze NEXUSA) nie zamknie znalezisk DefectDojo.
+    stolen = await app_client.post(f"{API}/ingest", json=body, headers=falco)
+    assert stolen.status_code == 403, stolen.text
+    assert (
+        await app_client.post(f"{API}/ingest", json=body, headers=dojo)
+    ).status_code == 202

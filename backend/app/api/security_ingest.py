@@ -11,7 +11,7 @@ Bez ``from __future__ import annotations`` — moduł ma ``@limiter.limit``
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Caller, require_service_scope
@@ -23,6 +23,8 @@ from app.models.service_account import ServiceScope
 from app.services.security_ingest import (
     FalcoEvent,
     IngestBatch,
+    IngestResult,
+    SourceOwnedByOtherAccount,
     WazuhAlert,
     falco_to_event,
     ingest_batch,
@@ -45,6 +47,23 @@ def _account_id(caller: Caller) -> int | None:
     return caller.service.account_id if caller.service else None
 
 
+async def _ingest(db: AsyncSession, batch: IngestBatch, caller: Caller) -> IngestResult:
+    try:
+        return await ingest_batch(db, batch, service_account_id=_account_id(caller))
+    except SourceOwnedByOtherAccount:
+        await db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "source_owned_by_other_account",
+                "message": (
+                    f"Źródło „{batch.source}” wysyła inne konto serwisowe. "
+                    "Każde źródło ma własne konto."
+                ),
+            },
+        ) from None
+
+
 @router.post("/ingest", status_code=202)
 @limiter.limit(_rate_limit, key_func=principal_rate_key)
 async def ingest(
@@ -54,7 +73,7 @@ async def ingest(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
     """Format ogólny: zdarzenia i znaleziska jednego źródła."""
-    result = await ingest_batch(db, body, service_account_id=_account_id(caller))
+    result = await _ingest(db, body, caller)
     return result.as_dict()
 
 
@@ -68,7 +87,7 @@ async def ingest_falco(
 ) -> dict[str, int]:
     """Zdarzenie Falco z Falcosidekicka (webhook)."""
     batch = IngestBatch(source="falco", events=[falco_to_event(body)])
-    result = await ingest_batch(db, batch, service_account_id=_account_id(caller))
+    result = await _ingest(db, batch, caller)
     return result.as_dict()
 
 
@@ -82,5 +101,5 @@ async def ingest_wazuh(
 ) -> dict[str, int]:
     """Alert Wazuha z integracji."""
     batch = IngestBatch(source="wazuh", events=[wazuh_to_event(body)])
-    result = await ingest_batch(db, batch, service_account_id=_account_id(caller))
+    result = await _ingest(db, batch, caller)
     return result.as_dict()
