@@ -117,6 +117,13 @@ const ImportsSettings = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const SecuritySettings = dynamic(
+  () => import("@/components/settings/security/SecuritySettings"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
 
 const PlacementExclusionsTab = dynamic(
   () => import("@/components/settings/PlacementExclusionsTab"),
@@ -447,6 +454,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <PlacementExclusionsTab />;
     case "imports":
       return <ImportsSettings />;
+    case "security":
+      return <SecuritySettings />;
     case "teams":
       return <TeamsNotificationsCard />;
     case "coaching":

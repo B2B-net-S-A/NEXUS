@@ -131,6 +131,9 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "candidate_data_access_alerts",
         "contract_alerts",
         "teams_prep_scope_alerts",
+        # GitHub API i DefectDojo (zapora i tak blokuje) oraz dzwonki do adminów;
+        # na stagingu krok bazy woła się ręcznie: `app.tasks.security_sync.run_once`.
+        "security_sync",
         "fx_refresh",
         "cc_centroid_sync",
         "kpi_coach_nudger",

@@ -31,7 +31,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import (
     APIRouter,
@@ -79,6 +79,7 @@ from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.section_permissions import resolve_effective_section_access
+from app.services.security_screen import record_login
 from app.services.user_email import normalize_email, user_by_email_statement
 
 logger = logging.getLogger(__name__)
@@ -597,6 +598,26 @@ async def authorize(request: Request) -> AuthorizeResponse:
 # handler forwarduje nagłówek — patrz komentarz tam.
 @limiter.limit("60/minute")
 async def callback(
+    request: Request,
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """OAuth redirect target — wynik idzie też na kafelek „Logowania, 24 h”
+    ekranu Bezpieczeństwo (0800): tylko udane/odrzucone i kod błędu, bez osoby."""
+    response = await _callback(request, code, state, error, error_description, db)
+    location = response.headers.get("location", "")
+    query = parse_qs(urlparse(location).query)
+    if "/login/microsoft/callback" in location:
+        await record_login(db, True, "")
+    elif "error" in query:
+        await record_login(db, False, query["error"][0][:60])
+    return response
+
+
+async def _callback(
     request: Request,
     code: Optional[str] = Query(None),
     state: Optional[str] = Query(None),

@@ -14,7 +14,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -221,7 +221,9 @@ async def put_entitlement(
 
 @router.get("/days-off")
 async def list_days_off(
-    _: HrPeopleAdmin, year: Optional[int] = None, db: AsyncSession = Depends(get_db)
+    _: HrPeopleAdmin,
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     rows = await people.days_off(db, year=year)
     return {

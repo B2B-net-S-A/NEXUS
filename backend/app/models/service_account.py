@@ -152,11 +152,18 @@ class ServiceScope(str, enum.Enum):
     # Sprzęt w API v1: wydania i zwroty (egzemplarz bez wartości z cennika
     # i bez numerów seryjnych, IMEI, ICCID).
     equipment_read = "equipment:read"
+    # Ustawienia → Bezpieczeństwo (0800, 27.11.2026): CrowdSec, Falco, Wazuh i CI
+    # wysyłają zdarzenia i znaleziska na `/api/security/ingest*`. Tylko zapis
+    # do tych dwóch tabel — klucz nie czyta niczego z NEXUSA.
+    security_ingest = "security:ingest"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
+    ServiceScope.security_ingest: (
+        "Bezpieczeństwo: wysyłka zdarzeń i znalezisk (CrowdSec, Falco, Wazuh, CI)"
+    ),
     ServiceScope.sales_signals_read: "Sygnały sprzedażowe z kart technologicznych (ATLAS)",
     ServiceScope.sales_signals_write: "Zwrot statusu sygnałów sprzedażowych (ATLAS)",
     ServiceScope.clients_read: "Klienci: odczyt (nazwa, NIP, Delivery Lead)",

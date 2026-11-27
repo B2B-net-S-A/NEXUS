@@ -30,7 +30,7 @@ from app.services.client_settlements.service import SettlementError
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
-MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
+MONTH_PATTERN = r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"
 ACTOR_PATTERN = r"^(consultant|client|dl|finance)$"
 RESULT_PATTERN = r"^(reached|no_answer|wrong_number)$"
 

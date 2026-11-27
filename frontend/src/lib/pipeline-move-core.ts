@@ -52,6 +52,15 @@ export interface PipelineMovePayload {
    *  akceptuje (0 = tylko zdalnie), i zapis trybu pracy na profilu. */
   work_mode_max_onsite_days?: number;
   work_mode_save_to_profile?: boolean;
+  /** Karta dojazdu (27.11.2026): „Co nie pasuje?” i odpowiedzi przy „Za daleko
+   *  do biura” — `rejectionWorkModeMoveFields`. */
+  work_mode_issue?: "distance" | "office_days";
+  residence_city?: string;
+  commute_office_cities?: string[];
+  occasional_commute?: boolean;
+  relocation_willing?: boolean;
+  relocation_targets?: string[];
+  accepts_more_office_days?: boolean;
   /** „Za wysokie oczekiwania finansowe” (26.10.2026): ile osoba teraz chce
    *  (PLN/h) i czy to jej nowe minimum — `RejectionRateField`. */
   rejection_rate_hourly?: number;

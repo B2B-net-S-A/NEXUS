@@ -76,10 +76,20 @@ def test_user_key_is_the_access_token_subject_not_the_office_ip():
     """Biuro wychodzi jednym adresem (NAT): kubełek per zalogowany użytkownik."""
     office = {"x-forwarded-for": "203.0.113.7"}
     first = user_or_ip_key(
-        _request({**office, "authorization": f"Bearer {create_access_token(41, 'recruiter')}"})
+        _request(
+            {
+                **office,
+                "authorization": f"Bearer {create_access_token(41, 'recruiter')}",
+            }
+        )
     )
     second = user_or_ip_key(
-        _request({**office, "authorization": f"Bearer {create_access_token(42, 'recruiter')}"})
+        _request(
+            {
+                **office,
+                "authorization": f"Bearer {create_access_token(42, 'recruiter')}",
+            }
+        )
     )
 
     assert (first, second) == ("user:41", "user:42")
@@ -96,3 +106,72 @@ def test_user_key_falls_back_to_the_ip_without_a_valid_access_token():
     ):
         assert user_or_ip_key(_request({**office, **extra})) == "203.0.113.7", extra
 
+
+# --- Cloudflare przed Traefikiem (plan przejścia API na proxy, 27.11.2026) ---
+# Z proxy Cloudflare prawy wpis ``X-Forwarded-For`` to adres EDGE'A Cloudflare,
+# wspólny dla wszystkich ludzi z tego samego PoP-a (WAW). Bez czytania
+# ``CF-Connecting-IP`` wróciłby bug z #824: jeden kubełek logowania dla firmy.
+_CF_EDGE_V4 = "162.158.102.17"  # w 162.158.0.0/15
+_CF_EDGE_V6 = "2a06:98c0:3600::103"  # w 2a06:98c0::/29
+
+
+def test_cloudflare_edge_peer_uses_cf_connecting_ip():
+    """Dwie osoby przez ten sam edge Cloudflare != jeden kubełek."""
+    a = client_ip_key(
+        _request({"x-forwarded-for": _CF_EDGE_V4, "cf-connecting-ip": "203.0.113.7"})
+    )
+    b = client_ip_key(
+        _request({"x-forwarded-for": _CF_EDGE_V4, "cf-connecting-ip": "198.51.100.9"})
+    )
+
+    assert (a, b) == ("203.0.113.7", "198.51.100.9")
+
+
+def test_cloudflare_ipv6_edge_is_recognised():
+    key = client_ip_key(
+        _request(
+            {
+                "x-forwarded-for": f"203.0.113.7, {_CF_EDGE_V6}",
+                "cf-connecting-ip": "203.0.113.7",
+            }
+        )
+    )
+
+    assert key == "203.0.113.7"
+
+
+def test_cf_connecting_ip_from_outside_cloudflare_is_ignored():
+    """Ktoś omija Cloudflare i łączy się wprost: nagłówek jest jego, nie edge'a."""
+    key = client_ip_key(
+        _request({"x-forwarded-for": "198.51.100.9", "cf-connecting-ip": "203.0.113.7"})
+    )
+
+    assert key == "198.51.100.9"
+
+
+def test_spoofed_left_entry_cannot_fake_a_cloudflare_peer():
+    """Zakres Cloudflare liczy się tylko jako wpis dopisany przez Traefika (prawy)."""
+    key = client_ip_key(
+        _request(
+            {
+                "x-forwarded-for": f"{_CF_EDGE_V4}, 198.51.100.9",
+                "cf-connecting-ip": "203.0.113.7",
+            }
+        )
+    )
+
+    assert key == "198.51.100.9"
+
+
+def test_cloudflare_peer_without_usable_header_keeps_the_edge_address():
+    """Brak albo śmieć w ``CF-Connecting-IP`` → adres edge'a, nigdy wyjątek."""
+    for extra in ({}, {"cf-connecting-ip": ""}, {"cf-connecting-ip": "nie-ip"}):
+        key = client_ip_key(_request({"x-forwarded-for": _CF_EDGE_V4, **extra}))
+        assert key == _CF_EDGE_V4, extra
+
+
+def test_direct_cloudflare_peer_without_traefik_header():
+    """Peer TCP z zakresu Cloudflare bez XFF (np. port wystawiony wprost)."""
+    key = client_ip_key(_request({"cf-connecting-ip": "203.0.113.7"}, peer=_CF_EDGE_V4))
+
+    assert key == "203.0.113.7"

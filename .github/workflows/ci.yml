@@ -50,6 +50,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Domyślnie tylko odczyt (zizmor `excessive-permissions`, 27.11.2026): joby bez
+# własnego bloku (shardy pytest, bramki zbiorcze) nie potrzebują nic więcej,
+# a domyślne uprawnienia tokenu repo zależą od ustawień, których workflow nie widzi.
+permissions:
+  contents: read
+
 jobs:
   # Pytest podzielony na 12 shardów = 12 OSOBNYCH runnerów, każdy z własnym
   # postgresem i sekwencyjnym pytestem. Pliki są dzielone według ZMIERZONEGO
@@ -106,6 +112,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.15"
@@ -277,11 +285,13 @@ jobs:
             count=$(printf '%s\n' "$reruns" | wc -l | tr -d ' ')
             echo "::warning::$count test(ów) przeszło dopiero za drugim razem — do naprawy (lista w podsumowaniu biegu)."
             {
-              echo "### Testy powtórzone (shard ${{ strategy.job-index }})"
+              echo "### Testy powtórzone (shard ${STRATEGY_JOB_INDEX})"
               echo
               printf '%s\n' "$reruns" | sed 's/^/- /'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+        env:
+          STRATEGY_JOB_INDEX: ${{ strategy.job-index }}
       # Surowy plik danych (nie XML): tylko z niego `coverage combine` potrafi
       # zsumować shardy w jeden raport. `include-hidden-files` jest
       # load-bearing — od upload-artifact v4.4 pliki z kropką są domyślnie
@@ -324,6 +334,8 @@ jobs:
       EXPECTED_SHARDS: "12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.15"
@@ -457,6 +469,8 @@ jobs:
       AI_QUOTA_STRICT: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Ten job biegnie tylko na `pull_request`: drugi PR w pasie migracji ma
       # rodzica w PR-ze przed nim (`ci-gate.yml`, „Zaślepka rodzica”).
       - name: Zaślepka rodzica z PR-a przed tym w pasie
@@ -465,6 +479,8 @@ jobs:
         id: pick
         env:
           GH_TOKEN: ${{ github.token }}
+          STRATEGY_JOB_TOTAL: ${{ strategy.job-total }}
+          STRATEGY_JOB_INDEX: ${{ strategy.job-index }}
         run: |
           set -eu
           # Fail-safe: bez listy plików nie zgadujemy — ale też nie puszczamy
@@ -478,13 +494,13 @@ jobs:
           # Części z kontekstu `strategy` (jak shardy kolejki): jedynym źródłem
           # liczby części jest lista w matrixie.
           printf '%s\n' "$files" | python3 ../.github/scripts/select_pr_tests.py \
-            --shards "${{ strategy.job-total }}" --shard "${{ strategy.job-index }}" \
+            --shards "${STRATEGY_JOB_TOTAL}" --shard "${STRATEGY_JOB_INDEX}" \
             --env-out "$GITHUB_ENV" > selected.txt 2> selection.log || true
           cat selection.log
           count=$(grep -c . selected.txt || true)
           echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
           {
-            echo "### Testy backendu na PR-ze (sito, część ${{ matrix.part }}/${{ strategy.job-total }})"
+            echo "### Testy backendu na PR-ze (sito, część ${{ matrix.part }}/${STRATEGY_JOB_TOTAL})"
             echo
             head -1 selection.log
             echo
@@ -546,6 +562,8 @@ jobs:
       M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Strażnik jednej głowy Alembica: drugi PR w pasie migracji ma rodzica
       # w PR-ze przed nim (`ci-gate.yml`, „Zaślepka rodzica”).
       - name: Zaślepka rodzica z PR-a przed tym w pasie
@@ -597,6 +615,8 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Zmienione pliki kodu
         id: files
         env:
@@ -696,6 +716,8 @@ jobs:
           echo "pip-audit: $py; npm audit: $npm"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.scope.outputs.python == 'true' || steps.scope.outputs.npm == 'true'
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.scope.outputs.python == 'true'
         with:
@@ -726,6 +748,56 @@ jobs:
             || echo "npm audit: kod $? — wynik oceni zapadka"
           python3 .github/scripts/dependency_audit.py npm --report npm-audit.json --min-severity high
 
+  zizmor-pr:
+    # Linter bezpieczeństwa GitHub Actions (27.11.2026): wstrzyknięcia `${{ }}`
+    # w `run:`, nadmiarowe `permissions`, `pull_request_target`/`workflow_run`,
+    # poświadczenia zostawione przez checkout, niezapięte i podrobione akcje
+    # (audyty online: znane podatne wersje, commit spoza repo akcji), cooldown
+    # Dependabota. Tylko na PR-ze, który zmienia workflowy, `dependabot.yml`
+    # albo samą zapadkę; resztę (nowe audyty, nowe podatności akcji) łapie
+    # `security-weekly.yml`. Zapadka `.github/zizmor-baseline.json`, wynik
+    # wlicza się do „Backend (pytest)” jak Semgrep. Job zawsze się zgłasza.
+    # → docs/claude/podstawy/skanery-bezpieczenstwa.md
+    name: zizmor (workflowy)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Czy zmieniły się workflowy?
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "/repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          if hit=$(printf '%s\n' "$files" | grep -E '^\.github/(workflows/|dependabot\.ya?ml$|zizmor-baseline\.json$|scripts/(zizmor|semgrep)_ratchet\.py$)|(^|/)action\.ya?ml$' | head -1) && [ -n "$hit" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "zizmor: zmieniony $hit"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR nie zmienia workflowów ani dependabot.yml — zizmor pominięty."
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.scope.outputs.run == 'true'
+        with:
+          persist-credentials: false
+      - name: Zainstaluj zizmor
+        if: steps.scope.outputs.run == 'true'
+        run: bash .github/scripts/install_zizmor.sh
+      - name: zizmor
+        if: steps.scope.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/run_zizmor.sh zizmor.json
+      - name: Zapadka zizmora (baseline)
+        if: steps.scope.outputs.run == 'true'
+        run: python3 .github/scripts/zizmor_ratchet.py compare --results zizmor.json
+
   backend-pytest-gate:
     # Branch protection wymaga kontekstu o nazwie DOKŁADNIE "Backend (pytest)".
     # Shardy raportują się jako "Backend (pytest, shard N)", więc wymagany
@@ -735,7 +807,7 @@ jobs:
     # jawnej czerwieni.
     name: Backend (pytest)
     runs-on: ubuntu-latest
-    needs: [backend-lint-test, backend-coverage-combine, backend-pr-tests, repo-guards, semgrep-pr, deps-audit-pr]
+    needs: [backend-lint-test, backend-coverage-combine, backend-pr-tests, repo-guards, semgrep-pr, deps-audit-pr, zizmor-pr]
     if: ${{ always() }}
     steps:
       - name: Zbierz wyniki shardów i bramki pokrycia
@@ -763,6 +835,12 @@ jobs:
             fi
             if [ "$audit" != "success" ]; then
               echo "::error::Audyt zależności nie przeszedł (result=$audit) — szczegóły w jobie „Audyt zależności (pip-audit + npm audit)”."
+              exit 1
+            fi
+            zizmor="${{ needs.zizmor-pr.result }}"
+            echo "zizmor na PR-ze: $zizmor"
+            if [ "$zizmor" != "success" ]; then
+              echo "::error::zizmor znalazł nowe problemy w workflowach albo nie zakończył skanu (result=$zizmor) — szczegóły w jobie „zizmor (workflowy)”."
               exit 1
             fi
             exit 0
@@ -808,6 +886,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Wtyczka Chrome (extension/, 29.10.2026): czytniki LinkedIna, logika
       # panelu, manifest (stałe id z pola `key`) i zgodność ZIP-a zespołu
       # w frontend/public/wtyczka z kodem. ~15 s, zawsze — także bez zmian we
@@ -1207,6 +1287,8 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -1311,6 +1393,8 @@ jobs:
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.scope.outputs.run == 'true'
+        with:
+          persist-credentials: false
       # Hadolint zostaje advisory. Trivy od QA-05 (plan poprawy po audycie
       # 14.09.2026) BLOKUJE: każde znalezisko HIGH/CRITICAL z dostępną poprawką
       # kończy job czerwienią; świadome wyjątki tylko w `.trivyignore` z terminem

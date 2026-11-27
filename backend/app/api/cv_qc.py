@@ -210,6 +210,15 @@ class QcConfirmation(BaseModel):
     text: str
     by_name: Optional[str] = None
     at: datetime
+    # „Popraw” / „Cofnij” (27.11.2026): id notatki, pola do formularza i to,
+    # czy TA osoba może wpis zmienić (autor albo admin, ta rekrutacja, przed
+    # „CV wysłane”). Autor nie wychodzi w odpowiedzi.
+    id: Optional[int] = None
+    term: Optional[str] = None
+    role: Optional[str] = None
+    said: Optional[str] = None
+    edited_at: Optional[datetime] = None
+    can_edit: bool = False
 
 
 class QcResponse(BaseModel):
@@ -490,8 +499,20 @@ async def _can_override(
 async def _response(
     db: AsyncSession, request: Request, user: Any, result: dict[str, Any]
 ) -> QcResponse:
+    locked = bool(result.get("confirm_locked"))
+    person = not is_integration_request(request)
+    confirmations = [
+        {
+            **item,
+            "can_edit": person
+            and cv_qc.can_edit_confirmation(
+                item, user=user, job_id=result["job_id"], locked=locked
+            ),
+        }
+        for item in result.get("confirmations") or []
+    ]
     return QcResponse(
-        **result,
+        **{**result, "confirmations": confirmations},
         can_override=await _can_override(db, request, user, result["job_id"]),
     )
 
@@ -762,6 +783,82 @@ async def confirm_stage_qc_item(
             status_code=422,
             detail={"code": "CV_QC_CONFIRM_FAILED", "message": str(exc)},
         ) from exc
+    await db.commit()
+    return await _response(db, request, current_user, result)
+
+
+@router.patch("/stages/{stage_id}/qc/confirm/{note_id}", response_model=QcResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def edit_stage_qc_confirmation(
+    request: Request,
+    stage_id: int,
+    note_id: int,
+    payload: QcConfirmRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcResponse:
+    """„Popraw” potwierdzenie z kandydatem (27.11.2026): inna blokada, zdanie
+    albo rola w tej samej notatce; zwraca świeże QC.
+
+    403 dla cudzego wpisu (poza adminem), 422 po „CV wysłane”, dla blokady,
+    której QC nie zgłasza, i dla notatki spoza tej pary.
+    """
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.edit_confirmation(
+            db,
+            stage,
+            note_id,
+            term=payload.term,
+            text=payload.text,
+            user=current_user,
+            role=payload.role,
+        )
+    except cv_qc.ConfirmationForbidden as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except cv_qc.ApplyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_CONFIRM_EDIT_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return await _response(db, request, current_user, result)
+
+
+@router.delete("/stages/{stage_id}/qc/confirm/{note_id}", response_model=QcResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def retract_stage_qc_confirmation(
+    request: Request,
+    stage_id: int,
+    note_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcResponse:
+    """„Cofnij” potwierdzenie z kandydatem (27.11.2026): notatka znika,
+    blokada wraca do listy; zwraca świeże QC. Odmowy jak przy „Popraw”.
+    """
+
+    from app.api.notes import _forget_note_facts
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result, candidate_id = await cv_qc.retract_confirmation(
+            db, stage, note_id, user=current_user
+        )
+    except cv_qc.ConfirmationForbidden as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except cv_qc.ApplyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_CONFIRM_RETRACT_FAILED", "message": str(exc)},
+        ) from exc
+    # Fakty z usuniętej notatki — ta sama droga co usunięcie w profilu.
+    await _forget_note_facts(db, candidate_id, actor_id=current_user.id)
     await db.commit()
     return await _response(db, request, current_user, result)
 

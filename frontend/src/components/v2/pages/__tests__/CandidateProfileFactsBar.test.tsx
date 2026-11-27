@@ -955,6 +955,84 @@ describe("CandidateProfileFactsBar", () => {
       expect(await screen.findByText("rozmowa 30.09.2026: ASAP")).toHaveAttribute("data-fact-origin");
     });
 
+    it("karta dojazdu (27.11.2026): „Mieszka”, „Biuro”, „Przeprowadzka” i źródło z odrzucenia", () => {
+      renderBar(
+        {
+          city: "Kraków",
+          country: "PL",
+          max_onsite_days_per_week: 3,
+          preferences: {
+            remote_modes: ["remote", "hybrid"],
+            office_cities: ["Kraków", "Katowice"],
+            occasional_commute: true,
+            relocation: { willing: true, targets: ["Wrocław"] },
+            commute_source: {
+              source: "rejection",
+              job_id: 43255,
+              job_title: "Senior QA",
+              at: "2026-11-27T10:00:00+01:00",
+              user_id: 261,
+            },
+          },
+        },
+        "proposal",
+      );
+      expect(screen.getByText("Mieszka")).toBeInTheDocument();
+      expect(screen.getByText("Kraków, PL")).toBeInTheDocument();
+      // Miasto nie powtarza się na końcu „Praca”.
+      expect(
+        screen.getByText("Hybrydowo lub zdalnie · do 3 dni w biurze w tygodniu"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Biuro")).toBeInTheDocument();
+      expect(screen.getByTestId("fact-office-cities")).toHaveTextContent("Kraków, Katowice");
+      expect(screen.getByTestId("fact-occasional-commute")).toHaveTextContent(
+        "inne miasto: raz w miesiącu",
+      );
+      expect(screen.getByText("Przeprowadzka")).toBeInTheDocument();
+      expect(screen.getByText("tak: Wrocław")).toBeInTheDocument();
+      expect(screen.getByTestId("fact-commute-source")).toHaveTextContent(
+        "z odrzucenia 27.11 · Senior QA",
+      );
+    });
+
+    it("bez danych dojazdu wierszy „Biuro” i „Przeprowadzka” nie ma, „nie pytano” też nie", () => {
+      renderBar({ preferences: { remote_modes: ["remote"] } }, "proposal");
+      expect(screen.getByText("Mieszka")).toBeInTheDocument();
+      expect(screen.queryByText("Biuro")).toBeNull();
+      expect(screen.queryByText("Przeprowadzka")).toBeNull();
+      expect(screen.queryByTestId("fact-commute-source")).toBeNull();
+      expect(screen.queryByText(/nie pytano/)).toBeNull();
+    });
+
+    it("„inne miasto: nie” i przeprowadzka „nie”; zły kształt preferencji jest pomijany", () => {
+      renderBar(
+        {
+          preferences: {
+            office_cities: "Kraków",
+            occasional_commute: false,
+            relocation: { willing: false, targets: ["Gdańsk"] },
+            commute_source: { source: "survey" },
+          },
+        },
+        "proposal",
+      );
+      expect(screen.queryByTestId("fact-office-cities")).toHaveTextContent("");
+      expect(screen.getByTestId("fact-occasional-commute")).toHaveTextContent("Inne miasto: nie");
+      expect(screen.getByText("Przeprowadzka")).toBeInTheDocument();
+      expect(screen.getByText("nie")).toBeInTheDocument();
+      // Źródło tylko przy odrzuceniu.
+      expect(screen.queryByTestId("fact-commute-source")).toBeNull();
+    });
+
+    it("bez miasta w profilu wiersza „Mieszka” nie ma, a lokalizacja zostaje w „Praca”", () => {
+      renderBar(
+        { city: null, country: null, location: "Gdynia", preferences: { remote_modes: ["remote"] } },
+        "proposal",
+      );
+      expect(screen.queryByText("Mieszka")).toBeNull();
+      expect(screen.getByText(/Tylko zdalnie · Gdynia/)).toBeInTheDocument();
+    });
+
     it("po „Edytuj” tryb pracy i miasto rozdzielają się na wiersze z ołówkami", async () => {
       const user = userEvent.setup();
       renderBar({}, "proposal");

@@ -59,6 +59,10 @@ PROFILE_RATE_SCRAPER_REVERTED = "profile_rate_scraper_reverted"
 LANGUAGES_REPLACED = "candidate_languages_replaced"
 LOCATION_CHANGED = "candidate_location_changed"
 WORK_MODE_CHANGED = "candidate_work_mode_changed"
+# 27.11.2026: karta dojazdu przy odrzuceniu „Lokalizacja lub tryb pracy” —
+# biura, do których osoba dojedzie, inne miasto okazjonalnie, przeprowadzka
+# (`preferences`, `services/candidate_commute.py`). `details.changed`: przed/po.
+COMMUTE_CHANGED = "candidate_commute_changed"
 # 28.10.2026: odrzucenie osoby od systemu z powodem „Nie szuka pracy” i datą.
 AVAILABILITY_CHANGED = "candidate_availability_changed"
 NOTES_FACT_APPLIED = "candidate_notes_fact_applied"

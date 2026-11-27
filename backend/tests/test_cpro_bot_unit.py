@@ -215,6 +215,24 @@ def test_location_cheat_sheet_matches_the_recording() -> None:
             "available from 04.01.2027",
             date(2027, 1, 4),
         ),
+        # „od 1 grudnia” (karta z 27.11, request 43269) dawało datę z profilu
+        # 18.12 — dzień ze słownym miesiącem nie był czytany.
+        (
+            {"raw": "od 1 grudnia"},
+            date(2026, 12, 18),
+            "available from 01.12.2026",
+            date(2026, 12, 1),
+        ),
+        (
+            {"raw": "dostępny od 15 stycznia 2027"},
+            None,
+            "available from 15.01.2027",
+            date(2027, 1, 15),
+        ),
+        # Termin bez roku, który właśnie minął, to „od zaraz”, nie ten dzień
+        # za rok (bieg kilka dni po screeningu).
+        ({"raw": "od 1 listopada"}, None, "available ASAP", TODAY),
+        ({"raw": "od 10.11"}, None, "available ASAP", TODAY),
         # Bez okresu i daty w karcie zostaje data z NEXUSA.
         (
             {"raw": "do ustalenia"},

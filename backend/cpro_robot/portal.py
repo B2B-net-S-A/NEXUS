@@ -109,6 +109,37 @@ _PAGE_PLACE_JS = (
 )
 
 
+# Po „Save as draft” Cpro sam przechodzi na stronę oferty, a goto wysłany
+# w trakcie tego przejścia przeglądarka przerywa (net::ERR_ABORTED, biegi
+# 67–92 z 27.11.2026: szkic zapisany, raport „niepotwierdzony”). Czekamy na
+# koniec przejścia i otwieramy stronę jeszcze raz — to tylko odczyt.
+_NAVIGATION_INTERRUPTED = (
+    "ERR_ABORTED",
+    "interrupted by another navigation",
+    "context was destroyed",
+)
+_NAVIGATION_ATTEMPTS = 3
+
+
+def _goto(page: Any, url: str) -> None:
+    for attempt in range(1, _NAVIGATION_ATTEMPTS + 1):
+        try:
+            page.goto(url)
+            page.wait_for_load_state("domcontentloaded")
+            return
+        except Exception as exc:
+            if attempt == _NAVIGATION_ATTEMPTS or not any(
+                mark in str(exc) for mark in _NAVIGATION_INTERRUPTED
+            ):
+                raise
+            logger.info("cpro_robot goto interrupted, attempt=%s", attempt)
+            try:
+                page.wait_for_load_state("load")
+            except Exception:
+                pass
+            page.wait_for_timeout(1000 * attempt)
+
+
 def _js_click(loc: Any, what: str) -> None:
     """Klik skryptem: działa także na przycisku ukrytym albo przykrytym oknem."""
 
@@ -213,13 +244,13 @@ class ItemRun:
     def open_request(self) -> None:
         self.step = "request"
         page = self.page
-        page.goto(
+        _goto(
+            page,
             urljoin(
                 self.base,
                 f"vendor/RequisitionController?action=view&id={self.request_no}",
-            )
+            ),
         )
-        page.wait_for_load_state("domcontentloaded")
         body = page.locator("body").inner_text()
         if f"({self.request_no})" not in body:
             raise _fail("request_not_found", "Nie ma takiego requestu w Cpro.")
@@ -230,8 +261,7 @@ class ItemRun:
         self.step = "offers"
         page = self.page
         last = self.candidate["last_name"]
-        page.goto(urljoin(self.base, f"vendor/OfferController?search={quote(last)}"))
-        page.wait_for_load_state("domcontentloaded")
+        _goto(page, urljoin(self.base, f"vendor/OfferController?search={quote(last)}"))
         raw = page.evaluate(
             """() => {
               const t = [...document.querySelectorAll('table')].find(x => /Offered rate/.test(x.textContent));
@@ -264,7 +294,7 @@ class ItemRun:
         )
         if not href:
             raise _fail("draft_not_found", "Nie da się otworzyć szkicu do edycji.")
-        self.page.goto(href)
+        _goto(self.page, href)
         self._wait_offer_form()
         heading = self.page.locator("h1, h2, h3").filter(has_text="Change Offer").first
         title = heading.inner_text() if heading.count() else ""
@@ -323,7 +353,7 @@ class ItemRun:
         if mine:
             if not mine[0]["offer"]:
                 raise _fail("other", "Profil bez przycisku „Offer…”.")
-            page.goto(mine[0]["offer"])
+            _goto(page, mine[0]["offer"])
             self._wait_offer_form()
             if not created:
                 self.upload_cv_unless_present()
@@ -361,10 +391,10 @@ class ItemRun:
 
         page = self.page
         last = self.candidate["last_name"]
-        page.goto(
-            urljoin(self.base, f"vendor/ConsultantController?search={quote(last)}")
+        _goto(
+            page,
+            urljoin(self.base, f"vendor/ConsultantController?search={quote(last)}"),
         )
-        page.wait_for_load_state("domcontentloaded")
         rows = page.evaluate(
             "() => [...document.querySelectorAll('table tbody tr')].map(tr => tr.innerText)"
         )
@@ -662,8 +692,7 @@ class ItemRun:
         url = urljoin(
             self.base, f"vendor/OfferController?action=view&id={drafts[0].offer_id}"
         )
-        self.page.goto(url)
-        self.page.wait_for_load_state("domcontentloaded")
+        _goto(self.page, url)
         body = self.page.locator("body").inner_text()
         if not self.repair and not rules.saved_values_visible(
             body, self.offer["rate"], self.offer["available_from"]

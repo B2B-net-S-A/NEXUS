@@ -198,6 +198,16 @@ export interface QcConfirmation {
   text: string;
   by_name: string | null;
   at: string;
+  /** Id notatki — „Popraw” / „Cofnij” (27.11.2026). */
+  id?: number | null;
+  /** Blokada, rola i słowa kandydata — do formularza poprawki. */
+  term?: string | null;
+  role?: string | null;
+  said?: string | null;
+  /** Kiedy poprawione; `null`, gdy wpis jest taki, jak go zapisano. */
+  edited_at?: string | null;
+  /** Autor albo admin, ta rekrutacja, przed „CV wysłane”. */
+  can_edit?: boolean;
 }
 
 /** Skąd są umiejętności krytyczne: wybór Delivery Leada, podpowiedź z historii albo brak. */
@@ -465,6 +475,29 @@ export interface QcConfirmBody {
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
 export function useQcConfirm(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcConfirmBody>(stageId, "confirm", onChanged);
+}
+
+/** „Popraw” albo „Cofnij” potwierdzenia z kandydatem (27.11.2026). */
+export type QcConfirmationFix = { kind: "edit"; id: number; body: QcConfirmBody } | { kind: "retract"; id: number };
+
+/**
+ * Poprawka wpisu „Potwierdzone z kandydatem” — serwer zmienia albo usuwa
+ * notatkę i zwraca świeży wynik QC (blokada wraca, gdy nic jej nie potwierdza).
+ */
+export function useQcConfirmationFix(stageId: number | null, onChanged?: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation<QcResult, unknown, QcConfirmationFix>({
+    mutationFn: (fix) => {
+      const url = `/api/pipeline/stages/${stageId}/qc/confirm/${fix.id}`;
+      const request = fix.kind === "edit" ? api.patch<QcResult>(url, fix.body) : api.delete<QcResult>(url);
+      return request.then((r) => r.data);
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(cvQcQueryKey(stageId ?? result.stage_id), result);
+      invalidateAfterQcChange(queryClient, result.job_id);
+      onChanged?.();
+    },
+  });
 }
 
 /** R3: role oryginału opisujące umiejętność krytyczną; pusta lista = „nigdzie”. */

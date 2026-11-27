@@ -6,7 +6,20 @@ name: Security weekly
 #   * Semgrep na całym backendzie i frontendzie — łapie nowe reguły rejestru
 #     w niezmienianym kodzie i pliki, których żaden PR nie dotknął;
 #   * pip-audit i npm audit — nowe podatności publikowane w bazach co dzień,
-#     przy niezmienionych wersjach.
+#     przy niezmienionych wersjach;
+#   * zizmor na wszystkich workflowach i `dependabot.yml` — nowe audyty i nowe
+#     podatne wersje akcji (na PR-ze tylko przy zmianie workflowów);
+#   * Trivy na obrazach produkcji: backend i front zbudowane z wdrożonego SHA
+#     oraz obrazy z `docker-compose.yml` i Traefik Coolify — podatności w
+#     systemie i paczkach obrazu, których skan Dockerfile'a na PR-ze nie widzi
+#     (27.11.2026).
+# Każdy job wysyła swój raport do DefectDojo (`defectdojo_import.sh`, krok
+# z `continue-on-error`, bez sekretów kończy się notką) przez tunel WireGuard
+# do serwera bezpieczeństwa — wprost z joba, bez artefaktu, bo artefakty
+# publicznego repo pobierze każdy zalogowany. Każdy job ma własnego peera
+# (`DEFECTDOJO_WG_CONF_<JOB>`): joby biegną równolegle, a WireGuard trzyma
+# jeden endpoint na peera, więc wspólny klucz wypierałby sesje. Nowy job
+# z importem = nowy peer od sesji SOC.
 # Poniedziałek 05:30 UTC (06:30 zimą / 07:30 latem w Warszawie), pół godziny po
 # Dependabocie (06:00 Warszawa), więc jego PR-y z podbiciami już czekają.
 # Codziennie nie: minuty Actions są płatne, a nowa podatność bez PR-a
@@ -38,6 +51,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # Narzędzie, nie runtime: protobuf z Semgrepa 1.136 nie ładuje się
@@ -64,6 +79,14 @@ jobs:
           exit 1
       - name: Zapadka Semgrepa (baseline)
         run: python3 .github/scripts/semgrep_ratchet.py compare --results semgrep.json
+      - name: Import do DefectDojo
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_SEMGREP }}
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+        run: bash .github/scripts/defectdojo_import.sh "Semgrep JSON Report" "Semgrep" semgrep.json
 
   deps-audit:
     name: Audyt zależności (całość)
@@ -73,6 +96,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.15"
@@ -99,6 +124,17 @@ jobs:
           (cd frontend && npm audit --omit=dev --audit-level=high --json > ../npm-audit.json) \
             || echo "npm audit: kod $? — wynik oceni zapadka"
           python3 .github/scripts/dependency_audit.py npm --report npm-audit.json --min-severity high
+      - name: Import do DefectDojo
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_DEPS }}
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+        run: |
+          bash .github/scripts/defectdojo_import.sh \
+            "pip-audit Scan" "pip-audit" pip-audit.json \
+            "NPM Audit v7+ Scan" "npm audit" npm-audit.json
       - name: Wynik
         env:
           PIP: ${{ steps.pip.outcome }}
@@ -110,9 +146,156 @@ jobs:
             exit 1
           fi
 
+  zizmor-full:
+    name: zizmor (workflowy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Zainstaluj zizmor
+        run: bash .github/scripts/install_zizmor.sh
+      # Audyty online (podatne wersje akcji, commit spoza repo akcji) pytają API
+      # GitHuba tokenem Actions; repo publiczne, wystarczy odczyt.
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/run_zizmor.sh zizmor.json zizmor.sarif
+      - name: Zapadka zizmora (baseline)
+        run: python3 .github/scripts/zizmor_ratchet.py compare --results zizmor.json
+      - name: Import do DefectDojo
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_ZIZMOR }}
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+        run: bash .github/scripts/defectdojo_import.sh "SARIF" "zizmor" zizmor.sarif
+
+  trivy-images:
+    # Obrazy, które biegną na produkcji. Coolify buduje backend i front na
+    # serwerze, bez rejestru, więc budujemy je tu z wdrożonego SHA (backend:
+    # `version` z /api/health, front: `sha` z version.json). Obraz bazowy jest
+    # przypięty po digeście, `apt`/`npm ci` w Dockerfile'u mogą dać nowsze
+    # łatki niż w działającym kontenerze — wynik to „co dałby redeploy”, nie
+    # zrzut kontenera. Obrazy z `docker-compose.yml` (Postgres, Qdrant, Alloy)
+    # z rejestru dla linux/amd64; tag pływający (`16-alpine`, `latest`) to
+    # najnowszy obraz tego tagu, serwer może mieć starszy. Zapadka:
+    # `.trivyignore-images` z `exp:`. → docs/claude/podstawy/skanery-bezpieczenstwa.md
+    name: Trivy obrazów produkcji
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # Proxy Coolify (`coolify-proxy`). Coolify 4.7.7 stawia nowe proxy na
+      # `traefik:v3.7` (`bootstrap/helpers/proxy.php`), istniejącego obrazu nie
+      # podmienia. Sprawdzenie na serwerze: `docker inspect coolify-proxy
+      # --format '{{.Config.Image}}'`; po aktualizacji proxy zmień tutaj.
+      TRAEFIK_IMAGE: "traefik:v3.7"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Wdrożone wersje backendu i frontu
+        id: deployed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          set -euo pipefail
+          ua="dynaminds-smoke-test (security-weekly)"
+          resolve() {
+            local short="$1" label="$2" sha
+            if [ -n "$short" ] && sha=$(gh api "repos/$REPO/commits/$short" --jq .sha 2>/dev/null); then
+              echo "$label: ${sha:0:12} (wdrożony)" >&2
+            else
+              sha=$(gh api "repos/$REPO/commits/main" --jq .sha)
+              echo "::warning::$label: nie udało się odczytać wdrożonej wersji — obraz z HEAD maina (${sha:0:12})." >&2
+            fi
+            printf '%s' "$sha"
+          }
+          be=$(curl -fsS --retry 3 --retry-delay 10 --max-time 20 -A "$ua" https://api.nexus.dynaminds.pl/api/health \
+            | jq -r '.version // ""' | grep -oE '^[0-9a-f]{7,40}' || true)
+          fe=""
+          if [ -n "${FRONTEND_URL:-}" ]; then
+            fe=$(curl -fsSL --retry 3 --retry-delay 10 --max-time 20 -A "$ua" "$FRONTEND_URL/version.json" \
+              | jq -r '.sha // ""' 2>/dev/null | grep -oE '^[0-9a-f]{7,40}' || true)
+          fi
+          echo "backend=$(resolve "$be" Backend)" >> "$GITHUB_OUTPUT"
+          echo "frontend=$(resolve "$fe" Frontend)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.deployed.outputs.backend }}
+          path: deployed-backend
+          sparse-checkout: backend
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.deployed.outputs.frontend }}
+          path: deployed-frontend
+          sparse-checkout: frontend
+          persist-credentials: false
+      - name: Install Trivy
+        # Jak w `ci.yml` (job „Trivy + hadolint”): ta sama wersja i suma z
+        # `trivy_0.70.0_checksums.txt`; przy podbiciu zmień oba miejsca.
+        run: |
+          curl -fsSL --retry 6 --retry-delay 15 --retry-all-errors --connect-timeout 20 --max-time 120 \
+            "https://github.com/aquasecurity/trivy/releases/download/v0.70.0/trivy_0.70.0_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+          echo "8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9  /tmp/trivy.tar.gz" \
+            | sha256sum -c -
+          tar -xzf /tmp/trivy.tar.gz -C /tmp trivy
+          sudo mv /tmp/trivy /usr/local/bin/trivy
+          trivy --version
+      - name: Zbuduj obrazy backendu i frontu
+        run: |
+          set -euo pipefail
+          docker build --quiet --tag nexus-backend:deployed deployed-backend/backend
+          docker build --quiet --tag nexus-frontend:deployed deployed-frontend/frontend
+      # Obrazy zewnętrzne z `docker-compose.yml` wdrożonej wersji (bez
+      # budowanych lokalnie `nexus-*`) i proxy Coolify.
+      - name: Lista obrazów
+        run: |
+          set -euo pipefail
+          {
+            echo "docker nexus-backend:deployed"
+            echo "docker nexus-frontend:deployed"
+            git -C deployed-backend show HEAD:docker-compose.yml \
+              | sed -nE 's/^[[:space:]]+image:[[:space:]]*["'"'"']?([^"'"'"'[:space:]]+).*/\1/p' \
+              | grep -v '^nexus-' | sort -u | sed 's/^/remote /'
+            echo "remote $TRAEFIK_IMAGE"
+          } > "$RUNNER_TEMP/images.txt"
+          cat "$RUNNER_TEMP/images.txt"
+      - name: Trivy
+        run: bash .github/scripts/trivy_images.sh "$RUNNER_TEMP/images.txt" trivy-images
+      - name: Import do DefectDojo
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_TRIVY }}
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+        run: |
+          args=()
+          for report in trivy-images/trivy-*.json; do
+            [ -e "$report" ] || continue
+            name=$(basename "$report" .json)
+            args+=("Trivy Scan" "Trivy ${name#trivy-}" "$report")
+          done
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "::warning::Brak raportów Trivy do importu."
+            exit 1
+          fi
+          bash .github/scripts/defectdojo_import.sh "${args[@]}"
+
   alert:
     name: Alarm w issue
-    needs: [semgrep-full, deps-audit]
+    needs: [semgrep-full, deps-audit, zizmor-full, trivy-images]
     if: ${{ always() && github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -121,13 +304,17 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Otwórz albo odśwież alarm po czerwonym biegu
-        if: ${{ needs.semgrep-full.result != 'success' || needs.deps-audit.result != 'success' }}
+        if: ${{ needs.semgrep-full.result != 'success' || needs.deps-audit.result != 'success' || needs.zizmor-full.result != 'success' || needs.trivy-images.result != 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SEMGREP: ${{ needs.semgrep-full.result }}
           AUDIT: ${{ needs.deps-audit.result }}
+          ZIZMOR: ${{ needs.zizmor-full.result }}
+          IMAGES: ${{ needs.trivy-images.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -137,16 +324,19 @@ jobs:
             echo
             echo "- Semgrep (całe repo): **$SEMGREP**"
             echo "- Audyt zależności (pip-audit + npm audit): **$AUDIT**"
+            echo "- zizmor (workflowy): **$ZIZMOR**"
+            echo "- Trivy obrazów produkcji: **$IMAGES**"
             echo
             echo "Lista znalezisk (plik:linia, reguła albo identyfikator podatności) jest w podsumowaniu biegu: $RUN_URL"
             echo
-            echo "Co zrobić: popraw kod albo podbij wersję; świadomy wyjątek dopisz z uzasadnieniem"
-            echo "do \`.semgrep-baseline.json\` / \`.github/dependency-audit-baseline.json\`"
+            echo "Co zrobić: popraw kod, workflow albo podbij wersję; świadomy wyjątek dopisz z uzasadnieniem"
+            echo "do \`.semgrep-baseline.json\` / \`.github/dependency-audit-baseline.json\` /"
+            echo "\`.github/zizmor-baseline.json\` / \`.trivyignore-images\`"
             echo "(opis: \`docs/claude/podstawy/skanery-bezpieczenstwa.md\`). Zielony bieg zamknie to issue."
           } > "$RUNNER_TEMP/alert.md"
           bash .github/scripts/alert_issue.sh open "$marker" "$RUNNER_TEMP/alert.md"
       - name: Zamknij alarm po zielonym biegu
-        if: ${{ needs.semgrep-full.result == 'success' && needs.deps-audit.result == 'success' }}
+        if: ${{ needs.semgrep-full.result == 'success' && needs.deps-audit.result == 'success' && needs.zizmor-full.result == 'success' && needs.trivy-images.result == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

@@ -33,13 +33,14 @@ on:
     types: [completed]
     branches: [main]
 
+# Nocny bieg, od którego NIC nie zależy (nie jest required checkiem), nie
+# woła nikogo z siebie — czerwień przez 21 nocy z rzędu nie doczekała się
+# żadnej reakcji, bo nie było gdzie jej zobaczyć. Alert-issue to ten sam
+# wzorzec co w disk-alert.yml: cichy kanał zamieniony w pingnięcie.
+# `issues: write` tylko w jobach, które otwierają alarm (zizmor
+# `excessive-permissions`, 27.11.2026), nie dla całego workflow.
 permissions:
   contents: read
-  # Nocny bieg, od którego NIC nie zależy (nie jest required checkiem), nie
-  # woła nikogo z siebie — czerwień przez 21 nocy z rzędu nie doczekała się
-  # żadnej reakcji, bo nie było gdzie jej zobaczyć. Alert-issue to ten sam
-  # wzorzec co w disk-alert.yml: cichy kanał zamieniony w pingnięcie.
-  issues: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.run_id }}
@@ -55,6 +56,9 @@ jobs:
     # z backend/scripts/seed_e2e.py. Tu wolno zapisywać dane — stack znika po
     # biegu. Każdy przypadek ma się WYKONAĆ: pominięty test to czerwony bieg.
     name: E2E stack (ci-chromium)
+    permissions:
+      contents: read
+      issues: write
     # OPS-N02 (audyt 22.09.2026): NIE po deployu. Stack buduje się ze źródeł
     # commitu, nie z produkcji, więc bieg po Deploy (także pominiętym) testował
     # drzewo sprawdzone już w kolejce merge'ów — 757 min w 2 dni bez sygnału.
@@ -77,6 +81,8 @@ jobs:
       GIT_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -311,6 +317,9 @@ jobs:
 
   playwright:
     name: Playwright against production
+    permissions:
+      contents: read
+      issues: write
     needs: e2e-account
     if: ${{ needs.e2e-account.outputs.ready == 'true' }}
     runs-on: ubuntu-latest
@@ -324,6 +333,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -483,6 +494,9 @@ jobs:
   stack-alert:
     # Nocny bieg stacku też woła o uwagę — ten sam wzorzec co bieg produkcyjny.
     name: Alert nocnego stacku
+    permissions:
+      contents: read
+      issues: write
     needs: stack
     if: ${{ failure() && github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
