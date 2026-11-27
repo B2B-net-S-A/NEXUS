@@ -11,10 +11,16 @@
  */
 
 import { FormField } from "@/components/ui/form-field";
+import type { CommutePreferences } from "@/lib/commute-preferences";
 
 export interface RejectionResidenceProfile {
   city: string | null;
   country: string | null;
+  /** Samo pole miasta profilu (bez starego `location`) — od niego startuje
+   *  „Gdzie mieszka?” przy „Za daleko do biura” (27.11.2026). */
+  canonicalCity?: string | null;
+  /** Karta dojazdu z `preferences` — „Dojedzie do biura: … → …”. */
+  commute?: CommutePreferences;
 }
 
 /** Kraje najczęstsze w bazie poza Polską (kopia produkcji, 24.11.2026). */

@@ -121,3 +121,58 @@ def record_from_rejection(
         },
     )
     return True
+
+
+def record_city_from_rejection(
+    db,
+    candidate: Candidate,
+    *,
+    city: str,
+    user_id: int,
+    job_id: int,
+    stage_id: int,
+) -> bool:
+    """Miasto z karty dojazdu („Lokalizacja lub tryb pracy”, 27.11.2026) na
+    profilu — jak ołówek „Lokalizacja” (blokada przed nadpisaniem z CV,
+    audyt). Profil bez kraju dostaje ``PL``, gdy miasto jest w słowniku
+    polskich miejscowości (ta sama reguła co :func:`city_in_poland`). To samo
+    miasto (bez względu na wielkość liter) = bez zmian i bez audytu."""
+    from app.services import pl_places
+    from app.services.candidate_location_writer import (
+        normalize_candidate_location,
+        project_candidate_location,
+    )
+
+    cleaned = normalize_candidate_location(city=city).city
+    if cleaned is None:
+        return False
+    if (candidate.city or "").strip().casefold() == cleaned.casefold():
+        return False
+    changed = ["city"]
+    candidate.city = cleaned
+    if _country(candidate.country) is None and pl_places.resolve(cleaned) is not None:
+        candidate.country = POLAND
+        changed.append("country")
+    candidate.location = project_candidate_location(candidate.city, candidate.country)
+    extracted = (
+        dict(candidate.cv_extracted_data)
+        if isinstance(candidate.cv_extracted_data, dict)
+        else {}
+    )
+    for field in changed:
+        extracted[f"_manual_override_{field}"] = True
+    candidate.cv_extracted_data = extracted
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.LOCATION_CHANGED,
+        user_id=user_id,
+        entity_id=candidate.id,
+        details={
+            "changed_fields": sorted(changed),
+            "manual_lock": True,
+            "source": "rejection",
+            "job_id": job_id,
+            "stage_id": stage_id,
+        },
+    )
+    return True
