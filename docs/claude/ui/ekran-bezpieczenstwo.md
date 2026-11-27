@@ -1,5 +1,5 @@
 # Ustawienia → Bezpieczeństwo: znaleziska, zdarzenia, rutyny (27.11.2026)
-<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800 -->
+<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0802 -->
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”, „zbuduj wszystko
 z raportu”). Jeden ekran admina zbiera skany CI, zdarzenia z serwera,
@@ -67,6 +67,29 @@ koncie go nie zwalnia.
   `customheaders: X-API-Key:…`), waga z `priority`.
 - `POST /api/security/ingest/wazuh` — alert z integracji; waga z `rule.level`
   (≤3 info, 4–6 low, 7–9 medium, 10–12 high, ≥13 critical).
+- `POST /api/security/ingest/grafana` (0802, zlecenie Artura 28.11.2026) —
+  webhook kontaktu Grafany Cloud (unified alerting). W Grafanie: kontakt typu
+  Webhook, URL `https://api.nexus.dynaminds.pl/api/security/ingest/grafana`,
+  metoda POST, w „Extra headers” nagłówek `X-API-Key` z kluczem konta
+  `grafana-nexus` (tylko scope `security:ingest`). Nie w „Authorization header”:
+  `Authorization: Bearer` to w NEXUSIE miejsce na JWT, a klucz API jedzie
+  wyłącznie w `X-API-Key` (`app/api/deps.py`, sekcja kont serwisowych).
+  Każdy alert z `alerts[]`:
+  - `firing` → znalezisko „czeka na reakcję”, klucz = `fingerprint` Grafany
+    (powtórka co kilka minut aktualizuje ten sam wiersz), plus zdarzenie
+    `alert_firing`;
+  - `resolved` → zdarzenie `alert_resolved` i zamknięcie znaleziska jako
+    naprawione (także z wyjątkiem); ten sam alert znów `firing` otwiera je
+    ponownie.
+  Waga z `labels.severity`: `critical`/`high` → wysoka, `warning` → średnia,
+  reszta i brak → niska. Z alertu bierzemy tylko `labels.alertname` (tytuł),
+  `labels.grafana_folder` (gdzie) i `annotations.summary` (dowód, po `scrub`).
+  Pozostałych etykiet, `description`, `values`, `valueString` ani adresów
+  (`generatorURL`, `silenceURL`) nie zapisujemy — bywa w nich instancja,
+  adres albo login. Ref zdarzenia `grafana:<fingerprint>:<startsAt>:<status>`,
+  więc ponowienie webhooka nie dubluje strumienia. Najwyżej 200 alertów
+  w paczce (więcej = 422; w Grafanie zostaw domyślne grupowanie). Przykład:
+  `tests/data/security/grafana_webhook_example.json`.
 - Kafelek „Ruch z internetu” sumuje `count` zdarzeń CrowdSec `ban`
   i `appsec_block` z 24 h.
 

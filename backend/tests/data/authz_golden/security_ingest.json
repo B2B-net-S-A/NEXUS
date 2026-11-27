@@ -33,6 +33,7 @@
  "routes": {
   "POST /api/security/ingest": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/security/ingest/falco": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/security/ingest/grafana": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/security/ingest/wazuh": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -313,6 +313,7 @@ async def build_sources(
         ("crowdsec", "CrowdSec", "serwer NEXUSA"),
         ("falco", "Falco", "serwer NEXUSA"),
         ("wazuh", "Wazuh", "osobny serwer"),
+        ("grafana", "Grafana Cloud", "alerty Grafany"),
     ):
         last = await _last_event(db, key)
         if last is None:

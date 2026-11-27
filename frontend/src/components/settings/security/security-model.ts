@@ -137,6 +137,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   pentest: "Pentest",
   nexus: "NEXUS",
   manual: "Ręcznie",
+  grafana: "Grafana",
 };
 
 export function sourceLabel(source: string): string {

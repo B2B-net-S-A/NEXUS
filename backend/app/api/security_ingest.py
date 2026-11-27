@@ -1,4 +1,4 @@
-"""Wejście źródeł dla ekranu Bezpieczeństwo (0800): CrowdSec, Falco, Wazuh, CI.
+"""Wejście źródeł dla ekranu Bezpieczeństwo (0800): CrowdSec, Falco, Wazuh, CI, Grafana.
 
 Wyłącznie klucz konta serwisowego ze scope'em ``security:ingest``
 (``allow_admin_jwt=False`` — przeglądarka nie ma tu czego szukać), limit
@@ -22,11 +22,13 @@ from app.core.rate_limit import limiter
 from app.models.service_account import ServiceScope
 from app.services.security_ingest import (
     FalcoEvent,
+    GrafanaWebhook,
     IngestBatch,
     IngestResult,
     SourceOwnedByOtherAccount,
     WazuhAlert,
     falco_to_event,
+    grafana_to_batch,
     ingest_batch,
     wazuh_to_event,
 )
@@ -47,9 +49,17 @@ def _account_id(caller: Caller) -> int | None:
     return caller.service.account_id if caller.service else None
 
 
-async def _ingest(db: AsyncSession, batch: IngestBatch, caller: Caller) -> IngestResult:
+async def _ingest(
+    db: AsyncSession,
+    batch: IngestBatch,
+    caller: Caller,
+    *,
+    resolved: list[str] | None = None,
+) -> IngestResult:
     try:
-        return await ingest_batch(db, batch, service_account_id=_account_id(caller))
+        return await ingest_batch(
+            db, batch, service_account_id=_account_id(caller), resolved=resolved
+        )
     except SourceOwnedByOtherAccount:
         await db.rollback()
         raise HTTPException(
@@ -102,4 +112,19 @@ async def ingest_wazuh(
     """Alert Wazuha z integracji."""
     batch = IngestBatch(source="wazuh", events=[wazuh_to_event(body)])
     result = await _ingest(db, batch, caller)
+    return result.as_dict()
+
+
+@router.post("/ingest/grafana", status_code=202)
+@limiter.limit(_rate_limit, key_func=principal_rate_key)
+async def ingest_grafana(
+    request: Request,
+    body: GrafanaWebhook,
+    caller: IngestCaller,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Webhook kontaktu Grafany (unified alerting): firing otwiera znalezisko,
+    resolved je zamyka. Klucz w nagłówku ``X-API-Key`` („Extra headers”)."""
+    parsed = grafana_to_batch(body)
+    result = await _ingest(db, parsed.batch, caller, resolved=parsed.resolved)
     return result.as_dict()
