@@ -99,7 +99,7 @@ aplikacja w Coolify = nowa sieć do dopisania. Restart (bez odtworzenia) i reboo
 
 ## Wyniki audytów (tylko odczyt)
 
-- Lynis 3.0.9: hardening index 61 przed, 63 po (SSH, sysctl). Ostrzeżenia, które zostają do 05.12:
+- Lynis 3.0.9: hardening index 61 przed, 63 po SSH, 66 po sysctl. Ostrzeżenia, które zostają do 05.12:
   restart serwera (28.11), 10 pakietów z poprawkami (pełna aktualizacja 05.12). „Brak repo security”
   to fałszywy alarm Lynisa (nie czyta formatu deb822 z `ubuntu.sources`). Raporty: `reports/lynis-*.dat`.
 - docker-bench-security v1.6.1: 117 testów, wynik −9. Większość to sposób działania Coolify (gniazdo
