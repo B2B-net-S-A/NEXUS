@@ -21,6 +21,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.finance_archive import FinanceArchiveDocument
 from app.models.hr_approval import ApprovalDocument
 from app.models.month_check_case import MonthCheckCase
 from app.models.user import User, UserRole
@@ -252,3 +253,37 @@ async def test_unchecked_person_month_and_explained_case_are_not_closed():
     cases = await _cases(candidate_id)
     assert cases[f"{rules.HOURS_MISMATCH}:2026-09"].state == service.TO_CORRECT
     assert cases[f"{rules.SALE_WITHOUT_COST}:2026-10"].state == service.NEW
+
+
+@pytest.mark.asyncio
+async def test_paper_invoice_from_ebi24_archive_counts_as_cost():
+    """Faktura spoza KSeF w archiwum eBI24 zamyka „sprzedaż bez kosztu” (Finanse 27.11.2026)."""
+
+    candidate_id, tag, person = await _seed()
+    await _run()
+    assert f"{rules.SALE_WITHOUT_COST}:2026-10" in await _cases(candidate_id)
+
+    async with AsyncSessionLocal() as db:
+        net = HOURS * COST
+        db.add(
+            FinanceArchiveDocument(
+                source="ebi24",
+                source_id=f"mc-{tag}-paper",
+                schema_name="test",
+                kind="cost",
+                invoice_number=f"P/{tag}/10",
+                issue_date=date(2026, 10, 30),
+                partner_name=f"{person} Usługi Informatyczne",
+                partner_id="2222222222",
+                currency="PLN",
+                net_amount=net,
+                gross_amount=net,
+                file_type="pdf",
+                file_path=f"test/{tag}.pdf",
+                file_sha256=hashlib.sha256(tag.encode()).hexdigest(),
+            )
+        )
+        await db.commit()
+    await _run()
+    cases = await _cases(candidate_id)
+    assert cases[f"{rules.SALE_WITHOUT_COST}:2026-10"].state == service.CLOSED

@@ -12,7 +12,8 @@
   ``contractor_nip``), a bez niego pełne imię i nazwisko w nazwie sprzedawcy
   (jedna osoba z kontraktem w NEXUSIE). Do tego faktury już przypięte przez
   rozliczenia (``client_contractor_invoices`` ``known``/``confirmed``)
-  z miesiącem z rozliczenia.
+  z miesiącem z rozliczenia, i faktury papierowe spoza KSeF z archiwum eBI24
+  (``finance_archive_documents``, koszt bez numeru KSeF, NIP w ``partner_id``).
 * **Klient bez nazwisk** — faktura zbiorcza (``cl.collective_invoice``) albo
   klient, którego faktury w miesiącu nie nazywają nikogo.
 """
@@ -36,6 +37,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.client_settlement import ClientContractorInvoice
 from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.finance_archive import FinanceArchiveDocument
 from app.models.hr_approval import ApprovalDocument
 from app.services.client_invoicing import requirements
 from app.services.client_invoicing.unknown_refs import marked_people, same_person
@@ -496,7 +498,15 @@ async def _costs(
         if clean:
             by_nip[clean].add(int(cid))
     issued_from = _first(from_month)
-    stats = {"documents": 0, "by_nip": 0, "by_name": 0, "bound": 0, "unbound": 0}
+    stats = {
+        "documents": 0,
+        "by_nip": 0,
+        "by_name": 0,
+        "bound": 0,
+        "unbound": 0,
+        "archive": 0,
+        "archive_unbound": 0,
+    }
     docs: list[rules.CostDoc] = []
     seen: set[str] = set()
     bound = (
@@ -557,6 +567,39 @@ async def _costs(
                 net=Decimal(doc.net_amount),
                 currency=doc.currency or PLN,
                 correction=(doc.ksef_invoice_type or "").lower().startswith("kor"),
+            )
+        )
+    # Faktury papierowe spoza KSeF z archiwum eBI24 (odpowiedź Finansów
+    # z 27.11.2026: Abdelmoneim IX, Balcerzak VIII, Tracz i Gawryluk IV).
+    # Tylko bez numeru KSeF — te z numerem są już wyżej.
+    archive = (
+        await db.scalars(
+            select(FinanceArchiveDocument).where(
+                FinanceArchiveDocument.kind == "cost",
+                FinanceArchiveDocument.ksef_number.is_(None),
+                FinanceArchiveDocument.issue_date >= issued_from,
+                FinanceArchiveDocument.net_amount.is_not(None),
+            )
+        )
+    ).all()
+    for doc in archive:
+        owners = by_nip.get(clean_nip(doc.partner_id) or "", set())
+        cand = next(iter(owners)) if len(owners) == 1 else None
+        if cand is None:
+            cand = rh.match_seller(world, doc.partner_name or "")
+        if cand is None:
+            stats["archive_unbound"] += 1
+            continue
+        stats["archive"] += 1
+        net = Decimal(doc.net_amount)
+        docs.append(
+            rules.CostDoc(
+                candidate_id=cand,
+                number=doc.invoice_number or f"eBI24 {doc.source_id}",
+                issue_date=doc.issue_date,
+                net=net,
+                currency=doc.currency or PLN,
+                correction=net < 0,
             )
         )
     return docs, stats

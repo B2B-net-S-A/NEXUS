@@ -53,6 +53,13 @@ przesunięcie o miesiąc (dwa miesiące razem się zgadzają), nie jest sprawą.
   `contractor_nip`, #4002), bez niego pełne imię i nazwisko w nazwie
   sprzedawcy, jedna osoba z kontraktem w NEXUSIE. Inkubator bez osoby w nazwie
   nie wiąże nikogo.
+- Faktura papierowa spoza KSeF (archiwum eBI24, `finance_archive_documents`,
+  `kind='cost'` bez `ksef_number`) liczy się jak faktura konsultanta: osoba po
+  NIP-ie z `partner_id`, bez niego po nazwie. Decyzja Artura 27.11.2026 po
+  odpowiedzi Finansów: Abdelmoneim IX, Balcerzak VIII, Tracz i Gawryluk IV
+  wystawili poza KSeF i są zapłaceni, a kontrola zgłaszała „sprzedaż bez kosztu”.
+  Archiwum to stan z eksportu (16.11.2026) — późniejsze papierowe faktury
+  wejdą dopiero z przyrostem.
 
 ## Pominięcia (liczone osobno, widać je na ekranie)
 
