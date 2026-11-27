@@ -186,6 +186,7 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.equipment_return_reminder,
         T.equipment_task,
         T.hired_order_missing,
+        T.b2b_krz_allowed,
         T.hr_absence_reported,
         T.hr_agreement_update,
         T.hr_approval_decided,
