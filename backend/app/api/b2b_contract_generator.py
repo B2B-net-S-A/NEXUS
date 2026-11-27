@@ -101,6 +101,7 @@ from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
     B2BReplaceableContract,
     B2BGeneratedEsign,
+    B2BKrzState,
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
     B2BCompanyLookupResponse,
@@ -190,6 +191,7 @@ from app.services.b2b_contract_generator.entity_type import (
 )
 from app.services.b2b_contract_generator import (
     admin_details,
+    krz,
     mandate,
     signed_file,
     signed_on_evidence,
@@ -1122,6 +1124,62 @@ def _row_annex_fields(
     return fields
 
 
+def _krz_actor_ids(row: B2BGeneratedContract) -> tuple[int | None, ...]:
+    check = row.krz_check if isinstance(row.krz_check, dict) else {}
+    return (check.get("checked_by"), check.get("decided_by"))
+
+
+async def _krz_state(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    current_user: User,
+    *,
+    users: dict[int, str],
+    block: str | None,
+    from_mass_send: bool,
+    may_record: bool,
+) -> B2BKrzState | None:
+    """Stan KRZ przy wierszu (0800); None dla wierszy poza sprawdzeniem bez zapisu."""
+    required = krz.applies(row, from_mass_send=from_mass_send)
+    check = krz.current_check(row)
+    if not required and check is None:
+        return None
+    label = krz.entry_label(check)
+    pending = (
+        check is not None
+        and check.get("result") == krz.RESULT_ENTRY
+        and check.get("decision") is None
+    )
+    deciders: list[int] = await krz.decider_ids(db, row) if pending else []
+    names: list[str] = []
+    if deciders:
+        found = await db.execute(
+            select(User.id, User.name).where(User.id.in_(deciders))
+        )
+        by_id = dict(found.all())
+        names = [by_id[uid] for uid in deciders if uid in by_id]
+    return B2BKrzState(
+        required=required,
+        result=check.get("result") if check else None,
+        entry_kind=label.kind if label else None,
+        entry_label=label.label if label else None,
+        entry_note=check.get("entry_note") if check else None,
+        checked_at=check.get("checked_at") if check else None,
+        checked_by_name=users.get(check.get("checked_by")) if check else None,
+        decision=check.get("decision") if check else None,
+        decision_reason=check.get("decision_reason") if check else None,
+        decided_at=check.get("decided_at") if check else None,
+        decided_by_name=users.get(check.get("decided_by")) if check else None,
+        nip_changed=krz.nip_changed(row),
+        block_reason=block,
+        decider_names=names,
+        can_record=required and may_record,
+        can_decide=pending
+        and required
+        and (krz.always_decides(current_user) or current_user.id in deciders),
+    )
+
+
 async def _serialize_generated_contracts(
     db: AsyncSession,
     rows: list[B2BGeneratedContract],
@@ -1137,10 +1195,12 @@ async def _serialize_generated_contracts(
             row.signed_by_user_id,
             row.recruiter_user_id,
             row.signed_on_set_by,
+            *_krz_actor_ids(row),
         )
         if uid is not None
     }
     candidate_ids = {row.candidate_id for row in rows if row.candidate_id is not None}
+    krz_mass_send_ids = await krz.mass_send_row_ids(db, [row.id for row in rows])
     job_ids = {row.job_id for row in rows if row.job_id is not None}
     client_ids = {row.client_id for row in rows if row.client_id is not None}
 
@@ -1460,6 +1520,24 @@ async def _serialize_generated_contracts(
             and row.render_payload is not None
         )
 
+        # Krajowy Rejestr Zadłużonych (0800): bez wyniku albo z wpisem bez
+        # decyzji DL ani wysyłka, ani „Oznacz jako podpisaną”.
+        krz_block = krz.block_reason(row, from_mass_send=row.id in krz_mass_send_ids)
+        if krz_block is not None:
+            can_send_esign = False
+            can_confirm = False
+            if blocked_reason is None:
+                blocked_reason = krz_block
+        krz_state = await _krz_state(
+            db,
+            row,
+            current_user,
+            users=users,
+            block=krz_block,
+            from_mass_send=row.id in krz_mass_send_ids,
+            may_record=(may_handle_esign or may_confirm_row) and not is_signed,
+        )
+
         # Wygasły link: nowy na tym samym PDF-ie, gdy umowy nikt nie poprawił.
         can_extend_esign = (
             may_handle_esign
@@ -1604,6 +1682,7 @@ async def _serialize_generated_contracts(
                 can_extend_esign=can_extend_esign,
                 can_relink_esign=can_relink_esign,
                 can_take_over_esign=can_take_over_esign,
+                krz=krz_state,
                 # Ta sama bramka co trasa `signed-pdf` (nadawca albo reprezentant).
                 can_download_signed_esign=(
                     esign is not None
@@ -2606,6 +2685,19 @@ async def render_standalone(
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
 
+def _krz_check_from_form(payload: B2BRenderRequest, user: User) -> dict:
+    """Wynik KRZ z kroku „Partner” jako zapis wiersza (bez PESEL-u)."""
+    assert payload.krz_check is not None
+    return krz.new_check(
+        result=payload.krz_check.result,
+        entry_kind=payload.krz_check.entry_kind,
+        entry_note=payload.krz_check.entry_note,
+        nip=payload.partner_nip,
+        actor_id=user.id,
+        now=datetime.now(timezone.utc),
+    )
+
+
 async def issue_standalone_contract(
     db: AsyncSession,
     payload: B2BRenderRequest,
@@ -2743,7 +2835,7 @@ async def issue_standalone_contract(
         # Plus snapshot rejestru klauzul — bez niego re-render rozstrzyga
         # rejestr od nowa i wydaje inną umowę niż podpisana.
         render_payload={
-            **payload.model_dump(mode="json"),
+            **payload.model_dump(mode="json", exclude={"krz_check"}),
             NOTICES_SNAPSHOT_FIELD: context["b2b_notices_email"],
             _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
         },
@@ -2751,6 +2843,14 @@ async def issue_standalone_contract(
     owner = await _stamp_admin_details(db, created, payload, linked_job=linked_job)
     db.add(created)
     try:
+        if payload.krz_check is not None:
+            await db.flush()
+            await krz.record_check(
+                db,
+                created,
+                _krz_check_from_form(payload, current_user),
+                actor_id=current_user.id,
+            )
         if on_created is not None:
             await db.flush()
             await on_created(created)
@@ -3496,6 +3596,7 @@ async def generated_contract_status_history(
             changed_by_name=users.get(e.changed_by) if e.changed_by else None,
             created_at=e.created_at.isoformat() if e.created_at else None,
             details=e.details,
+            **_krz_history_fields(e.details),
         )
         for e in events
     ]
@@ -3512,6 +3613,27 @@ async def generated_contract_status_history(
     ]
     # Rosnąco jak dziennik; wpis bez daty (stare dane) zostaje na początku.
     return sorted(items, key=lambda item: item.created_at or "")
+
+
+async def _assert_krz_passed(db: AsyncSession, generated_id: int) -> None:
+    """Bramka KRZ ręcznego „Oznacz jako podpisaną” (0800).
+
+    Tylko w trasie przycisku: e-podpis kończy się tą samą funkcją
+    (``confirm_generated_contract_fully_signed``), a do wysyłki dopuściła go
+    już bramka przy „Wyślij do podpisu”."""
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if row is None:
+        return
+    reason = await krz.gate_reason(db, row)
+    if reason is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+
+
+def _krz_history_fields(details: dict | None) -> dict:
+    """Wpis KRZ (0800) w dzienniku: osobny rodzaj z gotową treścią."""
+    if isinstance(details, dict) and details.get("source") == krz.HISTORY_SOURCE:
+        return {"kind": "krz", "label": details.get("label")}
+    return {}
 
 
 async def _load_generated_for_download(
@@ -3934,6 +4056,18 @@ async def generated_contract_form(
         if key not in {_CLAUSE_SNAPSHOT_FIELD, NOTICES_SNAPSHOT_FIELD}
     }
     form["contract_number"] = row.contract_number
+    # Wynik KRZ (0800) z wiersza, nie z payloadu — formularz pokazuje go
+    # w kroku „Partner”, dopóki NIP się nie zmieni.
+    current_krz = krz.current_check(row)
+    form["krz_check"] = (
+        {
+            "result": current_krz.get("result"),
+            "entry_kind": current_krz.get("entry_kind"),
+            "entry_note": current_krz.get("entry_note"),
+        }
+        if current_krz
+        else None
+    )
     replaced = None
     if row.replaced_contract_id is not None:
         found = await admin_details.replaceable_contracts(
@@ -4010,11 +4144,18 @@ async def rerender_generated_contract(
         is_client_referral=payload.is_client_referral,
     )
     row.render_payload = {
-        **payload.model_dump(mode="json"),
+        **payload.model_dump(mode="json", exclude={"krz_check"}),
         "contract_number": row.contract_number,
         NOTICES_SNAPSHOT_FIELD: context["b2b_notices_email"],
         _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
     }
+    if payload.krz_check is not None:
+        await krz.record_check(
+            db,
+            row,
+            _krz_check_from_form(payload, current_user),
+            actor_id=current_user.id,
+        )
     db.add(
         Activity(
             entity_type="b2b_generated_contract",
@@ -4144,6 +4285,9 @@ async def request_signature_confirmation(
             status_code=status.HTTP_409_CONFLICT,
             detail="Prosić o potwierdzenie można tylko przy niepodpisanej umowie „W trakcie”.",
         )
+    krz_block = await krz.gate_reason(db, row)
+    if krz_block is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=krz_block)
     if await esign_service.open_request_for(db, row.id) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -4343,6 +4487,7 @@ async def confirm_generated_contract_fully_signed_with_file(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Nieprawidłowe dane potwierdzenia podpisu.",
         ) from exc
+    await _assert_krz_passed(db, generated_id)
     upload, entries = await _signed_upload(db, file)
     company_names = await _company_names(db)
 

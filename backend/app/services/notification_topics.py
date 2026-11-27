@@ -126,7 +126,7 @@ _CONTRACTS = (
     _T.signature_renewal_requested,
     # Prośba do DL o „Oznacz jako podpisaną” (droga mailowa).
     _T.b2b_signature_requested,
-    # 0799: wpis w KRZ — decyzja DL i informacja dla Finansów.
+    # 0800: wpis w KRZ — decyzja DL i informacja dla Finansów.
     _T.b2b_krz_entry,
     _T.b2b_krz_allowed,
     # Umowę Twojej osoby wygenerował ktoś inny — wyślij ją i pilnuj podpisu.

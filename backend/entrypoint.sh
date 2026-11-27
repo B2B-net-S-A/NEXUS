@@ -870,7 +870,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_allocation_proposals'",
     # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B (do DL / TCM).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_signature_requested'",
-    # 0799: wpis w Krajowym Rejestrze Zadłużonych — decyzja DL, informacja dla Finansów.
+    # 0800: wpis w Krajowym Rejestrze Zadłużonych — decyzja DL, informacja dla Finansów.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_krz_entry'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_krz_allowed'",
     # 0418: zmiana stawki kandydata w procesie — informacja i zadanie dla DL.
@@ -5814,7 +5814,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "is_client_referral BOOLEAN",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS is_client_referral BOOLEAN",
-    # 0799: sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (wynik i decyzja DL).
+    # 0800: sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (wynik i decyzja DL).
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS krz_check JSONB",
     # 0499: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
     """CREATE TABLE IF NOT EXISTS b2b_signing_requests (

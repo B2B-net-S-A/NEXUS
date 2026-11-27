@@ -1,4 +1,4 @@
-"""Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0799, 27.11.2026).
+"""Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0800, 27.11.2026).
 
 Prośba Błażeja i decyzje Artura z 27.11.2026 (makiety:
 https://claude.ai/artifact/52333FTbcTvAGNovhQ4Rs3):
@@ -31,16 +31,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Optional
+from urllib.parse import urlencode
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_generated_contract_status_event import (
+    B2BGeneratedContractStatusEvent,
+)
 from app.models.b2b_mass_send import B2BMassSendItem
 from app.models.job import Job
+from app.models.notification import NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.b2b_contract_generator import mandate
+from app.services.notification_triggers import emit as emit_notification
 
 RESULT_CLEAR = "clear"
 RESULT_ENTRY = "entry"
@@ -218,7 +224,9 @@ async def decider_ids(db: AsyncSession, row: B2BGeneratedContract) -> list[int]:
     """Kto rozstrzyga wpis: DL rekrutacji i DL klienta, bez nich Head of Recruitment."""
     ids: list[int] = []
     if row.job_id is not None:
-        job_dl = await db.scalar(select(Job.delivery_lead_id).where(Job.id == row.job_id))
+        job_dl = await db.scalar(
+            select(Job.delivery_lead_id).where(Job.id == row.job_id)
+        )
         if job_dl is not None:
             ids.append(job_dl)
     if row.client_id is not None:
@@ -277,3 +285,139 @@ def entry_label(check: Optional[dict[str, Any]]) -> Optional[EntryLabel]:
         return None
     kind = check.get("entry_kind")
     return EntryLabel(kind=kind, label=ENTRY_KINDS.get(kind or "", "Wpis w KRZ"))
+
+
+# ── Zapis: historia umowy i dzwonki ─────────────────────────────────────────
+
+HISTORY_SOURCE = "krz"
+
+
+def register_href(row: B2BGeneratedContract) -> str:
+    """Rejestr z wyszukaniem po numerze (lustro ``registerSearchHref`` we froncie)."""
+    tab = {"suspended": "no-project", "closed": "closed"}.get(
+        row.contract_status or "", "generated"
+    )
+    return (
+        f"/contracts/b2b-generator?{urlencode({'tab': tab, 'q': row.contract_number})}"
+    )
+
+
+def check_label(check: dict[str, Any]) -> str:
+    if check.get("result") == RESULT_CLEAR:
+        return "KRZ: brak wpisów"
+    label = entry_label(check)
+    return f"KRZ: {label.label if label else 'wpis'}, czeka na decyzję Delivery Leada"
+
+
+def decision_label(check: dict[str, Any]) -> str:
+    reason = check.get("decision_reason") or ""
+    if check.get("decision") == DECISION_ALLOWED:
+        return f"KRZ: dopuszczona do podpisu mimo wpisu. Uzasadnienie: {reason}"
+    return f"KRZ: niedopuszczona do podpisu, umowa anulowana. Uzasadnienie: {reason}"
+
+
+def add_history(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    *,
+    actor_id: int,
+    label: str,
+    from_status: Optional[str] = None,
+) -> None:
+    db.add(
+        B2BGeneratedContractStatusEvent(
+            generated_contract_id=row.id,
+            from_status=from_status or row.contract_status,
+            to_status=row.contract_status,
+            job_id=row.job_id,
+            client_id=row.client_id,
+            changed_by=actor_id,
+            details={"source": HISTORY_SOURCE, "label": label},
+        )
+    )
+
+
+def _partner(row: B2BGeneratedContract) -> str:
+    return row.partner_legal_name or row.partner_name or "Partner"
+
+
+async def notify_entry(
+    db: AsyncSession, row: B2BGeneratedContract, *, actor_id: int
+) -> int:
+    """Dzwonek do osób, które rozstrzygają wpis (bez autora zapisu)."""
+    label = entry_label(row.krz_check)
+    sent = 0
+    for uid in await decider_ids(db, row):
+        if uid == actor_id:
+            continue
+        created = await emit_notification(
+            db,
+            user_id=uid,
+            title=f"Wpis w KRZ: umowa {row.contract_number}",
+            message=(
+                f"{_partner(row)} ma wpis w Krajowym Rejestrze Zadłużonych"
+                f" ({label.label if label else 'wpis'}). Zdecyduj, czy umowa"
+                " idzie do podpisu."
+            ),
+            ntype=NotificationType.b2b_krz_entry,
+            related_entity_type="b2b_generated_contract",
+            related_entity_id=row.id,
+            link=register_href(row),
+        )
+        sent += created is not None
+    return sent
+
+
+async def notify_allowed(
+    db: AsyncSession, row: B2BGeneratedContract, *, actor_id: int
+) -> int:
+    """Dzwonek do Finansów: umowa z wpisem idzie do podpisu."""
+    label = entry_label(row.krz_check)
+    reason = (row.krz_check or {}).get("decision_reason") or ""
+    finance = await db.scalars(
+        select(User.id).where(
+            User.roles.contains([UserRole.finance.value]),
+            User.is_active.is_(True),
+        )
+    )
+    sent = 0
+    for uid in finance.all():
+        if uid == actor_id:
+            continue
+        created = await emit_notification(
+            db,
+            user_id=uid,
+            title=f"Umowa {row.contract_number} dopuszczona mimo wpisu w KRZ",
+            message=(
+                f"{_partner(row)}: {label.label if label else 'wpis w KRZ'}."
+                " Faktury Partnera mogą być zajęte przez komornika."
+                f" Uzasadnienie Delivery Leada: {reason}"
+            ),
+            ntype=NotificationType.b2b_krz_allowed,
+            related_entity_type="b2b_generated_contract",
+            related_entity_id=row.id,
+            link=register_href(row),
+        )
+        sent += created is not None
+    return sent
+
+
+async def record_check(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    check: dict[str, Any],
+    *,
+    actor_id: int,
+) -> bool:
+    """Zapisuje wynik na wierszu (po flushu, ``row.id`` musi istnieć).
+
+    Zwraca ``False``, gdy to ten sam wynik dla tego samego NIP-u — ponowne
+    pobranie DOCX nie dokłada wpisu w historii ani dzwonka.
+    """
+    if same_result(row.krz_check, check):
+        return False
+    row.krz_check = check
+    add_history(db, row, actor_id=actor_id, label=check_label(check))
+    if check["result"] == RESULT_ENTRY:
+        await notify_entry(db, row, actor_id=actor_id)
+    return True

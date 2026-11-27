@@ -195,6 +195,7 @@ from app.api import b2b_documents
 from app.api import custom_document_templates
 from app.api import b2b_esign
 from app.api import b2b_mass_send as b2b_mass_send_api
+from app.api import b2b_krz as b2b_krz_api
 from app.api import pre_contracts as pre_contracts_api
 from app.api import start_documents as start_documents_api
 from app.api import pair_owners as pair_owners_api
@@ -2008,6 +2009,12 @@ app.include_router(
 )
 app.include_router(
     b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
+)
+# Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych przed podpisem (0800).
+app.include_router(
+    b2b_krz_api.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
 )
 # Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0757).
 app.include_router(

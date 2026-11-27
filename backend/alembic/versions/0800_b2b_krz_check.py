@@ -1,7 +1,7 @@
 """Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych przed podpisem umowy B2B.
 
-Revision ID: 0799_b2b_krz_check
-Revises: 0798_stage_przygotowanie_cv
+Revision ID: 0800_b2b_krz_check
+Revises: 0799_cp_document_invoice_fields
 
 Prośba Błażeja i decyzje Artura z 27.11.2026: półautomat w Generatorze
 (człowiek sprawdza w portalu KRZ, NEXUS zapisuje wynik), wpis w rejestrze
@@ -12,8 +12,8 @@ dwa nowe typy dzwonków. Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0799_b2b_krz_check"
-down_revision = "0798_stage_przygotowanie_cv"
+revision = "0800_b2b_krz_check"
+down_revision = "0799_cp_document_invoice_fields"
 branch_labels = None
 depends_on = None
 

@@ -295,7 +295,7 @@ _KRZ_ENTRY_KINDS = Literal[
 
 
 class B2BKrzCheckIn(BaseModel):
-    """Wynik sprawdzenia Partnera w KRZ zaznaczony przez człowieka (0799).
+    """Wynik sprawdzenia Partnera w KRZ zaznaczony przez człowieka (0800).
 
     Bez PESEL-u: ten służy tylko do wyszukania w portalu i nie opuszcza
     przeglądarki (services/b2b_contract_generator/krz.py).
@@ -313,7 +313,7 @@ class B2BKrzCheckIn(BaseModel):
 
 
 class B2BKrzDecisionIn(BaseModel):
-    """Decyzja Delivery Leada przy wpisie w KRZ (0799)."""
+    """Decyzja Delivery Leada przy wpisie w KRZ (0800)."""
 
     decision: Literal["allowed", "rejected"]
     reason: str = Field(..., min_length=3, max_length=500)
@@ -327,7 +327,7 @@ class B2BKrzDecisionIn(BaseModel):
 
 
 class B2BKrzState(BaseModel):
-    """Stan sprawdzenia w KRZ przy wierszu rejestru (0799)."""
+    """Stan sprawdzenia w KRZ przy wierszu rejestru (0800)."""
 
     #: Bramka dotyczy wiersza (umowa B2B z Generatora, niepodpisana, nie z wysyłki do aktywnych).
     required: bool
@@ -465,7 +465,7 @@ class B2BRenderRequest(AgreementAdminDetails):
         """
         return v if v in ("sole_trader", "company") else None
 
-    # Wynik sprawdzenia w KRZ z kroku „Partner” (0799). Nie trafia do
+    # Wynik sprawdzenia w KRZ z kroku „Partner” (0800). Nie trafia do
     # ``render_payload`` — wiersz trzyma go w ``krz_check``.
     krz_check: Optional[B2BKrzCheckIn] = None
 
@@ -870,7 +870,7 @@ class B2BGeneratedContractItem(BaseModel):
     can_relink_esign: bool = False
     # „Przejmij obsługę” — wysyłka w toku albo po terminie, obsługuje ktoś inny.
     can_take_over_esign: bool = False
-    # Krajowy Rejestr Zadłużonych (0799): wynik, decyzja i bramka podpisu.
+    # Krajowy Rejestr Zadłużonych (0800): wynik, decyzja i bramka podpisu.
     krz: Optional[B2BKrzState] = None
     # Plik podpisany przez obie strony (``GET /esign/{id}/signed-pdf``) — dla
     # nadawcy i reprezentanta, gdy automatyka nie założyła kontraktu.
