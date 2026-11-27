@@ -70,6 +70,18 @@ async def _seed_user_with_verifications(moved_ats: list[datetime]) -> int:
                     moved_by=user.id,
                 )
             )
+            # 0797: weryfikacja liczy się w chwili wejścia pary na QC CV albo
+            # dalej — tu w tej samej chwili, więc granice okna zostają te same.
+            # „Negocjacje” leżą dalej i same nie są kamieniem panelu.
+            db.add(
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.negotiation,
+                    moved_at=moved_at,
+                    moved_by=user.id,
+                )
+            )
         await db.commit()
         return user.id
 

@@ -27,6 +27,7 @@ from app.services.kpi_catalog import get_kpi
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.tasks import competition_autofreeze
 from tests._leave_source import use_nexus_leave_source
+from tests._qc_cv_stage import qc_cv_move, qc_cv_stage_def_id
 
 
 @pytest.fixture(autouse=True)
@@ -519,6 +520,7 @@ async def _seed_race_recruiter(db, *, name: str, verified: int, cv_sent: int) ->
     job = Job(title=f"Race Job {u}", client_id=client.id)
     db.add(job)
     await db.flush()
+    qc_cv = await qc_cv_stage_def_id(db)
 
     for idx in range(verified):
         cand = Candidate(name="Rita", lastname=f"RACE-{u}-{idx}")
@@ -532,6 +534,17 @@ async def _seed_race_recruiter(db, *, name: str, verified: int, cv_sent: int) ->
                 moved_at=_RACE_MONTH + timedelta(hours=idx),
                 moved_by=user.id,
                 verification_status=VerificationStatus.active,
+            )
+        )
+        # 0797: weryfikacja liczy się od wejścia pary na „QC CV” — także
+        # dla par bez rekomendacji, bo to one obniżają precyzję.
+        db.add(
+            qc_cv_move(
+                candidate_id=cand.id,
+                job_id=job.id,
+                moved_at=_RACE_MONTH + timedelta(hours=idx, minutes=15),
+                moved_by=user.id,
+                stage_def_id=qc_cv,
             )
         )
         if idx < cv_sent:

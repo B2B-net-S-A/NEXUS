@@ -240,7 +240,9 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
     fx_app: AsyncClient, fx_login: AsyncClient
 ):
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.recruiter, name="Zenon Atrybut")
+    owner_id, email, password = await _seed_user(
+        UserRole.recruiter, name="Zenon Atrybut"
+    )
     other_id, _, _ = await _seed_user(UserRole.recruiter, name="Alicja Druga")
     cand, job = await _seed_pair()
     cand2, job2 = await _seed_pair()
@@ -276,6 +278,15 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
         moved_at=_at(day),
         moved_by=other_id,
     )
+    # 0797: weryfikacja liczy się od wejścia pary na QC CV albo dalej;
+    # „Negocjacje” leżą dalej i nie są kamieniem żadnej kolumny tabeli.
+    await _seed_stage(
+        candidate_id=cand2,
+        job_id=job2,
+        stage=PipelineStage.negotiation,
+        moved_at=_at(day),
+        moved_by=other_id,
+    )
 
     headers = await _headers(fx_login, email, password)
     body = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
@@ -308,6 +319,15 @@ async def test_unattributed_milestones_are_reported_per_stage_never_dropped(
         candidate_id=cand,
         job_id=job,
         stage=PipelineStage.verified,
+        moved_at=_at(day),
+        moved_by=owner_id,
+    )
+    # 0797: weryfikacja liczy się od wejścia pary na QC CV albo dalej;
+    # „Negocjacje” leżą dalej i nie są kamieniem żadnej kolumny tabeli.
+    await _seed_stage(
+        candidate_id=cand,
+        job_id=job,
+        stage=PipelineStage.negotiation,
         moved_at=_at(day),
         moved_by=owner_id,
     )
@@ -425,6 +445,15 @@ async def test_pending_verification_is_not_counted(
         moved_by=owner_id,
         verification_status=VerificationStatus.pending,
     )
+    # 0797: nawet po wejściu pary dalej niż QC CV czekająca weryfikacja
+    # nie jest weryfikacją — bez tego ruchu test przechodziłby sam z siebie.
+    await _seed_stage(
+        candidate_id=cand,
+        job_id=job,
+        stage=PipelineStage.negotiation,
+        moved_at=_at(day),
+        moved_by=owner_id,
+    )
 
     headers = await _headers(fx_login, email, password)
     body = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
@@ -450,6 +479,14 @@ async def test_window_is_half_open_and_lives_in_the_cache_key(
         candidate_id=cand,
         job_id=job,
         stage=PipelineStage.verified,
+        moved_at=_at(day),
+        moved_by=owner_id,
+    )
+    # 0797: weryfikacja liczy się w dniu wejścia pary na QC CV albo dalej.
+    await _seed_stage(
+        candidate_id=cand,
+        job_id=job,
+        stage=PipelineStage.negotiation,
         moved_at=_at(day),
         moved_by=owner_id,
     )

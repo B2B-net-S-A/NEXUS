@@ -27,6 +27,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.kpi_panel import compute_my_panel
 from app.services.kpi_team import compute_team_panel
+from tests._qc_cv_stage import qc_cv_move, qc_cv_stage_def_id
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 # Po 12.10.2026: wcześniej statystyki liczą tylko DynaReportera (migracje 0454,
@@ -41,6 +42,10 @@ async def _seed(*, old_sent: int, fresh_verified: int, fresh_sent: int) -> int:
       (rekomendacja w oknie, weryfikacja poza nim — to one dawały >100%);
     * ``fresh_verified`` par zweryfikowanych 5 dni temu, z których pierwsze
       ``fresh_sent`` mają „CV wysłane" 2 dni temu.
+
+    Każda para wchodzi na „QC CV” zaraz po weryfikacji. Bez tego (0797) data
+    weryfikacji starych par przechodziła na „CV wysłane” sprzed 10 dni,
+    a świeże pary bez CV nie miały weryfikacji: 41 zamiast 5.
     """
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -54,6 +59,7 @@ async def _seed(*, old_sent: int, fresh_verified: int, fresh_sent: int) -> int:
         client = Client(name=f"Precyzja Client {unique}")
         db.add_all([user, client])
         await db.flush()
+        qc_cv = await qc_cv_stage_def_id(db)
 
         async def pair(verified_at: datetime, sent_at: datetime | None, i: int):
             job = Job(title=f"Precyzja {unique}-{i}", client_id=client.id)
@@ -67,6 +73,17 @@ async def _seed(*, old_sent: int, fresh_verified: int, fresh_sent: int) -> int:
                     stage=PipelineStage.verified,
                     moved_at=verified_at,
                     moved_by=user.id,
+                )
+            )
+            # 0797: weryfikacja liczy się w chwili wejścia pary na „QC CV”,
+            # tu tuż po niej — data weryfikacji zostaje w tym samym dniu.
+            db.add(
+                qc_cv_move(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    moved_at=verified_at + timedelta(minutes=30),
+                    moved_by=user.id,
+                    stage_def_id=qc_cv,
                 )
             )
             if sent_at is not None:
