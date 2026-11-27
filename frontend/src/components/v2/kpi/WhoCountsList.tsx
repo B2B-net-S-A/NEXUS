@@ -10,6 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel"
 import { apiErrorMessage } from "@/lib/api-error"
 import {
+  MARGIN_HIDDEN_TEXT,
+  MARGIN_MISSING_TEXT,
   WHO_COUNTS_FOOTNOTES,
   WHO_COUNTS_METRICS,
   candidateJobsBadge,
@@ -20,6 +22,7 @@ import {
   groupByTerm,
   historyNote,
   interviewTerm,
+  marginSummaryParts,
   moverText,
   stateFilters,
   stateText,
@@ -34,8 +37,10 @@ import {
   type RecruitmentActivityDetailFilters,
   type RecruitmentActivityDetailOrder,
   type RecruitmentActivityDetailResponse,
+  type RecruitmentActivityMargin,
   type RecruitmentActivityState,
 } from "@/lib/recruitment-activity-api"
+import { formatMoney, formatPctPl, formatWholeMoney } from "@/lib/money"
 import type { TeamFilters } from "@/lib/team-filters"
 import { cn } from "@/lib/utils"
 import { TeamFilterControls } from "./TeamFilterControls"
@@ -92,11 +97,17 @@ export function WhoCountsListView({
   const termLayout = showTerm && order === "term"
   const canChangeOrder = showTerm && !compact && onOrderChange !== undefined
   const showStart = metric === "acceptance" || metric === "placement"
+  // Koszt / Klient / Marża (wariant B2, 27.11.2026) — serwer daje `margin_scope`
+  // tylko kontom z prawem do kwot. Przy 1280 px miejsce robi kolumna „Godzina”.
+  const showMargin = metric === "placement" && Boolean(response.margin_scope)
+  const showTime = !showTerm && !showMargin
   const groups = termLayout
     ? groupByTerm(response.items, today)
     : groupByDay(response.items, today)
   const columns =
-    3 +
+    2 +
+    (showTerm || showTime ? 1 : 0) +
+    (showMargin ? 3 : 0) +
     (showStart ? 1 : 0) +
     (showMover ? 1 : 0) +
     (showCredited ? 1 : 0) +
@@ -104,6 +115,7 @@ export function WhoCountsListView({
   const totalPages = Math.max(1, Math.ceil(response.total / response.page_size))
   const periodTotal = response.period_total ?? response.total
   const history = historyNote(response)
+  const marginParts = marginSummaryParts(response)
 
   return (
     <div className="flex flex-col gap-3" data-testid="who-counts-list">
@@ -114,6 +126,18 @@ export function WhoCountsListView({
           </span>
         ))}
       </p>
+      {marginParts.length > 0 ? (
+        <p
+          className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground"
+          data-testid="who-counts-margin-summary"
+        >
+          {marginParts.map((part, index) => (
+            <span key={part} className={cn(index === 0 && "font-medium text-foreground")}>
+              {part}
+            </span>
+          ))}
+        </p>
+      ) : null}
       {history ? (
         <p className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
           {history}
@@ -190,14 +214,21 @@ export function WhoCountsListView({
                 {showStart ? (
                   <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Start</th>
                 ) : null}
-                {showTerm ? null : (
+                {showTime ? (
                   <th scope="col" className="px-3 py-2 font-medium">Godzina</th>
-                )}
+                ) : null}
                 {showMover ? (
                   <th scope="col" className="px-3 py-2 font-medium">{definition.moverLabel}</th>
                 ) : null}
                 {showCredited ? (
                   <th scope="col" className="px-3 py-2 font-medium">Liczy się</th>
+                ) : null}
+                {showMargin ? (
+                  <>
+                    <th scope="col" className="whitespace-nowrap px-3 py-2 text-right font-medium">Koszt</th>
+                    <th scope="col" className="whitespace-nowrap px-3 py-2 text-right font-medium">Klient</th>
+                    <th scope="col" className="whitespace-nowrap px-3 py-2 text-right font-medium">Marża</th>
+                  </>
                 ) : null}
                 {showState ? (
                   <th scope="col" className="px-3 py-2 font-medium">Teraz</th>
@@ -257,11 +288,11 @@ export function WhoCountsListView({
                             {item.start_on ? formatDay(item.start_on) : "—"}
                           </td>
                         ) : null}
-                        {showTerm ? null : (
+                        {showTime ? (
                           <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums text-muted-foreground">
                             {formatTime(item.reached_at)}
                           </td>
-                        )}
+                        ) : null}
                         {showMover ? (
                           <td className="whitespace-nowrap px-3 py-2 align-top">
                             {moverText(item.moved_by, viewerId)}
@@ -277,6 +308,7 @@ export function WhoCountsListView({
                             {item.credited_user?.name ?? "—"}
                           </td>
                         ) : null}
+                        {showMargin ? <MarginCells item={item} /> : null}
                         {showState ? (
                           <td className="px-3 py-2 align-top">
                             {now ? (
@@ -682,5 +714,73 @@ export function WhoCountsList({
       isFetching={details.isFetching && details.isPlaceholderData}
       compact={compact}
     />,
+  )
+}
+
+function Dash({ title }: { title: string }) {
+  return (
+    <span className="text-muted-foreground" title={title}>
+      —<span className="sr-only"> ({title})</span>
+    </span>
+  )
+}
+
+/** Koszt / Klient / Marża jednego placementu; `margin_hidden` = klient spoza portfela DL-a. */
+function MarginCells({ item }: { item: RecruitmentActivityDetailItem }) {
+  const cell = "whitespace-nowrap px-3 py-2 text-right align-top tabular-nums"
+  if (item.margin_hidden || !item.margin) {
+    const title = item.margin_hidden ? MARGIN_HIDDEN_TEXT : MARGIN_MISSING_TEXT.missing_rates
+    return (
+      <>
+        <td className={cell}><Dash title={title} /></td>
+        <td className={cell}><Dash title={title} /></td>
+        <td className={cell}><Dash title={title} /></td>
+      </>
+    )
+  }
+  const margin: RecruitmentActivityMargin = item.margin
+  const missing = margin.missing ? MARGIN_MISSING_TEXT[margin.missing] : MARGIN_MISSING_TEXT.missing_rates
+  return (
+    <>
+      <td className={cell}>
+        {margin.cost_per_hour === null ? (
+          <Dash title={missing} />
+        ) : (
+          formatMoney(margin.cost_per_hour, margin.cost_currency, "hourly")
+        )}
+      </td>
+      <td className={cell}>
+        {margin.client_per_hour === null ? (
+          <Dash title={missing} />
+        ) : (
+          formatMoney(margin.client_per_hour, margin.client_currency, "hourly")
+        )}
+        {margin.client_from_recruitment ? (
+          <span
+            className="block text-xs text-muted-foreground"
+            title="Kontrakt nie ma stawki klienta — wzięta stawka do klienta z rekrutacji"
+          >
+            z rekrutacji
+          </span>
+        ) : null}
+      </td>
+      <td className={cell}>
+        {margin.per_hour === null ? (
+          <Dash title={missing} />
+        ) : (
+          <>
+            <span className={cn("font-medium", margin.per_hour < 0 ? "text-destructive" : "text-foreground")}>
+              {formatMoney(margin.per_hour, "PLN", "hourly")}
+              {margin.percent !== null ? ` · ${formatPctPl(margin.percent)}` : ""}
+            </span>
+            {margin.per_month !== null ? (
+              <span className="block text-xs text-muted-foreground">
+                {formatWholeMoney(margin.per_month)}/mies.
+              </span>
+            ) : null}
+          </>
+        )}
+      </td>
+    </>
   )
 }

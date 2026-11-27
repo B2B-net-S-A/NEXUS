@@ -149,6 +149,40 @@ describe("kolumna „Teraz”", () => {
     );
   });
 
+  it("przed wysłaniem: etap z procesu klienta w nawiasie i czas w etapie (27.11.2026)", () => {
+    const before = item({ state: "before_client", state_stage: "interview" });
+    expect(stateText({ ...before, state_stage_name: "QC CV" }, TODAY)).toEqual({
+      label: "Przed wysłaniem do klienta (QC CV) · 2 dni",
+      tone: "neutral",
+    });
+    expect(
+      stateText({ ...before, state_stage_name: "Wysłać do Cpro", state_since: "2026-10-16T08:00:00Z" }, TODAY)
+        ?.label,
+    ).toBe("Przed wysłaniem do klienta (Wysłać do Cpro) · 1 dzień");
+    // Para bez definicji etapu (stare wiersze) — bez pustego nawiasu.
+    expect(stateText({ ...before, state_stage_name: "  " }, TODAY)?.label).toBe(
+      "Przed wysłaniem do klienta · 2 dni",
+    );
+    expect(stateText({ ...before, state_since: null }, TODAY)?.label).toBe("Przed wysłaniem do klienta");
+  });
+
+  it("inne zakończenia: etap, na którym para odpadła", () => {
+    expect(
+      stateText(
+        item({ state: "ended", state_stage: "rejected", state_stage_name: "QC CV", state_reason: "Brak wymagań" }),
+        TODAY,
+      )?.label,
+    ).toBe("Odrzucenie u nas (na QC CV) · Brak wymagań");
+    expect(
+      stateText(item({ state: "ended", state_stage: "withdrawn", state_stage_name: "Screening" }), TODAY)?.label,
+    ).toBe("Rezygnacja kandydata (na Screening)");
+    // Klient odrzucił — bez nawiasu (prośba dotyczyła „Przed wysłaniem” i innych zakończeń).
+    expect(
+      stateText(item({ state: "rejected_by_client", state_stage: "rejected", state_stage_name: "CV Wysłane" }), TODAY)
+        ?.label,
+    ).toBe("Klient odrzucił");
+  });
+
   it("u klienta według etapu i zatrudnienie z datą", () => {
     expect(stateText(item({ state: "at_client", state_stage: "client_interview" }), TODAY)?.label).toBe(
       "Rozmowa u klienta",

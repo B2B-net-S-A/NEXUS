@@ -8,10 +8,12 @@
  * etykiety, grupowanie po dniach i podsumowanie — komponenty to rysują.
  */
 import { NEXUS_FIRST_DAY } from "@/lib/insights-history"
+import { formatMoney, formatWholeMoney } from "@/lib/money"
 import { pluralPl } from "@/lib/plural-pl"
 import type {
   RecruitmentActivityDetailItem,
   RecruitmentActivityDetailResponse,
+  RecruitmentActivityMargin,
   RecruitmentActivityMetric,
   RecruitmentActivityPerson,
   RecruitmentActivityState,
@@ -310,18 +312,13 @@ export function stateText(
   const tone = STATE_TONES[state]
   const reason = item.state_reason ? ` · ${item.state_reason}` : ""
   const since = item.state_since ? warsawDay(item.state_since) : null
+  // Ile dni para stoi w obecnym etapie: „ · od dziś”, „ · 3 dni”.
+  const inStage = since ? ` · ${daysInStage(since, today)}` : ""
+  // Etap z procesu klienta w nawiasie (prośba Olafa 27.11.2026, wariant A3).
+  const stageName = item.state_stage_name?.trim() || null
   switch (state) {
-    case "waiting": {
-      if (!since) return { label: "Czeka na klienta", tone }
-      const days = Math.max(daysBetween(since, today), 0)
-      return {
-        label:
-          days === 0
-            ? "Czeka na klienta · od dziś"
-            : `Czeka na klienta · ${days} ${pluralPl(days, "dzień", "dni", "dni")}`,
-        tone,
-      }
-    }
+    case "waiting":
+      return { label: `Czeka na klienta${inStage}`, tone }
     case "at_client": {
       const label = AT_CLIENT_STAGES[item.state_stage ?? ""] ?? "U klienta"
       return options.withTerm && item.state_stage === "client_interview" && item.client_interview_at
@@ -332,16 +329,29 @@ export function stateText(
       return { label: since ? `Zatrudnienie ${dayMonth(since)}` : "Zatrudnienie", tone }
     case "rejected_by_client":
       return { label: `Klient odrzucił${reason}`, tone }
-    case "ended":
+    case "ended": {
+      const where = stageName ? ` (na ${stageName})` : ""
       return {
-        label: item.state_stage === "withdrawn" ? `Rezygnacja kandydata${reason}` : `Odrzucenie u nas${reason}`,
+        label:
+          item.state_stage === "withdrawn"
+            ? `Rezygnacja kandydata${where}${reason}`
+            : `Odrzucenie u nas${where}${reason}`,
         tone,
       }
+    }
     case "job_closed":
       return { label: "Rekrutacja zamknięta", tone }
     case "before_client":
-      return { label: "Przed wysłaniem do klienta", tone }
+      return {
+        label: `Przed wysłaniem do klienta${stageName ? ` (${stageName})` : ""}${inStage}`,
+        tone,
+      }
   }
+}
+
+function daysInStage(since: string, today: string): string {
+  const days = Math.max(daysBetween(since, today), 0)
+  return days === 0 ? "od dziś" : `${days} ${pluralPl(days, "dzień", "dni", "dni")}`
 }
 
 // ── Wiersze i podsumowanie ─────────────────────────────────────────────────
@@ -517,6 +527,44 @@ export function summaryParts(
       mine
         ? `${verb} przez Ciebie: ${self}, pozostałe: ${other}`
         : `${verb} przez tę osobę: ${self}, pozostałe: ${other}`,
+    )
+  }
+  return parts
+}
+
+// ── Marża placementów (decyzje Artura 27.11.2026) ─────────────────────────
+
+/** Czego brakuje, gdy marży nie ma — podpowiedź na „—”. */
+export const MARGIN_MISSING_TEXT: Record<NonNullable<RecruitmentActivityMargin["missing"]>, string> = {
+  no_contract: "Brak kontraktu do tej pary",
+  missing_rates: "Brak stawki w kontrakcie i w rekrutacji",
+  fx_missing: "Brak kursu waluty z dnia startu",
+}
+
+export const MARGIN_HIDDEN_TEXT = "Kwoty tylko klientów z Twojego portfela"
+
+/**
+ * Wiersz marży pod podsumowaniem listy placementów. Suma z całego okresu
+ * (wszystkie strony), z wierszy, które odbiorca widzi; bez prawa do kwot — nic.
+ */
+export function marginSummaryParts(response: RecruitmentActivityDetailResponse): string[] {
+  const summary = response.margin_summary
+  if (!response.margin_scope || !summary) return []
+  const total = `${formatMoney(summary.per_hour, "PLN", "hourly")} · ${formatWholeMoney(summary.per_month)}/mies.`
+  const parts =
+    response.margin_scope === "portfolio"
+      ? [
+          `Marża Twoich klientów (${summary.counted} ${pluralPl(summary.counted, "placement", "placementy", "placementów")}): ${total}`,
+        ]
+      : [`Marża łącznie: ${total}`]
+  if (summary.from_recruitment > 0) {
+    parts.push(`${summary.from_recruitment} ze stawką klienta z rekrutacji`)
+  }
+  if (summary.negative > 0) parts.push(`${summary.negative} na minus`)
+  if (summary.missing > 0) parts.push(`${summary.missing} bez marży (brak stawki)`)
+  if (summary.hidden > 0) {
+    parts.push(
+      `${summary.hidden} ${pluralPl(summary.hidden, "placement", "placementy", "placementów")} klientów spoza Twojego portfela`,
     )
   }
   return parts
