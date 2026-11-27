@@ -207,6 +207,11 @@ class NotificationType(str, enum.Enum):
     # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B z Generatora —
     # do DL-a rekrutacji (albo portfela / TCM); related_entity=(b2b_generated_contract, id).
     b2b_signature_requested = "b2b_signature_requested"
+    # 0799: Partner ma wpis w Krajowym Rejestrze Zadłużonych — decyzja DL
+    # klienta (bez niego Head of Recruitment), a po dopuszczeniu informacja
+    # dla Finansów; related_entity=(b2b_generated_contract, id).
+    b2b_krz_entry = "b2b_krz_entry"
+    b2b_krz_allowed = "b2b_krz_allowed"
     # 0524: umowę z Generatora wygenerował ktoś inny niż osoba prowadząca
     # kandydata w rekrutacji — dzwonek do prowadzącego (placement, premia
     # i pilnowanie podpisu są jego); related_entity=(b2b_generated_contract, id).

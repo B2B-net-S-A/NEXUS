@@ -283,6 +283,74 @@ class AgreementAdminDetails(BaseModel):
         raise ValueError("Wymiar FTE: 1, 0,75, 0,5 albo 0,25.")
 
 
+_KRZ_ENTRY_KINDS = Literal[
+    "bankruptcy",
+    "consumer_bankruptcy",
+    "restructuring",
+    "enforcement",
+    "business_ban",
+    "alimony",
+    "other",
+]
+
+
+class B2BKrzCheckIn(BaseModel):
+    """Wynik sprawdzenia Partnera w KRZ zaznaczony przez człowieka (0799).
+
+    Bez PESEL-u: ten służy tylko do wyszukania w portalu i nie opuszcza
+    przeglądarki (services/b2b_contract_generator/krz.py).
+    """
+
+    result: Literal["clear", "entry"]
+    entry_kind: Optional[_KRZ_ENTRY_KINDS] = None
+    entry_note: Optional[str] = Field(None, max_length=300)
+
+    @model_validator(mode="after")
+    def _entry_has_kind(self) -> "B2BKrzCheckIn":
+        if self.result == "entry" and self.entry_kind is None:
+            raise ValueError("Wybierz rodzaj wpisu w KRZ.")
+        return self
+
+
+class B2BKrzDecisionIn(BaseModel):
+    """Decyzja Delivery Leada przy wpisie w KRZ (0799)."""
+
+    decision: Literal["allowed", "rejected"]
+    reason: str = Field(..., min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        if len(v.strip()) < 3:
+            raise ValueError("Wpisz uzasadnienie decyzji.")
+        return v.strip()
+
+
+class B2BKrzState(BaseModel):
+    """Stan sprawdzenia w KRZ przy wierszu rejestru (0799)."""
+
+    #: Bramka dotyczy wiersza (umowa B2B z Generatora, niepodpisana, nie z wysyłki do aktywnych).
+    required: bool
+    result: Optional[Literal["clear", "entry"]] = None
+    entry_kind: Optional[str] = None
+    entry_label: Optional[str] = None
+    entry_note: Optional[str] = None
+    checked_at: Optional[str] = None
+    checked_by_name: Optional[str] = None
+    decision: Optional[Literal["allowed", "rejected"]] = None
+    decision_reason: Optional[str] = None
+    decided_at: Optional[str] = None
+    decided_by_name: Optional[str] = None
+    #: Poprawa umowy zmieniła NIP po sprawdzeniu — wynik nie obowiązuje.
+    nip_changed: bool = False
+    #: Komunikat bramki; None = wysyłka i potwierdzenie podpisu wolne.
+    block_reason: Optional[str] = None
+    #: Kto rozstrzyga wpis (imiona i nazwiska do „Czeka na decyzję: …”).
+    decider_names: list[str] = Field(default_factory=list)
+    can_record: bool = False
+    can_decide: bool = False
+
+
 class B2BRenderRequest(AgreementAdminDetails):
     """Standalone render — wszystkie pola wprost z formularza (bez `Contract`)."""
 
@@ -396,6 +464,10 @@ class B2BRenderRequest(AgreementAdminDetails):
         nadmiarowa druga linia, a nie zablokowane generowanie umowy.
         """
         return v if v in ("sole_trader", "company") else None
+
+    # Wynik sprawdzenia w KRZ z kroku „Partner” (0799). Nie trafia do
+    # ``render_payload`` — wiersz trzyma go w ``krz_check``.
+    krz_check: Optional[B2BKrzCheckIn] = None
 
     @model_validator(mode="after")
     def _source_links_are_a_pair(self) -> "B2BRenderRequest":
@@ -798,6 +870,8 @@ class B2BGeneratedContractItem(BaseModel):
     can_relink_esign: bool = False
     # „Przejmij obsługę” — wysyłka w toku albo po terminie, obsługuje ktoś inny.
     can_take_over_esign: bool = False
+    # Krajowy Rejestr Zadłużonych (0799): wynik, decyzja i bramka podpisu.
+    krz: Optional[B2BKrzState] = None
     # Plik podpisany przez obie strony (``GET /esign/{id}/signed-pdf``) — dla
     # nadawcy i reprezentanta, gdy automatyka nie założyła kontraktu.
     can_download_signed_esign: bool = False
@@ -963,7 +1037,7 @@ class B2BStatusEventItem(BaseModel):
     # Etap 1b (21.10.2026): wpis z wysyłki do podpisu w NEXUSIE — wtedy
     # ``to_status`` = „esign”, a treść niesie ``label`` (id ujemne, bez wiersza
     # w dzienniku statusów).
-    kind: Literal["status", "esign"] = "status"
+    kind: Literal["status", "esign", "krz"] = "status"
     label: Optional[str] = None
 
     model_config = {"from_attributes": True}

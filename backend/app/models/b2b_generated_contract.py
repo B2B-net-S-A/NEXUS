@@ -397,6 +397,14 @@ class B2BGeneratedContract(Base, TimestampMixin):
     fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
     # Kandydat wskazany przez klienta (0656): podpis kopiuje do kontraktu.
     is_client_referral: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    # Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0799, decyzja
+    # Artura 27.11.2026): wynik, kto i kiedy, przy wpisie decyzja Delivery
+    # Leada. Kształt i bramka: services/b2b_contract_generator/krz.py. Bez
+    # PESEL-u — ten służy tylko do wyszukania w portalu KRZ.
+    krz_check: Mapped[Optional[dict]] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
 
     def __repr__(self) -> str:
         return f"<B2BGeneratedContract id={self.id} number={self.contract_number!r}>"

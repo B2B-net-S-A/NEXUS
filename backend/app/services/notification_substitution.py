@@ -40,6 +40,7 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.autofill_decisions_due,
         T.b2b_agreement_ready,
         T.b2b_signature_requested,
+        T.b2b_krz_entry,
         T.board_task_waiting,
         T.board_tasks_digest,
         T.candidate_claim_taken,
