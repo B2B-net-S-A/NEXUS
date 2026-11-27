@@ -131,10 +131,56 @@ export function textLines(items: readonly PdfTextItem[]): PdfLine[] {
 const NEEDLE_CHARS = 28;
 const NEEDLE_MIN = 6;
 
-function needleKeys(needles: readonly string[]): string[] {
+interface NeedleKey {
+  /** Początek tekstu — po nim szukamy linii, w której punkt się zaczyna. */
+  key: string;
+  /** Cały tekst — po nim doliczamy linie, do których punkt się zawinął. */
+  full: string;
+}
+
+function needleKeys(needles: readonly string[]): NeedleKey[] {
   return needles
-    .map((needle) => normalizeForMatch(needle).slice(0, NEEDLE_CHARS).trim())
-    .filter((key) => key.length >= NEEDLE_MIN);
+    .map((needle) => {
+      const full = normalizeForMatch(needle);
+      return { key: full.slice(0, NEEDLE_CHARS).trim(), full };
+    })
+    .filter(({ key }) => key.length >= NEEDLE_MIN);
+}
+
+/** Tekst bez spacji i łączników: pdf.js dzieli linię na fragmenty (pogrubienia) i przenosi wyrazy. */
+function compact(text: string): string {
+  return text.replace(/[\s-]/g, "");
+}
+
+/**
+ * Linie pod `start`, do których zawinął się szukany punkt: ta sama kolumna,
+ * odstęp najwyżej dwóch wysokości linii, a tekst to dalszy ciąg punktu.
+ * Bez tego ramka kończyła się na pierwszej linii ostatniego punktu.
+ */
+function wrappedLines(lines: readonly PdfLine[], start: PdfLine, { key, full }: NeedleKey): PdfLine[] {
+  const own = compact(start.text);
+  const at = own.indexOf(compact(key));
+  let rest = compact(full).slice(own.length - Math.max(at, 0));
+  const out: PdfLine[] = [];
+  let current = start;
+  while (rest) {
+    const gap = Math.max(1, current.y1 - current.y0) * 2;
+    const below = lines.filter(
+      (line) =>
+        line.y0 < current.y0 &&
+        current.y0 - line.y0 <= gap &&
+        line.x0 < start.x1 &&
+        line.x1 > start.x0,
+    );
+    if (!below.length) break;
+    const next = below.reduce((best, line) => (line.y0 > best.y0 ? line : best));
+    const text = compact(next.text);
+    if (!text || !(rest.startsWith(text) || text.startsWith(rest))) break;
+    out.push(next);
+    rest = rest.slice(text.length);
+    current = next;
+  }
+  return out;
 }
 
 function matches(line: PdfLine, key: string): boolean {
@@ -142,8 +188,8 @@ function matches(line: PdfLine, key: string): boolean {
 }
 
 /**
- * Linie strony, w których zaczyna się któryś z szukanych tekstów, i ich wspólna
- * ramka. Pierwszy tekst to kotwica (pierwszy punkt, firma); dla pozostałych
+ * Linie strony, w których zaczyna się któryś z szukanych tekstów (z liniami,
+ * do których się zawinął), i ich wspólna ramka. Pierwszy tekst to kotwica (pierwszy punkt, firma); dla pozostałych
  * bierzemy linię najbliżej kotwicy — „Java Developer” stoi też w linii
  * „Senior Java Developer” innego stanowiska.
  */
@@ -152,8 +198,8 @@ export function findBlock(lines: readonly PdfLine[], needles: readonly string[])
   let box: PdfBox | null = null;
   let hits = 0;
   let anchor: PdfLine | null = null;
-  for (const key of keys) {
-    const found = lines.filter((candidate) => matches(candidate, key));
+  for (const needle of keys) {
+    const found = lines.filter((candidate) => matches(candidate, needle.key));
     if (!found.length) continue;
     const near = anchor;
     const line: PdfLine = near
@@ -163,14 +209,16 @@ export function findBlock(lines: readonly PdfLine[], needles: readonly string[])
       : found[0];
     anchor ??= line;
     hits += 1;
-    box = box
-      ? {
-          x0: Math.min(box.x0, line.x0),
-          y0: Math.min(box.y0, line.y0),
-          x1: Math.max(box.x1, line.x1),
-          y1: Math.max(box.y1, line.y1),
-        }
-      : { x0: line.x0, y0: line.y0, x1: line.x1, y1: line.y1 };
+    for (const part of [line, ...wrappedLines(lines, line, needle)]) {
+      box = box
+        ? {
+            x0: Math.min(box.x0, part.x0),
+            y0: Math.min(box.y0, part.y0),
+            x1: Math.max(box.x1, part.x1),
+            y1: Math.max(box.y1, part.y1),
+          }
+        : { x0: part.x0, y0: part.y0, x1: part.x1, y1: part.y1 };
+    }
   }
   return box ? { box, hits } : null;
 }

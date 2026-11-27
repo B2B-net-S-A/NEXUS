@@ -161,15 +161,17 @@ export function CvPdfPageView({ blob, page, needles, onPlaced, className }: CvPd
       target.getContext("2d")?.drawImage(offscreen, 0, 0);
       let rect: Drawn["box"] = null;
       if (box) {
-        const pad = 4;
+        // Odstęp od tekstu ponad 2 px obramowania; dół linii PDF to linia bazowa,
+        // więc pod spodem jest jeszcze miejsce na ogonki liter (g, p, y).
+        const pad = 6;
+        const descent = 3;
         const [x0, y0] = viewport.convertToViewportPoint(box.x0, box.y0) as [number, number];
         const [x1, y1] = viewport.convertToViewportPoint(box.x1, box.y1) as [number, number];
-        rect = {
-          left: Math.min(x0, x1) - pad,
-          top: Math.min(y0, y1) - pad,
-          width: Math.abs(x1 - x0) + pad * 2,
-          height: Math.abs(y1 - y0) + pad * 2,
-        };
+        const left = Math.max(0, Math.min(x0, x1) - pad);
+        const top = Math.max(0, Math.min(y0, y1) - pad);
+        const right = Math.min(viewport.width, Math.max(x0, x1) + pad);
+        const bottom = Math.min(viewport.height, Math.max(y0, y1) + pad + descent);
+        rect = { left, top, width: right - left, height: bottom - top };
       }
       setDrawn({ width: viewport.width, height: viewport.height, box: rect });
       placedRef.current?.({ page: number, pages: pdf.numPages, outlined: rect !== null });
