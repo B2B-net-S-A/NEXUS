@@ -23,7 +23,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/insights",
 }));
 
-import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
+import { RytmDniaView, fromMin } from "@/components/insights/views/RytmDniaView";
 import { DayBreakdown } from "@/components/insights/views/RhythmDayDialog";
 import { draftProblem } from "@/components/insights/views/RhythmRulesDialog";
 import type { WorkRhythmDay, WorkRhythmDayDetail, WorkRhythmResponse, WorkRhythmRules } from "@/lib/work-rhythm-api";
@@ -306,5 +306,14 @@ describe("draftProblem — norma aktywnych godzin", () => {
   it("norma musi mieć 1–10 h", () => {
     expect(draftProblem({ ...RULES, norm_active_hours: 0 })).toMatch(/Norma aktywnych godzin/);
     expect(draftProblem({ ...RULES, norm_active_hours: 12 })).toMatch(/Norma aktywnych godzin/);
+  });
+});
+
+describe("fromMin — mediana z połówką minuty", () => {
+  it("zaokrągla całe minuty przed podziałem, więc nie ma „07:60”", () => {
+    expect(fromMin(479.5)).toBe("08:00");
+    expect(fromMin(479.4)).toBe("07:59");
+    expect(fromMin(233)).toBe("03:53");
+    expect(fromMin(0)).toBe("00:00");
   });
 });
