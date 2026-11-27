@@ -2010,7 +2010,7 @@ app.include_router(
 app.include_router(
     b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
 )
-# Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych przed podpisem (0800).
+# Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych przed podpisem (0801).
 app.include_router(
     b2b_krz_api.router,
     prefix="/api/b2b-generator",

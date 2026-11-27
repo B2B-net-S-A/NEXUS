@@ -1,4 +1,4 @@
-"""Wynik KRZ „brak wpisów” dla umów w testach, które nie dotyczą bramki KRZ (0800).
+"""Wynik KRZ „brak wpisów” dla umów w testach, które nie dotyczą bramki KRZ (0801).
 
 Od 27.11.2026 niesprawdzona umowa B2B z Generatora nie idzie do podpisu
 (``services/b2b_contract_generator/krz.py``). Testy podpisu, wysyłki

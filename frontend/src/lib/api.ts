@@ -3879,7 +3879,7 @@ export interface B2BRenderPayload extends AgreementAdminFields {
   rate_stages?: B2BRateStage[] | null;
   currency: string;
   scope_items_override?: string[] | null;
-  /** Wynik sprawdzenia w KRZ z kroku „Partner” (0800). Bez PESEL-u. */
+  /** Wynik sprawdzenia w KRZ z kroku „Partner” (0801). Bez PESEL-u. */
   krz_check?: B2BKrzCheckInput | null;
 }
 
@@ -3900,7 +3900,7 @@ export interface B2BKrzCheckInput {
   entry_note?: string | null;
 }
 
-/** Stan KRZ przy wierszu rejestru (0800): wynik, decyzja DL i bramka podpisu. */
+/** Stan KRZ przy wierszu rejestru (0801): wynik, decyzja DL i bramka podpisu. */
 export interface B2BKrzState {
   required: boolean;
   result: "clear" | "entry" | null;
@@ -4199,7 +4199,7 @@ export const b2bGeneratorApi = {
         `/api/b2b-generator/generated/${id}/signature-request`,
       )
       .then((r) => r.data),
-  /** Zapis wyniku sprawdzenia w KRZ przy umowie z rejestru (0800). */
+  /** Zapis wyniku sprawdzenia w KRZ przy umowie z rejestru (0801). */
   recordKrz: (id: number, body: B2BKrzCheckInput) =>
     api
       .put<B2BGeneratedContractRow>(`/api/b2b-generator/generated/${id}/krz`, body)
@@ -4503,7 +4503,7 @@ export interface B2BGeneratedContractRow {
   can_relink_esign?: boolean;
   /** „Przejmij obsługę” — obsługuje ktoś inny (zastępstwo, 27.10.2026). */
   can_take_over_esign?: boolean;
-  /** Krajowy Rejestr Zadłużonych (0800); brak = wiersz poza sprawdzeniem. */
+  /** Krajowy Rejestr Zadłużonych (0801); brak = wiersz poza sprawdzeniem. */
   krz?: B2BKrzState | null;
   /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
   can_download_signed_esign?: boolean;

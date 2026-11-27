@@ -1,4 +1,4 @@
-"""Krajowy Rejestr Zadłużonych przy umowie B2B z Generatora (0800, 27.11.2026).
+"""Krajowy Rejestr Zadłużonych przy umowie B2B z Generatora (0801, 27.11.2026).
 
 Reguły i kształt zapisu: ``services/b2b_contract_generator/krz.py``. Tu dwie
 trasy rejestru:

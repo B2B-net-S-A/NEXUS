@@ -320,7 +320,7 @@ describe("GeneratorForm w układzie kroków", () => {
     fireEvent.change(screen.getByLabelText("Stawka godz. (netto) *"), {
       target: { value: "150" },
     });
-    // KRZ w kroku „Partner” (0800): bez wyniku pobranie najpierw przypomina o KRZ.
+    // KRZ w kroku „Partner” (0801): bez wyniku pobranie najpierw przypomina o KRZ.
     fireEvent.click(screen.getByRole("radio", { name: "Brak wpisów", hidden: true }));
 
     expect(

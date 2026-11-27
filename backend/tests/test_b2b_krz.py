@@ -1,4 +1,4 @@
-"""Krajowy Rejestr Zadłużonych przed podpisem umowy B2B (0800, 27.11.2026).
+"""Krajowy Rejestr Zadłużonych przed podpisem umowy B2B (0801, 27.11.2026).
 
 Decyzje Artura: półautomat (człowiek sprawdza w portalu, NEXUS zapisuje wynik),
 NIP i PESEL (PESEL tylko do wyszukania, bez zapisu), wpis zatrzymuje wysyłkę

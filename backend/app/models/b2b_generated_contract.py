@@ -397,7 +397,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
     fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
     # Kandydat wskazany przez klienta (0656): podpis kopiuje do kontraktu.
     is_client_referral: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-    # Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0800, decyzja
+    # Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0801, decyzja
     # Artura 27.11.2026): wynik, kto i kiedy, przy wpisie decyzja Delivery
     # Leada. Kształt i bramka: services/b2b_contract_generator/krz.py. Bez
     # PESEL-u — ten służy tylko do wyszukania w portalu KRZ.

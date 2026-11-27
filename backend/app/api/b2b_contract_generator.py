@@ -1139,7 +1139,7 @@ async def _krz_state(
     from_mass_send: bool,
     may_record: bool,
 ) -> B2BKrzState | None:
-    """Stan KRZ przy wierszu (0800); None dla wierszy poza sprawdzeniem bez zapisu."""
+    """Stan KRZ przy wierszu (0801); None dla wierszy poza sprawdzeniem bez zapisu."""
     required = krz.applies(row, from_mass_send=from_mass_send)
     check = krz.current_check(row)
     if not required and check is None:
@@ -1520,7 +1520,7 @@ async def _serialize_generated_contracts(
             and row.render_payload is not None
         )
 
-        # Krajowy Rejestr Zadłużonych (0800): bez wyniku albo z wpisem bez
+        # Krajowy Rejestr Zadłużonych (0801): bez wyniku albo z wpisem bez
         # decyzji DL ani wysyłka, ani „Oznacz jako podpisaną”.
         krz_block = krz.block_reason(row, from_mass_send=row.id in krz_mass_send_ids)
         if krz_block is not None:
@@ -3618,7 +3618,7 @@ async def generated_contract_status_history(
 
 
 async def _assert_krz_passed(db: AsyncSession, generated_id: int) -> None:
-    """Bramka KRZ ręcznego „Oznacz jako podpisaną” (0800).
+    """Bramka KRZ ręcznego „Oznacz jako podpisaną” (0801).
 
     Tylko w trasie przycisku: e-podpis kończy się tą samą funkcją
     (``confirm_generated_contract_fully_signed``), a do wysyłki dopuściła go
@@ -3632,7 +3632,7 @@ async def _assert_krz_passed(db: AsyncSession, generated_id: int) -> None:
 
 
 def _krz_history_fields(details: dict | None) -> dict:
-    """Wpis KRZ (0800) w dzienniku: osobny rodzaj z gotową treścią."""
+    """Wpis KRZ (0801) w dzienniku: osobny rodzaj z gotową treścią."""
     if isinstance(details, dict) and details.get("source") == krz.HISTORY_SOURCE:
         return {"kind": "krz", "label": details.get("label")}
     return {}
@@ -4058,7 +4058,7 @@ async def generated_contract_form(
         if key not in {_CLAUSE_SNAPSHOT_FIELD, NOTICES_SNAPSHOT_FIELD}
     }
     form["contract_number"] = row.contract_number
-    # Wynik KRZ (0800) z wiersza, nie z payloadu — formularz pokazuje go
+    # Wynik KRZ (0801) z wiersza, nie z payloadu — formularz pokazuje go
     # w kroku „Partner”, dopóki NIP się nie zmieni.
     current_krz = krz.current_check(row)
     form["krz_check"] = (

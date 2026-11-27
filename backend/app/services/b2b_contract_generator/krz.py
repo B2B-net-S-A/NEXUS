@@ -1,4 +1,4 @@
-"""Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0800, 27.11.2026).
+"""Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (0801, 27.11.2026).
 
 Prośba Błażeja i decyzje Artura z 27.11.2026 (makiety:
 https://claude.ai/artifact/52333FTbcTvAGNovhQ4Rs3):

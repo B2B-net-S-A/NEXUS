@@ -103,7 +103,7 @@ describe("DockContractSteps", () => {
     expect(await screen.findByRole("button", { name: "Przypomnij o podpisie" })).toBeInTheDocument();
   });
 
-  it("bramka KRZ (0800): „Sprawdź w KRZ” zamiast „Czeka na podpis” i prośby do DL", async () => {
+  it("bramka KRZ (0801): „Sprawdź w KRZ” zamiast „Czeka na podpis” i prośby do DL", async () => {
     // Ścieżka na stagingu 27.11.2026: nad bramką stało „Czeka na podpis od 1 dnia”,
     // choć umowa czeka na sprawdzenie w KRZ.
     generated.mockResolvedValue([

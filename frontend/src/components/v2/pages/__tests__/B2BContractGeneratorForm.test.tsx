@@ -283,7 +283,7 @@ async function fillForm(user: ReturnType<typeof setupUser>) {
   fireEvent.change(screen.getByLabelText("Stawka godz. (netto) *"), {
     target: { value: "150" },
   });
-  // KRZ sprawdzony (0800) — bez wyniku „Pobierz DOCX” najpierw przypomina o KRZ.
+  // KRZ sprawdzony (0801) — bez wyniku „Pobierz DOCX” najpierw przypomina o KRZ.
   await user.click(screen.getByRole("radio", { name: "Brak wpisów" }));
 }
 
@@ -577,7 +577,7 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
 
 describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
   const SAVED_FORM = {
-    // Wynik KRZ (0800) przychodzi z wiersza razem z formularzem.
+    // Wynik KRZ (0801) przychodzi z wiersza razem z formularzem.
     krz_check: { result: "clear", entry_kind: null, entry_note: null },
     candidate_id: 42,
     job_id: 10,
@@ -1165,7 +1165,7 @@ describe("GeneratorForm — adres do doręczeń z CEIDG", () => {
   });
 });
 
-describe("GeneratorForm — Krajowy Rejestr Zadłużonych (0800)", () => {
+describe("GeneratorForm — Krajowy Rejestr Zadłużonych (0801)", () => {
   it("wynik KRZ idzie z pobraniem, a zmiana NIP-u go kasuje", async () => {
     const user = setupUser();
     mocks.renderDocx.mockResolvedValue(docxResponse("77"));

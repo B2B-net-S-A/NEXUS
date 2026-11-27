@@ -794,7 +794,7 @@ describe("GeneratedContractsTab — umowa anulowana", () => {
     mocks.apiGet.mockRejectedValue(new Error("brak zapytań w tym teście"));
   });
 
-  it("przy bramce KRZ pokazuje „Sprawdź w KRZ”, nie komunikat o uprawnieniu (0800)", async () => {
+  it("przy bramce KRZ pokazuje „Sprawdź w KRZ”, nie komunikat o uprawnieniu (0801)", async () => {
     // Ścieżka na stagingu 27.11.2026: rekruter bez „Podpisu B2B” widział dotąd
     // „Wyślij do podpisu”. Bramka KRZ chowa wysyłkę, więc wyskakiwał komunikat
     // o uprawnieniu, choć następnym krokiem jest sprawdzenie w KRZ.

@@ -83,7 +83,7 @@ export function AgreementSignatureAction({
     );
   }
 
-  // KRZ przed podpisem (0800): bez wyniku albo z wpisem bez decyzji DL nie ma
+  // KRZ przed podpisem (0801): bez wyniku albo z wpisem bez decyzji DL nie ma
   // ani „Oznacz jako podpisaną”, ani prośby do DL — serwer odpowie 409.
   if (row.krz?.block_reason) {
     return (

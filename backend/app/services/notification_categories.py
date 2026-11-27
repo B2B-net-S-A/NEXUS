@@ -134,7 +134,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.board_task_waiting: _C.mentions,
     # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
     _T.b2b_signature_requested: _C.mentions,
-    # 0800: wpis w KRZ czeka na Twoją decyzję — imienne zadanie; dopuszczenie
+    # 0801: wpis w KRZ czeka na Twoją decyzję — imienne zadanie; dopuszczenie
     # mimo wpisu to informacja dla Finansów (ryzyko zajęcia faktur).
     _T.b2b_krz_entry: _C.mentions,
     _T.b2b_krz_allowed: _C.mentions,

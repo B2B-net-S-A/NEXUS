@@ -1,5 +1,5 @@
 /**
- * Krajowy Rejestr Zadłużonych przed podpisem umowy B2B (0800, 27.11.2026).
+ * Krajowy Rejestr Zadłużonych przed podpisem umowy B2B (0801, 27.11.2026).
  *
  * KRZ nie ma API, więc NEXUS otwiera portal, kopiuje NIP albo PESEL do
  * schowka, a człowiek zaznacza wynik. PESEL zostaje w przeglądarce: nie idzie

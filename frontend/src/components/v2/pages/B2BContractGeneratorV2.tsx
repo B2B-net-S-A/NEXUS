@@ -3332,7 +3332,7 @@ export function GeneratedContractsTab({
                           ) : r.blocked_reason &&
                             !r.can_confirm_signed &&
                             !r.can_send_esign &&
-                            // Przy bramce KRZ (0800) następnym krokiem jest KRZ —
+                            // Przy bramce KRZ (0801) następnym krokiem jest KRZ —
                             // inaczej rekruter bez „Podpisu B2B” dostawał nagle
                             // komunikat o uprawnieniu, który przy wysyłce znikał.
                             !r.krz?.block_reason ? (
@@ -3340,7 +3340,7 @@ export function GeneratedContractsTab({
                               {r.blocked_reason}
                             </span>
                           ) : null}
-                          {/* KRZ przed podpisem (0800): plakietka i następny krok. */}
+                          {/* KRZ przed podpisem (0801): plakietka i następny krok. */}
                           {!signed && r.krz ? <KrzGate row={r} /> : null}
                         </div>
                       </td>
@@ -4260,7 +4260,7 @@ export function GeneratorForm({
   const [partnerName, setPartnerName] = useState("");
   const [partnerLegalName, setPartnerLegalName] = useState("");
   const [partnerNip, setPartnerNip] = useState("");
-  // Krajowy Rejestr Zadłużonych (0800): wynik zaznaczony w kroku „Partner”
+  // Krajowy Rejestr Zadłużonych (0801): wynik zaznaczony w kroku „Partner”
   // i NIP, dla którego go zaznaczono — inny NIP to inna firma, wynik znika.
   const [krzForm, setKrzForm] = useState<KrzFormState>(EMPTY_KRZ_FORM);
   const [krzNip, setKrzNip] = useState("");
@@ -5437,7 +5437,7 @@ export function GeneratorForm({
       },
       verification.company,
     );
-    // KRZ niesprawdzony (0800): okno przypomina o tym przed pobraniem, ale
+    // KRZ niesprawdzony (0801): okno przypomina o tym przed pobraniem, ale
     // niczego nie blokuje — bramka stoi przy wysyłce do podpisu.
     const krzPending = krzFormToPayload(krzForm) === null;
     if (!needsRegistryDialog(verification, diffs) && !krzPending) {

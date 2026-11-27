@@ -1,4 +1,4 @@
-# Krajowy Rejestr Zadłużonych przed podpisem umowy B2B (0800, 27.11.2026)
+# Krajowy Rejestr Zadłużonych przed podpisem umowy B2B (0801, 27.11.2026)
 <!-- indeks: KRZ, krz.ms.gov.pl, półautomat, NIP i PESEL, PESEL nie trafia do bazy, `b2b_generated_contracts.krz_check` (JSONB), `services/b2b_contract_generator/krz.py`, `api/b2b_krz.py`, PUT /generated/{id}/krz, POST /generated/{id}/krz/decision, bramka wysyłki i „Oznacz jako podpisaną”, decyzja DL klienta, Head of Recruitment, anulowanie, dzwonki `b2b_krz_entry` i `b2b_krz_allowed`, wysyłka do aktywnych poza bramką, MGBI -->
 
 Prośba Błażeja z 27.11.2026: „Niech nam Nexus sprawdza tych ludzi w Krajowym

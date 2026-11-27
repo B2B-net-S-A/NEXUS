@@ -43,7 +43,7 @@ export function RegistryCheckDialog({
   onApplyRegistryChange: (value: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
-  /** Wynik KRZ z kroku „Partner” (0800); brak = formularz bez sprawdzenia KRZ. */
+  /** Wynik KRZ z kroku „Partner” (0801); brak = formularz bez sprawdzenia KRZ. */
   krz?: KrzFormState;
 }) {
   const applyId = React.useId();
