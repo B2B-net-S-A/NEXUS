@@ -30,7 +30,7 @@ import { RhythmRulesDialog } from "./RhythmRulesDialog";
 /**
  * Insights → „Rytm dnia” (decyzje Artura 28–30.10.2026). Kiedy i jak
  * intensywnie rekruterzy pracują w NEXUSIE. Na razie widzą to tylko Head of
- * Recruitment i admin. Pokazujemy każdego z rolą rekrutera (też DL-i), bez HoR,
+ * Recruitment i admin. Pokazujemy każdego z rolą rekrutera i każdego DL-a, bez HoR,
  * bez formy współpracy, od 12.10. Kolumny wyników i podpowiedzi rysujemy tylko,
  * gdy serwer je przysłał (`with_results`).
  *

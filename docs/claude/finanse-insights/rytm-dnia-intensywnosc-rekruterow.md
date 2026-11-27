@@ -11,8 +11,9 @@ wyniki = trzeba pracować więcej.
   wcześniej padło „widzi cały zespół” — zmienione). Lustro ról:
   `VIEWER_ROLES` w `services/work_rhythm.py` i `RHYTHM_ROLES`
   w `InsightsView.tsx`. Ci sami zmieniają reguły („Zmień reguły”).
-- **Kogo pokazujemy:** każdy aktywny z rolą rekrutera, także Delivery Lead
-  z dopisanym rekruterem (29.10.2026; dzień wcześniej „bez DL-i” — zmienione).
+- **Kogo pokazujemy:** każdy aktywny z rolą rekrutera (29.10.2026) i każdy
+  Delivery Lead, także bez dopisanego rekrutera (27.11.2026; wcześniej tylko
+  DL z rolą rekrutera, a 28.10 „bez DL-i” — zmienione).
   Sam TCM bez roli rekrutera, HoR i admin nie są wierszami. Bez formy współpracy. Konto, w imieniu którego działa
   integracja (`oauth_clients.acting_user_id`), nie jest człowiekiem — pomijamy.
 - **Od 12.10.2026** (start pracy w NEXUSIE, `RHYTHM_START`); okno to 10 dni
