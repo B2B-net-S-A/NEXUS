@@ -427,6 +427,13 @@ def _row_block(row: billing.BillingRow) -> Optional[str]:
             if line.net is None and line.basis != "cost"
         )
         return f"Brak kwoty pozycji (czeka na zużycie MD albo stawkę): {people}."
+    # Osoba z rozliczeniem w NEXUSIE bez przyjętego RCP (albo z godzinami
+    # niezatwierdzonymi w T4T): kwota z zamówienia to tylko podgląd, faktura
+    # z niej rozjechałaby się z raportem (pomiar 27.11.2026: 93/624 zgodnych).
+    waiting = [line for line in row.lines if line.awaiting]
+    if waiting:
+        people = ", ".join(f"{line.consultant} ({line.awaiting})" for line in waiting)
+        return f"Pozycje czekają na rozliczenie: {people}."
     return None
 
 
@@ -621,6 +628,8 @@ def _lines_for(
             role=info.role,
             period=period,
         ) or _line_name(service, row.order_number, line.consultant, period)
+        if line.suffix:
+            name = f"{name} — {line.suffix}"
         out.append(
             clean_line(
                 {

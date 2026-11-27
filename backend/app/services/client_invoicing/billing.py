@@ -29,8 +29,10 @@ Wiersz = zamówienie, które się fakturuje:
   według jednostki zamówienia: miesięczna × miesiąc, godzinowa × godziny
   z zamówienia (``billing_hours_per_month``, domyślnie 168 h), dzienna ×
   dni (godziny ÷ 8). Częściowy miesiąc (start albo koniec w środku) liczymy
-  proporcją dni roboczych (pon–pt bez świąt ustawowych). To kwota według
-  zamówienia, nie według raportu godzin klienta — różnicę sprawdzają Finanse.
+  proporcją dni roboczych (pon–pt bez świąt ustawowych). Gdy osoba ma
+  przyjęte rozliczenie (RCP albo T4T), pozycje biorą się z „Do faktury dla
+  klienta” (``settled_lines``, od 27.11.2026); bez przyjętego rozliczenia
+  kwota z zamówienia jest tylko podglądem (``awaiting``) i szkic jej nie wystawi.
 
 Osoba bez zużycia MD za miesiąc ma pozycję bez kwoty („czeka na zużycie
 MD”) — kwota wiersza jest wtedy nieznana, a nie zaniżona. Linia osoby
@@ -44,7 +46,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Collection, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
@@ -66,6 +68,7 @@ from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
 )
+from app.services.client_invoicing import settled_lines
 from app.services.client_order_lines import line_settles_in_month
 from app.services.hr.calendar import month_range
 from app.services.order_burn_rate import workdays_between
@@ -130,6 +133,13 @@ class BillingLine:
     note: Optional[str] = None
     #: Kwota z kolumny „Faktura” arkusza Finansów (zamówienia kosztowe).
     sheet_invoiced: Optional[Decimal] = None
+    #: ``order`` — z zamówienia; ``settlement`` — z „Do faktury dla klienta”
+    #: (przyjęte RCP albo T4T, ``settled_lines``).
+    source: str = "order"
+    #: Osoba jest w rozliczeniach, ale nie ma czego fakturować: powód.
+    awaiting: Optional[str] = None
+    #: Dopisek do nazwy pozycji (nadgodziny, onboarding, dodatek).
+    suffix: Optional[str] = None
 
     @property
     def unit(self) -> str:
@@ -345,6 +355,50 @@ def _periodic_line(order: ClientOrder, first: date, last: date) -> BillingLine:
         currency=currency,
         note=note,
     )
+
+
+def with_settlement(
+    line: BillingLine, settled: Optional[settled_lines.Settled]
+) -> tuple[BillingLine, ...]:
+    """Linia okresowa z przyjętego rozliczenia osoby (``settled_lines``).
+
+    Bez wiersza w rozliczeniach — linia z zamówienia bez zmian. Wiersz bez
+    pozycji do faktury — linia z zamówienia jako podgląd z powodem w
+    ``awaiting`` (szkic jej nie wystawi). Wiersz z pozycjami — pozycja na
+    każdą z nich: pierwsza (podstawowa) bez dopisku, kolejne z dopiskiem z
+    nazwy pozycji (nadgodziny, onboarding, dodatek, korekta estymacji).
+    """
+
+    if settled is None:
+        return (line,)
+    reason = settled.awaiting
+    if reason is not None:
+        return (replace(line, awaiting=reason, note=reason),)
+    base_name = settled.positions[0].name
+    out = []
+    for index, pos in enumerate(settled.positions):
+        suffix = None
+        if index:
+            suffix = (
+                pos.name[len(base_name) :].strip(" _")
+                if base_name and pos.name.startswith(base_name)
+                else pos.name
+            ) or pos.kind
+        out.append(
+            BillingLine(
+                order_id=line.order_id,
+                consultant=line.consultant,
+                basis=pos.basis,
+                quantity=pos.quantity,
+                unit_price=pos.unit_price,
+                net=money(pos.net),
+                currency=pos.currency,
+                note="z przyjętego rozliczenia",
+                source="settlement",
+                suffix=suffix,
+            )
+        )
+    return tuple(out)
 
 
 def _line_currency(order: ClientOrder) -> str:
@@ -620,6 +674,7 @@ async def billing_rows(
 
     by_group: dict[int, list[ClientOrder]] = defaultdict(list)
     rows: list[BillingRow] = []
+    periodic: list[tuple[ClientOrder, str, BillingLine]] = []
     for order in sorted(orders, key=lambda o: (o.start_date or first, o.id)):
         if not _contract_ok(order):
             continue
@@ -642,6 +697,19 @@ async def billing_rows(
         if not title or title == AUTO_DRAFT_TITLE_PLACEHOLDER:
             title = f"zamówienie #{order.id}"
         line = _periodic_line(order, first, last)
+        periodic.append((order, title, line))
+
+    settled = (
+        await settled_lines.for_clients(
+            db, {order.client_id for order, _, _ in periodic}, period
+        )
+        if periodic
+        else {}
+    )
+    for order, title, line in periodic:
+        lines = with_settlement(
+            line, settled_lines.find(settled, order.contract_id, order.id)
+        )
         rows.append(
             BillingRow(
                 client_id=order.client_id,
@@ -649,8 +717,8 @@ async def billing_rows(
                 group_id=None,
                 order_id=order.id,
                 order_number=title,
-                currency=line.currency,
-                lines=(line,),
+                currency=lines[0].currency,
+                lines=lines,
             )
         )
 
