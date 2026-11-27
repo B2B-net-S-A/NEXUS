@@ -376,6 +376,72 @@ async def _apply_closed(
     return Outcome(OUTCOME_ALREADY, "Rekrutacja była już zamknięta.", job_id)
 
 
+ROBOT_CLOSE_NOTE = (
+    "Zamknięte z CPro: robot zobaczył na stronie requestu, że jest zamknięty"
+)
+
+
+async def _closed_before(db: AsyncSession, job_id: int) -> bool:
+    """Rekrutację ktoś już kiedyś zamknął, więc obecne otwarcie jest świadome."""
+    found = await db.scalar(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "job",
+            Activity.entity_id == job_id,
+            Activity.action == "closed",
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+async def close_from_robot(db: AsyncSession, request: str, effects: Any) -> Outcome:
+    """Robot Cpro zobaczył zamknięty request: NEXUS zamyka rekrutację (Artur, 27.11.2026).
+
+    CPro nie wysyła maila o zamknięciu requestu wygranego przez naszą osobę,
+    więc ``_apply_closed`` go nie widzi. Robot nie zna powodu z CPro: osoba
+    w „Zatrudnionych” = ``filled_by_us``, reszta ``other`` (przegląd zamknięć).
+    Rekrutacji otwartej ponownie ręcznie robot nie zamyka — bieg co kilka
+    minut nie może walczyć z decyzją człowieka. Bez commitu.
+    """
+    from app.services.job_closed_notices import (  # noqa: PLC0415
+        notify_closed_from_cpro,
+    )
+    from app.services.job_lifecycle import close_job_core  # noqa: PLC0415
+
+    jobs = await _jobs_with_number(db, request, lock=True)
+    open_jobs = [job for job in jobs if job.status == JobStatus.published]
+    if not open_jobs:
+        return Outcome(OUTCOME_ALREADY, "Brak otwartej rekrutacji z tym numerem.")
+    if not (await load_rules(db))[RULE_CLOSED]:
+        return Outcome(OUTCOME_MANUAL, "Reguła jest wyłączona.", open_jobs[0].id)
+
+    closed = notified = 0
+    for job in open_jobs:
+        if await _closed_before(db, job.id):
+            continue
+        columns = set((await _current_columns(db, job.id)).values())
+        reason = (
+            JobCloseReason.filled_by_us if "hired" in columns else JobCloseReason.other
+        )
+        await close_job_core(
+            db,
+            job,
+            reason=reason,
+            notes=ROBOT_CLOSE_NOTE,
+            actor_id=None,
+            effects=effects,
+        )
+        closed += 1
+        notified += len(
+            await notify_closed_from_cpro(db, job, request=request, cpro_reason=None)
+        )
+    job_id = open_jobs[0].id
+    if closed:
+        return Outcome(OUTCOME_DONE, "Zamknięto rekrutację.", job_id, notified=notified)
+    return Outcome(OUTCOME_ALREADY, "Otwarta ponownie ręcznie: bez zmian.", job_id)
+
+
 async def _find_cards(
     db: AsyncSession,
     jobs: Sequence[Job],
