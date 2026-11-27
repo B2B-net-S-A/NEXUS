@@ -1,0 +1,65 @@
+# Alerty z logu Traefika dla NEXUSA (27.11.2026). Bez `remediation: true`: tylko alert (cscli alerts list,
+# powiadomienie), nigdy ban. Hosty: API, front i panel Coolify.
+type: leaky
+name: nexus/http-401-403-series
+description: "Seria 401/403 z jednego adresu (zgadywanie tokenow, skan uprawnien)"
+filter: |
+  evt.Meta.log_type == 'http_access-log' && evt.Meta.http_status in ['401', '403'] &&
+  evt.Meta.target_fqdn in ['api.nexus.b2bnetwork.pl', 'nexus.b2bnetwork.pl', 'api.nexus.dynaminds.pl', 'nexus.dynaminds.pl', 'coolify-nexus.dynaminds.pl']
+groupby: evt.Meta.source_ip
+# 40 odmow w krotkim czasie; wygasniecie tokenu w SPA daje kilkanascie 401 naraz, nie 40.
+capacity: 40
+leakspeed: 6s
+blackhole: 30m
+labels:
+  service: http
+  type: nexus_alert
+  confidence: 2
+  spoofable: 0
+  classification:
+    - attack.T1110
+  label: "Seria 401/403"
+  behavior: "http:bruteforce"
+  remediation: false
+---
+type: leaky
+name: nexus/sso-denied
+description: "Odmowy logowania SSO (/login?error=<kod odmowy>) z jednego adresu"
+filter: |
+  evt.Meta.log_type == 'http_access-log' && evt.Meta.target_fqdn == 'nexus.b2bnetwork.pl' &&
+  evt.Meta.http_path matches '^/login\\?(.*&)?error=(domain_forbidden|foreign_tenant|identity_mismatch|account_disabled|aad_no_role|aad_role_invalid|missing_identity_claims|state_expired|missing_code_state)'
+groupby: evt.Meta.source_ip
+capacity: 2
+leakspeed: 10m
+blackhole: 1h
+labels:
+  service: http
+  type: nexus_alert
+  confidence: 2
+  spoofable: 0
+  classification:
+    - attack.T1078
+  label: "Odmowy SSO"
+  behavior: "http:bruteforce"
+  remediation: false
+---
+type: trigger
+name: nexus/large-export
+description: "Nietypowo duzy eksport CSV/XLSX z API (ponad 20 MB w jednej odpowiedzi)"
+filter: |
+  evt.Meta.log_type == 'http_access-log' && evt.Meta.target_fqdn in ['api.nexus.b2bnetwork.pl', 'api.nexus.dynaminds.pl'] &&
+  evt.Meta.http_status == '200' &&
+  evt.Meta.http_path matches '(?i)(/export|\\.csv|\\.xlsx)' &&
+  evt.Unmarshaled.traefik.DownstreamContentSize != nil && int(evt.Unmarshaled.traefik.DownstreamContentSize) > 20000000
+groupby: evt.Meta.source_ip
+blackhole: 1h
+labels:
+  service: http
+  type: nexus_alert
+  confidence: 1
+  spoofable: 0
+  classification:
+    - attack.T1567
+  label: "Duzy eksport"
+  behavior: "http:exploit"
+  remediation: false

@@ -53,3 +53,34 @@ loki.write "grafana_cloud" {
         }
     }
 }
+
+// Log dostępu Traefika (27.11.2026, ochrona serwera): /var/log/traefik/access.log (JSON) z hosta,
+// zamontowany do kontenera tylko do odczytu. Ten sam plik czyta CrowdSec. Przed wysyłką do
+// Grafana Cloud maskujemy wartości jednorazowych kodów i tokenów w adresach (code, state,
+// token, key, sig, signature), bo trafiają tam np. z callbacku SSO. Adres IP klienta zostaje:
+// reguły alertów (alloy/loki-rules-bezpieczenstwo.yaml) liczą po nim serie 401/403.
+local.file_match "traefik_access" {
+    path_targets = [{
+        "__path__" = "/var/log/traefik/access.log",
+        "app"      = "nexus",
+        "source"   = "traefik-access",
+    }]
+}
+
+loki.source.file "traefik_access" {
+    targets    = local.file_match.traefik_access.targets
+    forward_to = [loki.process.traefik_access.receiver]
+}
+
+loki.process "traefik_access" {
+    stage.replace {
+        expression = "(?i)[?&](?:code|state|token|key|sig|signature)=([^&\"\\s]+)"
+        replace    = "***"
+    }
+    stage.static_labels {
+        values = {
+            host = sys.env("HOSTNAME"),
+        }
+    }
+    forward_to = [loki.write.grafana_cloud.receiver]
+}
