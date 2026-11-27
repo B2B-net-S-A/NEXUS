@@ -3825,7 +3825,7 @@ _COLUMN_STATEMENTS = [
              AND later.job_id = first_verified.job_id
              AND later.moved_at >= first_verified.verified_at
             LEFT JOIN pipeline_stage_defs sd ON sd.id = later.stage_def_id
-            WHERE (sd.board_reach = 'later' OR (later.stage::text = 'hired' AND sd.board_reach IS DISTINCT FROM 'closed') OR (sd.board_reach IS NULL AND later.stage::text IN ('cv_sent', 'client_interview', 'acceptance', 'negotiation', 'onboarding')))
+            WHERE (sd.board_reach IS NOT DISTINCT FROM 'later' OR (later.stage::text = 'hired' AND sd.board_reach IS DISTINCT FROM 'closed') OR (sd.board_reach IS NULL AND later.stage::text IN ('cv_sent', 'client_interview', 'acceptance', 'negotiation', 'onboarding')))
             GROUP BY first_verified.candidate_id, first_verified.job_id
         ) qc ON ranked.stage = 'verified'
             AND qc.candidate_id = ranked.candidate_id

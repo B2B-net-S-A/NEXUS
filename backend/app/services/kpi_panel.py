@@ -333,9 +333,17 @@ VERIFIER_ANCHORED_CTE = """
                   afm.stage::text <> 'verified'
                   OR milestone_stage.verification_status::text = 'active'
               )
+          -- Od 0797 kamień `verified` w widoku ma datę wejścia na QC CV, a o tym,
+          -- czy weryfikacja leży przed pierwszym procesem, decyduje chwila samej
+          -- weryfikacji (wiersz `milestone_stage`) — inaczej weryfikacja sprzed
+          -- startu procesu z Traffita wypadała z obu gałęzi.
           AND (
               fc.first_opened_at IS NULL
-              OR afm.first_reached_at < fc.first_opened_at
+              OR CASE
+                     WHEN afm.stage::text = 'verified'
+                         THEN milestone_stage.moved_at
+                     ELSE afm.first_reached_at
+                 END < fc.first_opened_at
           )
     ),
     legacy_process AS (

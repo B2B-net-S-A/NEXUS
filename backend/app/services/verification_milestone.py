@@ -27,7 +27,8 @@ def reaches_cv_qc_sql(move: str, stage_def: str) -> str:
 
     codes = ", ".join(f"'{c}'" for c in LATER_CODES)
     return (
-        f"({stage_def}.board_reach = 'later'"
+        # Zawsze TRUE/FALSE, nigdy NULL (`board_reach` bywa NULL).
+        f"({stage_def}.board_reach IS NOT DISTINCT FROM 'later'"
         f" OR ({move}.stage::text = 'hired'"
         f" AND {stage_def}.board_reach IS DISTINCT FROM 'closed')"
         f" OR ({stage_def}.board_reach IS NULL"
