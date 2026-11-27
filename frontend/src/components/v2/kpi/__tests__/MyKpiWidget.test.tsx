@@ -24,7 +24,7 @@ const RECRUITER_KPI: KpiResult = {
   period: "day",
   title_pl: "Weryfikacje dziś",
   short_title_pl: "Weryfikacje",
-  description_pl: "Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
+  description_pl: "Liczy się pierwsze wejście pary na „QC CV” albo dalej, po weryfikacji.",
   target: 4,
   current: 1,
   progress_pct: 25,
@@ -142,7 +142,7 @@ describe("MyKpiWidget (compact) — podpisane segmenty i panel po kliknięciu", 
     expect(within(panel).getByText("do końca dnia: 4 h 15 min")).toBeInTheDocument();
     expect(within(panel).getByText("Poniżej planu (na tę godzinę: 2).")).toBeInTheDocument();
     expect(
-      within(panel).getByText(/Liczy się pierwsze przejście kandydata na „Zweryfikowany”\./),
+      within(panel).getByText(/Liczy się pierwsze wejście pary na „QC CV” albo dalej, po weryfikacji\./),
     ).toBeInTheDocument();
     // Kreska tempa w połowie paska: 2 z 4 na tę godzinę.
     expect(within(panel).getByTestId("kpi-pace-tick")).toHaveStyle({ left: "50%" });

@@ -39,6 +39,7 @@ from app.services.kpi_engine import (
     week_to_date_target,
 )
 from app.services.kpi_targets import KPI_BEARING_ROLES, resolve_kpi_targets_bulk
+from app.services.verification_milestone import reaches_cv_qc_sql
 
 # Minimalna liczba weryfikacji w oknie, by pokazać precision (mniej = szum).
 _PRECISION_MIN_DENOM = 5
@@ -220,14 +221,45 @@ VERIFIER_ANCHORED_CTE = """
                 )
           )
     ),
-    classified_mf AS (
+    classified_first AS (
         SELECT process_id, candidate_id, job_id, stage, first_mover, reached_at
         FROM classified_stage_ranked
         WHERE rn = 1
     ),
+    -- 0797 (decyzja Artura 27.11.2026): weryfikacja LICZY SIĘ w dniu
+    -- pierwszego wejścia pary na QC CV albo dalej w tym samym oknie procesu
+    -- (`reaches_cv_qc_sql` = lustro `board_column_for`). Para, która nie
+    -- doszła do QC CV, nie ma weryfikacji. Kotwica zasługi
+    -- (`classified_verified`) zostaje na samej weryfikacji, więc autor
+    -- pozostałych kamieni się nie zmienia.
+    classified_qc AS (
+        SELECT v.process_id, min(cs.moved_at) AS qc_at
+        FROM classified_first v
+        JOIN classified_process cp ON cp.id = v.process_id
+        JOIN candidate_stages cs
+          ON cs.candidate_id = v.candidate_id
+         AND cs.job_id = v.job_id
+         AND cs.moved_at >= v.reached_at
+         AND (cp.next_opened_at IS NULL OR cs.moved_at < cp.next_opened_at)
+        LEFT JOIN pipeline_stage_defs sd ON sd.id = cs.stage_def_id
+        WHERE v.stage = 'verified'
+          AND __QC_REACH__
+        GROUP BY v.process_id
+    ),
+    classified_mf AS (
+        SELECT process_id, candidate_id, job_id, stage, first_mover, reached_at
+        FROM classified_first
+        WHERE stage <> 'verified'
+        UNION ALL
+        SELECT f.process_id, f.candidate_id, f.job_id, f.stage, f.first_mover,
+               q.qc_at AS reached_at
+        FROM classified_first f
+        JOIN classified_qc q ON q.process_id = f.process_id
+        WHERE f.stage = 'verified'
+    ),
     classified_verified AS (
         SELECT process_id, first_mover, reached_at
-        FROM classified_mf
+        FROM classified_first
         WHERE stage = 'verified'
     ),
     classified_anchor AS (
@@ -254,12 +286,17 @@ VERIFIER_ANCHORED_CTE = """
     -- więc weryfikacja wypadała przed oknem i „Zatrudniony" szło do osoby,
     -- która je kliknęła (20.10.2026: placement Delivery Leada zamiast
     -- weryfikującej rekruterki; od 12.10 trzy placementy i siedem etapów).
+    -- Z `candidate_stages`, nie z widoku: od 0797 kamień `verified` w widoku
+    -- ma datę wejścia na QC CV, a kotwica to sama weryfikacja.
     pair_first_verifier AS (
-        SELECT candidate_id, job_id,
-               first_moved_by AS verifier,
-               first_reached_at AS verified_at
-        FROM analytics_first_milestones
+        SELECT DISTINCT ON (candidate_id, job_id)
+               candidate_id, job_id,
+               moved_by AS verifier,
+               moved_at AS verified_at
+        FROM candidate_stages
         WHERE stage::text = 'verified'
+          AND verification_status::text = 'active'
+        ORDER BY candidate_id, job_id, moved_at, id
     ),
     classified_fallback AS (
         SELECT mf.stage,
@@ -359,7 +396,7 @@ VERIFIER_ANCHORED_CTE = """
         FROM analytics_kpi_milestones dr
         WHERE dr.source <> 'nexus'
     )
-"""
+""".replace("__QC_REACH__", reaches_cv_qc_sql("cs", "sd"))
 
 # Precyzja (30 dni) = KOHORTA: z par (kandydat, rekrutacja), które osoba
 # zweryfikowała w ostatnich 30 dniach, ile doszło potem do „CV wysłane"

@@ -52,7 +52,8 @@ class KpiMetric(str, Enum):
 
     - completed_calls        — Call.status=completed po dacie efektywnej
                                COALESCE(started_at, created_at),
-    - first_verifications    — pierwsze `verified` per (kandydat, job)
+    - first_verifications    — pierwsze wejście pary na QC CV albo dalej po
+                               `verified` (0797, decyzja Artura 27.11.2026)
                                z atrybucją verifier-anchored,
     - first_recommendations  — pierwsze `cv_sent` (atrybucja j.w.),
     - first_placements       — pierwsze `hired` (atrybucja j.w.),
@@ -124,7 +125,7 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         period=KpiPeriod.day,
         title_pl="Weryfikacje dziś",
         short_title_pl="Weryfikacje",
-        description_pl="Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
+        description_pl="Liczy się pierwsze wejście pary na „QC CV” albo dalej, po weryfikacji.",
         metric=KpiMetric.first_verifications,
         default_targets=_same_for_operators(4),
         aliases=("verifications_daily",),

@@ -82,7 +82,7 @@ function recruiter(day: RecruiterDay): KpiResult[] {
       period: "day",
       title_pl: "Weryfikacje dziś",
       short_title_pl: "Weryfikacje",
-      description_pl: "Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
+      description_pl: "Liczy się pierwsze wejście pary na „QC CV” albo dalej, po weryfikacji.",
       target: 4,
       current: verifications,
       progress_pct: (verifications / 4) * 100,
