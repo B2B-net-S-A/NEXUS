@@ -1106,7 +1106,7 @@ test.describe("Tablica — upuszczenie z dołu długiej kolumny", () => {
     await page.goto("/preview/pipeline-v4?screening=many");
     const board = page.getByTestId("pipeline-board");
     const screening = board.getByRole("group", { name: /^Screening,/ });
-    const verified = board.getByRole("group", { name: /^Zweryfikowany,/ });
+    const verified = board.getByRole("group", { name: /^Przygotowanie CV,/ });
     const lastCard = screening.locator("[data-rfd-draggable-id]").last();
     await expect(lastCard).toBeAttached();
     await page.waitForLoadState("networkidle");

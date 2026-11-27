@@ -2445,7 +2445,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(headers).toEqual([
       "Nowi",
       "Screening",
-      "Przygotowanie CV",
+      // 27.11.2026: w nagłówku skrót, pełna nazwa w `title` i aria-label.
+      "Przyg. CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
@@ -2884,7 +2885,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
     const heading = container.querySelector('[data-colid="def:302"] h3') as HTMLElement;
-    expect(heading).toHaveTextContent("Przygotowanie CV");
+    expect(heading).toHaveTextContent("Przyg. CV");
     expect(heading).toHaveAttribute("title", "Przygotowanie CV");
     expect(heading).toHaveAttribute("lang", "pl");
     expect(heading.className).toMatch(/xl:pointer-fine:hyphens-auto/);
