@@ -365,6 +365,7 @@ export function RejectionWorkModeIssueField({
   return (
     <div
       data-testid="rejection-work-mode-issue"
+      data-tour="rejection.commute-issue"
       className="ml-6 space-y-3 rounded-md border border-border border-l-2 border-l-primary px-3 py-2.5"
     >
       <FormField
