@@ -19,6 +19,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.b2b_contract_generator import B2BGeneratedContractUpdate
+from tests._krz import KRZ_CLEAR
 from tests._confirm_signed import confirm_request
 
 PATH = "/api/b2b-generator/generated"
@@ -54,6 +55,7 @@ async def _seed(
     seq = 100000 + (uuid.uuid4().int % 800000)
     async with AsyncSessionLocal() as db:
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=2026,
             seq=seq,
             contract_number=f"{seq}/2026",
@@ -535,6 +537,7 @@ async def _seed_numbered(
 
     async with AsyncSessionLocal() as db:
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=year,
             seq=seq,
             contract_number=f"{seq}/{year}",
@@ -678,6 +681,7 @@ async def test_search_finds_row_by_linked_candidate_name(app_client, app_auth_he
 
         seq = 100000 + (uuid.uuid4().int % 800000)
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=2026,
             seq=seq,
             contract_number=f"{seq}/2026",

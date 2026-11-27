@@ -162,6 +162,10 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.board_task_waiting: ProductSection.pipeline,
     # 0417: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.b2b_signature_requested: ProductSection.pipeline,
+    # 0801: link prowadzi do rejestru Generatora (sekcja Sourcing); Finanse
+    # dostają informację o dopuszczeniu jak „zatrudniony bez zamówienia”.
+    NotificationType.b2b_krz_entry: ProductSection.sourcing,
+    NotificationType.b2b_krz_allowed: ProductSection.delivery,
     # 0524: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.b2b_agreement_ready: ProductSection.pipeline,
     # 0649: link prowadzi do panelu osoby albo pulpitu rekrutacji.

@@ -210,8 +210,10 @@ export function DockContractSteps({
                 state={loading ? "loading" : signed ? "done" : "todo"}
                 title="Podpisana obustronnie"
                 detail={
-                  // W podpisie w NEXUSIE kroki i opis daje `AgreementSignatureAction`.
-                  inEsign
+                  // W podpisie w NEXUSIE kroki i opis daje `AgreementSignatureAction`,
+                  // a przy bramce KRZ (0801) jej komunikat — „Czeka na podpis”
+                  // byłoby wtedy nieprawdą.
+                  inEsign || row?.krz?.block_reason
                     ? null
                     : canSendEsign
                     ? `Czeka na wysyłkę do podpisu${

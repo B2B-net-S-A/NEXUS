@@ -3176,6 +3176,51 @@
     ]
   },
   {
+    "id": "lekcja-krz-przed-podpisem",
+    "title": "KRZ przed podpisem umowy",
+    "novelties": [
+      "krz-przed-podpisem-umowy"
+    ],
+    "task": "W nowej umowie przejdź do kroku „Partner” i zaznacz wynik sprawdzenia w Krajowym Rejestrze Zadłużonych. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/contracts/b2b-generator",
+    "check": {
+      "kind": "click",
+      "anchor": "b2b-generator.krz-result"
+    },
+    "questions": [
+      {
+        "q": "Partner prowadzi jednoosobową działalność. Jak go sprawdzisz w KRZ?",
+        "options": [
+          "Po NIP-ie, a po PESEL-u dodatkowo upadłość konsumencką i alimenty",
+          "Tylko po nazwisku",
+          "Nijak, NEXUS sprawdza KRZ sam w nocy"
+        ],
+        "answer": 0,
+        "explain": "Firmę JDG znajdziesz po NIP-ie. Upadłość konsumencka i dłużnicy alimentacyjni są przypięci do PESEL-u, więc to drugie wyszukiwanie."
+      },
+      {
+        "q": "KRZ pokazuje umorzoną egzekucję. Co dalej z umową?",
+        "options": [
+          "Zaznaczasz „Jest wpis”, a o podpisie decyduje Delivery Lead klienta",
+          "Wysyłasz do podpisu, bo to tylko informacja",
+          "Usuwasz umowę z rejestru"
+        ],
+        "answer": 0,
+        "explain": "Wpis zatrzymuje wysyłkę do podpisu i „Oznacz jako podpisaną”. Delivery Lead dopuszcza umowę z uzasadnieniem albo ją anuluje."
+      },
+      {
+        "q": "Co NEXUS zapisuje po sprawdzeniu?",
+        "options": [
+          "Sam wynik, kto i kiedy sprawdził",
+          "PESEL Partnera w umowie",
+          "Zrzut ekranu z rejestru"
+        ],
+        "answer": 0,
+        "explain": "PESEL służy tylko do wyszukania i nie trafia do bazy. Przy umowie zostaje wynik, rodzaj wpisu i sygnatura."
+      }
+    ]
+  },
+  {
     "id": "lekcja-przygotowanie-cv",
     "title": "Kolumna „Przygotowanie CV” i weryfikacje od „QC CV”",
     "novelties": [
