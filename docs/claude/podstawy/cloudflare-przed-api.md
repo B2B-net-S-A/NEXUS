@@ -20,6 +20,14 @@ skopiowany z ogólnego standardu (#111, 08.05.2026) i dla API nigdy nie był pra
 decyzji „API poza Cloudflare”; host od początku był „DNS only”, a 19.10.2026 cała
 aplikacja przeszła na `b2bnetwork.pl`, którego strefa jest w home.pl, poza Cloudflare.
 
+## Decyzja Artura z 27.11.2026
+
+Zostajemy przy `slowapi` i CrowdSec przed Traefikiem, bez zmian DNS i zapory. Odrzucone
+warianty: przeniesienie strefy `b2bnetwork.pl` do Cloudflare (ryzyko dla poczty M365 i
+strony firmy) i powrót na `*.dynaminds.pl` (cofa decyzję o marce z 19.10). Plan niżej
+zostaje na wypadek powrotu do tematu; nie proponuj go ponownie bez nowego faktu
+(np. atak wolumetryczny, wymóg klienta).
+
 ## Czego nie ruszać „przy okazji”
 
 - `client_ip_key` bierze prawy wpis `X-Forwarded-For` (dopisany przez Traefika), a gdy ten
