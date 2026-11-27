@@ -2,13 +2,23 @@
 
 Odpowiednik serca strony `/rekrutacja` w DynaReporterze: cztery liczby przy
 nazwisku (weryfikacje, rekomendacje, interviews, placements) w oknie
-`resolve_period`, atrybuowane przez `analytics_first_milestones.first_moved_by`.
+`resolve_period`. Rekomendacje, rozmowy i placementy atrybuuje
+`analytics_kpi_milestones.first_moved_by` (kto przesunął kartę).
+
+**Weryfikacje liczą się jak cele, KPI i Liga** (decyzja z 27.11.2026): z migawki
+`credited` (`services/credited_snapshot.py`) — zasługa weryfikatora, „Prowadzi”
+(`candidate_job_owners`) i wykluczenia z KPI. Kopia produkcji, listopad: 24 z 25
+osób bez zmian, jedna osoba 48 zamiast 50 (dwie pary poza KPI). Pary, które
+lejek widzi, a `credited` nie liczy nikomu, stoją jawnie w
+``totals.kpi_excluded`` (różnica lejek − `credited` w oknie), więc ``all`` dalej
+zgadza się z lejkiem.
 
 Cztery decyzje, które trzymają tę tabelę uczciwą:
 
 1. **Kamienie nieprzypisane NIE znikają.** Ruch wykonany przez operatora
    Traffita, którego nie dało się dopasować do konta w NEXUSIE, ma
-   ``first_moved_by IS NULL``. Wycięcie go po cichu sprawia, że suma kolumny
+   ``first_moved_by IS NULL`` (w weryfikacjach ``credit_user IS NULL``).
+   Wycięcie go po cichu sprawia, że suma kolumny
    przestaje zgadzać się z lejkiem (`/api/insights/recruitment/funnel`) —
    a rozbieżność bez wyjaśnienia czyta się jako ZEPSUTA tabela, nie jako
    niekompletna. Dlatego ``unattributed`` jest w odpowiedzi PER ETAP (nie
@@ -48,6 +58,7 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
@@ -75,6 +86,9 @@ STAGE_COLUMNS: list[dict] = [
 ]
 
 _STAGE_TO_KEY: dict[str, str] = {c["stage"]: c["key"] for c in STAGE_COLUMNS}
+# Kolumna liczona z `credited` (jak cele i Liga), nie z `first_moved_by`.
+_CREDITED_STAGE = "verified"
+_CREDITED_KEY = _STAGE_TO_KEY[_CREDITED_STAGE]
 _COLUMN_KEYS: list[str] = [c["key"] for c in STAGE_COLUMNS]
 
 # Etykiety ról po polsku. Chip w kolumnie ROLA renderuje `role_label`, ale
@@ -137,8 +151,9 @@ async def insights_team_table(
     # v2 (24.09.2026): konta administracyjne jednym wierszem poza tabelą.
     # v3 + flaga (runda 6 audytu): średnia zespołu tą samą atrybucją co „Mój
     # miesiąc” jest osobnym, droższym policzeniem — tylko na żądanie.
+    # v5 (27.11.2026): weryfikacje z `credited`, nowy kubełek `kpi_excluded`.
     cache_key = (
-        f"insights:team:table:v4:{resolved.cache_suffix}"
+        f"insights:team:table:v5:{resolved.cache_suffix}"
         f":{'anchored' if anchored_average else 'plain'}"
     )
     async with cache_single_flight(cache_key, db=db):
@@ -174,16 +189,36 @@ async def insights_team_table(
 
         per_user: dict[int, dict[str, int]] = {}
         unattributed = _empty_counts()
+        # Liczba z lejka per kolumna — dla weryfikacji punkt odniesienia
+        # kubełka `kpi_excluded`.
+        funnel = _empty_counts()
+
+        def _add(column: str, raw_uid, cnt: int) -> None:
+            if raw_uid is None:
+                unattributed[column] += cnt
+                return
+            per_user.setdefault(int(raw_uid), _empty_counts())[column] += cnt
+
         for r in rows:
             column = _STAGE_TO_KEY.get(str(r["stage"]))
             if column is None:  # pragma: no cover — filtr SQL już to odsiał
                 continue
             cnt = int(r["cnt"] or 0)
-            raw_uid = r["user_id"]
-            if raw_uid is None:
-                unattributed[column] += cnt
+            funnel[column] += cnt
+            if column == _CREDITED_KEY:
                 continue
-            per_user.setdefault(int(raw_uid), _empty_counts())[column] += cnt
+            _add(column, r["user_id"], cnt)
+
+        credited_counts = await _credited_verifications(db, resolved)
+        for r in credited_counts:
+            _add(_CREDITED_KEY, r["user_id"], int(r["cnt"] or 0))
+        # Pary w lejku, których `credited` nie liczy nikomu (proces wyłączony
+        # z KPI, weryfikacja nieprzyjęta…). Różnica, nie zgadywana lista: suma
+        # `all` ma się zgadzać z lejkiem co do jednego.
+        kpi_excluded = _empty_counts()
+        kpi_excluded[_CREDITED_KEY] = funnel[_CREDITED_KEY] - sum(
+            int(r["cnt"] or 0) for r in credited_counts
+        )
 
         users: dict[int, dict] = {}
         if per_user:
@@ -266,9 +301,15 @@ async def insights_team_table(
                 "outside_scope_label": OUTSIDE_SCOPE_LABEL,
                 # …to, czego nie da się przypisać nikomu…
                 "unattributed": unattributed,
+                # …pary z lejka, które nie liczą się do celów KPI (tylko
+                # weryfikacje; pozostałe kolumny zero)…
+                "kpi_excluded": kpi_excluded,
                 # …i suma wszystkiego, która MUSI zgadzać się z lejkiem org-level.
                 "all": {
-                    key: attributed[key] + outside_scope[key] + unattributed[key]
+                    key: attributed[key]
+                    + outside_scope[key]
+                    + unattributed[key]
+                    + kpi_excluded[key]
                     for key in _COLUMN_KEYS
                 },
                 "users": len(entries),
@@ -279,6 +320,47 @@ async def insights_team_table(
             result["anchored_average"] = await _anchored_team_average(db, resolved)
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
+
+
+_CREDITED_VERIFICATIONS_SQL = text(
+    CREDITED_FROM_SNAPSHOT_CTE
+    + """
+    SELECT credit_user AS user_id, count(*) AS cnt
+    FROM credited
+    WHERE stage = :stage
+      AND reached_at >= :start
+      AND reached_at <  :end
+    GROUP BY credit_user
+    """
+)
+
+
+async def _credited_verifications(db: AsyncSession, resolved) -> list:
+    """Weryfikacje w oknie per osoba z zasługą — jak cele, KPI i Liga.
+
+    ``credit_user IS NULL`` (kamień bez autora) wraca jednym wierszem
+    z ``user_id = None`` i trafia do ``unattributed``.
+    """
+    return list(
+        (
+            await db.execute(
+                _CREDITED_VERIFICATIONS_SQL,
+                {
+                    "stage": _CREDITED_STAGE,
+                    "start": resolved.start,
+                    "end": resolved.end,
+                    **await credited_bind(
+                        db,
+                        stage=_CREDITED_STAGE,
+                        since=resolved.start,
+                        until=resolved.end,
+                    ),
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
 
 
 async def _anchored_team_average(db: AsyncSession, resolved) -> dict:

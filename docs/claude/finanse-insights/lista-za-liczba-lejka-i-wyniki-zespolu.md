@@ -1,5 +1,5 @@
 # Lista osób za liczbą lejka i kafelek „Wyniki zespołu”
-<!-- indeks: klik w liczbę lejka Zespół/Firma → „Kto się liczy · Cały zespół”, pary bez zasługi, kafelek HoR z okresem, nazwiska od 12.10 -->
+<!-- indeks: klik w liczbę lejka Zespół/Firma → „Kto się liczy · Cały zespół”, pary bez zasługi, kafelek HoR z okresem, nazwiska od 12.10, Weryfikacje w tabeli Zespołu z credited + „Poza celami KPI” -->
 
 Prośba Artura 23.10.2026: po kliknięciu Weryfikacji, Rekomendacji, Akceptacji
 albo Placementów w Insights widać, kim są te osoby; Head of Recruitment chce
@@ -46,3 +46,12 @@ z 25.10.2026, makiety: https://claude.ai/artifact/4yk43hHpCNbD1RDKYwwFuV.
   w jednym miejscu: `services/client_interview_terms.py`, z niego korzystają też
   „W drodze” i profil kandydata. Rozmowa bez wpisu w kalendarzu ma etykietę
   „Brak terminu”, termin pary zamkniętej jest wyszarzony.
+- **Weryfikacje w Insights → Zespół liczą się jak cele (decyzja z 27.11.2026):**
+  kolumna Weryfikacje tabeli „Performance per osoba” (`GET /api/insights/team-table`)
+  bierze zasługę z migawki `credited` (weryfikator, „Prowadzi”, wykluczenia
+  z KPI), nie z `first_moved_by`. Rekomendacje, rozmowy i placementy zostają
+  przy `first_moved_by`. Kopia produkcji, listopad: 24 z 25 osób bez zmian,
+  jedna 48 zamiast 50. Pary z lejka, których `credited` nie liczy nikomu, stoją
+  wierszem „Poza celami KPI” (`totals.kpi_excluded` = lejek − `credited`
+  w oknie, tylko weryfikacje; przy granicy okna bywa ujemne i wtedy ma znak
+  minus), więc „Łącznie” dalej zgadza się z lejkiem.

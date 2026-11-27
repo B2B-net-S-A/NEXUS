@@ -229,6 +229,64 @@ describe("InsightsTeamTable", () => {
     expect(within(totalRow).getAllByRole("cell")[1]).toHaveTextContent("79");
   });
 
+  it("pokazuje pary poza celami KPI i sumę zgodną z lejkiem", async () => {
+    // Weryfikacje liczą się jak cele (`credited`); 2 pary z lejka nie liczą
+    // się nikomu i muszą stać jawnie, inaczej „Łącznie” nie dodaje się.
+    respond({
+      ...BODY,
+      totals: {
+        ...BODY.totals,
+        kpi_excluded: {
+          verifications: 2,
+          recommendations: 0,
+          interviews: 0,
+          placements: 0,
+        },
+        all: { ...BODY.totals.all, verifications: 81 },
+      },
+    });
+    renderSection();
+
+    const label = await screen.findByText("Poza celami KPI");
+    const cells = within(label.closest("tr")!).getAllByRole("cell");
+    expect(cells[1]).toHaveTextContent("+2");
+    expect(cells[2]).toHaveTextContent("+0");
+    const totalRow = screen
+      .getByText("Łącznie (zgodne z lejkiem)")
+      .closest("tr")!;
+    // 76 w tabeli + 3 bez autora + 2 poza celami KPI = 81 jak w lejku.
+    expect(within(totalRow).getAllByRole("cell")[1]).toHaveTextContent("81");
+  });
+
+  it("pokazuje ujemną różnicę poza celami KPI ze znakiem minus", async () => {
+    respond({
+      ...BODY,
+      totals: {
+        ...BODY.totals,
+        kpi_excluded: {
+          verifications: -1,
+          recommendations: 0,
+          interviews: 0,
+          placements: 0,
+        },
+        all: { ...BODY.totals.all, verifications: 78 },
+      },
+    });
+    renderSection();
+
+    const label = await screen.findByText("Poza celami KPI");
+    const cells = within(label.closest("tr")!).getAllByRole("cell");
+    expect(cells[1]).toHaveTextContent("−1");
+  });
+
+  it("nie pokazuje wiersza poza celami KPI w odpowiedzi sprzed wdrożenia", async () => {
+    respond(BODY);
+    renderSection();
+
+    expect(await screen.findByText("Monika Testapla")).toBeInTheDocument();
+    expect(screen.queryByText("Poza celami KPI")).not.toBeInTheDocument();
+  });
+
   it("nie chowa wiersza nieprzypisanych, gdy wszystkie etapy są zerowe", async () => {
     respond({
       ...BODY,
