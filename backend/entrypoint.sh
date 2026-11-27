@@ -920,6 +920,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_check'",
     # 0800: Ustawienia → Bezpieczeństwo — rutyna po terminie (tylko admini, mail od razu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'security_routine_overdue'",
+    # 0802: logowanie hasłem z listy awaryjnej (tylko admini, mail od razu).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'break_glass_password_login'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",

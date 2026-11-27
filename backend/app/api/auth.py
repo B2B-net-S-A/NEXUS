@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip_key, limiter
 from app.core.session_cookie import (
     clear_session_cookie,
     enforce_cookie_csrf,
@@ -62,6 +62,7 @@ from app.api.deps import AuthenticatedUser, ensure_exclusive_role_configuration
 from app.api.auth_microsoft import is_sso_configured
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.section_permissions import resolve_effective_section_access
+from app.services.security_screen import alert_break_glass_login
 from app.services.user_email import find_user_by_email
 from app.services.user_response import build_user_response
 
@@ -309,6 +310,11 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=_EMAIL_NOT_VERIFIED_DETAIL,
         )
+    if password_login_disabled:
+        # Tu dochodzi tylko adres z listy break-glass (resztę zatrzymała bramka
+        # wyżej). Decyzja Artura z 27.11.2026: konto awaryjne omija MFA Entra,
+        # więc każde jego logowanie widzą wszyscy admini (dzwonek i mail).
+        await alert_break_glass_login(db, user, client_ip_key(request))
     await resolve_effective_section_access(db, user)
     tokens = TokenResponse(
         access_token=create_access_token(

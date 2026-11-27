@@ -26,6 +26,10 @@ wcześniej każde źródło było w innym miejscu albo w niczyjej pamięci.
   `security-weekly.yml`; resztę odhacza admin („Zrobione”). Po terminie każdy
   aktywny admin dostaje dzwonek `security_routine_overdue` (mail od razu,
   kategoria awarii), raz dziennie (dedup w `emit`).
+- Logowanie hasłem z listy awaryjnej (0802): zdarzenie `break_glass_login`
+  (waga `high`, opis tylko „konto id (rola)”) i dzwonek
+  `break_glass_password_login` z mailem do każdego admina — szczegóły
+  w `podstawy/dostepy-onboarding-offboarding.md`.
 - „Uruchom pełny skan” otwiera workflow w GitHub Actions (tam „Run workflow”).
   Świadomie bez tokenu z prawem uruchamiania workflowów na serwerze.
 

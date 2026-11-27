@@ -554,6 +554,9 @@
    "talent_community_manager+contracts_orders_edit",
    "talent_community_manager+recruiter"
   ],
+  "break_glass_password_login": [
+   "admin"
+  ],
   "candidate_added": [
    "admin",
    "automation",

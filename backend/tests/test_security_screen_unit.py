@@ -338,3 +338,24 @@ def test_new_notification_type_is_admin_only_and_mailed() -> None:
     from app.services.notification_access import ADMIN_ONLY_NOTIFICATION_TYPES
 
     assert NotificationType.security_routine_overdue in ADMIN_ONLY_NOTIFICATION_TYPES
+
+
+def test_break_glass_login_bell_is_admin_only_mailed_and_mirrored() -> None:
+    """0802: alert przy logowaniu hasłem awaryjnym — tylko admini, mail od razu."""
+    from app.models.notification import NotificationType
+    from app.services.notification_access import ADMIN_ONLY_NOTIFICATION_TYPES
+    from app.services.notification_delivery import immediate_email_kind
+    from app.services.notification_substitution import PERSONAL_TYPES
+
+    ntype = NotificationType.break_glass_password_login
+    assert ntype in ADMIN_ONLY_NOTIFICATION_TYPES
+    assert ntype in PERSONAL_TYPES  # nie idzie do zastępcy
+    kind = immediate_email_kind(
+        ntype, title="Logowanie hasłem awaryjnym", related_entity_type="security_event"
+    )
+    assert kind == "system_failure"
+    literal = f"ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS '{ntype.value}'"
+    assert literal in (ROOT / "entrypoint.sh").read_text()
+    (path,) = (ROOT / "alembic/versions").glob("*_break_glass_login_alert.py")
+    migration = path.read_text()
+    assert f'revision = "{path.stem}"' in migration and literal in migration

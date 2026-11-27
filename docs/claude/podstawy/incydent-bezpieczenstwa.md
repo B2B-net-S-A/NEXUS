@@ -13,6 +13,7 @@ Każde z poniższych, także „chyba”:
   (commit, log Actions, transkrypt, zrzut, mail);
 - logowanie albo token, którego nikt z zespołu nie rozpoznaje (Entra, panel Coolify,
   GitHub, Cloudflare, SSH);
+- dzwonek „Logowanie hasłem awaryjnym”, którego nikt z adminów nie rozpoznaje;
 - dane kandydatów, klientów albo umów widoczne dla osoby bez uprawnienia, wyeksportowane
   hurtem bez powodu albo zmienione bez śladu w `activities`;
 - alert Wazuh, CrowdSec albo Sentry o włamaniu, wykonaniu kodu, skanie zakończonym

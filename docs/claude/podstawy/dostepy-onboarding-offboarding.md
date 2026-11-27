@@ -10,7 +10,7 @@ i jak się go odbiera. Role zamiast nazwisk, bo repo jest publiczne. Przy incyde
 |---|---|---|---|
 | Konto Microsoft (Entra) | każdy pracownik | admin Microsoft 365 | jedyna droga do NEXUSA (SSO); MFA wymagane polityką dostępu warunkowego |
 | Rola w NEXUSIE | aktywne konta (ok. 40) | admin NEXUSA (Ustawienia → Użytkownicy) | pierwsze logowanie zakłada konto (`uprawnienia/nowa-osoba-po-pierwszym-logowaniu-hor-i-admin.md`) |
-| Logowanie hasłem (break-glass) | konto awaryjne admina i konto E2E | „Coolify set env” `PASSWORD_LOGIN_BREAK_GLASS_EMAILS` | omija MFA Entra; `podstawy/konto-e2e-na-produkcji.md` |
+| Logowanie hasłem (break-glass) | konto awaryjne admina i konto E2E | „Coolify set env” `PASSWORD_LOGIN_BREAK_GLASS_EMAILS` | omija MFA Entra, więc każde logowanie dzwoni do adminów (niżej); `podstawy/konto-e2e-na-produkcji.md` |
 | Panel Coolify | 2 operatorów (konta 0 i 1) | właściciel zespołu w Coolify | dodatkowo allowlista IP w Traefiku |
 | Tokeny API Coolify | GitHub Actions, laptop operatora | konto 0 → Keys & Tokens | nie zmieniaj hasła konta 0 (kasuje tokeny) |
 | SSH root na serwerze | laptop operatora, drugi operator, klucz projektu Hetznera | `/root/.ssh/authorized_keys` | klucz Coolify „localhost” to ten sam klucz co laptop operatora |
@@ -31,6 +31,18 @@ Bez nich awaria MFA albo zgubiony telefon jedynego administratora zamyka firmę 
 Microsoft 365, a po włączeniu blokady logowań spoza UE także wyjazd. Nowa polityka dostępu
 warunkowego zawsze dostaje to wykluczenie. Przegląd kwartalny: test logowania każdym kontem
 i dziennik logowań kont awaryjnych (każde logowanie poza testem to incydent).
+
+## Alert przy logowaniu hasłem awaryjnym
+
+Decyzja z 27.11.2026: lista `PASSWORD_LOGIN_BREAK_GLASS_EMAILS` zostaje (chroni przed
+awarią Microsoftu), ale każde udane logowanie hasłem z tej listy przy wyłączonym logowaniu
+hasłem zostawia zdarzenie `break_glass_login` na ekranie Ustawienia → Bezpieczeństwo
+i dzwonek `break_glass_password_login` z mailem od razu u każdego aktywnego admina, osobny
+na każde logowanie (konto, godzina, IP). Konto „Automatyzacje” (E2E co noc i po każdym
+wdrożeniu) zostawia samo zdarzenie o wadze `info`, bez dzwonka, bo codzienny mail uczyłby
+alert ignorować. Logowanie, którego nikt z adminów nie rozpoznaje, to incydent:
+`podstawy/incydent-bezpieczenstwa.md`. Kod: `security_screen.alert_break_glass_login`,
+test `tests/test_break_glass_login_alert.py`.
 
 ## Wejście osoby (onboarding)
 
