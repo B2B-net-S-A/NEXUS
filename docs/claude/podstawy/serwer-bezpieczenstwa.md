@@ -53,11 +53,21 @@ Z mniejszego dysku na większy można; z powrotem już nie.
     alertów. Ten sam wąski wyjątek ma od 27.11 Falco na nexus-prod; Microsoft Defender (`wdavdaemon`) nie jest wyciszony.
     W mailu z alertu Falco nie ma `full_log`, bo pole `output` to linia poleceń procesu (bywają w niej sekrety).
     Pola Falco w regułach Wazuha są zagnieżdżone: `output_fields.proc.name`, nie `output_fields["proc.name"]`.
-  - Traefik: znane ścieżki skanerów → 6, 30 takich prób z jednego adresu w 60 s → 10,
-    50 odpowiedzi 401/403 z jednego adresu w 60 s → 10.
-  - FIM w `/etc/ssh/`, `/root/.ssh/`, `/data/coolify/proxy/` → 10 (100200).
+  - Wdrożenia Coolify budują obrazy na tym samym hoście. „Drop and execute new binary in container” z
+    `container.name` = `null` (krok BuildKit: `fc-cache`, `update-mime-database`, `glib-*`, `esbuild`) → 6,
+    a „NEXUS nowy proces nasluchujacy” od workera `uvicorn` w kontenerze `backend-ocgkw*` na porcie 8000 → 5.
+    Ta sama reguła w nazwanym kontenerze (np. `sh` w backendzie) i każdy inny nasłuch zostają na 12/10.
+  - Traefik: znane ścieżki skanerów → 6, 30 takich prób z jednego adresu w 60 s → 8 (ekran, bez maila:
+    boty skanują codziennie), 50 odpowiedzi 401/403 z jednego adresu w 60 s → 10.
+  - FIM w `/etc/ssh/`, `/root/.ssh/`, `/data/coolify/proxy/` → 10 (100200), poza tymczasowymi kluczami
+    deployowymi Coolify (`/root/.ssh/id_rsa_coolify_*`, `coolify_git_*.config|.known_hosts`) → 5 (100201):
+    Coolify zakłada je i kasuje przy każdym wdrożeniu.
+  - Reguła potomna (`if_sid`) musi stać w pliku **po** rodzicu, inaczej Wazuh ją pomija z ostrzeżeniem
+    „Signature ID … was not found” w `ossec.log` (wazuh-logtest wtedy pokazuje regułę rodzica).
 - Progi: od 7 alert idzie do NEXUSA (ekran Ustawienia → Bezpieczeństwo, `docs/claude/ui/ekran-bezpieczenstwo.md`),
-  od 10 mailem do Artura (integracja `custom-mail`, maks. 20 maili/h, reszta tylko w `integrations.log`).
+  od 10 mailem do Artura (integracja `custom-mail`): najwyżej 1 mail na regułę na 30 min i 20 maili/h,
+  kolejne powtórzenia są liczone i wymienione w następnym mailu tej reguły (stan w `/var/ossec/logs/custom-mail.state`).
+  Pierwszy wieczór (27.11, dwa wdrożenia) dał 45 alertów ≥ 10 i 21 maili, zanim rutyna wdrożeń zeszła poniżej 10.
 - Maile idą przez Microsoft Graph `sendMail` z rejestracji aplikacji NEXUSA (`M365_APP_MAIL_*`, nadawca
   `M365_MAIL_SENDER_UPN`), decyzja Artura z 27.11. Osobnego konta SMTP nie ma, a Hetzner blokuje z nowego
   serwera wyjście na porty 25 i 465. Poświadczenia leżą w `/opt/nexus-security/wazuh/nexus_graph_mail.env`.
@@ -95,7 +105,8 @@ Z mniejszego dysku na większy można; z powrotem już nie.
 ## Obsługa
 
 - Klucze kont `wazuh-soc` i `defectdojo-sync` z NEXUSA wpisuje się na serwerze komendą
-  `ssh -t root@<nexus-security> nexus-security-keys` (bez echa).
+  `ssh -t root@<nexus-security> nexus-security-keys` (bez echa). Klucze kont serwisowych wygasają (domyślnie
+  90 dni, maks. 365): wydawaj je na 365 dni i przed terminem wydaj nowy, inaczej ekran przestanie dostawać dane.
 - Pliki montowane do kontenera managera (`local_rules.xml`, `authd.pass`, klucze, skrypty integracji) edytuj w miejscu.
   Podmiana pliku (`install`, `cp` na nowy inode, edytor z zapisem przez rename) zrywa bind mount:
   kontener widzi starą treść aż do `docker compose up -d --force-recreate wazuh.manager`.
