@@ -452,7 +452,8 @@ def patch_company_variant() -> None:
 
 _RATE_MARK = "{{ b2b.rate_clause }}"
 _RATE_LINES = "b2b.rate_lines | default([])"
-# Końcówka zdania o stawce; po niej zdanie się kończy, więc idzie za ostatni podpunkt.
+# Końcówka zdania o pojedynczej stawce. Podpunkty niosą ją same („netto + VAT” przy
+# każdej kwocie, kropka po ostatnim) — `build_rate_lines`, dział umów 27.11.2026.
 _RATE_ENDING = {
     "pl": " netto + VAT.",
     "en": " net + VAT in accordance with the applicable regulations.",
@@ -469,8 +470,12 @@ def _rate_sentence(lang: str) -> tuple[str, str]:
     return old, new
 
 
-def _line_text(lang: str) -> str:
-    return f"{{{{ line }}}}{{% if loop.last %}}{_RATE_ENDING[lang]}{{% endif %}}"
+_LINE_TEXT = "{{ line }}"
+
+
+def _old_line_text(lang: str) -> str:
+    """Podpunkt sprzed 27.11.2026: końcówka tylko za ostatnim, po dacie."""
+    return f"{_LINE_TEXT}{{% if loop.last %}}{_RATE_ENDING[lang]}{{% endif %}}"
 
 
 def add_rate_lines(doc: _DocType, lang: str) -> bool:
@@ -484,7 +489,7 @@ def add_rate_lines(doc: _DocType, lang: str) -> bool:
             anchor = p._p
             for text in (
                 f"{{%p for line in {_RATE_LINES} %}}",
-                _line_text(lang),
+                _LINE_TEXT,
                 "{%p endfor %}",
             ):
                 line = deepcopy(p._p)
@@ -513,10 +518,19 @@ def add_rate_lines_html(html: str, lang: str) -> str:
         raise RuntimeError(f"[{lang}] oczekiwano 1 zdania o stawce w HTML")
     head, tail = html.split(old)
     end = tail.index("</p>") + len("</p>")
-    lines = (
-        f"\n{{% for line in {_RATE_LINES} %}}<p>{_line_text(lang)}</p>{{% endfor %}}"
-    )
+    lines = f"\n{{% for line in {_RATE_LINES} %}}<p>{_LINE_TEXT}</p>{{% endfor %}}"
     return f"{head}{new}{tail[:end]}{lines}{tail[end:]}"
+
+
+def drop_old_line_ending(doc: _DocType, lang: str) -> bool:
+    """Zdejmij końcówkę z akapitu podpunktu (szablony sprzed 27.11.2026)."""
+    old = _old_line_text(lang)
+    for p in doc.paragraphs:
+        for run in p.runs:
+            if old in run.text:
+                run.text = run.text.replace(old, _LINE_TEXT)
+                return True
+    return False
 
 
 def patch_rate_lines() -> None:
@@ -525,6 +539,14 @@ def patch_rate_lines() -> None:
         docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
         html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
         doc = docx.Document(str(docx_path))
+        if drop_old_line_ending(doc, lang):
+            doc.save(str(docx_path))
+            html = html_path.read_text(encoding="utf-8")
+            html_path.write_text(
+                html.replace(_old_line_text(lang), _LINE_TEXT), encoding="utf-8"
+            )
+            print(f"[{lang}] ✅ podpunkty stawki z końcówką przy każdej kwocie")
+            continue
         if not add_rate_lines(doc, lang):
             print(f"[{lang}] podpunkty stawki już są — bez zmian")
             continue
