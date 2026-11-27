@@ -660,11 +660,27 @@ async def test_verifications_follow_credited_like_goals_and_reconcile_with_the_f
         moved_at=_at(day),
         moved_by=clicker_id,
     )
+    # 0797: weryfikacja liczy się od wejścia na QC CV albo dalej.
+    await _seed_stage(
+        candidate_id=owned_c,
+        job_id=owned_j,
+        stage=PipelineStage.negotiation,
+        moved_at=_at(day),
+        moved_by=clicker_id,
+    )
     excluded_c, excluded_j = await _seed_pair()
     await _seed_stage(
         candidate_id=excluded_c,
         job_id=excluded_j,
         stage=PipelineStage.verified,
+        moved_at=_at(day),
+        moved_by=clicker_id,
+    )
+    # 0797: weryfikacja liczy się od wejścia na QC CV albo dalej.
+    await _seed_stage(
+        candidate_id=excluded_c,
+        job_id=excluded_j,
+        stage=PipelineStage.negotiation,
         moved_at=_at(day),
         moved_by=clicker_id,
     )
