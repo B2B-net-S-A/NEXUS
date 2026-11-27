@@ -5818,6 +5818,45 @@
     ]
   },
   {
+    "id": "krz-przed-podpisem-umowy",
+    "pr": 0,
+    "title": "Krajowy Rejestr Zadłużonych przed podpisem umowy B2B",
+    "why": "Przed podpisem sprawdzasz Partnera w KRZ: NEXUS otwiera rejestr z NIP-em albo PESEL-em, a Ty zaznaczasz wynik. Bez wyniku umowa nie idzie do podpisu, a wpis rozstrzyga DL.",
+    "tier": "dot",
+    "shipped_on": "2026-11-28",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin"
+      ]
+    },
+    "where": "Generator umów → Nowa umowa → Partner",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.krz",
+    "steps": [
+      {
+        "anchor": "b2b-generator.step-partner",
+        "text": "Kliknij krok „Partner”.",
+        "hint": "To trzeci krok na liście po lewej."
+      },
+      {
+        "anchor": "b2b-generator.krz",
+        "text": "Pod danymi Partnera jest „Krajowy Rejestr Zadłużonych”.",
+        "hint": "Przycisk otwiera rejestr i kopiuje NIP. PESEL wpisujesz tylko do wyszukania, NEXUS go nie zapisuje.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.krz-result",
+        "text": "Zaznacz, co pokazał rejestr.",
+        "hint": "Bez wyniku umowa nie pójdzie do podpisu. Przy wpisie o podpisie decyduje Delivery Lead klienta."
+      }
+    ]
+  },
+  {
     "id": "tablica-kolumna-przygotowanie-cv",
     "title": "Kolumna „Zweryfikowany” nazywa się teraz „Przygotowanie CV”",
     "why": "W tej kolumnie powstaje CV firmowe, więc nazywa się „Przygotowanie CV”. „Weryfikacje” w celach liczą się od wejścia osoby na „QC CV”.",

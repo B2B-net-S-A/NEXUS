@@ -6155,6 +6155,7 @@ export function GeneratorForm({
         <div
           className="space-y-2 rounded-lg border border-border p-3"
           data-testid="generator-krz"
+          data-tour="b2b-generator.krz"
         >
           <p className="text-xs text-muted-foreground">
             Przed podpisem sprawdź Partnera w KRZ. Wynik zapisze się przy „Pobierz DOCX”,

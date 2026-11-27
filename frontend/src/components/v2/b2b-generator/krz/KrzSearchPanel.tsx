@@ -123,7 +123,7 @@ export function KrzSearchPanel({ nip, value, onChange, disabled }: KrzSearchPane
         </div>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1" data-tour="b2b-generator.krz-result">
         <span id={resultId} className="block text-xs font-medium text-muted-foreground">
           Wynik w KRZ
         </span>

@@ -100,6 +100,20 @@
         "Admin"
       ]
     },
+    "umowy-b2b-krz": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/umowy-b2b-krz.md",
+      "sciezki": [
+        "frontend/src/components/v2/b2b-generator/**",
+        "frontend/src/components/v2/pages/B2BContractGenerator*",
+        "frontend/src/app/contracts/b2b-generator/**",
+        "backend/app/api/b2b_krz.py",
+        "backend/app/services/b2b_contract_generator/krz.py"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead"
+      ]
+    },
     "rytm-dnia": {
       "scenariusz": ".claude/skills/sciezka/scenariusze/rytm-dnia.md",
       "sciezki": [
