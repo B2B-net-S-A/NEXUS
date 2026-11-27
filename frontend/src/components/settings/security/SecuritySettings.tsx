@@ -52,10 +52,10 @@ export function SecuritySettings() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="relative">
         <TabbedNav tabs={tabs} value={tab} onValueChange={select} ariaLabel="Bezpieczeństwo" />
         {query.data ? (
-          <Button size="sm" asChild>
+          <Button size="sm" asChild className="mt-2 sm:absolute sm:right-0 sm:top-1 sm:mt-0">
             <a href={query.data.workflow_url} target="_blank" rel="noreferrer">
               Uruchom pełny skan
             </a>

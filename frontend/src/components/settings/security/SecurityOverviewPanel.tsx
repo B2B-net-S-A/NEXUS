@@ -64,7 +64,7 @@ function FindingRow({
         <p className="truncate text-sm font-semibold text-foreground">{finding.title}</p>
         <p className="truncate text-xs text-muted-foreground">
           {sourceLabel(finding.source)}
-          {finding.scanner ? ` · ${finding.scanner}` : ""}
+          {finding.scanner && finding.scanner !== finding.source ? ` · ${finding.scanner}` : ""}
           {fixed
             ? ` · zamknięte ${formatIsoDatePl(finding.closed_at)}`
             : ` · od ${formatIsoDatePl(finding.first_seen_at)}`}
@@ -87,7 +87,7 @@ export function SecurityOverviewPanel({ data }: SecurityOverviewPanelProps) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const all = [...data.waiting, ...data.excepted, ...data.recently_closed];
   const selected = all.find((f) => f.id === selectedId) ?? null;
-  const tiles = buildTiles(data.tiles, formatMomentPl);
+  const tiles = buildTiles(data.tiles, (iso) => formatMomentPl(iso).replace(/\.\d{4},/, ","));
 
   return (
     <div className="space-y-4">
@@ -100,12 +100,12 @@ export function SecurityOverviewPanel({ data }: SecurityOverviewPanelProps) {
           >
             <p className="text-xs text-muted-foreground">{tile.label}</p>
             <p className="text-xl font-bold tabular-nums text-foreground">{tile.value}</p>
-            <p className="truncate text-xs text-muted-foreground">{tile.sub}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{tile.sub}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <section className="min-w-0 rounded-lg border border-border bg-card" aria-labelledby="security-waiting">
           <h2 id="security-waiting" className="flex items-center justify-between border-b border-border px-4 py-2 text-sm font-semibold">
             Czeka na reakcję <Badge variant="outline">{data.waiting.length}</Badge>
@@ -196,7 +196,7 @@ export function SecurityOverviewPanel({ data }: SecurityOverviewPanelProps) {
               {data.sources.map((s) => (
                 <tr key={s.key}>
                   <td className="sticky left-0 bg-card px-4 py-1.5 text-foreground">{s.name}</td>
-                  <td className="px-4 py-1.5 text-muted-foreground">{s.last_at ? formatMomentPl(s.last_at) : "—"}</td>
+                  <td className="px-4 py-1.5 text-muted-foreground">{s.last_at ? formatMomentPl(s.last_at) : formatIsoDatePl(s.last_on)}</td>
                   <td className="px-4 py-1.5">
                     <Badge variant={TONE_BADGE[SOURCE_STATE_TONE[s.state]]}>{s.state_label}</Badge>
                     {s.detail ? <span className="ml-2 text-xs text-muted-foreground">{s.detail}</span> : null}

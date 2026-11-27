@@ -30,7 +30,7 @@ describe("buildTiles", () => {
       ["traffic", "317 blokad", "warning"],
       ["logins", "58 / 0", "success"],
     ]);
-    expect(tiles[1].sub).toBe("1 wysoka, 1 średnia");
+    expect(tiles[1].sub).toBe("wysoka 1 · średnia 1");
   });
 
   it("czerwony bieg CI i brak CrowdSec nie udają zieleni", () => {

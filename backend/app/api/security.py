@@ -94,6 +94,7 @@ class SourceOut(BaseModel):
     state: str
     state_label: str
     last_at: Optional[datetime]
+    last_on: Optional[date]
     detail: Optional[str]
     link: Optional[str]
 

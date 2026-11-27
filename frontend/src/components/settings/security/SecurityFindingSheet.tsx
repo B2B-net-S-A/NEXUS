@@ -168,7 +168,7 @@ function FindingBody({
           <Badge variant={TONE_BADGE[SEVERITY_TONE[finding.severity]]}>{SEVERITY_LABEL[finding.severity]}</Badge>
           <span>
             od {formatIsoDatePl(finding.first_seen_at)} · źródło: {sourceLabel(finding.source)}
-            {finding.scanner ? ` (${finding.scanner})` : ""}
+            {finding.scanner && finding.scanner !== finding.source ? ` (${finding.scanner})` : ""}
           </span>
         </div>
         <SheetTitle className="text-lg">{finding.title}</SheetTitle>

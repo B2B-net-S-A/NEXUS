@@ -59,7 +59,7 @@ const OVERVIEW: SecurityOverview = {
     { id: 1, source: "ci", kind: "ci_run", severity: "info", summary: "Tygodniowy skan zielony", count: 1, link: null, occurred_at: "2026-11-23T05:31:00Z" },
   ],
   sources: [
-    { key: "crowdsec", name: "CrowdSec", where: "serwer NEXUSA", state: "unconfigured", state_label: "nieskonfigurowane", last_at: null, detail: null, link: null },
+    { key: "crowdsec", name: "CrowdSec", where: "serwer NEXUSA", state: "unconfigured", state_label: "nieskonfigurowane", last_at: null, last_on: null, detail: null, link: null },
   ],
   routines_overdue: 1,
   owners: [{ id: 5, name: "Konto Testowe" }],

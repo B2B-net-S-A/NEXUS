@@ -129,7 +129,7 @@ export function SecurityRoutinesPanel({ today }: SecurityRoutinesPanelProps) {
             <div
               key={day.iso}
               className={cn(
-                "grid min-h-16 content-start gap-1 rounded-md border border-border p-1.5 text-[11.5px]",
+                "grid min-h-12 content-start gap-0.5 rounded-md border border-border p-1.5 text-[11.5px]",
                 !day.inMonth && "opacity-50",
                 day.isToday && "border-primary",
               )}
@@ -142,7 +142,7 @@ export function SecurityRoutinesPanel({ today }: SecurityRoutinesPanelProps) {
                   title={chip.title}
                 >
                   {chip.kind === "done" ? "✓ " : ""}
-                  {chip.title}
+                  {chip.short}
                 </span>
               ))}
             </div>

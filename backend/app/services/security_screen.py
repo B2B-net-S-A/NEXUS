@@ -228,6 +228,8 @@ class SourceRow:
     state_label: str
     last_at: Optional[datetime]
     detail: Optional[str] = None
+    # Źródło z samą datą (rutyna) — ekran pokazuje dzień bez godziny.
+    last_on: Optional[date] = None
     link: Optional[str] = None
 
 
@@ -302,13 +304,8 @@ async def build_sources(
                 where="sesja Claude, raport prywatny",
                 state=state,
                 state_label=label,
-                last_at=(
-                    datetime.combine(
-                        pentest.last_done_on, datetime.min.time(), tzinfo=timezone.utc
-                    )
-                    if pentest.last_done_on
-                    else None
-                ),
+                last_at=None,
+                last_on=pentest.last_done_on,
             )
         )
 

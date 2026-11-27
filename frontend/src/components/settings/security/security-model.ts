@@ -56,6 +56,7 @@ export interface SecuritySource {
   state: SourceState;
   state_label: string;
   last_at: string | null;
+  last_on: string | null;
   detail: string | null;
   link: string | null;
 }
@@ -187,8 +188,8 @@ function severitySummary(bySeverity: Partial<Record<Severity, number>>): string 
   const order: Severity[] = ["critical", "high", "medium", "low", "info"];
   const parts = order
     .filter((s) => (bySeverity[s] ?? 0) > 0)
-    .map((s) => `${bySeverity[s]} ${SEVERITY_LABEL[s]}`);
-  return parts.length ? parts.join(", ") : "nic nie czeka";
+    .map((s) => `${SEVERITY_LABEL[s]} ${bySeverity[s]}`);
+  return parts.length ? parts.join(" · ") : "nic nie czeka";
 }
 
 export function buildTiles(
@@ -303,9 +304,19 @@ export function exceptionError(reason: string, until: string, today: string): st
 
 // ── Kalendarz rutyn ─────────────────────────────────────────────────────────
 
+/** Krótkie nazwy rutyn do kratki kalendarza (pełna nazwa w podpowiedzi). */
+export const ROUTINE_SHORT: Record<string, string> = {
+  ci_weekly: "Skan CI",
+  pentest_staging: "Pentest stagingu",
+  dast_staging: "ZAP + Schemathesis",
+  external_scan: "Skan z zewnątrz",
+  accounts_review: "Przegląd kont",
+};
+
 export interface CalendarChip {
   routineId: number;
   title: string;
+  short: string;
   kind: "done" | "due" | "planned" | "overdue";
 }
 
@@ -372,13 +383,14 @@ export function calendarDays(
     byDay.set(iso, [...(byDay.get(iso) ?? []), chip]);
   };
   for (const routine of routines) {
+    const short = ROUTINE_SHORT[routine.key] ?? routine.title;
     if (routine.last_done_on && routine.last_done_on >= start && routine.last_done_on <= end) {
-      push(routine.last_done_on, { routineId: routine.id, title: routine.title, kind: "done" });
+      push(routine.last_done_on, { routineId: routine.id, title: routine.title, short, kind: "done" });
     }
     for (const iso of plannedDates(routine, end)) {
       if (iso < start) continue;
       const kind = iso < today ? "overdue" : iso === routine.next_due_on ? "due" : "planned";
-      push(iso, { routineId: routine.id, title: routine.title, kind });
+      push(iso, { routineId: routine.id, title: routine.title, short, kind });
     }
   }
   return Array.from({ length }, (_, i) => {
