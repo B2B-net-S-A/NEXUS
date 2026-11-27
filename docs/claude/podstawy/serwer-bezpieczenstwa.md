@@ -47,8 +47,10 @@ Z mniejszego dysku na większy można; z powrotem już nie.
   - Podatności pakietów: wbudowany `vulnerability-detection` z inwentarzem syscollectora.
 - Reguły lokalne (`/opt/nexus-security/wazuh/local_rules.xml`):
   - Falco: Warning → 7, Notice → 5 (zostaje w Wazuhu; to m.in. odczyty kluczy SSH przez sesje administracyjne),
-    Error → 10, Critical/Alert/Emergency → 12. Odczyty `/etc/shadow`, `sudoers`, `pam.d` przez procesy
-    `wazuh-*` (skany SCA i FIM samego agenta) → 0; bez tego pierwszy wieczór dał 91 fałszywych alertów.
+    Error → 10, Critical/Alert/Emergency → 12. Odczyty `/etc/shadow`, `sudoers`, `pam.d` przez skany SCA i FIM
+    samego agenta → 0, ale tylko gdy `proc.name` to `wazuh-modulesd`/`wazuh-syscheckd` **i** `proc.exepath`
+    zaczyna się od `/var/ossec/bin/` (sama nazwa da się podrobić). Bez tego pierwszy wieczór dał 91 fałszywych
+    alertów. Ten sam wąski wyjątek ma od 27.11 Falco na nexus-prod; Microsoft Defender (`wdavdaemon`) nie jest wyciszony.
     W mailu z alertu Falco nie ma `full_log`, bo pole `output` to linia poleceń procesu (bywają w niej sekrety).
     Pola Falco w regułach Wazuha są zagnieżdżone: `output_fields.proc.name`, nie `output_fields["proc.name"]`.
   - Traefik: znane ścieżki skanerów → 6, 30 takich prób z jednego adresu w 60 s → 10,
