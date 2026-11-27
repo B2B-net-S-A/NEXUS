@@ -1,0 +1,6 @@
+# Wyjątki Trivy dla OBRAZÓW produkcji (`security-weekly.yml`, job „Trivy obrazów
+# produkcji”, `.github/scripts/trivy_images.sh`). Osobno od `.trivyignore`, bo ten
+# działa też w skanie zależności na PR-ach i ukryłby tam tę samą podatność.
+# Każdy wpis: komentarz z uzasadnieniem nad grupą i termin `exp:` (RRRR-MM-DD) —
+# po terminie wyjątek przestaje działać i bieg tygodniowy znów jest czerwony.
+# Pilnuje `.github/scripts/tests/test_security_ratchets.py`.

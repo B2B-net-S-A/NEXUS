@@ -1,6 +1,7 @@
-"""Zapadki skanerów bezpieczeństwa: Semgrep (`semgrep_ratchet.py`) i audyt
-zależności (`dependency_audit.py`). Bez sieci i bez Semgrepa — wynik skanu
-podajemy jako JSON w kształcie `semgrep --json`."""
+"""Zapadki skanerów bezpieczeństwa: Semgrep (`semgrep_ratchet.py`), audyt
+zależności (`dependency_audit.py`), zizmor (`zizmor_ratchet.py`) i wyjątki
+Trivy obrazów (`.trivyignore-images`). Bez sieci i bez skanerów — wynik skanu
+podajemy jako JSON w kształcie `semgrep --json` / `zizmor --format json`."""
 
 import importlib.util
 import io
@@ -23,6 +24,7 @@ def _load(name):
 
 RATCHET = _load("semgrep_ratchet")
 AUDIT = _load("dependency_audit")
+ZIZMOR = _load("zizmor_ratchet")
 
 SQL_RULE = "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text"
 SOURCE = (
@@ -180,6 +182,160 @@ class RepoBaselineTest(unittest.TestCase):
         for entry in baseline["python"] + baseline["npm"]:
             self.assertTrue(entry["reason"].strip(), entry["id"])
             date.fromisoformat(entry["expires"])
+
+
+def _zizmor_finding(ident="template-injection", path="./.github/workflows/x.yml",
+                    route=("jobs", "build", "steps", 2, "run"), feature='run: echo "${{ github.head_ref }}"',
+                    row=41):
+    parts = [{"Index": p} if isinstance(p, int) else {"Key": p} for p in route]
+    return {
+        "ident": ident,
+        "desc": "code injection via template expansion",
+        "determinations": {"severity": "High", "confidence": "High"},
+        "locations": [
+            {
+                "symbolic": {
+                    "key": {"Local": {"verbatim_path": path}},
+                    "annotation": "may expand into attacker-controllable code",
+                    "route": {"route": parts},
+                    "kind": "Related",
+                },
+                "concrete": {"location": {"start_point": {"row": 3}}, "feature": "on: pull_request"},
+            },
+            {
+                "symbolic": {
+                    "key": {"Local": {"verbatim_path": path}},
+                    "annotation": "may expand into attacker-controllable code",
+                    "route": {"route": parts},
+                    "kind": "Primary",
+                },
+                "concrete": {"location": {"start_point": {"row": row}}, "feature": feature},
+            },
+        ],
+    }
+
+
+class ZizmorRatchetTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.baseline = self.root / "zizmor-baseline.json"
+        self.baseline.write_text(json.dumps({"zizmor": "1.33.1", "findings": []}), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _results(self, *findings):
+        path = self.root / "zizmor.json"
+        path.write_text(json.dumps(list(findings)), encoding="utf-8")
+        return path
+
+    def _run(self, *argv):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ZIZMOR.main(list(argv))
+        return code, out.getvalue()
+
+    def _compare(self, results):
+        return self._run("compare", "--results", str(results), "--baseline", str(self.baseline))
+
+    def _update(self, results, reason="powód", status="zweryfikowane"):
+        return self._run(
+            "update", "--results", str(results), "--baseline", str(self.baseline),
+            "--reason", reason, "--status", status,
+        )
+
+    def test_new_finding_fails_with_primary_location_annotation(self):
+        code, out = self._compare(self._results(_zizmor_finding()))
+        self.assertEqual(code, 1)
+        self.assertIn("::error file=.github/workflows/x.yml,line=42,title=zizmor template-injection", out)
+
+    def test_baselined_finding_passes_when_lines_and_step_index_move(self):
+        self._update(self._results(_zizmor_finding()))
+        moved = _zizmor_finding(route=("jobs", "build", "steps", 5, "run"), row=80)
+        code, out = self._compare(self._results(moved))
+        self.assertEqual(code, 0, out)
+        entry = json.loads(self.baseline.read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(entry["path"], ".github/workflows/x.yml")
+        self.assertEqual(entry["route"], "jobs.build.steps.run")
+
+    def test_changed_match_or_other_job_is_a_new_finding(self):
+        self._update(self._results(_zizmor_finding()))
+        changed = _zizmor_finding(feature='run: echo "${{ github.head_ref }} ${{ github.event.issue.title }}"')
+        self.assertEqual(self._compare(self._results(changed))[0], 1)
+        other_job = _zizmor_finding(route=("jobs", "deploy", "steps", 2, "run"))
+        self.assertEqual(self._compare(self._results(other_job))[0], 1)
+
+    def test_one_entry_covers_one_occurrence(self):
+        self._update(self._results(_zizmor_finding()))
+        code, out = self._compare(self._results(_zizmor_finding(), _zizmor_finding(row=60)))
+        self.assertEqual(code, 1)
+        self.assertIn("nowe: 1", out)
+
+    def test_fixed_finding_is_stale_notice_and_update_drops_it(self):
+        self._update(self._results(_zizmor_finding()))
+        code, out = self._compare(self._results())
+        self.assertEqual(code, 0)
+        self.assertIn("::notice file=.github/workflows/x.yml", out)
+        self._update(self._results())
+        self.assertEqual(json.loads(self.baseline.read_text(encoding="utf-8"))["findings"], [])
+
+    def test_entry_without_reason_fails_and_update_requires_reason(self):
+        self.assertEqual(self._update(self._results(_zizmor_finding()), reason=" ")[0], 2)
+        self._update(self._results(_zizmor_finding()))
+        data = json.loads(self.baseline.read_text(encoding="utf-8"))
+        data["findings"][0]["reason"] = ""
+        self.baseline.write_text(json.dumps(data), encoding="utf-8")
+        self.assertEqual(self._compare(self._results(_zizmor_finding()))[0], 1)
+
+    def test_unreadable_result_is_red_not_a_silent_pass(self):
+        broken = self.root / "zizmor.json"
+        broken.write_text('{"error": "no audit was performed"}', encoding="utf-8")
+        self.assertEqual(self._compare(broken)[0], 1)
+        self.assertEqual(self._compare(self.root / "brak.json")[0], 1)
+
+
+class RepoZizmorAndImageIgnoresTest(unittest.TestCase):
+    def test_repo_zizmor_baseline_is_verified_and_matches_installed_version(self):
+        baseline = json.loads((ROOT / "zizmor-baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(ZIZMOR.baseline_problems(baseline), [])
+        self.assertEqual({e["status"] for e in baseline["findings"]}, {"zweryfikowane"})
+        for entry in baseline["findings"]:
+            self.assertGreater(len(entry["reason"]), 40, entry["path"])
+        install = (ROOT / "scripts/install_zizmor.sh").read_text(encoding="utf-8")
+        self.assertIn(f'VERSION="{baseline["zizmor"]}"', install)
+        self.assertRegex(install, r'SHA256="[0-9a-f]{64}"')
+        self.assertIn("sha256sum -c", install)
+
+    def test_checkout_credentials_stay_only_where_a_push_needs_them(self):
+        """artipacked: token z checkoutu zostaje w `.git/config` dla każdego
+        kroku joba (także testów z kodu PR-a). Wyjątek tylko z baseline."""
+        allowed = {
+            e["path"] for e in json.loads((ROOT / "zizmor-baseline.json").read_text("utf-8"))["findings"]
+            if e["rule"] == "artipacked"
+        }
+        self.assertEqual(allowed, {".github/workflows/migration-rechain.yml"})
+
+    def test_image_ignores_have_reason_and_valid_expiry(self):
+        lines = (ROOT.parent / ".trivyignore-images").read_text(encoding="utf-8").splitlines()
+        previous_comment = False
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                previous_comment = False
+                continue
+            if stripped.startswith("#"):
+                previous_comment = True
+                continue
+            ident, _, rest = stripped.partition(" ")
+            self.assertRegex(ident, r"^(CVE-\d{4}-\d+|GHSA(-[0-9a-z]{4}){3})$", line)
+            self.assertRegex(rest, r"^exp:\d{4}-\d{2}-\d{2}$", f"Wyjątek bez terminu: {line!r}")
+            expires = date.fromisoformat(rest[4:])
+            self.assertLessEqual(
+                (expires - date(2026, 11, 27)).days, 400,
+                f"Termin dalej niż ~rok — wyjątek bez przeglądu: {line!r}",
+            )
+            self.assertTrue(previous_comment, f"Wyjątek bez uzasadnienia w komentarzu nad nim: {line!r}")
 
 
 PIP_REPORT = {

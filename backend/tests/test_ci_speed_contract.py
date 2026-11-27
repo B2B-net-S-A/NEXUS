@@ -370,9 +370,14 @@ def test_sieve_job_has_as_many_parts_as_the_selector_plans() -> None:
     job = _load("ci.yml")["jobs"]["backend-pr-tests"]
     assert len(job["strategy"]["matrix"]["part"]) == _selector().SIEVE_SHARDS
     assert job["strategy"]["fail-fast"] is False
-    pick = _step(job["steps"], "Wybierz testy dla zmienionych plików")["run"]
-    assert '--shards "${{ strategy.job-total }}"' in pick
-    assert '--shard "${{ strategy.job-index }}"' in pick
+    step = _step(job["steps"], "Wybierz testy dla zmienionych plików")
+    pick = step["run"]
+    # Kontekst `strategy` przez `env`, nie `${{ }}` w `run:` (zizmor
+    # `template-injection`, 27.11.2026).
+    assert step["env"]["STRATEGY_JOB_TOTAL"] == "${{ strategy.job-total }}"
+    assert step["env"]["STRATEGY_JOB_INDEX"] == "${{ strategy.job-index }}"
+    assert '--shards "${STRATEGY_JOB_TOTAL}"' in pick
+    assert '--shard "${STRATEGY_JOB_INDEX}"' in pick
     assert '--env-out "$GITHUB_ENV"' in pick, "Bez tego macierz nie dzieli się."
 
 
