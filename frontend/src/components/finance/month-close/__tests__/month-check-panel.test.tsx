@@ -105,6 +105,21 @@ describe("MonthCheckPanel", () => {
     );
   });
 
+  it("po zapisie okno dla kolejnej sprawy ma pusty powód", async () => {
+    mocks.post.mockResolvedValue({ data: row({ state: "explained", reason: "OK" }) });
+    setup(view([row(), row({ id: 2, person: "Anna Zmyślona" })]));
+    const first = (await screen.findByText("Jan Przykładowy")).closest("tr") as HTMLElement;
+    fireEvent.click(within(first).getByRole("button", { name: "Wyjaśnione" }));
+    fireEvent.change(await screen.findByLabelText("Powód"), { target: { value: "Klient przyjął 15 MD" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(screen.queryByLabelText("Powód")).not.toBeInTheDocument());
+
+    const second = screen.getByText("Anna Zmyślona").closest("tr") as HTMLElement;
+    fireEvent.click(within(second).getByRole("button", { name: "Wyjaśnione" }));
+    expect(await screen.findByLabelText("Powód")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
+  });
+
   it("„Do korekty” bez okna", async () => {
     mocks.post.mockResolvedValue({ data: row({ state: "to_correct" }) });
     setup(view([row()]));

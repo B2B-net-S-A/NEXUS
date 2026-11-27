@@ -324,7 +324,10 @@ export function MonthCheckPanel({ month }: { month: string }) {
           </tbody>
         </table>
       </section>
+      {/* `key`: każda sprawa dostaje okno z pustym powodem — po zapisie rodzic
+          zamyka okno sam, bez `onOpenChange`, i powód poprzedniej sprawy zostawał. */}
       <ExplainDialog
+        key={explaining?.id ?? "none"}
         row={explaining}
         pending={decision.isPending}
         error={explaining ? decisionError : null}
