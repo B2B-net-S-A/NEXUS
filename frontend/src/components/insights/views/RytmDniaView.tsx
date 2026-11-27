@@ -92,8 +92,11 @@ function toMin(t: string): number {
   return h * 60 + m;
 }
 
-function fromMin(v: number): string {
-  return `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(Math.round(v % 60)).padStart(2, "0")}`;
+/** Minuty od północy → „HH:MM”. Mediana bywa połówką minuty (479,5), więc
+ *  najpierw zaokrąglamy całość — inaczej wychodzi „07:60”. */
+export function fromMin(v: number): string {
+  const m = Math.round(v);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
 /** 9,5 → „9:30”. */
