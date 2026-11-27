@@ -282,7 +282,7 @@ _RULE_FIX = {
     "wrong_phone": "Poprawić numery telefonów w profilach, na które wskazali rekruterzy.",
     "not_looking": "Podawać przy odrzuceniu „do kiedy nie szuka” — system pominie osobę do tej daty we wszystkich rekrutacjach.",
     "no_answer": "Nie dokładać ponownie osób, które trzy razy nie odebrały, przez 30 dni.",
-    "in_other_process": "Pomijać w dopełnianiu osoby w toku w innej rekrutacji od „Zweryfikowanego”.",
+    "in_other_process": "Pomijać w dopełnianiu osoby w toku w innej rekrutacji od „Przygotowania CV”.",
     "client_employed": "Prosić rekruterów o zaznaczanie „cały klient” i dopisywać pośredników klienta do aliasów, żeby bramka off-limits łapała pracę przez inną firmę.",
     "client_refused": "Zaznaczać „cały klient” przy odmowie — system nie podsunie tej osoby żadnej rekrutacji tego klienta.",
     "client_other_vendor": "Zaznaczać „cały klient” — osoby zgłoszonej przez inną firmę klient drugi raz nie przyjmie.",

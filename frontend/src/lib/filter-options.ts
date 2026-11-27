@@ -62,7 +62,7 @@ export const PIPELINE_STAGE_OPTIONS: ReadonlyArray<
   { value: "new", label: "Nowy" },
   { value: "prep_call", label: "Prep call" },
   { value: "screening", label: "Screening" },
-  { value: "verified", label: "Zweryfikowany" },
+  { value: "verified", label: "Przygotowanie CV" },
   { value: "interview", label: "Interview" },
   { value: "cv_sent", label: "CV wysłane" },
   { value: "client_interview", label: "Rozmowa u klienta" },

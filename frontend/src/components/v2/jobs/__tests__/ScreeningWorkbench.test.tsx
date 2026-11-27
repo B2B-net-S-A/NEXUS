@@ -223,7 +223,7 @@ function board(): KanbanColumn[] {
       count: 1,
       items: [item({ id: 12, candidate_id: 112, stage: "screening", name: "Marcin", lastname: "Jóźwiak" })],
     },
-    { stage: "verified", name: "Zweryfikowany", category: "internal", stage_def_id: 4, count: 0, items: [] },
+    { stage: "verified", name: "Przygotowanie CV", category: "internal", stage_def_id: 4, count: 0, items: [] },
     {
       stage: "cv_sent",
       name: "CV wysłane",
@@ -302,7 +302,7 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
   it("„Nowi” bez zapisanego formularza: od razu formularz, nad nim „Co już wiemy”, CV obok (P2, 14.10.2026)", async () => {
     renderWorkbench();
     const form = await screen.findByTestId("full-form");
-    expect(form).toHaveTextContent("dalej: Zweryfikowany (4)");
+    expect(form).toHaveTextContent("dalej: Przygotowanie CV (4)");
     expect(form).toHaveTextContent("odrzuć: rejected z new");
     const known = screen.getByTestId("before-call");
     expect(Boolean(known.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);

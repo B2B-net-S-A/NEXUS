@@ -130,7 +130,7 @@ export function JobPreContractRuleFact({ jobId, rule, onSaved }: JobPreContractR
                   )}
                 </li>
                 <li className="text-xs text-muted-foreground">
-                  Prośby zakładają się same od „Zweryfikowanego”. Wyjątek dla jednej osoby: panel osoby › Umowa.
+                  Prośby zakładają się same od „Przygotowania CV”. Wyjątek dla jednej osoby: panel osoby › Umowa.
                 </li>
               </ul>
             ) : (

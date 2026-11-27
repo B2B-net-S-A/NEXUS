@@ -57,7 +57,7 @@ describe("ścieżka etapów i wynik zakończonego procesu (04.10.2026)", () => {
         ],
         label,
       ),
-    ).toEqual(["Zweryfikowany", "CV wysłane", "Zatrudniony"]);
+    ).toEqual(["Przygotowanie CV", "CV wysłane", "Zatrudniony"]);
     expect(recruitmentStagePath(null, label)).toEqual([]);
   });
 

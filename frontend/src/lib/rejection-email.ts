@@ -55,7 +55,7 @@ const SKIP_MESSAGE: Record<Exclude<RejectionEmailStatus, "scheduled">, string> =
     "(Ustawienia → Integracje). Mail wychodzi z Twojej skrzynki.",
   not_client_visible:
     "Mail odrzucenia nie został zaplanowany — wysyłamy go od etapu " +
-    "„Zweryfikowany” (po rozmowie z osobą).",
+    "„Przygotowanie CV” (po rozmowie z osobą).",
   no_candidate_email:
     "Mail odrzucenia nie został zaplanowany — kandydat nie ma adresu e-mail.",
   no_permission:
@@ -119,7 +119,7 @@ const BLOCKED_MESSAGE: Record<Exclude<RejectionEmailStatus, "scheduled">, string
     "Mail nie wyjdzie — nie masz podłączonej skrzynki Microsoft 365. " +
     "Podłączysz ją w Ustawieniach → Integracje.",
   not_client_visible:
-    "Mail nie wyjdzie — wysyłamy go od etapu „Zweryfikowany” (po rozmowie z osobą).",
+    "Mail nie wyjdzie — wysyłamy go od etapu „Przygotowanie CV” (po rozmowie z osobą).",
   no_candidate_email: "Mail nie wyjdzie — kandydat nie ma adresu e-mail.",
   no_permission: "Mail nie wyjdzie — nie masz uprawnień do wysyłki.",
 };

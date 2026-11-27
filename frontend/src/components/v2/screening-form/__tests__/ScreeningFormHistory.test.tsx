@@ -136,7 +136,7 @@ describe("ScreeningFormHistory", () => {
     await waitFor(() => expect(mocks.showSuccess).toHaveBeenCalledWith("Przywrócono wersję 1."));
     expect(onRestored).toHaveBeenCalledWith(result);
     expect(mocks.showInfo).toHaveBeenCalledWith(
-      "Stawka nie wróciła — od „Zweryfikowany” zmianą stawki zarządza Delivery Lead.",
+      "Stawka nie wróciła — od „Przygotowania CV” zmianą stawki zarządza Delivery Lead.",
     );
     expect(mocks.showInfo).toHaveBeenCalledWith(
       "Pominięto 1 odpowiedź — treść pytania w Profilu Championa się zmieniła.",

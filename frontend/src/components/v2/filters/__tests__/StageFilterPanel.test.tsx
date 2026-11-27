@@ -61,7 +61,7 @@ describe("StageFilterPanel — „Dodany na etap / przez / od–do” (19.10.202
     expect(labels).toEqual([
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      "Przygotowanie CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",

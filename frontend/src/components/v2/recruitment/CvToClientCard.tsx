@@ -1033,7 +1033,7 @@ export function CvToClientCard({
             {state.attached?.origin === "auto" && state.attached.created_at ? (
               <p className="text-[11px] text-muted-foreground">
                 Wygenerowane automatycznie {formatDate(state.attached.created_at)}, po ruchu na
-                „Zweryfikowany”.
+                „Przygotowanie CV”.
               </p>
             ) : null}
             {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
@@ -1386,7 +1386,7 @@ export function CvToClientCard({
             </div>
             <p className="text-[11px] text-muted-foreground">
               Najpierw potwierdzisz plik CV, odpowiedzi ze screeningu i dodatkowe notatki — CV powstaje
-              dopiero po „Generuj”, nie samo po ruchu na „Zweryfikowany”.
+              dopiero po „Generuj”, nie samo po ruchu na „Przygotowanie CV”.
               {recruiterOnly ? " Oryginał CV pobierzesz po próbie z generatorem, jeśli wynik będzie zły." : ""}
             </p>
           </div>

@@ -1093,16 +1093,16 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
           },
           { key: "availability", label: "Dostępność", status: "ok", blocking: false },
         ],
-        primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+        primary: { kind: "move", label: "Przesuń na „Przygotowanie CV”" },
       }),
     });
     const user = userEvent.setup();
     const onOpenScreening = vi.fn();
     const onMoveTo = vi.fn();
-    const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+    const target = stageCol("verified", "Przygotowanie CV", { stage_def_id: 5 });
     renderDock({ primaryTarget: target, onOpenScreening, onMoveTo, item: baseItem({ stage: "new" }) });
 
-    expect(await screen.findByText(/Następny etap: 3 · Zweryfikowany/)).toBeInTheDocument();
+    expect(await screen.findByText(/Następny etap: 3 · Przygotowanie CV/)).toBeInTheDocument();
     expect(screen.getByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
     expect(screen.getByTestId("dock-next-stage-reminder")).toHaveTextContent(/przypomnienie, nie blokada/);
 
@@ -1110,7 +1110,7 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(onOpenScreening).toHaveBeenCalledWith(777, "Anna Kowalska");
 
     // Główny przycisk działa mimo braków (serwer tego nie blokuje).
-    await user.click(screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" }));
+    await user.click(screen.getByRole("button", { name: "Przenieś na etap: Przygotowanie CV" }));
     expect(onMoveTo).toHaveBeenCalledWith(target);
   });
 
@@ -1118,12 +1118,12 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     routeApiGet({});
     const onMoveTo = vi.fn();
     renderDock({
-      primaryTarget: stageCol("verified", "Zweryfikowany", { stage_def_id: 5 }),
+      primaryTarget: stageCol("verified", "Przygotowanie CV", { stage_def_id: 5 }),
       onMoveTo,
       item: baseItem({ stage: "new" }),
     });
     expect(await screen.findByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
-    const button = screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" });
+    const button = screen.getByRole("button", { name: "Przenieś na etap: Przygotowanie CV" });
     expect(button).toBeDisabled();
     expect(screen.getByText("Najpierw uzupełnij: Arkusz screeningu.")).toBeInTheDocument();
     expect(screen.queryByTestId("dock-next-stage-reminder")).toBeNull();
@@ -1186,7 +1186,7 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     // go jako funkcję zapytania i refetch po `invalidateQueries` dawał `null`.
     routeApiGet({});
     renderDock({
-      primaryTarget: stageCol("verified", "Zweryfikowany", { stage_def_id: 5 }),
+      primaryTarget: stageCol("verified", "Przygotowanie CV", { stage_def_id: 5 }),
       item: baseItem({ stage: "new" }),
     });
     expect(await screen.findByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
@@ -1406,11 +1406,11 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     routeApiGet({ requirementsError: true });
     const user = userEvent.setup();
     const onMoveTo = vi.fn();
-    const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+    const target = stageCol("verified", "Przygotowanie CV", { stage_def_id: 5 });
     renderDock({ primaryTarget: target, onMoveTo });
 
     expect(await screen.findByText(/Nie udało się sprawdzić wymagań/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" }));
+    await user.click(screen.getByRole("button", { name: "Przenieś na etap: Przygotowanie CV" }));
     expect(onMoveTo).toHaveBeenCalledWith(target);
   });
 
@@ -1845,7 +1845,7 @@ function WorkbenchSlot() {
 }
 
 describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2026)", () => {
-  const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+  const target = stageCol("verified", "Przygotowanie CV", { stage_def_id: 5 });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1867,7 +1867,7 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
               { key: "screening_sheet", label: "Arkusz screeningu", status: "missing", blocking: false },
               { key: "availability", label: "Dostępność", status: "ok", blocking: false },
             ],
-            primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+            primary: { kind: "move", label: "Przesuń na „Przygotowanie CV”" },
             owner_note: null,
           },
         });
@@ -1954,7 +1954,7 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     const fold = within(slot).getByTestId("dock-stage-fold");
     const toggle = within(fold).getByRole("button", { name: /Warunki i następny etap/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(await within(fold).findByText("Zweryfikowany · brakuje 1 z 2")).toBeTruthy();
+    expect(await within(fold).findByText("Przygotowanie CV · brakuje 1 z 2")).toBeTruthy();
     // Zwinięta: żadnego z trzech bloków nie ma ani w głowie, ani pod zakładkami.
     expect(screen.queryByTestId("dock-facts")).toBeNull();
     expect(screen.queryByTestId("dock-contact-row")).toBeNull();

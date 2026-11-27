@@ -317,7 +317,7 @@ describe("JointScreeningForm", () => {
       [202, 44, 212],
     ]);
     const results = screen.getByRole("status", { name: "Wynik zapisu" });
-    expect(within(results).getByTestId("joint-result-202")).toHaveTextContent("→ Zweryfikowany");
+    expect(within(results).getByTestId("joint-result-202")).toHaveTextContent("→ Przygotowanie CV");
     await user.click(screen.getByRole("button", { name: "Zamknij wynik" }));
     expect(onForwarded).toHaveBeenCalled();
   });
@@ -689,7 +689,7 @@ describe("JointScreeningForm — pamięć rozmowy (16.10.2026, D1 A / D2 A)", ()
       mount({ layout: "sheet" });
       const bar = await screen.findByTestId("joint-sheet-gaps");
       expect(screen.getByTestId("joint-screening-form")).toHaveAttribute("data-layout", "sheet");
-      expect(bar).toHaveTextContent("Do „Zweryfikowany” brakuje:");
+      expect(bar).toHaveTextContent("Do „Przygotowania CV” brakuje:");
       expect(bar).toHaveTextContent("pytania 0 z 3");
       // Dostępność jest wspólna — jeden brak, nie po jednym w każdej rekrutacji.
       expect(within(screen.getByTestId("joint-sheet-gaps-shared")).getByRole("button", { name: "Dostępność" })).toBeInTheDocument();
@@ -707,7 +707,7 @@ describe("JointScreeningForm — pamięć rozmowy (16.10.2026, D1 A / D2 A)", ()
       await user.type(screen.getByLabelText(/· dla Programista Frontend/), "Mocny w Angularze");
       await user.click(screen.getByRole("tab", { name: /Angular Developer/ }));
       await user.type(screen.getByLabelText(/· dla Angular Developer/), "Mocny w RxJS");
-      expect(bar).toHaveTextContent("Do „Zweryfikowany”: komplet pól w 2 rekrutacjach");
+      expect(bar).toHaveTextContent("Do „Przygotowania CV”: komplet pól w 2 rekrutacjach");
       expect(within(bar).queryAllByTestId("joint-sheet-gap")).toHaveLength(0);
     });
 

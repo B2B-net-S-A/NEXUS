@@ -239,7 +239,7 @@ def build_sections(
         )
         out.append(
             _section(
-                "Zweryfikowani — przygotuj CV do QC",
+                "Przygotowanie CV — przygotuj CV do QC",
                 _pair_rows(flow.verified),
             )
         )

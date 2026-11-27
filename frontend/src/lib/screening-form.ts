@@ -841,7 +841,7 @@ export function rateNotRestoredMessage(
       ? "Cofnięto zapis — stawka kandydata została, zmień ją w formularzu."
       : "Stawka kandydata została — ta wersja jej nie miała. Zmień ją w formularzu.";
   }
-  return "Stawka nie wróciła — od „Zweryfikowany” zmianą stawki zarządza Delivery Lead.";
+  return "Stawka nie wróciła — od „Przygotowania CV” zmianą stawki zarządza Delivery Lead.";
 }
 
 /** Kolumny, od których zmiana w formularzu trafia do Delivery Leada i do kolejnego CV firmowego (D8). */

@@ -728,8 +728,8 @@ export function RequestBoardView({
             <div className={cn(WIDE_ONLY, "py-2")}>Delivery Lead</div>
             <div className={cn(WIDE_ONLY, "py-2")}>Otwarta</div>
             <div className="py-2">Termin</div>
-            <div className="py-2" title="Stoją teraz w kolumnie „Zweryfikowany”">
-              Zweryf.
+            <div className="py-2" title="Stoją teraz w kolumnie „Przygotowanie CV”">
+              Przyg. CV
             </div>
             <div className="py-2" title="Stoją teraz w kolumnie „QC CV”">
               QC CV

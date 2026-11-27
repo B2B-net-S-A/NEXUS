@@ -118,7 +118,7 @@ export function MinimumFieldsDialog({
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{candidateName} → Zweryfikowany</DialogTitle>
+          <DialogTitle>{candidateName} → Przygotowanie CV</DialogTitle>
           <DialogDescription>
             {gaps.length > 0
               ? `Delivery Lead potrzebuje jeszcze ${gaps.length === 1 ? "jednego pola" : `${gaps.length} pól`}. Reszta jest już w screeningu.`

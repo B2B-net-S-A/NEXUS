@@ -24,7 +24,7 @@ describe("etap szablonu → kolumna Tablicy + odznaka (prawdziwe nazwy z trzech 
   it("reguła QC i Cpro rozpoznaje tylko swoje etapy", () => {
     expect(isQcStageName("Przepuszczony przez DZ")).toBe(true);
     expect(isQcStageName("QC CV")).toBe(true);
-    expect(isQcStageName("Zweryfikowany")).toBe(false);
+    expect(isQcStageName("Przygotowanie CV")).toBe(false);
     expect(isQcStageName("CV Wysłane")).toBe(false);
     expect(isCproStageName("NORDEA: Wysłać do Cpro")).toBe(true);
     expect(isCproStageName("CV Wysłane")).toBe(false);
@@ -77,7 +77,7 @@ describe("foldBoardColumns", () => {
     expect(folded.columns.map((c) => c.label)).toEqual([
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      "Przygotowanie CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
@@ -99,7 +99,7 @@ describe("foldBoardColumns", () => {
     expect(nordea.columns.map((c) => c.label)).toEqual([
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      "Przygotowanie CV",
       "QC CV",
       "Do Cpro",
       "Wysłane do Cpro",
@@ -195,7 +195,7 @@ describe("foldBoardColumns", () => {
     expect(traffit.columns.map((c) => c.label)).toEqual([
       "Nowi",
       "Screening",
-      "Zweryfikowany",
+      "Przygotowanie CV",
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",

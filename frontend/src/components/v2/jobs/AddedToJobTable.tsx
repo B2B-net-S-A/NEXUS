@@ -53,7 +53,7 @@ export function AddedToJobTable({ summary, viewerId }: AddedToJobTableProps) {
               <th className="px-1 text-right font-medium" title="Nadal w toku na Tablicy">
                 W toku
               </th>
-              <th className="px-1 text-right font-medium" title="W toku od „Zweryfikowanego” w prawo">
+              <th className="px-1 text-right font-medium" title="W toku od „Przygotowania CV” w prawo">
                 Zweryf.+
               </th>
               <th className="pl-1 text-right font-medium" title="W toku od „CV wysłane” w prawo">

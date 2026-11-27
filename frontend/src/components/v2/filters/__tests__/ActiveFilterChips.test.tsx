@@ -274,7 +274,7 @@ describe("ActiveFilterChips — „Dodany na etap” (19.10.2026)", () => {
 
   it("stary kod etapu z linku zostaje chipem „Etap: …” obok kolumny", () => {
     renderWithUsers({ stageColumns: ["verified"], pipelineStage: ["interview"] });
-    expect(screen.getByText("Dodany na etap: Zweryfikowany")).toBeInTheDocument();
+    expect(screen.getByText("Dodany na etap: Przygotowanie CV")).toBeInTheDocument();
     expect(screen.getByText("Etap: Interview")).toBeInTheDocument();
   });
 

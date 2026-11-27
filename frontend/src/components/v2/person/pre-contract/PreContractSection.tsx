@@ -216,7 +216,7 @@ export function PreContractSection({
             <p className="rounded-md bg-muted px-3 py-2 text-xs" data-testid="pre-contract-job-rule">
               Rekrutacja wymaga przedwstępnej {ruleStageLabel(jobRule.needed_before).replace("Przed", "przed")} od każdej
               osoby{jobRule.stop ? " i zatrzymuje kartę do podpisu" : ""}
-              {jobRule.set_by_name ? ` (ustawił(a) ${jobRule.set_by_name})` : ""}. Prośba zakłada się sama przy „Zweryfikowanym”.
+              {jobRule.set_by_name ? ` (ustawił(a) ${jobRule.set_by_name})` : ""}. Prośba zakłada się sama przy wejściu na „Przygotowanie CV”.
             </p>
           ) : null}
           {stop ? (

@@ -37,7 +37,7 @@ KIND_AUTO_CV = "cv_auto_generate"
 KINDS: dict[str, tuple[str, int]] = {
     KIND_FULL_REVIEW: ("Nocny przegląd bazy", 1),
     KIND_NEW_CV: ("Propozycje z nowych CV", 2),
-    KIND_AUTO_CV: ("Auto-CV po „Zweryfikowany”", 3),
+    KIND_AUTO_CV: ("Auto-CV po wejściu na „Przygotowanie CV”", 3),
 }
 
 # Przegląd bazy bez wektora zapytania (runda 6 audytu) — `auto_full_review`.

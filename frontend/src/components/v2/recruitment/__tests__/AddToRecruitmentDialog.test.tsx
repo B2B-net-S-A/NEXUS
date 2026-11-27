@@ -350,8 +350,8 @@ describe("AddToRecruitmentDialog", () => {
       useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: true } } as never);
       renderDialog({ candidateIds: [5], subject: "Marta Lis" });
       fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
-      fireEvent.click(screen.getByRole("button", { name: "Zweryfikowany" }));
-      fireEvent.click(screen.getByRole("button", { name: "Dodaj na „Zweryfikowany”" }));
+      fireEvent.click(screen.getByRole("button", { name: "Przygotowanie CV" }));
+      fireEvent.click(screen.getByRole("button", { name: "Dodaj na „Przygotowanie CV”" }));
       await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
       expect(mocks.send.mock.calls[0][0]).toEqual({ candidate_id: 5, job_id: 42, stage: "verified" });
     });

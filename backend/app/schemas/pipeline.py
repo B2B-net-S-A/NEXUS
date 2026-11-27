@@ -704,7 +704,7 @@ STAGE_LABELS: dict[PipelineStage, str] = {
     PipelineStage.new: "Nowi / Analiza CV",
     PipelineStage.prep_call: "Preparation Call",
     PipelineStage.screening: "Screening",
-    PipelineStage.verified: "Zweryfikowany",
+    PipelineStage.verified: "Przygotowanie CV",
     PipelineStage.interview: "Interview Wewnętrzny",
     PipelineStage.cv_sent: "CV Wysłane",
     PipelineStage.client_interview: "Interview Klient",

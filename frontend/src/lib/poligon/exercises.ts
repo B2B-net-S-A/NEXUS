@@ -293,8 +293,8 @@ export const EXERCISES: readonly Exercise[] = [
     module: "Screening i weryfikacja",
     title: () => "Spróbuj zweryfikować osobę bez screeningu",
     task: () =>
-      "Przesuń osobę ze „Screeningu” na „Zweryfikowany”, zanim wypełnisz formularz. Zobacz, co NEXUS powie.",
-    hint: "Przeciągnij kartę z kolumny „Screening” do „Zweryfikowany” albo użyj strzałki na karcie.",
+      "Przesuń osobę ze „Screeningu” na „Przygotowanie CV”, zanim wypełnisz formularz. Zobacz, co NEXUS powie.",
+    hint: "Przeciągnij kartę z kolumny „Screening” do „Przygotowania CV” albo użyj strzałki na karcie.",
     href: POLIGON_JOB_HREF,
     anchor: "jobs.board.card",
     judge: (a) => {
@@ -302,7 +302,7 @@ export const EXERCISES: readonly Exercise[] = [
       if (a.type === "move" && a.toStage === VERIFIED) return { done: true };
       return null;
     },
-    tip: "Bramka „Zweryfikowany” pilnuje minimum dla Delivery Leada: arkusz screeningu, stawka, lokalizacja, tryb pracy i „Dlaczego ten kandydat”.",
+    tip: "Bramka „Przygotowanie CV” pilnuje minimum dla Delivery Leada: arkusz screeningu, stawka, lokalizacja, tryb pracy i „Dlaczego ten kandydat”.",
   },
   {
     id: "screening-zapisz",
@@ -330,7 +330,7 @@ export const EXERCISES: readonly Exercise[] = [
     roles: RECRUITER,
     module: "Screening i weryfikacja",
     title: () => "Zweryfikuj osobę",
-    task: () => "Screening jest zapisany — przesuń tę osobę na „Zweryfikowany”. To jedna z Twoich dziennych weryfikacji.",
+    task: () => "Screening jest zapisany — przesuń tę osobę na „Przygotowanie CV”. Weryfikacja w celach liczy się, gdy osoba wejdzie na „QC CV”.",
     hint: "Karta jest w kolumnie „Screening”.",
     href: POLIGON_JOB_HREF,
     anchor: "jobs.board.card",
@@ -351,7 +351,7 @@ export const EXERCISES: readonly Exercise[] = [
     module: "Rekomendacja do klienta",
     title: () => "Zajrzyj do CV dla klienta",
     task: () =>
-      "Kliknij Jakuba Jaworka w „Zweryfikowanym”, a w jego panelu „Rozwiń” (u góry po prawej). W zakładce „CV” jest oryginalne CV i karta „CV do klienta”, z której generator robi CV w szablonie klienta.",
+      "Kliknij Jakuba Jaworka w „Przygotowaniu CV”, a w jego panelu „Rozwiń” (u góry po prawej). W zakładce „CV” jest oryginalne CV i karta „CV do klienta”, z której generator robi CV w szablonie klienta.",
     hint: "„Rozwiń” jest u góry panelu osoby, obok krzyżyka.",
     href: POLIGON_JOB_HREF,
     anchor: "person.cv.to-client-card",
@@ -364,8 +364,8 @@ export const EXERCISES: readonly Exercise[] = [
     module: "Rekomendacja do klienta",
     title: () => "Przekaż zweryfikowaną osobę do QC CV",
     task: () =>
-      "Osoba ze „Zweryfikowanego” ma gotowe CV. Przesuń ją na „QC CV” — tam CV sprawdza kontrola jakości, a potem Delivery Lead wysyła je klientowi.",
-    hint: "Kolumna „QC CV” jest zaraz za „Zweryfikowanym”.",
+      "Osoba z „Przygotowania CV” ma gotowe CV. Przesuń ją na „QC CV” — tam CV sprawdza kontrola jakości, a potem Delivery Lead wysyła je klientowi.",
+    hint: "Kolumna „QC CV” jest zaraz za „Przygotowaniem CV”.",
     href: POLIGON_JOB_HREF,
     anchor: "jobs.board.card",
     judge: (a) => {

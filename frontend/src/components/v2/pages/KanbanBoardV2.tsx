@@ -1909,6 +1909,8 @@ interface ColProps {
  badgeByItemId?: ReadonlyMap<number, StageBadgeKey>;
  /** Numer kroku procesu (1–8) w nagłówku kolumny Tablicy; `null` = bez numeru. */
  step?: number | null;
+ /** Kolumna Tablicy (8 kolumn), której gospodarzem jest ten etap; `null` = własny etap. */
+ boardKey?: BoardColumnKey | null;
  /** „Co tu robisz" pod nazwą kolumny (`lib/board-column-purpose.ts`);
   *  `null` = własny etap szablonu — zostaje dawna linia SLA. */
  purpose?: string | null;
@@ -2099,6 +2101,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  titleOverride,
  badgeByItemId,
  step = null,
+ boardKey = null,
  purpose = null,
  headerAction = null,
  purposeAction = null,
@@ -2210,7 +2213,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  i „CV wysłane”); pełna nazwa w `title`. Wąska pusta kolumna (96 px) dalej
  zawija nazwę, także w środku słowa (dzielenie po polsku, `lang="pl"`,
  audyt 24.09.2026). */}
- <h3 className={cn("text-foreground flex-1 min-w-0 truncate leading-tight", "text-[13px] font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:whitespace-normal xl:pointer-fine:text-xs xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
+ <h3 className={cn("text-foreground flex-1 min-w-0 truncate leading-tight", "text-[13px] font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:whitespace-normal xl:pointer-fine:text-xs xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl"
+ data-tour={boardKey === "verified" ? "board.column.prep-cv" : undefined}>
  {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn("tabular-nums", desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")} data-testid="column-count">
@@ -5153,6 +5157,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
  step={cproQueueColIds.has(entry.key) ? null : boardColumnStep(boardKeyByColId.get(entry.key))}
+ boardKey={cproQueueColIds.has(entry.key) ? null : boardKeyByColId.get(entry.key) ?? null}
  totalCount={addedBy.kind === "all" ? undefined : totalCountByColId.get(entry.key)}
  filterEmpty={
  onAddedByChange && addedBy.kind !== "all" && (totalCountByColId.get(entry.key) ?? 0) > 0

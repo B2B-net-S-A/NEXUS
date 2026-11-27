@@ -144,7 +144,7 @@ def assert_allowed(
     if from_column != FROM_COLUMN or target_column != TARGET_COLUMN:
         raise _invalid(
             "Listę poprawek wysyła się tylko przy cofnięciu z „QC CV” na "
-            "„Zweryfikowany”.",
+            "„Przygotowanie CV”.",
             NOT_ALLOWED_CODE,
         )
 

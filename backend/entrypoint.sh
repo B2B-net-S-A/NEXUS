@@ -745,7 +745,8 @@ _ENUM_STATEMENTS = [
         ON candidate_stages (job_id, verification_status)
         WHERE verification_status = 'pending'""",
     # Seed 'verified' do wszystkich istniejących pipeline_templates —
-    # bez tego kanban template-driven nie ma kolumny "Zweryfikowany".
+    # bez tego kanban template-driven nie ma kolumny "Przygotowanie CV"
+    # (do 27.11.2026 „Zweryfikowany”, 0798).
     # 2-step shift trick bo uq_stage_order_in_template jest UNIQUE (nie DEFERRABLE).
     """DO $$
     DECLARE
@@ -763,7 +764,7 @@ _ENUM_STATEMENTS = [
                     template_id, name, "order", category,
                     is_terminal, terminal_type, legacy_enum_value
                 ) VALUES (
-                    tpl_id, 'Zweryfikowany', 3, 'internal',
+                    tpl_id, 'Przygotowanie CV', 3, 'internal',
                     FALSE, NULL, 'verified'
                 );
                 UPDATE pipeline_stage_defs
@@ -7946,6 +7947,21 @@ _DATA_STATEMENTS = [
     "WHERE coalesce(external_source, 'manual') <> 'traffit') "
     "AND NOT EXISTS (SELECT 1 FROM pipeline_stage_defs x "
     "WHERE x.template_id = pipeline_stage_defs.template_id AND x.name = 'QC CV') "
+    "AND EXISTS (SELECT 1 FROM marker)",
+    # 0798 (27.11.2026): „Zweryfikowany” → „Przygotowanie CV” w szablonach
+    # NEXUSA (szablon z Traffita zostaje — nocny sync by go przepisał, a jego
+    # etap trafia na `verified` po kodzie). Jednorazowo, wzór 0361.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('0798_stage_renamed_przygotowanie_cv', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE pipeline_stage_defs SET name = 'Przygotowanie CV', updated_at = now() "
+    "WHERE name = 'Zweryfikowany' "
+    "AND template_id IN (SELECT id FROM pipeline_templates "
+    "WHERE coalesce(external_source, 'manual') <> 'traffit') "
+    "AND NOT EXISTS (SELECT 1 FROM pipeline_stage_defs x "
+    "WHERE x.template_id = pipeline_stage_defs.template_id "
+    "AND x.name = 'Przygotowanie CV') "
     "AND EXISTS (SELECT 1 FROM marker)",
     # 0652: początek bieżącego otwarcia z historii ponownych otwarć przez
     # człowieka, bez przeniesień z Traffita — lustro `job_opening.BACKFILL_SQL`.

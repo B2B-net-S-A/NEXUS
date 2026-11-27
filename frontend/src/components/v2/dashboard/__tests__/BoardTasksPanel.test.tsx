@@ -1315,7 +1315,7 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     expect(within(screening).getByText("arkusz")).toBeTruthy();
     expect(within(screening).getByText("stawka")).toBeTruthy();
     expect(
-      within(panel).getByRole("region", { name: "Zweryfikowani — czekają na CV do QC" }),
+      within(panel).getByRole("region", { name: "Przygotowanie CV — czekają na CV do QC" }),
     ).toHaveTextContent("Ewa Dąb");
   });
 
