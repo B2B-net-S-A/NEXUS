@@ -356,6 +356,38 @@ async def test_links_agree_with_who_brought_what() -> None:
 
 
 @pytest.mark.asyncio
+async def test_link_verified_counts_like_the_portals_from_qc_cv() -> None:
+    """0797: „Zweryfikowani” przy linkach liczą się jak przy portalach — para
+    musi po weryfikacji wejść na QC CV albo dalej (decyzja z 27.11.2026)."""
+    since, until = _window()
+    day = since + timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        owner = await _owner(db)
+        job_id = await _job(db)
+        stuck = await _candidate(db, created_at=day)
+        await _link_application(
+            db, owner_id=owner, job_id=None, candidate_id=stuck, at=day
+        )
+        db.add(_stage(stuck, job_id, PipelineStage.verified, day + timedelta(hours=1)))
+        moved_on = await _candidate(db, created_at=day)
+        await _link_application(
+            db, owner_id=owner, job_id=None, candidate_id=moved_on, at=day
+        )
+        db.add(
+            _stage(moved_on, job_id, PipelineStage.verified, day + timedelta(hours=1))
+        )
+        db.add(
+            _stage(moved_on, job_id, PipelineStage.cv_sent, day + timedelta(hours=2))
+        )
+        await db.commit()
+        table = await compute_sources(db, since=since, until=until)
+
+    by_source = {row["source"]: row for row in table["career"]}
+    assert by_source["link_general"]["in_process"] == 2
+    assert by_source["link_general"]["verified"] == 1
+
+
+@pytest.mark.asyncio
 async def test_link_list_matches_the_row_when_person_used_two_links() -> None:
     """Wcześniejsze zgłoszenie z innego linku nie może zabrać osoby z wiersza."""
     since, until = _window()
