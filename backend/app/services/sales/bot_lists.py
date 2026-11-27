@@ -408,6 +408,7 @@ async def _new_per_caller(
             SalesCallRecord.campaign_id == campaign_id,
             SalesCallRecord.state == schema.CALL_RECORD_NEW,
             SalesCallRecord.assigned_user_id.in_(caller_ids),
+            SalesCallRecord.removed_at.is_(None),
         )
         .group_by(SalesCallRecord.assigned_user_id)
     )

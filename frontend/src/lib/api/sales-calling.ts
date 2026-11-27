@@ -346,6 +346,24 @@ export function useCallQueue(
   });
 }
 
+/** Filtry Tabeli w zapytaniu (bez strony): wspólne dla listy i „Zaznacz wszystkie z filtra”. */
+function recordFilterParams(filters: CallRecordFilters): Record<string, string | number | boolean> {
+  return {
+    ...(filters.state === null ? {} : { state: filters.state }),
+    ...(filters.campaignId === null ? {} : { campaign_id: filters.campaignId }),
+    ...(filters.search.trim() ? { q: filters.search.trim() } : {}),
+    ...(filters.scope === "all" ? { scope: "all" } : {}),
+    ...(filters.scope === "all" && filters.callerId
+      ? { caller_id: filters.callerId }
+      : {}),
+    ...(filters.callbackFrom
+      ? { callback_from: filters.callbackFrom }
+      : {}),
+    ...(filters.callbackTo ? { callback_to: filters.callbackTo } : {}),
+    ...(filters.repeats ? { repeats: true } : {}),
+  };
+}
+
 export function useCallRecords(filters: CallRecordFilters) {
   return useQuery({
     queryKey: callingKeys.records(filters),
@@ -353,23 +371,54 @@ export function useCallRecords(filters: CallRecordFilters) {
       (
         await api.get<CallRecordTable>("/api/sales/calling/records", {
           params: {
-            ...(filters.state === null ? {} : { state: filters.state }),
-            ...(filters.campaignId === null ? {} : { campaign_id: filters.campaignId }),
-            ...(filters.search.trim() ? { q: filters.search.trim() } : {}),
-            ...(filters.scope === "all" ? { scope: "all" } : {}),
-            ...(filters.scope === "all" && filters.callerId
-              ? { caller_id: filters.callerId }
-              : {}),
-            ...(filters.callbackFrom
-              ? { callback_from: filters.callbackFrom }
-              : {}),
-            ...(filters.callbackTo ? { callback_to: filters.callbackTo } : {}),
+            ...recordFilterParams(filters),
             ...(filters.page ? { offset: filters.page * TABLE_PAGE_SIZE } : {}),
-            ...(filters.repeats ? { repeats: true } : {}),
           },
         })
       ).data,
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Akcje zbiorcze Tabeli (decyzja Artura 27.11.2026): przypisz, przenieś, usuń z listy, cofnij. */
+export type BulkAction = "assign" | "move" | "remove" | "restore";
+
+/** Czego akcja nie ruszyła: rekord spoza listy, umówione spotkanie, firma już w kampanii. */
+export type BulkSkip = "not_on_list" | "meeting_booked" | "already_in_campaign";
+
+export interface BulkInput {
+  action: BulkAction;
+  record_ids: number[];
+  assignee_user_id?: number;
+  campaign_id?: number;
+  /** Tylko policz, co się stanie (okno przed zapisem). */
+  dry_run?: boolean;
+}
+
+export interface BulkResult {
+  done: number[];
+  skipped: Partial<Record<BulkSkip, number>>;
+}
+
+/** „Zaznacz wszystkie z filtra”: id rekordów Tabeli z tymi samymi filtrami. */
+export async function fetchRecordIds(
+  filters: CallRecordFilters,
+): Promise<{ ids: number[]; truncated: boolean }> {
+  return (
+    await api.get<{ ids: number[]; truncated: boolean }>("/api/sales/calling/record-ids", {
+      params: recordFilterParams(filters),
+    })
+  ).data;
+}
+
+export function useBulkRecords() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: BulkInput) =>
+      (await api.post<BulkResult>("/api/sales/calling/records/bulk", input)).data,
+    onSuccess: (_result, input) => {
+      if (!input.dry_run) void invalidate();
+    },
   });
 }
 
