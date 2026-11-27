@@ -1520,6 +1520,14 @@
    "v3_home": "Okno QC CV → karta „…jest w CV, a nie ma tego w oryginale” → „Potwierdzone z kandydatem”"
   },
   {
+   "id": "board.cv-qc-confirmation-fix",
+   "area": "pipeline",
+   "opis": "„Popraw” i „Cofnij” przy wpisie „Potwierdzone z kandydatem” (27.11.2026): autor albo admin, ta rekrutacja, do „CV wysłane”; „Popraw” zmienia blokadę (z tych, które QC zgłasza), zdanie i rolę w tej samej notatce, „Cofnij” pyta i usuwa wpis; QC przelicza się od razu — w oknie QC i w panelu edytora CV",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "ConfirmationEditForm",
+   "v3_home": "Okno QC CV albo edytor CV → „Potwierdzone z kandydatem” → „Popraw” / „Cofnij”"
+  },
+  {
    "id": "dock.screening-answers",
    "area": "panel",
    "opis": "Pytania i odpowiedzi z zapisanego screeningu pod wynikiem w doku osoby (z pominiętymi, „sprawdzone w rozmowie” i notatkami) — ten sam renderer odpowiedzi co w profilu kandydata; od 09.10.2026 w widoku „Screening”",
