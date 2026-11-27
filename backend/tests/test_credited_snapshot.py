@@ -368,6 +368,13 @@ async def test_every_consumer_counts_the_same_as_the_full_cte():
             date(2027, 7, 1),
             date(2027, 7, 31),
         )
+        # Insights → Zespół (27.11.2026): kolumna Weryfikacje jak cele.
+        from app.analytics.periods import resolve_period
+        from app.api import insights_team
+
+        await insights_team._credited_verifications(
+            db, resolve_period("month", anchor=date(2027, 7, 1))
+        )
 
         head = people["head"]
         for metric in ("verification", "recommendation", "acceptance", "placement"):

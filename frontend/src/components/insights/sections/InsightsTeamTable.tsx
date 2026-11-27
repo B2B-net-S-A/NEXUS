@@ -123,6 +123,17 @@ export function sortRows(
  *    „był(a) w zespole" i liczy się normalnie. Wycięcie go kasowałoby wstecz
  *    wyniki, które ta osoba osiągnęła w tym oknie.
  */
+/** Wiersz pod tabelą: pary z lejka, które nie liczą się do celów KPI. */
+export const KPI_EXCLUDED_LABEL = "Poza celami KPI";
+
+/**
+ * `+N` albo `−N`. Kubełek `kpi_excluded` to różnica lejek − `credited`; przy
+ * granicy okna bywa ujemna i wtedy też ma się zgadzać z „Łącznie”.
+ */
+function signedCount(value: number): string {
+  return value < 0 ? `−${count(-value)}` : `+${count(value)}`;
+}
+
 /** Ile wierszy tabeli widać przed „Pokaż wszystkich". */
 export const TEAM_TABLE_COLLAPSED_ROWS = 10;
 
@@ -378,6 +389,21 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                       </td>
                     ))}
                   </tr>
+                  {totals.kpi_excluded ? (
+                    <tr className="text-muted-foreground">
+                      <td className="py-2 pr-3 text-xs" colSpan={2}>
+                        {KPI_EXCLUDED_LABEL}
+                      </td>
+                      {METRIC_KEYS.map((key) => (
+                        <td
+                          key={key}
+                          className="px-2 py-2 text-right text-xs tabular-nums"
+                        >
+                          {signedCount(totals.kpi_excluded?.[key] ?? 0)}
+                        </td>
+                      ))}
+                    </tr>
+                  ) : null}
                   <tr className="border-t border-border/50 text-foreground">
                     <td className="py-2 pr-3 text-xs font-medium" colSpan={2}>
                       Łącznie (zgodne z lejkiem)
@@ -418,8 +444,11 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
               dlatego suma widocznych wierszy bywa mniejsza niż liczba z lejka.
               Konta administracyjne (bez roli rekrutacyjnej) stoją jednym
               wierszem pod tabelą — jak w Hall of Fame. Liczone: pierwsze
-              wejście pary (kandydat, rekrutacja) na etap, przypisane osobie,
-              która przesunęła kandydata.
+              wejście pary (kandydat, rekrutacja) na etap. Weryfikacje są
+              przypisane jak w celach i Lidze (zasługa weryfikatora albo osoba
+              z „Prowadzi”); „Poza celami KPI” to pary z lejka, które nie liczą
+              się do celów nikomu. Pozostałe kolumny — osobie, która
+              przesunęła kandydata.
             </span>
           </p>
         </>

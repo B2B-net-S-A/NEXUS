@@ -629,3 +629,102 @@ async def test_anchored_average_uses_the_same_attribution_as_my_month(
     assert average["attribution"] == "verifier_anchored"
     assert average["people"] == 2
     assert average["recommendations"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_verifications_follow_credited_like_goals_and_reconcile_with_the_funnel(
+    fx_app: AsyncClient, fx_login: AsyncClient
+):
+    """Weryfikacje liczą się jak cele i Liga (`credited`), decyzja z 27.11.2026.
+
+    Para z „Prowadzi” innym niż osoba, która kliknęła, daje weryfikację
+    prowadzącemu. Para w procesie wyłączonym z KPI nie liczy się nikomu,
+    ale lejek ją widzi — dlatego stoi w ``totals.kpi_excluded`` i suma
+    kolumny dalej zgadza się z lejkiem.
+    """
+    from sqlalchemy import text
+
+    from app.models.candidate_job_owner import CandidateJobOwner
+    from app.models.recruitment_priority import PriorityOriginKind
+    from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+
+    day = _next_window()
+    clicker_id, email, password = await _seed_user(UserRole.recruiter)
+    owner_id, _, _ = await _seed_user(UserRole.recruiter)
+
+    owned_c, owned_j = await _seed_pair()
+    await _seed_stage(
+        candidate_id=owned_c,
+        job_id=owned_j,
+        stage=PipelineStage.verified,
+        moved_at=_at(day),
+        moved_by=clicker_id,
+    )
+    excluded_c, excluded_j = await _seed_pair()
+    await _seed_stage(
+        candidate_id=excluded_c,
+        job_id=excluded_j,
+        stage=PipelineStage.verified,
+        moved_at=_at(day),
+        moved_by=clicker_id,
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateJobOwner(
+                candidate_id=owned_c,
+                job_id=owned_j,
+                owner_user_id=owner_id,
+                reason="test",
+            )
+        )
+        db.add(
+            RecruitmentProcess(
+                candidate_id=excluded_c,
+                job_id=excluded_j,
+                attempt_no=1,
+                status=ProcessStatus.open,
+                origin_kind=PriorityOriginKind.assigned,
+                opened_at=_at(day) - timedelta(hours=1),
+                kpi_eligible=False,
+                credit_user_id=clicker_id,
+            )
+        )
+        await db.commit()
+        # Lejek org-level liczy `analytics_kpi_milestones` w tym samym oknie.
+        funnel_verified = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM analytics_kpi_milestones "
+                    "WHERE stage::text = 'verified' "
+                    "AND first_reached_at >= :start AND first_reached_at < :end"
+                ),
+                {
+                    "start": _at(day) - timedelta(hours=12),
+                    "end": _at(day) + timedelta(hours=12),
+                },
+            )
+        ).scalar_one()
+    assert funnel_verified == 2
+
+    headers = await _headers(fx_login, email, password)
+    body = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
+
+    rows = {r["user_id"]: r for r in body["rows"]}
+    assert rows[owner_id]["verifications"] == 1
+    assert clicker_id not in rows
+    totals = body["totals"]
+    assert totals["attributed"]["verifications"] == 1
+    assert totals["kpi_excluded"] == {
+        "verifications": 1,
+        "recommendations": 0,
+        "interviews": 0,
+        "placements": 0,
+    }
+    for key in ("verifications", "recommendations", "interviews", "placements"):
+        assert totals["all"][key] == (
+            totals["attributed"][key]
+            + totals["outside_scope"][key]
+            + totals["unattributed"][key]
+            + totals["kpi_excluded"][key]
+        ), key
+    assert totals["all"]["verifications"] == funnel_verified

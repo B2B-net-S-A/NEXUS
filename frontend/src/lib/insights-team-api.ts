@@ -16,7 +16,10 @@ export interface TeamTableColumn {
   /** Klucz pola w wierszu (`verifications`, `recommendations`, …). */
   key: TeamTableMetricKey;
   label: string;
-  /** Etap w `analytics_first_milestones`, z którego liczona jest kolumna. */
+  /**
+   * Etap, z którego liczona jest kolumna. Weryfikacje z `credited` (jak cele),
+   * pozostałe z `analytics_kpi_milestones` (kto przesunął kartę).
+   */
   stage: string;
 }
 
@@ -62,7 +65,14 @@ export interface TeamTableTotals {
   outside_scope?: TeamTableCounts;
   outside_scope_users?: number;
   outside_scope_label?: string;
-  /** `attributed + outside_scope + unattributed` — zgodne z lejkiem. */
+  /**
+   * Pary z lejka, które nie liczą się do celów KPI (27.11.2026): kolumna
+   * Weryfikacje liczy się jak cele i Liga (`credited`), lejek liczy każde
+   * pierwsze wejście pary. Różnica lejek − `credited`, tylko w weryfikacjach;
+   * pozostałe kolumny 0. Brak pola = odpowiedź sprzed wdrożenia.
+   */
+  kpi_excluded?: TeamTableCounts;
+  /** `attributed + outside_scope + unattributed + kpi_excluded` — zgodne z lejkiem. */
   all: TeamTableCounts;
   users: number;
   former_employees: number;

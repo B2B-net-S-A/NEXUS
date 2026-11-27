@@ -137,6 +137,14 @@
       "reason": "{unit} z zamkniętego słownika week/month/quarter, klucz z Query pattern ^(week|month|quarter)$; limit (int, ge/le) przez bind (:limit)."
     },
     {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/api/insights_team.py",
+      "line": 325,
+      "fingerprint": "c2b44d52762d96f8",
+      "status": "zweryfikowane",
+      "reason": "Doklejany CREDITED_FROM_SNAPSHOT_CTE to stały literał z placeholderami :credited_*; etap, okno i tablice migawki przez bind (:stage, :start, :end, credited_bind)."
+    },
+    {
       "rule": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
       "path": "backend/app/api/insights_work_rhythm.py",
       "line": 106,
