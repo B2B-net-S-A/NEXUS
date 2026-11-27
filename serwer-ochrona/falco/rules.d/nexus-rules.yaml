@@ -26,8 +26,12 @@
 - macro: nexus_wazuh_agent
   condition: (proc.name in (wazuh-modulesd, wazuh-syscheckd) and proc.exepath startswith /var/ossec/bin/)
 
+# Microsoft Defender for Endpoint (wdavdaemon) skanuje te same pliki (decyzja Artura 27.11: waski wyjatek).
+- macro: nexus_defender_agent
+  condition: (proc.name = wdavdaemon and proc.exepath startswith /opt/microsoft/mdatp/)
+
 - rule: Read sensitive file untrusted
-  condition: and not nexus_wazuh_agent
+  condition: and not nexus_wazuh_agent and not nexus_defender_agent
   override:
     condition: append
 
@@ -41,6 +45,7 @@
     open_read and (fd.name = /data/coolify/source/.env or fd.name startswith /data/coolify/ssh/keys/
     or fd.name = /root/.ssh/authorized_keys or fd.name startswith /data/coolify/applications/)
     and not proc.name in (nexus_secret_readers) and not nexus_wazuh_agent
+    and not nexus_defender_agent
   output: >
     Odczyt pliku z sekretami (plik=%fd.name proces=%proc.name rodzic=%proc.pname
     uzytkownik=%user.name kontener=%container.name cmd=%proc.cmdline)
