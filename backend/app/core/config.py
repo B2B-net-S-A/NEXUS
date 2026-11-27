@@ -1876,7 +1876,8 @@ class Settings(BaseSettings):
     KSEF_SALES_ISSUE_TOKEN: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
-    # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
+    # test = wykazpodatnikowvat-test.mf.gov.pl, live = wykazpodatnikowvat.mf.gov.pl
+    # (`app/services/mf_white_list_hosts.py`; stary wl-api.mf.gov.pl do 1.12.2026).
     WHITE_LIST_MODE: str = "off"
     # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
     # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.
