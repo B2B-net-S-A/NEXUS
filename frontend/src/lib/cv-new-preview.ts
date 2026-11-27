@@ -183,8 +183,11 @@ function wrappedLines(lines: readonly PdfLine[], start: PdfLine, { key, full }: 
   return out;
 }
 
+/** Porównanie bez spacji: sklejenie fragmentów daje „it , w” po pogrubieniu tuż przed przecinkiem. */
 function matches(line: PdfLine, key: string): boolean {
-  return line.text.includes(key) || (line.text.length >= 10 && key.startsWith(line.text));
+  const text = compact(line.text);
+  const wanted = compact(key);
+  return text.includes(wanted) || (text.length >= 10 && wanted.startsWith(text));
 }
 
 /**

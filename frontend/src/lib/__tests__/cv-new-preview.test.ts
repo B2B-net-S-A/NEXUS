@@ -109,6 +109,21 @@ describe("gdzie na stronie stoi blok", () => {
     expect(found?.box).toEqual({ x0: 50, y0: 648, x1: 510, y1: 710 });
   });
 
+  it("pogrubienie tuż przed przecinkiem nie gubi punktu (staging 27.11.2026)", () => {
+    // pdf.js daje „12 lat w IT” i „, w branży…” osobno; sklejenie wstawia spację przed przecinkiem.
+    const lines = textLines([
+      item("12 lat w IT", 50, 700, 50),
+      item(", w branży oprogramowania motoryzacyjnego i gier komputerowych", 100, 700, 300),
+      item("Specjalizacja: SAFe, Scrum, Kanban", 50, 680, 200),
+    ]);
+    const found = findBlock(lines, [
+      "**12 lat w IT**, w branży oprogramowania motoryzacyjnego i gier komputerowych.",
+      "Specjalizacja: SAFe, Scrum, Kanban",
+    ]);
+    expect(found?.hits).toBe(2);
+    expect(found?.box).toEqual({ x0: 50, y0: 680, x1: 400, y1: 710 });
+  });
+
   it("zawinięcie z przeniesieniem wyrazu i bez cudzej linii pod punktem", () => {
     const lines = textLines([
       item("Rozwój mikroserwisów płatności w Ja-", 50, 700, 200),
