@@ -9,6 +9,7 @@
 import type { CvDismissedIssue, CvEditorIssuesApi, CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
 import type {
   QcCheck,
+  QcConfirmBody,
   QcConfirmation,
   QcDismissal,
   QcDismissReason,
@@ -400,6 +401,22 @@ function withDismissals(checks: QcCheck[], dismissed: ReadonlyMap<string, QcDism
   });
 }
 
+/** Wpis „Potwierdzone z kandydatem” jak z serwera — autor to oglądający. */
+function memoryConfirmation(id: number, body: QcConfirmBody): QcConfirmation {
+  const role = body.role ? ` (${body.role})` : "";
+  return {
+    id,
+    text: `Potwierdzone z kandydatem: ${body.term}${role} — ${body.text}`,
+    term: body.term,
+    role: body.role ?? null,
+    said: body.text,
+    by_name: "Marta Testowa",
+    at: new Date().toISOString(),
+    edited_at: null,
+    can_edit: true,
+  };
+}
+
 export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant): CvEditorIssuesApi {
   const confirmed = new Set<string>();
   const confirmations: QcConfirmation[] = [];
@@ -492,11 +509,26 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
     fixes: async () => ({ status: "ok", cached: false, fixes: [KAFKA_FIX] }),
     confirm: async (_stageId, body) => {
       confirmed.add(body.term);
-      confirmations.unshift({
-        text: body.text ? `${body.term}: ${body.text}` : `${body.term} — potwierdzone z kandydatem`,
-        by_name: "Marta Testowa",
-        at: new Date().toISOString(),
-      });
+      confirmations.unshift(memoryConfirmation(nextId++, body));
+      return result();
+    },
+    editConfirmation: async (_stageId, noteId, body) => {
+      const index = confirmations.findIndex((item) => item.id === noteId);
+      if (index >= 0) {
+        const before = confirmations[index];
+        if (before.term) confirmed.delete(before.term);
+        confirmed.add(body.term);
+        confirmations[index] = { ...memoryConfirmation(noteId, body), at: before.at, edited_at: new Date().toISOString() };
+      }
+      return result();
+    },
+    retractConfirmation: async (_stageId, noteId) => {
+      const index = confirmations.findIndex((item) => item.id === noteId);
+      if (index >= 0) {
+        const term = confirmations[index].term;
+        if (term) confirmed.delete(term);
+        confirmations.splice(index, 1);
+      }
       return result();
     },
     transform: async (_stageId, body) => {

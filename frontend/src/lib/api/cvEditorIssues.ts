@@ -64,6 +64,9 @@ export interface CvEditorIssuesApi {
   fixes: (stageId: number) => Promise<QcFixesResponse>;
   transform: (stageId: number, body: QcTransformBody) => Promise<QcTransformResult>;
   confirm: (stageId: number, body: QcConfirmBody) => Promise<QcResult>;
+  /** „Popraw” / „Cofnij” wpisu „Potwierdzone z kandydatem” — świeży wynik QC. */
+  editConfirmation: (stageId: number, noteId: number, body: QcConfirmBody) => Promise<QcResult>;
+  retractConfirmation: (stageId: number, noteId: number) => Promise<QcResult>;
   /** „To nieprawda” przy uwadze QC — świeży wynik QC. */
   dismiss: (stageId: number, body: QcDismissBody) => Promise<QcResult>;
   restore: (stageId: number, dismissalId: number) => Promise<QcResult>;
@@ -83,6 +86,10 @@ export const networkIssuesApi: CvEditorIssuesApi = {
   transform: (stageId, body) =>
     api.post<QcTransformResult>(`${qcPath(stageId)}/transform`, body).then((r) => r.data),
   confirm: (stageId, body) => api.post<QcResult>(`${qcPath(stageId)}/confirm`, body).then((r) => r.data),
+  editConfirmation: (stageId, noteId, body) =>
+    api.patch<QcResult>(`${qcPath(stageId)}/confirm/${noteId}`, body).then((r) => r.data),
+  retractConfirmation: (stageId, noteId) =>
+    api.delete<QcResult>(`${qcPath(stageId)}/confirm/${noteId}`).then((r) => r.data),
   dismiss: (stageId, body) => api.post<QcResult>(`${qcPath(stageId)}/dismiss`, body).then((r) => r.data),
   restore: (stageId, dismissalId) =>
     api.post<QcResult>(`${qcPath(stageId)}/dismissals/${dismissalId}/restore`).then((r) => r.data),

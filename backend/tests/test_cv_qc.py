@@ -4592,6 +4592,220 @@ async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
         await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
 
 
+CONFIRM_FIX_ACTIONS = ("cv_qc_confirmation_edited", "cv_qc_confirmation_retracted")
+# Słowa kandydata o Terraformie bez nazwy blokady: QC czyta treść notatki jako
+# źródło, więc nazwa w zdaniu sama zamknęłaby blokadę.
+SAID = "Infrastruktura jako kod w Acme Bank, moduły AWS"
+
+
+@pytest.mark.asyncio
+async def test_confirmation_saved_under_the_wrong_blocker_can_be_moved_and_retracted(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zgłoszenie rekrutera 27.11.2026: dwie blokady, słowa kandydata wpisane
+    pod niewłaściwą. „Popraw” przenosi potwierdzenie na drugą blokadę (ta sama
+    notatka), „Cofnij” je usuwa i blokada wraca. Cudzego wpisu rekruter nie
+    zmieni, a po „CV wysłane” nie zmieni nikt."""
+    from app.models.job import Job
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    other_id, other_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    other = await _login(api_client, other_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    # Dwie blokady: „Spring” i „Terraform” stoją w CV, oryginał o nich milczy.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.must_skills = ["Java", "Spring", "Terraform"]
+        csv = await db.scalar(
+            select(CandidateStageCV).where(
+                CandidateStageCV.candidate_stage_id == stage_id
+            )
+        )
+        csv.branded_draft_html = BRANDED_HTML.replace(
+            "i Spring.", "i Spring, Terraform."
+        )
+        await db.commit()
+    qc_url = f"/api/pipeline/stages/{stage_id}/qc"
+
+    def unsupported(body: dict) -> list[str]:
+        check = next(c for c in body["checks"] if c["key"] == "no_unsupported")
+        if check["status"] != "fail":
+            return []
+        return sorted(i["term"] for i in check["items"])
+
+    try:
+        with hydrated_taxonomy():
+            before = (await api_client.get(qc_url, headers=rec)).json()
+        assert unsupported(before) == ["Spring", "Terraform"]
+
+        # Pomyłka: słowa o Terraformie zapisane pod „Spring”.
+        with hydrated_taxonomy():
+            wrong = await api_client.post(
+                f"{qc_url}/confirm",
+                headers=rec,
+                json={"term": "spring", "text": SAID},
+            )
+        assert wrong.status_code == 200, wrong.text
+        assert unsupported(wrong.json()) == ["Terraform"]
+        (saved,) = wrong.json()["confirmations"]
+        assert saved["term"] == "Spring" and saved["role"] is None
+        assert saved["said"] == SAID
+        assert saved["can_edit"] is True
+        note_id = saved["id"]
+        item_url = f"{qc_url}/confirm/{note_id}"
+
+        # Drugi rekruter widzi wpis, ale go nie zmieni.
+        with hydrated_taxonomy():
+            seen = (await api_client.get(qc_url, headers=other)).json()
+            foreign_edit = await api_client.patch(
+                item_url,
+                headers=other,
+                json={"term": "terraform", "text": SAID},
+            )
+            foreign_retract = await api_client.delete(item_url, headers=other)
+        assert seen["confirmations"][0]["can_edit"] is False
+        assert foreign_edit.status_code == 403
+        assert foreign_retract.status_code == 403
+
+        # Blokada, której QC nie zgłasza, i zdanie bez słów kandydata — 422.
+        with hydrated_taxonomy():
+            stranger = await api_client.patch(
+                item_url,
+                headers=rec,
+                json={"term": "Kafka", "text": "Kafka w Acme Bank od 2021 roku"},
+            )
+            bare = await api_client.patch(
+                item_url, headers=rec, json={"term": "terraform", "text": "tak"}
+            )
+        assert stranger.status_code == 422
+        assert stranger.json()["detail"]["code"] == "CV_QC_CONFIRM_EDIT_FAILED"
+        assert bare.status_code == 422
+
+        # „Popraw”: ta sama notatka przechodzi na „Terraform”, „Spring” wraca.
+        with hydrated_taxonomy():
+            moved = await api_client.patch(
+                item_url,
+                headers=rec,
+                json={"term": "terraform", "text": SAID},
+            )
+        assert moved.status_code == 200, moved.text
+        assert unsupported(moved.json()) == ["Spring"]
+        (fixed,) = moved.json()["confirmations"]
+        assert fixed["id"] == note_id and fixed["term"] == "Terraform"
+        assert fixed["text"] == (f"Potwierdzone z kandydatem: Terraform — {SAID}")
+        async with AsyncSessionLocal() as db:
+            note = await db.get(Note, note_id)
+            assert note.author_id == rec_id
+            assert note.external_source == note_kinds.QC_CONFIRM_SOURCE
+
+        # Po „CV wysłane” wpis jest śladem wysyłki: bez przycisków i 422.
+        async def sent(*_args, **_kwargs) -> bool:
+            return True
+
+        monkeypatch.setattr(qc, "confirmations_locked", sent)
+        with hydrated_taxonomy():
+            locked_view = (await api_client.get(qc_url, headers=rec)).json()
+            locked = await api_client.delete(item_url, headers=rec)
+        assert locked_view["confirmations"][0]["can_edit"] is False
+        assert locked.status_code == 422
+        monkeypatch.undo()
+        monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+
+        # „Cofnij”: notatka znika, obie blokady wracają.
+        with hydrated_taxonomy():
+            retracted = await api_client.delete(item_url, headers=rec)
+        assert retracted.status_code == 200, retracted.text
+        assert unsupported(retracted.json()) == ["Spring", "Terraform"]
+        assert retracted.json()["confirmations"] == []
+        async with AsyncSessionLocal() as db:
+            assert await db.get(Note, note_id) is None
+            actions = (
+                await db.scalars(
+                    select(Activity.action).where(
+                        Activity.entity_type == "candidate_stage",
+                        Activity.entity_id == stage_id,
+                        Activity.action.in_(CONFIRM_FIX_ACTIONS),
+                    )
+                )
+            ).all()
+        assert sorted(actions) == sorted(CONFIRM_FIX_ACTIONS)
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "candidate_stage",
+                    Activity.entity_id == stage_id,
+                    Activity.action.in_(CONFIRM_FIX_ACTIONS),
+                )
+            )
+            await db.commit()
+        await _cleanup_advisory(world, stage_id, [hor_id, rec_id, other_id])
+
+
+@pytest.mark.parametrize(
+    ("text", "roles", "expected"),
+    [
+        (
+            "Potwierdzone z kandydatem: Solution Architecture (Health24) — "
+            "Zaprojektowałem architekturę — od zera",
+            ["Health24"],
+            (
+                "Solution Architecture",
+                "Health24",
+                "Zaprojektowałem architekturę — od zera",
+            ),
+        ),
+        # Nawias bez firmy z historii to część nazwy blokady.
+        (
+            "Potwierdzone z kandydatem: CI/CD (Jenkins) — pipeline'y w Jenkinsie",
+            ["Health24"],
+            ("CI/CD (Jenkins)", None, "pipeline'y w Jenkinsie"),
+        ),
+        (
+            "Potwierdzone z kandydatem: risk management",
+            [],
+            ("risk management", None, ""),
+        ),
+    ],
+)
+def test_confirmation_parts_read_back_what_the_note_saved(
+    text, roles, expected
+) -> None:
+    parts = qc.confirmation_parts(text, roles)
+    assert (parts["term"], parts["role"], parts["said"]) == expected
+    term, role, said = expected
+    assert qc.confirmation_content(term, role, said) == text
+
+
+def test_only_the_author_or_an_admin_edits_a_confirmation_before_sending() -> None:
+    from types import SimpleNamespace
+
+    def user(uid: int, *roles: UserRole) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=uid, has_any_role=lambda *want: bool(set(want) & set(roles))
+        )
+
+    item = {"id": 5, "author_id": 7, "job_id": 3}
+    author, stranger = user(7, UserRole.recruiter), user(8, UserRole.recruiter)
+    admin = user(9, UserRole.admin)
+    assert qc.can_edit_confirmation(item, user=author, job_id=3, locked=False)
+    assert qc.can_edit_confirmation(item, user=admin, job_id=3, locked=False)
+    assert not qc.can_edit_confirmation(item, user=stranger, job_id=3, locked=False)
+    # Wpis z innej rekrutacji tej osoby i wpis po „CV wysłane” — bez przycisków.
+    assert not qc.can_edit_confirmation(item, user=author, job_id=4, locked=False)
+    assert not qc.can_edit_confirmation(item, user=author, job_id=3, locked=True)
+    assert not qc.can_edit_confirmation(
+        {**item, "id": None}, user=author, job_id=3, locked=False
+    )
+
+
 @pytest.mark.asyncio
 async def test_override_confirmed_in_call_saves_confirmations(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
@@ -6623,9 +6837,12 @@ def test_cv_role_dates_ending_today_count_to_this_month(word: str) -> None:
     today = date(2026, 11, 15)
     est = qc.estimate_years(_blocks(html), [], today=today)
     assert est.cv is not None and round(est.cv * 12) == 45
-    assert qc.experience_years(
-        [{"company": "A", "start": "2023-03", "end": word}], today=today
-    ) == est.cv
+    assert (
+        qc.experience_years(
+            [{"company": "A", "start": "2023-03", "end": word}], today=today
+        )
+        == est.cv
+    )
 
 
 @pytest.mark.parametrize("word", ["currently", "ongoing", "aktualnie", "do dziś"])

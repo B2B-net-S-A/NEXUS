@@ -86,6 +86,7 @@ import {
   type QcFixesResponse,
   type QcItem,
   type QcConfirmBody,
+  type QcConfirmationFix,
   type QcResult,
   type QcTransformSkipped,
 } from "@/lib/api/cvQc";
@@ -558,6 +559,13 @@ export function CvEditorIssues({
     mutationFn: (body: QcConfirmBody) => api.confirm(stageKey, body),
     onSuccess: storeQc,
   });
+  const confirmationFix = useMutation({
+    mutationFn: (fix: QcConfirmationFix) =>
+      fix.kind === "edit"
+        ? api.editConfirmation(stageKey, fix.id, fix.body)
+        : api.retractConfirmation(stageKey, fix.id),
+    onSuccess: storeQc,
+  });
   const dismissQc = useMutation({
     mutationFn: (body: QcDismissBody) => api.dismiss(stageKey, body),
     onSuccess: storeQc,
@@ -627,6 +635,30 @@ export function CvEditorIssues({
             }),
           confirming: confirm.isPending,
           confirmRoles: qc?.confirm_roles ?? [],
+          confirmationFix: {
+            edit: (id, body, onSaved) =>
+              confirmationFix.mutate(
+                { kind: "edit", id, body },
+                {
+                  onSuccess: () => {
+                    showSuccess("Potwierdzenie poprawione — QC przeliczone.");
+                    onSaved?.();
+                  },
+                  onError: (error) =>
+                    showError(apiErrorMessage(error, "Nie udało się poprawić potwierdzenia. Spróbuj ponownie.")),
+                },
+              ),
+            retract: (id) =>
+              confirmationFix.mutate(
+                { kind: "retract", id },
+                {
+                  onSuccess: () => showSuccess("Potwierdzenie cofnięte — QC przeliczone."),
+                  onError: (error) =>
+                    showError(apiErrorMessage(error, "Nie udało się cofnąć potwierdzenia. Spróbuj ponownie.")),
+                },
+              ),
+            pending: confirmationFix.isPending,
+          },
           // Zdanie AI stoi w wierszu swojej uwagi (17.10.2026) — nie ma dokąd przewijać.
           requestAiFixes: () => undefined,
           copyQuestion: (item) => {
@@ -1077,7 +1109,7 @@ export function CvEditorIssues({
             <CandidateGaps items={list.gaps} />
             {ctx ? <MutedChecks checks={list.muted} ctx={ctx} /> : null}
             <GeneratorInfo items={list.info} />
-            {ctx ? <Confirmations items={qc?.confirmations ?? []} /> : null}
+            {ctx ? <Confirmations items={qc?.confirmations ?? []} ctx={ctx} /> : null}
           </section>
         ) : null}
         {ctx ? <PassedChecks passed={list.passed} skipped={list.skipped} ctx={ctx} /> : null}
