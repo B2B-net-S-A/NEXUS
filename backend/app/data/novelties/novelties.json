@@ -5819,7 +5819,7 @@
   },
   {
     "id": "krz-przed-podpisem-umowy",
-    "pr": 0,
+    "pr": 4145,
     "title": "Krajowy Rejestr Zadłużonych przed podpisem umowy B2B",
     "why": "Przed podpisem sprawdzasz Partnera w KRZ: NEXUS otwiera rejestr z NIP-em albo PESEL-em, a Ty zaznaczasz wynik. Bez wyniku umowa nie idzie do podpisu, a wpis rozstrzyga DL.",
     "tier": "dot",
