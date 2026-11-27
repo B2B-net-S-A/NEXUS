@@ -132,9 +132,7 @@ async def list_md_imports(
     db: AsyncSession = Depends(get_db),
     page: PageQuery = 1,
     page_size: int = Query(50, ge=1, le=200),
-    period_month: Optional[str] = Query(
-        None, pattern=r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"
-    ),
+    period_month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
 ) -> dict:
     """Partie importu raportów MD — od najnowszej."""
     query = select(MdConsumptionImport)
@@ -195,7 +193,7 @@ async def create_md_import(
     caller: MdWrite,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(..., description="Raport MD w formacie XLSX."),
-    period_month: str = Form(..., pattern=r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"),
+    period_month: str = Form(..., pattern=r"^\d{4}-\d{2}$"),
     dry_run: bool = Query(False, description="Przelicz bez zapisu."),
     force: bool = Query(
         False, description="Zaimportuj mimo identycznego pliku za ten miesiąc."

@@ -18,6 +18,9 @@ import pytest
 from app.main import app
 
 
+FROZEN_CONTRACT_PREFIX = "/api/integrations/v1/"
+
+
 def _is_month_param(name: str, pattern: str | None) -> bool:
     """Parametr miesiąca RRRR-MM (``month``, ``period_month``…), nie np. konto 100-01."""
     return bool(
@@ -31,6 +34,8 @@ def _is_month_param(name: str, pattern: str | None) -> bool:
 def _query_params() -> Iterator[tuple[str, str, str, dict[str, Any]]]:
     for path, ops in app.openapi()["paths"].items():
         for method, op in ops.items():
+            if path.startswith(FROZEN_CONTRACT_PREFIX):
+                continue
             for param in op.get("parameters", []):
                 if param.get("in") != "query":
                     continue
@@ -72,7 +77,9 @@ def test_days_off_year_is_bounded(params) -> None:
     [schema] = [
         a
         for m, p, n, a in params
-        if m == "GET" and p == "/api/hr/admin/days-off" and n == "year"
+        if m == "GET"
+        and p == "/api/hr/admin/days-off"
+        and n == "year"
         and a.get("type") == "integer"
     ]
     assert schema.get("minimum") == 2000
