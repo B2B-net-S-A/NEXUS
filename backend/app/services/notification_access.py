@@ -58,6 +58,7 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.automation_failing,
         NotificationType.teams_prep_scope_missing,
         NotificationType.hr_m365_scope_missing,
+        NotificationType.security_routine_overdue,
     }
 )
 

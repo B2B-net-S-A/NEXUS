@@ -4153,6 +4153,9 @@
    "talent_community_manager+contracts_orders_edit",
    "talent_community_manager+recruiter"
   ],
+  "security_routine_overdue": [
+   "admin"
+  ],
   "settlement_feedback": [
    "admin",
    "automation",

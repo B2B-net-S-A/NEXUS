@@ -119,6 +119,7 @@ def kind_clause(kind: str):
             [
                 NotificationType.automation_failing,
                 NotificationType.teams_prep_scope_missing,
+                NotificationType.security_routine_overdue,
                 NotificationType.hr_m365_scope_missing,
             ]
         )
