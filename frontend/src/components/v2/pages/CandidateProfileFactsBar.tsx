@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
+  Building2,
   Globe2,
   CalendarClock,
   Check,
@@ -16,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Truck,
   WalletCards,
 } from "lucide-react";
 import { activeProcessesQueryKey, rateChangesApi } from "@/lib/rate-change";
@@ -106,6 +108,12 @@ import {
 import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistoryDialog";
 import api from "@/lib/api";
 import { notesAvailabilityOrigin } from "@/lib/notes-facts";
+import {
+  commutePreferences,
+  commuteSourceLine,
+  occasionalCommuteLine,
+  relocationLine,
+} from "@/lib/commute-preferences";
 import {
   availabilityContractNote,
   contractAvailability,
@@ -1977,6 +1985,15 @@ export function CandidateProfileFactsBar({
     candidate.max_onsite_days_per_week,
   );
   const workModeLabel = formatWorkMode(workMode.modes, workMode.days);
+  // Karta dojazdu (wariant D, 27.11.2026): „Mieszka”, „Biuro”, „Przeprowadzka”
+  // i źródło pod nimi. Wiersz bez danych znika — „nie pytano” nic nie mówi.
+  const commute = commutePreferences(candidate.preferences);
+  const livesIn = candidate.city?.trim() ? canonicalLocation : "";
+  const officeLine = commute.officeCities.join(", ");
+  const occasionalLine = occasionalCommuteLine(commute.occasionalCommute);
+  const relocation = relocationLine(commute.relocation);
+  const commuteSource =
+    officeLine || occasionalLine || relocation ? commuteSourceLine(candidate.preferences) : null;
   const rateLabel = rateFactLabel(candidate, rateQuery.data?.data.updated_at);
   const verifiedLabel = callFactsVerifiedLabel(candidate);
   const callFacts = callFactItems(candidate);
@@ -2162,7 +2179,10 @@ export function CandidateProfileFactsBar({
           muted={!workModeLabel && !location}
           origin={workModeOrigin}
         >
-          {[workModeLabel, location].filter(Boolean).join(" · ") || "Nie uzupełniono"}
+          {/* Miasto stoi w „Mieszka” — tu tylko, gdy tamtego wiersza nie ma. */}
+          {[workModeLabel, livesIn && location === livesIn ? null : location]
+            .filter(Boolean)
+            .join(" · ") || "Nie uzupełniono"}
         </FactShell>
       ) : (
       <>
@@ -2200,6 +2220,41 @@ export function CandidateProfileFactsBar({
       </FactShell>
       </>
       )}
+
+      {compact && livesIn ? (
+        <FactShell icon={<MapPin className="size-4" />} label="Mieszka">
+          {livesIn}
+        </FactShell>
+      ) : null}
+      {proposal && (officeLine || occasionalLine) ? (
+        <FactShell icon={<Building2 className="size-4" />} label="Biuro">
+          <span data-testid="fact-office-cities">{officeLine || null}</span>
+          {occasionalLine ? (
+            <span
+              className={cn(
+                "block text-xs leading-4",
+                officeLine ? "font-normal text-muted-foreground" : "",
+              )}
+              data-testid="fact-occasional-commute"
+            >
+              {officeLine ? occasionalLine : occasionalLine.replace(/^i/, "I")}
+            </span>
+          ) : null}
+        </FactShell>
+      ) : null}
+      {proposal && relocation ? (
+        <FactShell icon={<Truck className="size-4" />} label="Przeprowadzka">
+          {relocation}
+        </FactShell>
+      ) : null}
+      {proposal && commuteSource ? (
+        <p
+          className="pb-1 text-[11px] leading-4 text-muted-foreground"
+          data-testid="fact-commute-source"
+        >
+          {commuteSource}
+        </p>
+      ) : null}
 
       {languagesQuery.isPending ? (
         <FactLoading label="Języki" />

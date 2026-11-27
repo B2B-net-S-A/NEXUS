@@ -59,7 +59,10 @@ import {
   fetchPairMeetings,
   type PairMeetingsChoice,
 } from "@/lib/api/pairMeetings";
-import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  rejectionWorkModeMoveFields,
+  type RejectionWorkModeChoice,
+} from "@/components/v2/modals/RejectionWorkModeField";
 import {
   rejectionRateMoveFields,
   type RejectionRateChoice,
@@ -843,10 +846,7 @@ export function usePipelineMove({
           rejection_email_body: reason?.emailText?.body,
           rejection_email_other_processes: reason?.emailText?.otherProcesses,
           rejection_email_merge: reason?.emailText?.merge,
-          work_mode_max_onsite_days: reason?.workMode?.maxOnsiteDays ?? undefined,
-          work_mode_save_to_profile: reason?.workMode
-            ? reason.workMode.saveToProfile
-            : undefined,
+          ...rejectionWorkModeMoveFields(reason?.workMode),
           ...autofillMoveFields(reason?.autofill),
           ...rejectionRateMoveFields(reason?.rate),
           not_looking_until: reason?.notLookingUntil ?? undefined,

@@ -46,7 +46,8 @@ a trzy najczęstsze powody danej osoby z 30 dni to średnio 57% jej odrzuceń.
   powodem (`QUICK_REJECT_OPENS_WINDOW`, prop `initialReasonKey` okna, chip
   z wielokropkiem). Okno pyta wtedy o nową stawkę
   (`nowa-stawka-przy-odrzuceniu-za-drogo.md` — po to ją wprowadzono, 51 ze
-  118 odrzuceń miało kwotę w opisie) albo o dni w biurze (bez nich 422).
+  118 odrzuceń miało kwotę w opisie) albo „Co nie pasuje?” z kartą dojazdu
+  (od 27.11.2026, `karta-dojazdu-przy-odrzuceniu-za-lokalizacje.md`).
 - **Cofnij jak strzałka „→” (D7, `kanban-bez-bramek.md`).** Karta idzie na
   „Odrzucony” od razu, a żądanie po 10 s (`DEFERRED_MOVE_MS`), od razu przy
   zamknięciu Tablicy i przy otwarciu tej osoby w panelu („Pokaż”).

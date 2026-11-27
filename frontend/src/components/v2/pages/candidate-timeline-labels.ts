@@ -76,6 +76,9 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   sensitive_operation_blocked: "Zablokowano operację wymagającą uprawnień",
   candidate_languages_replaced: "Zaktualizowano języki",
   candidate_location_changed: "Zmieniono lokalizację",
+  // 27.11.2026: karta dojazdu z odrzucenia „Za daleko do biura” (biura,
+  // dojazd do innego miasta, przeprowadzka).
+  candidate_commute_changed: "Zmieniono warunki dojazdu",
   candidate_identity_source_quarantined:
     "Wstrzymano synchronizację danych osobowych",
   candidate_identity_source_quarantine_overridden:

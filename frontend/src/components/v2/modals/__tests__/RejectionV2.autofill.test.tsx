@@ -151,11 +151,12 @@ describe("RejectionV2 — osoba od systemu", () => {
     const onConfirm = renderWith({ rateKnown: false, several: false });
     fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     fireEvent.click(screen.getByText("Z CV i profilu, bez kontaktu"));
+    fireEvent.click(screen.getByText("Chce mniej dni w biurze"));
     expect(screen.getByText(/Ile dni w biurze/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
     expect(args[0]).toBe("6");
-    expect(args[8]).toEqual({ maxOnsiteDays: 0, saveToProfile: true });
+    expect(args[8]).toMatchObject({ issue: "office_days", maxOnsiteDays: 0, saveToProfile: true });
   });
 
   it("powód bez odpowiednika idzie jako „Inne” z nazwą w opisie", () => {

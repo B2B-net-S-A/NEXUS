@@ -277,6 +277,16 @@ export default function RejectionEmailHarness() {
         profileWorkMode={
           state === "work_mode" ? { modes: ["remote", "hybrid"], days: 3 } : undefined
         }
+        profileResidence={
+          state === "work_mode"
+            ? {
+                city: "Kraków",
+                country: "PL",
+                canonicalCity: "Kraków",
+                commute: { officeCities: [], occasionalCommute: null, relocation: null },
+              }
+            : undefined
+        }
         onConfirm={() => {}}
       />
     </QueryClientProvider>
