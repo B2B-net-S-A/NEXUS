@@ -17,6 +17,8 @@ compose, żeby wdrożenie NEXUSA ich nie odtwarzało.
 | SSH | `/etc/ssh/sshd_config.d/60-nexus-hardening.conf` | LogLevel VERBOSE, bez agent/TCP forwardingu, ClientAliveCountMax 2; tylko klucze było już wcześniej |
 | Jądro | `/etc/sysctl.d/60-nexus-hardening.conf` | wartości sprzed zmiany w `backups/sysctl-przed-20261127.txt` |
 | fail2ban | było przed zmianą, jail `sshd` | zostaje; dubluje się z CrowdSec tylko dla SSH |
+| TLS | `/data/coolify/proxy/dynamic/tls-options.yaml` | TLS ≥ 1.2, w TLS 1.2 tylko szyfry AEAD, `sniStrict` (bez SNI, np. `https://<IP>`, brak połączenia); testssl 3.2 po zmianie: CBC „not offered”, LUCKY13 OK |
+| HSTS panelu | middleware `coolify-panel-hsts` w `coolify-panel-allowlist.yaml` | 365 dni, includeSubDomains; API ma własny HSTS z aplikacji |
 
 Wtyczka jest lokalna, bo zdalna (`experimental.plugins`) pobiera się z plugins.traefik.io przy
 każdym starcie Traefika. Gdy pobranie się nie uda, middleware podpięty do wejścia `https` nie
@@ -48,7 +50,8 @@ Bany trwają 4 h (`profiles.yaml`). Kto dostał 403 albo nie może wejść po SS
 ## Allowlista i fałszywe alarmy
 
 `/opt/crowdsec/config/parsers/s02-enrich/nexus-whitelist.yaml` (adresy tylko na serwerze, repo jest publiczne):
-- laptop Artura i sam serwer; sieci Dockera i prywatne zakresy pomija już `crowdsecurity/whitelists`;
+- laptop Artura, sam serwer i serwer bezpieczeństwa z managerem Wazuha (decyzja Artura 27.11: ban zerwałby
+  agenta, a skany z tego serwera nie mają banować); sieci Dockera i prywatne zakresy pomija już `crowdsecurity/whitelists`;
 - GitHub Actions nie ma na liście adresów (to tysiące zakresów Azure). Pomijane są udane wywołania
   `/api/v1/` panelu Coolify (`coolify-nexus.dynaminds.pl`), a seria 401/403 nadal się liczy;
 - `/api/health` (sondy dostępności).
@@ -79,7 +82,9 @@ Reguły własne: shell w kontenerze aplikacji (tty albo rodzic = proces aplikacj
 pasują), odczyt `.env` Coolify, kluczy SSH Coolify, `authorized_keys` roota i plików aplikacji w
 `/data/coolify/applications/`, nowy proces nasłuchujący spoza listy znanych. Do tego domyślne reguły
 z obrazu (np. „Terminal shell in container”). Przy zgodności kilku reguł Falco zgłasza pierwszą.
-Zdarzenia: `docker logs falco` (JSON) i Falcosidekick. Webhook do NEXUSA
+Zdarzenia: `docker logs falco` (JSON), plik `/var/log/falco/events.json` (jedna linia JSON na zdarzenie,
+logrotate `/etc/logrotate.d/falco-events`, 7 dni; czyta go agent Wazuha) i Falcosidekick. Pole `output`
+w pliku zawiera linię poleceń, więc w Wazuhu może trafić sekret z argumentów. Webhook do NEXUSA
 (`POST /api/security/ingest/falco`, nagłówek `X-API-Key` konta serwisowego ze scope'em `security:ingest`)
 wpisuje się w `/opt/falco/sidekick.env` (600), potem `docker compose up -d` w `/opt/falco`.
 Własne `docker exec … sh` w backendzie i czytanie `authorized_keys` przez sesje Claude'a też dają
@@ -119,4 +124,6 @@ aplikacja w Coolify = nowa sieć do dopisania. Restart (bez odtworzenia) i reboo
    `/data/coolify/proxy/dynamic/crowdsec.yaml`; bazę Coolify przywróć z
    `backups/coolify-servers-proxy-id0.20261127T195725Z.json`.
 2. `docker compose down` w `/opt/crowdsec` i `/opt/falco`; `systemctl disable --now crowdsec-firewall-bouncer`.
-3. Usuń `60-nexus-hardening.conf` z `/etc/ssh/sshd_config.d/` (`systemctl reload ssh`) i z `/etc/sysctl.d/`.
+3. Usuń `tls-options.yaml` z katalogu dynamicznego Traefika; HSTS panelu: kopia
+   `/root/coolify-panel-allowlist.yaml.bak-20261127T204037Z`.
+4. Usuń `60-nexus-hardening.conf` z `/etc/ssh/sshd_config.d/` (`systemctl reload ssh`) i z `/etc/sysctl.d/`.

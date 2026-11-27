@@ -18,7 +18,7 @@
   output: >
     Shell w kontenerze aplikacji (kontener=%container.name obraz=%container.image.repository
     proces=%proc.name rodzic=%proc.pname tty=%proc.tty uzytkownik=%user.name cmd=%proc.cmdline)
-  priority: WARNING
+  priority: ERROR
   tags: [nexus, container, shell, mitre_execution]
 
 # 2. Odczyt sekretow Coolify i kluczy SSH na hoscie przez cos innego niz sshd/Coolify.
@@ -52,5 +52,5 @@
   output: >
     Nowy proces nasluchujacy (proces=%proc.name port=%fd.sport rodzic=%proc.pname
     kontener=%container.name obraz=%container.image.repository cmd=%proc.cmdline)
-  priority: WARNING
+  priority: ERROR
   tags: [nexus, network, mitre_command_and_control]

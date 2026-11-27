@@ -1,0 +1,15 @@
+# Opcje TLS dla wszystkich routerow Traefika (27.11.2026, po testssl.sh 3.2: szyfry CBC w TLS 1.2 = LUCKY13).
+# TLS 1.3 ma wlasne szyfry (zawsze AEAD), lista ponizej dotyczy TLS 1.2. sniStrict: bez SNI brak polaczenia
+# (np. https://<adres IP>). Cofniecie: usun plik, Traefik przeladowuje sam.
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
