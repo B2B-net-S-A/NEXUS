@@ -253,8 +253,12 @@ SPECS: dict[str, _Spec] = {
     ),
     "automation_failing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "teams_prep_scope_missing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
+    # Temat maila = tytuł dzwonka: mówi, KTÓRA rutyna jest po terminie.
     "security_routine_overdue": _Spec(
-        "Wykonaj rutynę", chip="Bezpieczeństwo", label="Otwórz rutyny"
+        "Wykonaj rutynę",
+        chip="Bezpieczeństwo",
+        label="Otwórz rutyny",
+        use_title=True,
     ),
     "hr_m365_scope_missing": _Spec(
         "Dopisz osoby do grupy", chip="Awaria", label="Otwórz kartę"
