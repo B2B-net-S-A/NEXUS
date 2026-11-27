@@ -449,7 +449,8 @@
       "lata-w-punkcie-1-i-daty-stanowisk",
       "gotowe-cv-z-nowa-zgoda",
       "formularz-klienta-wgraj-z-dysku",
-      "formularz-klienta-tylko-weryfikacja"
+      "formularz-klienta-tylko-weryfikacja",
+      "cv-format-pliku-dla-klienta"
     ],
     "task": "Otwórz edytor CV kandydata z rekrutacji ćwiczebnej i w „Do poprawy” przyjmij propozycję NEXUSA, jak wpisać lata w punkcie 1.",
     "solo_href": "/jobs/990001?candidate=990105",

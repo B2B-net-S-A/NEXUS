@@ -1158,7 +1158,11 @@ export function CvToClientCard({
               </DropdownMenu>
             </div>
             {fileFormat ? (
-              <p className="text-xs text-muted-foreground" data-testid="cv-card-client-format">
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid="cv-card-client-format"
+                data-tour="person.cv.client-file-format"
+              >
                 Klient chce: {CV_FILE_FORMAT_LABEL[fileFormat]}
               </p>
             ) : null}
