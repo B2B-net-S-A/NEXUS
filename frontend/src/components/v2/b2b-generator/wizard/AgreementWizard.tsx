@@ -80,7 +80,7 @@ export function AgreementStepList({
                 type="button"
                 onClick={() => onGo(s.key)}
                 aria-current={active ? "step" : undefined}
-                data-tour={s.key === "admin" ? "b2b-generator.step-admin" : undefined}
+                data-tour={s.key === "admin" ? "b2b-generator.step-admin" : s.key === "partner" ? "b2b-generator.step-partner" : undefined}
                 className={cn(
                   "relative flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition-colors",
                   active

@@ -48,7 +48,10 @@ import { RejectionV2, type CandidateOfferResponse } from "@/components/v2/modals
 import { autofillMoveFields, type AutofillFeedbackChoice } from "@/lib/autofill-feedback";
 import type { RejectionEmailText } from "@/lib/rejection-email";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  rejectionWorkModeMoveFields,
+  type RejectionWorkModeChoice,
+} from "@/components/v2/modals/RejectionWorkModeField";
 import {
   rejectionRateMoveFields,
   type RejectionRateChoice,
@@ -1776,8 +1779,7 @@ export function ScreeningFullForm({
           send_rejection_email: vars.sendRejectionEmail ?? undefined,
           rejection_email_subject: vars.emailText?.subject,
           rejection_email_body: vars.emailText?.body,
-          work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
-          work_mode_save_to_profile: vars.workMode?.saveToProfile,
+          ...rejectionWorkModeMoveFields(vars.workMode),
           ...autofillMoveFields(vars.autofill),
           ...rejectionRateMoveFields(vars.rate),
           not_looking_until: vars.notLookingUntil ?? undefined,

@@ -7,6 +7,13 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Warsaw"
+    # Wydanie musi mieć co najmniej 7 dni, zanim Dependabot je zaproponuje
+    # (zizmor `dependabot-cooldown`, 27.11.2026). Przejęte tagi i paczki
+    # (marzec 2026: `aquasecurity/trivy-action`, CVE-2026-33634) wycofano
+    # w ciągu dni; PR z dnia publikacji wciągnąłby je w poniedziałek rano.
+    # Aktualizacje bezpieczeństwa Dependabota cooldown omijają.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -33,6 +40,8 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Warsaw"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -78,6 +87,8 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Warsaw"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     labels:
       - "dependencies"
@@ -92,6 +103,8 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Warsaw"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 2
     labels:
       - "dependencies"
@@ -107,6 +120,8 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Warsaw"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 2
     labels:
       - "dependencies"

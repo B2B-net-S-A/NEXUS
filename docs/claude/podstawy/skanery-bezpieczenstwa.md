@@ -12,9 +12,10 @@ traversal ani audytu znanych podatności zależności na PR-ze.
 | Semgrep (`p/python`, `p/fastapi`, `p/typescript`, `p/react`) | każdy PR, tylko zmienione pliki `backend/**/*.py` i `frontend/**/*.{ts,tsx,js,jsx,mjs,cjs}` | `ci.yml` → `semgrep-pr` |
 | pip-audit (`backend/requirements.txt`) | PR, który zmienia `backend/requirements*.txt` | `ci.yml` → `deps-audit-pr` |
 | npm audit (`frontend/`, `--omit=dev`, waga high+) | PR, który zmienia `frontend/package.json` albo `package-lock.json` | `ci.yml` → `deps-audit-pr` |
-| całość: Semgrep na całym repo + oba audyty | poniedziałek 05:30 UTC (po Dependabocie) i ręcznie | `security-weekly.yml` |
+| zizmor (linter bezpieczeństwa GitHub Actions) | PR, który zmienia `.github/workflows/**`, `dependabot.yml` albo zapadkę | `ci.yml` → `zizmor-pr` |
+| całość: Semgrep na całym repo, oba audyty, zizmor, Trivy obrazów produkcji, import do DefectDojo | poniedziałek 05:30 UTC (po Dependabocie) i ręcznie | `security-weekly.yml` |
 
-- Wynik obu jobów PR-owych wlicza się do wymaganego kontekstu
+- Wynik jobów PR-owych (Semgrep, audyt, zizmor) wlicza się do wymaganego kontekstu
   **„Backend (pytest)”** (job `backend-pytest-gate`), tak jak „Strażnicy repo”.
   Osobny kontekst nie jest wymagany w rulesecie, więc sama czerwień joba nie
   zatrzymałaby kolejki merge'ów.
@@ -100,3 +101,92 @@ traversal ani audytu znanych podatności zależności na PR-ze.
   Tego dnia backend przeszedł na PyJWT, oba wpisy zdjęte i baseline Pythona
   jest pusty. npm (13.11): brak high/critical w zależnościach
   produkcyjnych (6 moderate w `@sentry/*` → `glob`/`minimatch`).
+
+## zizmor, Trivy obrazów i DefectDojo (27.11.2026)
+
+Po researchu bezpieczeństwa z 27.11 (marzec 2026: przejęte tagi
+`aquasecurity/trivy-action`, CVE-2026-33634) CI dostało linter workflowów,
+skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
+
+### zizmor
+- Wersja 1.33.1 z koła PyPI sprawdzanego sumą (`.github/scripts/install_zizmor.sh`;
+  przy podbiciu zmień wersję, sumę, URL i pole `zizmor` w baseline). Skan
+  całego repo (`run_zizmor.sh`: workflowy + `dependabot.yml`), z audytami
+  online tokenem Actions i 3 próbami, bo jeden niedostępny endpoint GitHuba
+  kończy bieg błędem „no audit was performed”.
+- Pierwszy skan: 68 znalezisk. Poprawione: `persist-credentials: false`
+  w 51 checkoutach (token zostawał w `.git/config` dla każdego kroku joba,
+  także testów z kodu PR-a; `git fetch` w CI Gate i sicie frontu działa
+  anonimowo, bo repo jest publiczne), `permissions: contents: read` na
+  poziomie `ci.yml`, `issues: write` w `e2e.yml` tylko w jobach alarmu,
+  `strategy.job-index/total` przez `env` zamiast `${{ }}` w `run:`, `cooldown`
+  7 dni w `dependabot.yml` (wydanie z dnia publikacji nie wchodzi w poniedziałkowy PR).
+- Zapadka: `.github/zizmor-baseline.json`, skrypt `zizmor_ratchet.py`
+  (status, powód i porównanie wspólne z Semgrepem). Odcisk = audyt + plik +
+  droga w YAML-u bez numerów kroków + dopasowany fragment, więc przesunięcie
+  kroku nie czerwieni, a zmiana dopasowanego `run:` wymaga przeglądu. 8 wpisów,
+  wszystkie `zweryfikowane`: `workflow_run`/`pull_request_target` w
+  `deploy.yml`, `e2e.yml`, `queue-failure-feedback.yml`, `queue-migration-lane.yml`
+  (checkout tylko domyślnej gałęzi, bez kodu PR-a), `secrets[...]` w
+  `coolify-set-env.yml` (wartość nie może przejść przez `inputs`), losowe hasło
+  do `$GITHUB_ENV` w `e2e.yml`, poświadczenia checkoutu w `migration-rechain.yml`
+  (push przepięcia). Nowy wyjątek:
+
+  ```bash
+  bash .github/scripts/run_zizmor.sh zizmor.json    # lokalnie: zizmor z PyPI (Python ≥ 3.11) albo koło jak w install_zizmor.sh
+  python3 .github/scripts/zizmor_ratchet.py update --results zizmor.json \
+    --status zweryfikowane --reason "Skąd pochodzi wartość i dlaczego nie da się jej wstrzyknąć."
+  ```
+
+### Trivy obrazów produkcji
+- Job „Trivy obrazów produkcji” w biegu tygodniowym. Coolify buduje obrazy na
+  serwerze bez rejestru, więc backend i front budujemy z wdrożonego SHA
+  (`version` z `/api/health`, `sha` z `$FRONTEND_URL/version.json`; bez
+  odpowiedzi HEAD maina z ostrzeżeniem). Obrazy zewnętrzne: `image:` z
+  `docker-compose.yml` tej wersji (bez `nexus-*`) i `TRAEFIK_IMAGE` w
+  workflowie (proxy Coolify; wartość `traefik:v3.7` to domyślna Coolify 4.7.7,
+  na serwerze niepotwierdzona — `docker inspect coolify-proxy`).
+- Wynik to „co dałby redeploy”, nie zrzut kontenera: `apt`/`npm ci` mogą dać
+  nowsze łatki, a pływający tag (`16-alpine`, `latest`) to najnowszy obraz tagu.
+- Zapadka: `.trivyignore-images` (format `.trivyignore`, `exp:` obowiązkowy,
+  komentarz z powodem nad wpisem, termin najwyżej ~rok). Osobny plik, bo
+  wpis w `.trivyignore` ukryłby tę samą podatność w skanie zależności na PR-ach.
+- Lokalnie 27.11 (Trivy 0.70.0, amd64): `postgres:16-alpine` 33 HIGH/CRITICAL
+  z poprawką (gosu na starym Go, libxml2), `qdrant/qdrant:v1.17.1` 135 (Debian
+  13.4, openssl, paczki Node.js z UI), `grafana/alloy:latest` i `traefik:v3.7`
+  po 0; obraz stagingu backendu 6 (urllib3, msgpack, setuptools, libzstd),
+  frontu 20 (Alpine openssl/musl/zlib, npm wbudowany w obraz Node). Bieg na
+  runnerze (46062454294, obrazy z wdrożonego `a613205d0`) dał te same liczby.
+- Stan wyjściowy w `.trivyignore-images`: 122 identyfikatory w czterech
+  grupach. Własne obrazy mają termin 31.12.2026, bo poprawka to nasz PR
+  (wersje w requirements, digest obrazu bazowego, npm poza etapem runner).
+  Postgres i Qdrant mają termin 31.01.2027: Postgres czeka na nowy build
+  obrazu tagu, Qdrant na świadome podbicie wersji. Identyfikator wspólny
+  dla kilku obrazów stoi raz, przy najkrótszym terminie.
+
+### DefectDojo
+- Każdy job biegu tygodniowego kończy się krokiem „Import do DefectDojo”
+  (`defectdojo_import.sh`, `continue-on-error`): `POST /api/v2/reimport-scan/`,
+  produkt „NEXUS”, engagement „CI tygodniowy”, testy „Semgrep”, „pip-audit”,
+  „npm audit”, „zizmor” (SARIF), „Trivy <obraz>”. DefectDojo nie ma
+  publicznego adresu: krok podnosi tunel WireGuard z sekretu
+  `DEFECTDOJO_WG_CONF_{SEMGREP,DEPS,ZIZMOR,TRIVY}` — osobny peer na job, bo
+  joby biegną równolegle, a wspólny klucz wypierałby sesje (peer widzi w tunelu tylko DefectDojo,
+  `http://10.66.0.1:8080`, nadpisywane zmienną repo `DEFECTDOJO_URL`)
+  i zamyka go na końcu. Token `DEFECTDOJO_TOKEN` to konto `ci-import`
+  (Writer tylko na produkcie NEXUS); produkt i engagement zakłada sesja SOC.
+  Sekrety ustawia Artur; bez nich krok kończy się notką. Raport idzie
+  wprost z joba, bez artefaktu (artefakty publicznego repo pobierze każdy
+  zalogowany), a log ma tylko kod HTTP i liczby, bez wyjścia `wg-quick`.
+- Serwer stawia sesja SOC (Wazuh + DefectDojo). Znaleziska do ekranu
+  Ustawienia → Bezpieczeństwo wypycha serwer bezpieczeństwa co 30 min, a wynik
+  jobów `security-weekly.yml` ekran czyta z API GitHuba — nazwy pliku i jobów
+  zmieniaj tylko razem z ekranem (`SECURITY_GITHUB_WORKFLOW`, nazwy jobów idą na ekran wprost).
+
+### Gitleaks na pełnej historii (jednorazowo, 27.11.2026)
+- gitleaks 8.21.2, `.gitleaks.toml`, `--log-opts=--all`, `--redact`: 13 558
+  commitów, 46 trafień, drzewo `main` 0. Aktualne sekrety były tylko w
+  `bf5cb10f8`/`38bd32fa7` (15.04.2026), już zmienione 24–25.11 albo decyzją
+  Artura zostawione; klucz deploy z `bf5cb10f8` ma inny odcisk niż jedyny
+  klucz zarejestrowany na GitHubie (zmieniony 16.07.2026). Reszta: domyślne
+  hasła dev/test i atrapy w testach.

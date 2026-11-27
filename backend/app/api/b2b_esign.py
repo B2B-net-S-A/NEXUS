@@ -82,7 +82,7 @@ from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import remote
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_esign.verdict import Fingerprint
-from app.services.b2b_contract_generator import mandate, signed_file
+from app.services.b2b_contract_generator import krz, mandate, signed_file
 from app.services.b2b_contract_generator.signed_on_evidence import SignedOnEvidence
 from app.services.b2b_esign.qualified import QualifiedValidator
 from app.services.notification_triggers import emit as emit_notification
@@ -565,6 +565,9 @@ async def send_for_esign(
         raise HTTPException(status_code=409, detail=MSG_MANDATE)
     await _assert_row_sender(db, current_user, row)
     service.assert_sendable(row)
+    krz_block = await krz.gate_reason(db, row)
+    if krz_block is not None:
+        raise HTTPException(status_code=409, detail=krz_block)
     if body.cc_user_ids:
         allowed = {p.id for p in await _cc_candidates(db, row, current_user)}
         if not set(body.cc_user_ids) <= allowed:

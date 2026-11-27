@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from tests._krz import KRZ_CLEAR
 from tests.test_b2b_generator_rate_visibility import _seed_user
 
 PATH = "/api/b2b-generator/generated"
@@ -80,6 +81,7 @@ async def _seed_agreement(*, author_id: int, runner_id: int, dl_id: int) -> dict
         )
         seq = int(uuid.uuid4().int % 900_000) + 100_000
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=2099,
             seq=seq,
             contract_number=f"{seq}/2099",

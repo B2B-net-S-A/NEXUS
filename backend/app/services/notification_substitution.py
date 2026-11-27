@@ -40,6 +40,7 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.autofill_decisions_due,
         T.b2b_agreement_ready,
         T.b2b_signature_requested,
+        T.b2b_krz_entry,
         T.board_task_waiting,
         T.board_tasks_digest,
         T.candidate_claim_taken,
@@ -185,6 +186,7 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.equipment_return_reminder,
         T.equipment_task,
         T.hired_order_missing,
+        T.b2b_krz_allowed,
         T.hr_absence_reported,
         T.hr_agreement_update,
         T.hr_approval_decided,
@@ -230,6 +232,7 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.saved_search_match,
         T.saved_search_reapproval,
         T.teams_prep_scope_missing,
+        T.security_routine_overdue,
         T.trainee_program_decision,
     }
 )

@@ -84,6 +84,56 @@ describe("gdzie na stronie stoi blok", () => {
     expect(found?.box).toEqual({ x0: 50, y0: 680, x1: 312, y1: 710 });
   });
 
+  it("ramka obejmuje też zawinięte końce punktów (zgłoszenie z 27.11.2026)", () => {
+    // Układ jak w CV 43280: trzeci punkt zawija się do drugiej linii, pogrubienia
+    // to osobne fragmenty, a pod sekcją stoi następny nagłówek.
+    const lines = textLines([
+      item("17 years in IT", 50, 700, 60),
+      item("across banking, insurance, the public sector and media, with Scrum team experience.", 110, 700, 380),
+      item("Java and Spring Boot", 50, 680, 90),
+      item("at Vyntra,", 140, 680, 40),
+      item("microservices", 180, 680, 60),
+      item(".", 240, 680, 3),
+      item("Banking solution development —", 50, 660, 150),
+      item("new functionalities supporting digital banking solutions", 200, 660, 260),
+      item("implemented", 460, 660, 50),
+      item("at Connectis (PKO BP).", 50, 648, 110),
+      item("CAREER PATH", 50, 600, 80),
+    ]);
+    const found = findBlock(lines, [
+      "**17 years in IT** across banking, insurance, the public sector and media, with Scrum team experience.",
+      "**Java and Spring Boot** at Vyntra, **microservices**.",
+      "Banking solution development – **new functionalities supporting digital banking solutions** implemented at Connectis (PKO BP).",
+    ]);
+    expect(found?.hits).toBe(3);
+    expect(found?.box).toEqual({ x0: 50, y0: 648, x1: 510, y1: 710 });
+  });
+
+  it("pogrubienie tuż przed przecinkiem nie gubi punktu (staging 27.11.2026)", () => {
+    // pdf.js daje „12 lat w IT” i „, w branży…” osobno; sklejenie wstawia spację przed przecinkiem.
+    const lines = textLines([
+      item("12 lat w IT", 50, 700, 50),
+      item(", w branży oprogramowania motoryzacyjnego i gier komputerowych", 100, 700, 300),
+      item("Specjalizacja: SAFe, Scrum, Kanban", 50, 680, 200),
+    ]);
+    const found = findBlock(lines, [
+      "**12 lat w IT**, w branży oprogramowania motoryzacyjnego i gier komputerowych.",
+      "Specjalizacja: SAFe, Scrum, Kanban",
+    ]);
+    expect(found?.hits).toBe(2);
+    expect(found?.box).toEqual({ x0: 50, y0: 680, x1: 400, y1: 710 });
+  });
+
+  it("zawinięcie z przeniesieniem wyrazu i bez cudzej linii pod punktem", () => {
+    const lines = textLines([
+      item("Rozwój mikroserwisów płatności w Ja-", 50, 700, 200),
+      item("va 17 i Spring Boot.", 50, 688, 90),
+      item("Stanowisko Senior Java Developer", 50, 676, 220),
+    ]);
+    const found = findBlock(lines, ["Rozwój mikroserwisów płatności w Java 17 i Spring Boot."]);
+    expect(found?.box).toEqual({ x0: 50, y0: 688, x1: 250, y1: 710 });
+  });
+
   it("strona stanowiska = ta z największą liczbą trafień", () => {
     const found = bestPage([page1, page2], ["Bank Przykładowy S.A.", "Rozwój mikroserwisów płatności w Java 17."]);
     expect(found?.page).toBe(2);

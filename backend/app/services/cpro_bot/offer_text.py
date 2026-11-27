@@ -160,6 +160,11 @@ _MONTHS: tuple[tuple[str, int], ...] = (
     ("grud", 12),
 )
 _MONTH_RE = re.compile(r"\b(?:od|from|w|in)\s+(\w+)")
+#: „od 1 grudnia”, „15 stycznia 2027” — dzień ze słownym miesiącem.
+_DAY_MONTH_RE = re.compile(r"\b(\d{1,2})\.?\s+([^\W\d_]+)(?:\s+(\d{4}))?")
+#: Termin bez roku, który minął najwyżej tyle dni temu, to ten rok (już
+#: dostępny), a nie ten sam dzień za rok — bieg bywa kilka dni po screeningu.
+_RECENT_PAST_DAYS = 90
 _DATE_IN_TEXT_RE = re.compile(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b")
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 
@@ -175,13 +180,18 @@ def _next_date(
         found = date(year or today.year, month, day)
     except ValueError:
         return None
-    if year is None and found < today:
+    if year is None and (today - found).days > _RECENT_PAST_DAYS:
         found = date(today.year + 1, month, day)
     return found
 
 
+def _month_number(word: str) -> Optional[int]:
+    return next((month for stem, month in _MONTHS if word.startswith(stem)), None)
+
+
 def card_start_date(text: Optional[str], today: date) -> Optional[date]:
-    """Termin z tekstu karty: „01.12.2026”, „1.12”, „2026-12-01”, „od grudnia”."""
+    """Termin z tekstu karty: „01.12.2026”, „1.12”, „2026-12-01”,
+    „od 1 grudnia”, „od grudnia”."""
 
     folded = fold(text)
     if not folded:
@@ -191,11 +201,13 @@ def card_start_date(text: Optional[str], today: date) -> Optional[date]:
     if match := _DATE_IN_TEXT_RE.search(folded):
         year = int(match[3]) if match[3] else None
         return _next_date(int(match[1]), int(match[2]), year, today)
+    for match in _DAY_MONTH_RE.finditer(folded):
+        if month := _month_number(match[2]):
+            year = int(match[3]) if match[3] else None
+            return _next_date(int(match[1]), month, year, today)
     for match in _MONTH_RE.finditer(folded):
-        word = match[1]
-        for stem, month in _MONTHS:
-            if word.startswith(stem):
-                return _next_date(1, month, None, today.replace(day=1))
+        if month := _month_number(match[1]):
+            return _next_date(1, month, None, today.replace(day=1))
     return None
 
 

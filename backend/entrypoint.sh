@@ -870,6 +870,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_allocation_proposals'",
     # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B (do DL / TCM).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_signature_requested'",
+    # 0801: wpis w Krajowym Rejestrze Zadłużonych — decyzja DL, informacja dla Finansów.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_krz_entry'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_krz_allowed'",
     # 0418: zmiana stawki kandydata w procesie — informacja i zadanie dla DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_rate_change'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_rate_change_task'",
@@ -915,6 +918,8 @@ _ENUM_STATEMENTS = [
     # 0795: rekrutacja „Wstrzymana” — zmiana stanu (mail obowiązkowy) i pytanie do DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_hold_check'",
+    # 0800: Ustawienia → Bezpieczeństwo — rutyna po terminie (tylko admini, mail od razu).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'security_routine_overdue'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -1335,6 +1340,16 @@ try:
 except Exception as _competence_report_err:  # noqa: BLE001
     print(f"competence report DDL unavailable: {_competence_report_err!r}")
     _COMPETENCE_REPORT_DDL = []
+
+# Ustawienia → Bezpieczeństwo (migracja 0800) — JEDNO źródło z migracją
+# (`app/services/security_schema.py`): tabele i zasiew rutyn.
+try:
+    from app.services import security_schema as _security_schema
+
+    _SECURITY_SCREEN_DDL = list(_security_schema.TABLE_DDL) + list(_security_schema.SEED_DDL)
+except Exception as _security_schema_err:  # noqa: BLE001
+    print(f"security screen DDL unavailable: {_security_schema_err!r}")
+    _SECURITY_SCREEN_DDL = []
 
 # Wersje Profilu Championa i „Przeczytane” (migracja 0731) — JEDNO źródło
 # z migracją (`app/services/champion_profile_revisions_schema.py`).
@@ -1761,6 +1776,7 @@ _COLUMN_STATEMENTS = [
     *_JOB_ROLE_PROFILE_DDL,
     *_CANDIDATE_TERMS_DDL,
     *_COMPETENCE_REPORT_DDL,
+    *_SECURITY_SCREEN_DDL,
     *_CHAMPION_REVISIONS_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
@@ -5811,6 +5827,8 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "is_client_referral BOOLEAN",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS is_client_referral BOOLEAN",
+    # 0801: sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych (wynik i decyzja DL).
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS krz_check JSONB",
     # 0499: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
     """CREATE TABLE IF NOT EXISTS b2b_signing_requests (
            id SERIAL PRIMARY KEY,

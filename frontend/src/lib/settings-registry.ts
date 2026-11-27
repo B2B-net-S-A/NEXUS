@@ -73,6 +73,7 @@ export type SettingsItemId =
   | "fields"
   | "history"
   | "placements"
+  | "security"
   | "imports"
   | "integrations"
   | "notifications"
@@ -493,6 +494,16 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     wide: true,
     // `GET /api/settings/event-history` = `FinanceModuleUser` („Moduł Finanse”).
     gate: { permission: "finance_module", section: "finance", finance: true },
+  },
+  {
+    // 27.11.2026 (raport „Tarcza NEXUSA”): skany CI, zdarzenia z serwera
+    // (CrowdSec, Falco, Wazuh), znaleziska z wyjątkami z terminem i rutyny.
+    id: "security", area: "sys", title: "Bezpieczeństwo", group: "Nadzór",
+    description: "Skany kodu, ruch z internetu, logowania, znaleziska do reakcji i kalendarz rutyn bezpieczeństwa.",
+    keywords: "bezpieczenstwo security skan semgrep crowdsec falco wazuh defectdojo pentest podatnosc cve znalezisko wyjatek rutyny logowania",
+    wide: true,
+    // `/api/security/*` = `AdminUser`.
+    gate: { roles: ["admin"] },
   },
   {
     id: "placements", area: "sys", title: "Wykluczone placementy", group: "Nadzór",

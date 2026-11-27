@@ -353,5 +353,16 @@ def candidate_office_tokens(candidate) -> set[str]:
     `candidate_location_tokens(candidate, "all")` minus tokeny, które nie są
     nazwami miejsc (patrz `_NON_PLACE_TOKENS`) — dealbreaker dni/miasta biura
     (`dealbreaker_filters.office_city_mismatch`) porównuje WYŁĄCZNIE to.
+    Ręczne `preferences.relocation` (karta dojazdu przy odrzuceniu,
+    27.11.2026) dokłada `targets` tylko przy jawnej zgodzie (`willing` True).
     """
-    return candidate_location_tokens(candidate, "all") - _NON_PLACE_TOKENS
+    tokens = candidate_location_tokens(candidate, "all")
+    prefs = getattr(candidate, "preferences", None)
+    reloc = prefs.get("relocation") if isinstance(prefs, dict) else None
+    if isinstance(reloc, dict) and reloc.get("willing") is True:
+        targets = reloc.get("targets")
+        if isinstance(targets, list):
+            for item in targets:
+                if isinstance(item, str):
+                    tokens |= location_tokens(item)
+    return tokens - _NON_PLACE_TOKENS

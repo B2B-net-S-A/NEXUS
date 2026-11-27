@@ -1,4 +1,4 @@
-"""Biała lista VAT — wykaz podatników MF (``wl-api.mf.gov.pl``), R6/R7/R9.
+"""Biała lista VAT — wykaz podatników MF (``wykazpodatnikowvat.mf.gov.pl``), R6/R7/R9.
 
 Dwie funkcje dla Rozliczeń zespołu:
 
@@ -12,8 +12,8 @@ Dwie funkcje dla Rozliczeń zespołu:
 Tryby (``WHITE_LIST_MODE``): ``off`` — bez zapytań, każde wywołanie kończy
 się ``WhiteListError("disabled")`` (awaria nie może wyglądać jak „brak
 w wykazie”); ``simulate`` — fikcyjny wpis liczony z NIP-u (lokalne
-przeklikanie, bez sieci); ``test`` — ``wl-test.mf.gov.pl``; ``live`` —
-``wl-api.mf.gov.pl``.
+przeklikanie, bez sieci); ``test`` — ``wykazpodatnikowvat-test.mf.gov.pl``;
+``live`` — ``wykazpodatnikowvat.mf.gov.pl`` (adresy w ``mf_white_list_hosts``).
 
 Wykaz ma dzienny limit zapytań (100), więc wynik pamiętamy do końca dnia
 w kalendarzu firmy: ten sam NIP (i rachunek) tego dnia nie idzie do MF drugi
@@ -44,12 +44,13 @@ from app.core.config import settings
 from app.core.process_role import web_process_count
 from app.core.scheduling import DEFAULT_TZ, business_today, local_now
 from app.services.hr import audit
+from app.services.mf_white_list_hosts import MF_WHITE_LIST_LIVE, MF_WHITE_LIST_TEST
 from app.services.order_client_identity import nip_checksum_valid
 
 logger = logging.getLogger(__name__)
 
 MODES = ("off", "simulate", "test", "live")
-BASE_URLS = {"test": "https://wl-test.mf.gov.pl", "live": "https://wl-api.mf.gov.pl"}
+BASE_URLS = {"test": MF_WHITE_LIST_TEST, "live": MF_WHITE_LIST_LIVE}
 TIMEOUT = httpx.Timeout(10.0)
 #: Dzienne limity zapytań (zachowawczo 100 dla obu metod — tyle podaje
 #: specyfikacja Rozliczeń; licznik zeruje się o północy w Warszawie).

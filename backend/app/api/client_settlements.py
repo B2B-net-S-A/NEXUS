@@ -75,7 +75,7 @@ from app.services.client_settlements.service import SettlementError
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 delivery_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
-MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
+MONTH_PATTERN = r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"
 #: ``estimate`` — plan miesiąca przed jego końcem (E5.3).
 KIND_PATTERN = r"^(actual|estimate)$"
 

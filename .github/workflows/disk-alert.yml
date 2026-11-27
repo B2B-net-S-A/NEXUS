@@ -84,6 +84,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
       # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
       - name: Zamknij alarm po zielonym biegu
@@ -135,6 +136,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Open or refresh alert issue
         if: steps.vol.outputs.high == '1'
         env:

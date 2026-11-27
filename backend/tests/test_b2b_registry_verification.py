@@ -298,7 +298,7 @@ async def test_sole_trader_verified_with_fresh_data_from_ceidg(registries):
     assert result["status"] == VERIFIED
     assert result["registry"] == "ceidg"
     # JDG znaleziona → Biała Lista (dzienny limit zapytań) nie jest pytana.
-    assert all("wl-api" not in c.url.host for c in calls)
+    assert all("wykazpodatnikowvat" not in c.url.host for c in calls)
     assert result["warnings"] == []
     assert result["company"]["name"] == "Nowa - Jan Kowalski"
     assert result["company"]["address"] == "ul. Nowa 5, 00-001 Warszawa"
@@ -332,7 +332,7 @@ async def test_company_goes_to_krs_with_number_from_the_white_list(registries):
     def handler(request: httpx.Request) -> httpx.Response:
         if "dane.biznes.gov.pl" in request.url.host:
             return httpx.Response(204)
-        if "wl-api.mf.gov.pl" in request.url.host:
+        if "wykazpodatnikowvat.mf.gov.pl" in request.url.host:
             return _white_list("123456")
         if "OdpisAktualny" in request.url.path:
             assert request.url.path.endswith(f"/{KRS}")

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -238,3 +239,239 @@ async def test_manual_profile_change_drops_the_rejection_origin(
     )
     assert r.status_code == 200, r.text
     assert WORK_MODE_ORIGIN_KEY not in (await _profile(cand)).preferences
+
+
+# ── Karta dojazdu, wariant D (27.11.2026) ────────────────────────────────────
+
+
+async def _audit(candidate_id: int, action: str):
+    from app.models.activity import Activity
+
+    async with AsyncSessionLocal() as db:
+        return (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == candidate_id,
+                    Activity.action == action,
+                )
+            )
+        ).all()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"work_mode_issue": "distance"},
+        {"residence_city": "Kraków"},
+        {"commute_office_cities": ["Kraków"]},
+        {"occasional_commute": True},
+        {"relocation_willing": False},
+        {"relocation_willing": True, "relocation_targets": ["Wrocław"]},
+        {"accepts_more_office_days": True},
+    ],
+)
+async def test_commute_fields_with_another_reason_are_refused(
+    app_client: AsyncClient, app_auth_headers, extra
+):
+    cand, job, _, other = await _seed()
+    r = await app_client.post(
+        MOVE, json=_move(cand, job, other, **extra), headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
+    assert "Lokalizacja lub tryb pracy" in r.json()["detail"]
+
+
+async def test_relocation_targets_without_consent_are_refused(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed()
+    r = await app_client.post(
+        MOVE,
+        json=_move(
+            cand,
+            job,
+            reason,
+            work_mode_issue="distance",
+            relocation_targets=["Wrocław"],
+        ),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_office_days_issue_still_needs_days(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed()
+    r = await app_client.post(
+        MOVE,
+        json=_move(cand, job, reason, work_mode_issue="office_days"),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == "Podaj, ile dni w biurze kandydat akceptuje."
+
+
+async def test_distance_card_writes_city_and_commute_but_not_work_mode(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed(
+        profile={
+            "preferences": {"remote_modes": ["remote", "hybrid"], "industries": ["x"]},
+            "max_onsite_days_per_week": 3,
+        }
+    )
+    r = await app_client.post(
+        MOVE,
+        json=_move(
+            cand,
+            job,
+            reason,
+            work_mode_issue="distance",
+            residence_city="Kraków",
+            commute_office_cities=["Kraków", "Katowice"],
+            occasional_commute=True,
+            relocation_willing=True,
+            relocation_targets=["Wrocław"],
+            notes="oddzwonić",
+        ),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["notes"] == (
+        "Za daleko do biura · mieszka: Kraków · dojedzie do: Kraków, Katowice"
+        " · inne miasto: raz w miesiącu · przeprowadzka: tak (Wrocław)"
+        " — oddzwonić"
+    )
+
+    c = await _profile(cand)
+    # Bez dni w biurze tryb pracy zostaje — to nie była odmowa biura.
+    assert c.preferences["remote_modes"] == ["remote", "hybrid"]
+    assert c.max_onsite_days_per_week == 3
+    assert WORK_MODE_ORIGIN_KEY not in c.preferences
+    assert await _audit(cand, "candidate_work_mode_changed") == []
+
+    assert (c.city, c.country) == ("Kraków", "PL")
+    assert c.cv_extracted_data["_manual_override_city"] is True
+    (location,) = await _audit(cand, "candidate_location_changed")
+    assert location.details["source"] == "rejection"
+    assert location.details["job_id"] == job
+    assert location.details["stage_id"] == r.json()["id"]
+
+    assert c.preferences["industries"] == ["x"]
+    assert c.preferences["office_cities"] == ["Kraków", "Katowice"]
+    assert c.preferences["occasional_commute"] is True
+    assert c.preferences["relocation"] == {"willing": True, "targets": ["Wrocław"]}
+    source = c.preferences["commute_source"]
+    assert source["source"] == "rejection" and source["job_id"] == job
+    assert source["job_title"].startswith("WM-Job-") and source["at"]
+    (commute,) = await _audit(cand, "candidate_commute_changed")
+    assert commute.details["source"] == "rejection"
+    assert commute.details["stage_id"] == r.json()["id"]
+    assert commute.details["changed"]["office_cities"] == {
+        "before": None,
+        "after": ["Kraków", "Katowice"],
+    }
+
+    # Profil oddaje nowe klucze, a zapis innej preferencji ich nie kasuje.
+    r = await app_client.patch(
+        f"/api/candidates/{cand}",
+        json={"preferences": {"industries": ["bank"]}},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    r = await app_client.get(f"/api/candidates/{cand}", headers=app_auth_headers)
+    assert r.status_code == 200, r.text
+    prefs = r.json()["preferences"]
+    assert prefs["industries"] == ["bank"]
+    for key in ("office_cities", "occasional_commute", "relocation", "commute_source"):
+        assert key in prefs, key
+
+
+async def test_distance_with_days_writes_work_mode_too(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed()
+    r = await app_client.post(
+        MOVE,
+        json=_move(
+            cand, job, reason, work_mode_issue="distance", work_mode_max_onsite_days=2
+        ),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["notes"] == "Za daleko do biura · do 2 dni w biurze"
+    c = await _profile(cand)
+    assert c.max_onsite_days_per_week == 2
+    assert c.preferences["remote_modes"] == ["remote", "hybrid"]
+
+
+async def test_same_city_leaves_location_alone(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed(profile={"city": "Kraków", "country": "PL"})
+    r = await app_client.post(
+        MOVE,
+        json=_move(
+            cand, job, reason, work_mode_issue="distance", residence_city="kraków"
+        ),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert (await _profile(cand)).city == "Kraków"
+    assert await _audit(cand, "candidate_location_changed") == []
+    assert await _audit(cand, "candidate_commute_changed") == []
+
+
+async def test_unticked_save_to_profile_writes_no_commute(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed(profile={"city": "Łódź"})
+    r = await app_client.post(
+        MOVE,
+        json=_move(
+            cand,
+            job,
+            reason,
+            work_mode_issue="distance",
+            residence_city="Kraków",
+            commute_office_cities=["Kraków"],
+            relocation_willing=False,
+            work_mode_save_to_profile=False,
+        ),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    # Opis i tak niesie odpowiedź — zostaje w historii procesu.
+    assert r.json()["notes"].startswith("Za daleko do biura · mieszka: Kraków")
+    c = await _profile(cand)
+    assert c.city == "Łódź"
+    assert not c.preferences
+    assert await _audit(cand, "candidate_location_changed") == []
+    assert await _audit(cand, "candidate_commute_changed") == []
+
+
+async def test_office_days_card_saves_consent_for_more_days(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, job, reason, _ = await _seed()
+    r = await app_client.post(
+        MOVE,
+        json=_move(
+            cand,
+            job,
+            reason,
+            work_mode_issue="office_days",
+            work_mode_max_onsite_days=2,
+            accepts_more_office_days=True,
+        ),
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["notes"] == (
+        "Chce mniej dni w biurze · do 2 dni · więcej przy wyjątkowym projekcie: tak"
+    )
+    c = await _profile(cand)
+    assert c.max_onsite_days_per_week == 2
+    assert c.accepts_more_office_days is True

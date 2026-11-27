@@ -82,6 +82,12 @@ describe("raport kompetencji w 24 h", () => {
   });
 });
 
+describe("karta dojazdu z odrzucenia (27.11.2026)", () => {
+  it("ma polską etykietę, nie surowy slug", () => {
+    expect(activityActionLabel("candidate_commute_changed")).toBe("Zmieniono warunki dojazdu");
+  });
+});
+
 describe("wpis o adresie trwale usuniętego profilu", () => {
   it("ma polską etykietę, nie surowy slug", () => {
     expect(activityActionLabel("recreated_after_erasure")).toBe(

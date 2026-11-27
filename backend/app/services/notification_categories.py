@@ -134,6 +134,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.board_task_waiting: _C.mentions,
     # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
     _T.b2b_signature_requested: _C.mentions,
+    # 0801: wpis w KRZ czeka na Twoją decyzję — imienne zadanie; dopuszczenie
+    # mimo wpisu to informacja dla Finansów (ryzyko zajęcia faktur).
+    _T.b2b_krz_entry: _C.mentions,
+    _T.b2b_krz_allowed: _C.mentions,
     # Ktoś wygenerował umowę Twojej osoby — wyślij ją i pilnuj podpisu (0524).
     _T.b2b_agreement_ready: _C.mentions,
     # Rekruter i DL mają dokończyć dokumenty osoby — imienne zadanie (0649).
@@ -358,6 +362,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0619: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
     _T.announcement_important: _C.system,
     _T.teams_prep_scope_missing: _C.system,
+    _T.security_routine_overdue: _C.system,
     _T.hr_m365_scope_missing: _C.system,
 }
 

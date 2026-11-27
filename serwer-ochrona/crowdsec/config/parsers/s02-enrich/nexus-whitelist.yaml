@@ -1,0 +1,13 @@
+# Allowlista NEXUSA (27.11.2026). Zmiana: edytuj, potem docker exec crowdsec kill -HUP 1 (albo restart).
+name: nexus/whitelist
+description: "Laptop Artura i zaufane sciezki (API Coolify z tokenem dla GitHub Actions)"
+whitelist:
+  reason: "nexus allowlist"
+  # Adresy (laptop Artura, sam serwer, serwer bezpieczenstwa z Wazuhem) sa tylko w pliku na serwerze: repo i logi Actions sa publiczne.
+  ip: []
+  expression:
+    # GitHub Actions (Deploy, set env, Coolify Ops) woluja /api/v1/ Coolify z tokenem z tysiecy adresow Azure.
+    # Zamiast allowlisty ~5 tys. zakresow: pomijamy udane wywolania API; seria 401/403 nadal liczy sie do scenariuszy.
+    - "evt.Meta.service == 'http' && evt.Meta.target_fqdn == 'coolify-nexus.dynaminds.pl' && evt.Meta.http_path startsWith '/api/v1/' && evt.Meta.http_status in ['200','201','202','204','404','409','422']"
+    # Sonda dostepnosci /api/health NEXUSA.
+    - "evt.Meta.service == 'http' && evt.Meta.http_path startsWith '/api/health'"

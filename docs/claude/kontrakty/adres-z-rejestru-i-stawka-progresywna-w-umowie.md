@@ -1,5 +1,5 @@
 # Adres z rejestru i stawka progresywna w umowie B2B
-<!-- indeks: „ul.” przed adresem z CEIDG, adres bez capslocka, `format_registry_address`, podpunkty a) b), `build_rate_lines`, `b2b.rate_lines` -->
+<!-- indeks: „ul.” przed adresem z CEIDG, adres bez capslocka, `format_registry_address`, podpunkty a) b), `build_rate_lines`, `b2b.rate_lines`, „netto + VAT” po każdej stawce -->
 
 Zgłoszenia działu umów z 03.11.2026. Oba dotyczą tekstu umowy z Generatora,
 który ludzie poprawiali ręcznie przed wysłaniem do Partnera.
@@ -54,19 +54,24 @@ poprawny zapis trafia do umowy i do `render_payload`.
 Przy co najmniej dwóch etapach § 6 ust. 1 ma podpunkty zamiast jednego zdania:
 
     …oraz stawki godzinowej w wysokości:
-    a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia 16.11.2026 do dnia 31.05.2027,
-    b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027 netto + VAT.
+    a) 122 PLN (słownie: sto dwadzieścia dwa złote) netto + VAT w okresie od dnia 16.11.2026 do dnia 31.05.2027,
+    b) 127 PLN (słownie: sto dwadzieścia siedem złotych) netto + VAT od dnia 01.06.2027.
 
 - **Osobne akapity, nie łamanie wiersza.** Umowa jest wyjustowana, a Word rozciąga
   wiersz zakończony łamaniem na całą szerokość strony. Podpunkty nie mają numeracji
   listy, więc następny ustęp zostaje ustępem 2, a wcięcie (360) trzyma je pod tekstem
   ustępu.
-- **Końcówka należy do szablonu**, bo w EN brzmi inaczej. `build_rate_lines` zwraca
-  podpunkty bez niej; pusta lista przy jednej stawce zostawia dotychczasowe zdanie.
+- **„netto + VAT” przy każdej kwocie, nie raz na końcu** (dział umów, 27.11.2026).
+  Dopisek za ostatnim podpunktem stał po dacie i czytał się jak „od dnia 01.03.2027
+  netto + VAT”. `build_rate_lines` dokleja go po „(słownie: …)” każdego podpunktu
+  (EN: „net + VAT in accordance with the applicable regulations”) i stawia kropkę
+  po ostatnim, a szablon wstawia sam `{{ line }}`. Pusta lista przy jednej stawce
+  zostawia dotychczasowe zdanie z końcówką w szablonie. Aneks zmiany stawki
+  (`b2b_documents/context.py`) miał dopisek przy każdej kwocie od początku.
 - **`b2b.rate_clause` zostaje** (jedno zdanie, „…, a 160 PLN …”) dla szablonów
   kontraktu pisanych ręcznie w Ustawieniach, które znają tylko tę zmienną.
 - **Szablony DOCX i HTML** zmienia `python scripts/build_b2b_templates.py --rate-lines`
-  (idempotentnie, na zacommitowanych plikach). `b2b.rate_lines | default([])`, bo HTML
+  (idempotentnie, na zacommitowanych plikach; zdejmuje też starą końcówkę z podpunktu). `b2b.rate_lines | default([])`, bo HTML
   jedzie na `StrictUndefined`.
 - Ponowne pobranie wydanej umowy progresywnej (6 z 123 na kopii z 03.11.2026) renderuje
   ten sam tekst w nowym układzie: szablon umowy głównej nie ma wersji, kwoty i daty

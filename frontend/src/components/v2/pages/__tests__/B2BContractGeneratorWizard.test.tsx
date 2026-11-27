@@ -320,6 +320,8 @@ describe("GeneratorForm w układzie kroków", () => {
     fireEvent.change(screen.getByLabelText("Stawka godz. (netto) *"), {
       target: { value: "150" },
     });
+    // KRZ w kroku „Partner” (0801): bez wyniku pobranie najpierw przypomina o KRZ.
+    fireEvent.click(screen.getByRole("radio", { name: "Brak wpisów", hidden: true }));
 
     expect(
       await bar().findByText("Wszystko uzupełnione — umowę nr 1500/2026 można pobrać."),

@@ -36,6 +36,7 @@ from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_mass_send import readiness, service
 from app.services.b2b_mass_send import settings as mass_settings
 from app.tasks import b2b_mass_send as loop
+from tests._krz import KRZ_CLEAR
 from tests.test_b2b_esign import esign_env  # noqa: F401 — fikstura
 from tests.test_b2b_signature_automation import _headers_for_role, _unique_number
 
@@ -127,6 +128,7 @@ async def _seed_person(
                 **(payload_overrides or {}),
             }
             row = B2BGeneratedContract(
+                krz_check=KRZ_CLEAR,
                 year=year,
                 seq=seq,
                 contract_number=number,
@@ -162,6 +164,7 @@ async def _open_request_for(person: dict[str, int], *, created_by: int) -> int:
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=year,
             seq=seq,
             contract_number=number,

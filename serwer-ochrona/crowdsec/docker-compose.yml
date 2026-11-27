@@ -1,0 +1,40 @@
+# CrowdSec na nexus-prod (27.11.2026, sesja "Utwardzenie serwera").
+# Poza Coolify: osobny projekt compose w /opt/crowdsec. Cofniecie: docker compose down w /opt/crowdsec
+# (po wczesniejszym zdjeciu middleware crowdsec z Traefika, patrz README.md).
+name: crowdsec
+services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.8.2@sha256:65b74942f7e7ed5c60fde4ac15fc4ba715904c398c8b16dd451f4907d90347d4
+    container_name: crowdsec
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: UTC
+      # http-cve i appsec-* daja wirtualne latki; whitelist-good-actors = boty wyszukiwarek, CDN-y.
+      COLLECTIONS: >-
+        crowdsecurity/traefik crowdsecurity/sshd crowdsecurity/linux crowdsecurity/http-cve
+        crowdsecurity/base-http-scenarios crowdsecurity/whitelist-good-actors
+        crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+      # Tryb tylko-loguj (48 h): bez listy spolecznosci (jej decyzje nie sa symulowane).
+      DISABLE_ONLINE_API: "true"
+    ports:
+      # LAPI tylko dla cs-firewall-bouncer na hoscie. AppSec (7422) wylacznie w sieci coolify.
+      - "127.0.0.1:8180:8080"
+    volumes:
+      - /opt/crowdsec/config:/etc/crowdsec
+      - /opt/crowdsec/data:/var/lib/crowdsec/data
+      - /var/log/traefik:/var/log/traefik:ro
+      # Katalog, nie pojedyncze pliki: logrotate podmienia pliki (inode).
+      - /var/log:/var/log/host:ro
+    networks:
+      - coolify
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+networks:
+  coolify:
+    external: true

@@ -178,7 +178,7 @@ async def test_search_mapuje_wpis_wykazu(registry):
     assert entry.requested_at is not None and entry.requested_at.hour == 14
     assert entry.cached is False
     request = registry.calls[0]
-    assert request.url.host == "wl-api.mf.gov.pl"
+    assert request.url.host == "wykazpodatnikowvat.mf.gov.pl"
     assert request.url.path == f"/api/search/nip/{NIP}"
     assert request.url.params["date"] == TODAY.isoformat()
     [event] = session.events()
@@ -367,4 +367,4 @@ async def test_simulate_fikcyjny_wpis_bez_sieci(registry, monkeypatch):
 async def test_tryb_test_idzie_do_srodowiska_testowego(registry, monkeypatch):
     monkeypatch.setattr(white_list.settings, "WHITE_LIST_MODE", "test")
     await white_list.search(_Session(), NIP, TODAY)
-    assert registry.calls[0].url.host == "wl-test.mf.gov.pl"
+    assert registry.calls[0].url.host == "wykazpodatnikowvat-test.mf.gov.pl"

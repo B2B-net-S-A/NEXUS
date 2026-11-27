@@ -1,0 +1,28 @@
+# Docelowy /opt/crowdsec/config/profiles.yaml po wlaczeniu powiadomien (http_nexus).
+# Pierwszy profil: scenariusze nexus/* tylko alarmuja (bez decyzji) i ida na ekran.
+name: nexus_alert_only
+filters:
+ - Alert.GetScenario() startsWith "nexus/"
+notifications:
+ - http_nexus
+on_success: break
+---
+name: default_ip_remediation
+filters:
+ - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+ - type: ban
+   duration: 4h
+notifications:
+ - http_nexus
+on_success: break
+---
+name: default_range_remediation
+filters:
+ - Alert.Remediation == true && Alert.GetScope() == "Range"
+decisions:
+ - type: ban
+   duration: 4h
+notifications:
+ - http_nexus
+on_success: break

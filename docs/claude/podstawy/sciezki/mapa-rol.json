@@ -100,6 +100,20 @@
         "Admin"
       ]
     },
+    "umowy-b2b-krz": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/umowy-b2b-krz.md",
+      "sciezki": [
+        "frontend/src/components/v2/b2b-generator/**",
+        "frontend/src/components/v2/pages/B2BContractGenerator*",
+        "frontend/src/app/contracts/b2b-generator/**",
+        "backend/app/api/b2b_krz.py",
+        "backend/app/services/b2b_contract_generator/krz.py"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead"
+      ]
+    },
     "rytm-dnia": {
       "scenariusz": ".claude/skills/sciezka/scenariusze/rytm-dnia.md",
       "sciezki": [
@@ -111,6 +125,34 @@
       "role": [
         "Head of Recruitment",
         "Delivery Lead"
+      ]
+    },
+    "post-na-linkedin": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/post-na-linkedin.md",
+      "sciezki": [
+        "frontend/src/components/v2/career-share/**",
+        "frontend/src/components/v2/modals/GenerateInviteLinkV2.tsx",
+        "frontend/src/components/career/ogPostCard.tsx",
+        "frontend/src/app/kariera/r/*/grafika-posta/**",
+        "frontend/src/lib/career/postGraphic.ts",
+        "frontend/src/lib/career/carouselPdf.ts"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead"
+      ]
+    },
+    "bezpieczenstwo": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/bezpieczenstwo.md",
+      "sciezki": [
+        "frontend/src/components/settings/security/**",
+        "backend/app/api/security.py",
+        "backend/app/api/security_ingest.py",
+        "backend/app/services/security_*.py"
+      ],
+      "role": [
+        "Admin",
+        "Rekruter"
       ]
     }
   }

@@ -865,6 +865,7 @@ describe("usePipelineMove — odrzucenie za tryb pracy (14.10.2026)", () => {
 
     React.act(() => controls.requestReject(items));
     fireEvent.click(await screen.findByText("Lokalizacja lub tryb pracy"));
+    fireEvent.click(screen.getByText("Chce mniej dni w biurze"));
     fireEvent.click(screen.getByText("Do 1 dnia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
 
@@ -872,10 +873,48 @@ describe("usePipelineMove — odrzucenie za tryb pracy (14.10.2026)", () => {
     for (const call of post.mock.calls) {
       expect(call[1]).toMatchObject({
         rejection_reason_id: "9",
+        work_mode_issue: "office_days",
         work_mode_max_onsite_days: 1,
         work_mode_save_to_profile: true,
       });
+      // Kilka osób: bez miasta i bez zgody na więcej dni.
+      expect(call[1].residence_city).toBeUndefined();
+      expect(call[1].accepts_more_office_days).toBeUndefined();
     }
+  });
+
+  it("„Za daleko do biura” przy jednej osobie: miasto i karta dojazdu w ruchu, „Nie pytałem” pominięte", async () => {
+    const item = card({ id: 60, candidate_id: 600, stage: "client_interview" });
+    const b = board({ client: [item] });
+    post.mockResolvedValue({ data: { id: 802 } });
+    mount(b.all, undefined, { rejectionReasons: reasons });
+
+    React.act(() => controls.requestReject(item));
+    fireEvent.click(await screen.findByText("Lokalizacja lub tryb pracy"));
+    const confirm = screen.getByRole("button", { name: "Potwierdź" });
+    // „Co nie pasuje?” obowiązkowe.
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByText("Za daleko do biura"));
+    fireEvent.change(screen.getByLabelText("Gdzie mieszka?"), { target: { value: "Kraków" } });
+    const offices = screen.getByLabelText("Do jakich biur dojedzie");
+    fireEvent.change(offices, { target: { value: "Katowice" } });
+    fireEvent.keyDown(offices, { key: "Enter" });
+    fireEvent.click(screen.getByText("Raz w miesiącu tak"));
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const payload = post.mock.calls[0][1];
+    expect(payload).toMatchObject({
+      work_mode_issue: "distance",
+      work_mode_save_to_profile: true,
+      residence_city: "Kraków",
+      commute_office_cities: ["Katowice"],
+      occasional_commute: true,
+    });
+    expect(payload).not.toHaveProperty("work_mode_max_onsite_days");
+    expect(payload).not.toHaveProperty("relocation_willing");
+    expect(payload).not.toHaveProperty("relocation_targets");
+    expect(payload).not.toHaveProperty("accepts_more_office_days");
   });
 
   it("inny ruch nie niesie pól trybu pracy", async () => {

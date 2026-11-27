@@ -129,6 +129,8 @@ function memoryApi(overrides: Partial<CvEditorIssuesApi> = {}): CvEditorIssuesAp
       skipped: [],
     })),
     confirm: vi.fn(async () => qcResult({ blocking_failed: 0 })),
+    editConfirmation: vi.fn(async () => qcResult()),
+    retractConfirmation: vi.fn(async () => qcResult()),
     dismiss: vi.fn(async () => qcResult()),
     restore: vi.fn(async () => qcResult()),
     dismissIssue: vi.fn(async () => ISSUES),
@@ -726,12 +728,35 @@ describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
     const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
     setup({ api });
     fireEvent.click(await screen.findByRole("button", { name: "Kandydat to ma" }));
-    const field = screen.getByLabelText("Co dokładnie powiedział kandydat? (wymagane)");
+    const field = screen.getByLabelText("Co kandydat powiedział o „AWS”? (wymagane)");
     fireEvent.change(field, { target: { value: " AWS w projekcie migracji " } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz w notatkach" }));
     await waitFor(() => expect(api.confirm).toHaveBeenCalledWith(STAGE, { term: "AWS", text: "AWS w projekcie migracji" }));
     expect(toast.showSuccess).toHaveBeenCalledWith("Potwierdzenie zapisane w notatkach kandydata.");
     expect(await screen.findByText("Nic nie blokuje wysyłki")).toBeInTheDocument();
+  });
+
+  it("„Popraw” w panelu edytora przenosi potwierdzenie na otwartą blokadę (27.11.2026)", async () => {
+    const confirmation = {
+      id: 5,
+      text: "Potwierdzone z kandydatem: Terraform — AWS w projekcie migracji",
+      term: "Terraform",
+      role: null,
+      said: "AWS w projekcie migracji",
+      by_name: "Marta Testowa",
+      at: "2026-11-27T16:48:00Z",
+      edited_at: null,
+      can_edit: true,
+    };
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED, confirmations: [confirmation] })) });
+    setup({ api });
+    fireEvent.click(await screen.findByRole("button", { name: "Popraw potwierdzenie: Terraform" }));
+    fireEvent.change(screen.getByLabelText("Której blokady dotyczy?"), { target: { value: "AWS" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz poprawkę" }));
+    await waitFor(() =>
+      expect(api.editConfirmation).toHaveBeenCalledWith(STAGE, 5, { term: "AWS", text: "AWS w projekcie migracji" }),
+    );
+    expect(toast.showSuccess).toHaveBeenCalledWith("Potwierdzenie poprawione — QC przeliczone.");
   });
 
   it("„Jest w oryginale”: pominięcie „pod inną nazwą” z fragmentem, który sprawdzi serwer", async () => {

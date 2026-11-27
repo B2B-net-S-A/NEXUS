@@ -176,6 +176,9 @@ class NotificationType(str, enum.Enum):
     # dzienna lista do dopisania, tylko admini, mail od razu
     # (`services/teams_prep_scope.py`).
     teams_prep_scope_missing = "teams_prep_scope_missing"
+    # 0800: rutyna bezpieczeństwa po terminie (Ustawienia → Bezpieczeństwo →
+    # Rutyny) — tylko admini, mail od razu (`services/security_routines.py`).
+    security_routine_overdue = "security_routine_overdue"
     # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
     # grupą zakresu) — lista do dopisania po uzgadnianiu o 7:00, tylko admini,
     # mail od razu (`services/hr/m365/scope_alerts.py`).
@@ -207,6 +210,11 @@ class NotificationType(str, enum.Enum):
     # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B z Generatora —
     # do DL-a rekrutacji (albo portfela / TCM); related_entity=(b2b_generated_contract, id).
     b2b_signature_requested = "b2b_signature_requested"
+    # 0801: Partner ma wpis w Krajowym Rejestrze Zadłużonych — decyzja DL
+    # klienta (bez niego Head of Recruitment), a po dopuszczeniu informacja
+    # dla Finansów; related_entity=(b2b_generated_contract, id).
+    b2b_krz_entry = "b2b_krz_entry"
+    b2b_krz_allowed = "b2b_krz_allowed"
     # 0524: umowę z Generatora wygenerował ktoś inny niż osoba prowadząca
     # kandydata w rekrutacji — dzwonek do prowadzącego (placement, premia
     # i pilnowanie podpisu są jego); related_entity=(b2b_generated_contract, id).

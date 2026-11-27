@@ -1333,11 +1333,12 @@ def test_security_scanners_block_prs_and_run_weekly() -> None:
     ci = _load("ci.yml")["jobs"]
     gate = ci["backend-pytest-gate"]
     run = gate["steps"][0]["run"]
-    for job_id in ("semgrep-pr", "deps-audit-pr"):
+    for job_id in ("semgrep-pr", "deps-audit-pr", "zizmor-pr"):
         assert job_id in gate["needs"]
         assert f"needs.{job_id}.result" in run
         assert ci[job_id]["if"] == "${{ github.event_name == 'pull_request' }}"
     assert '[ "$semgrep" != "success" ]' in run and '[ "$audit" != "success" ]' in run
+    assert '[ "$zizmor" != "success" ]' in run
 
     baseline = _json.loads(
         (_WORKFLOWS.parents[1] / ".semgrep-baseline.json").read_text(encoding="utf-8")
@@ -1345,6 +1346,14 @@ def test_security_scanners_block_prs_and_run_weekly() -> None:
     weekly = _load("security-weekly.yml")
     triggers = weekly.get("on", weekly.get(True))
     assert [c["cron"] for c in triggers["schedule"]] == ["30 5 * * 1"]
+    # 27.11.2026: zizmor i Trivy obrazów produkcji też otwierają alarm.
+    assert set(weekly["jobs"]["alert"]["needs"]) == {
+        "semgrep-full", "deps-audit", "zizmor-full", "trivy-images",
+    }
+    for job_id in ("zizmor-full", "trivy-images"):
+        assert f"needs.{job_id}.result != 'success'" in _step(
+            weekly["jobs"]["alert"]["steps"], "Otwórz albo odśwież alarm po czerwonym biegu"
+        )["if"]
     scans = [
         _step(ci["semgrep-pr"]["steps"], "Semgrep")["run"],
         _step(weekly["jobs"]["semgrep-full"]["steps"], "Semgrep")["run"],

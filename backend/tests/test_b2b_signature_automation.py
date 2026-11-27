@@ -46,6 +46,7 @@ from app.models.team_structure import (
     DeliveryLeadClientAssignment,
 )
 from app.models.user import User, UserRole
+from tests._krz import KRZ_CLEAR
 from tests._confirm_signed import confirm_request
 
 
@@ -113,6 +114,7 @@ async def _seed_legacy_generated(*, created_by: int | None = None) -> int:
     year, seq, number = _unique_number()
     async with AsyncSessionLocal() as db:
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=year,
             seq=seq,
             contract_number=number,
@@ -176,6 +178,7 @@ async def _seed_bound_scenario(
             )
         )
         generated = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=year,
             seq=seq,
             contract_number=number,
@@ -226,6 +229,7 @@ async def _seed_second_generated(scenario: dict[str, Any], *, created_by: int) -
     year, seq, number = _unique_number()
     async with AsyncSessionLocal() as db:
         row = B2BGeneratedContract(
+            krz_check=KRZ_CLEAR,
             year=year,
             seq=seq,
             contract_number=number,

@@ -283,6 +283,30 @@ export function fitLabel(
   return roomLeft >= roomRight ? { ...left, scale: roomLeft / w } : { ...right, scale: roomRight / w };
 }
 
+/**
+ * Przy której podświetlonej kolumnie stoi podpis miast. Jedno miasto: jak
+ * `fitLabel` (w razie potrzeby pomniejszony). Kilka miast: po lewej od skrajnie
+ * lewej albo po prawej od skrajnie prawej kolumny, tylko w pełnym rozmiarze;
+ * gdy nigdzie się nie mieści — `null` i podpisu nie ma (miasta są w linii pod
+ * tytułem). Podpis przy pierwszej kolumnie wchodził na sąsiednie podświetlone
+ * kolumny („Warszawa, Gdańsk, Gdynia”).
+ */
+export function mapLabelColumn<T extends { x: number }>(
+  lit: readonly T[],
+  lines: readonly { text: string; size: number }[],
+): { column: T; fit: FittedLabel } | null {
+  if (lit.length === 0) return null;
+  if (lit.length === 1) return { column: lit[0], fit: fitLabel(lit[0].x, lines, "left") };
+  const sorted = [...lit].sort((a, b) => a.x - b.x);
+  const leftmost = sorted[0];
+  const rightmost = sorted[sorted.length - 1];
+  const left = fitLabel(leftmost.x, lines, "left");
+  if (left.anchor === "end" && left.scale === 1) return { column: leftmost, fit: left };
+  const right = fitLabel(rightmost.x, lines, "right");
+  if (right.anchor === "start" && right.scale === 1) return { column: rightmost, fit: right };
+  return null;
+}
+
 /** Co pokazuje mapa na stronie oferty. */
 export type OfferMapMode =
   | { kind: "closed"; cities: string[] }

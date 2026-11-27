@@ -1307,6 +1307,18 @@ class Settings(BaseSettings):
     # składa raporty po odczycie CV i wysyła je po terminie. Mail i tak przechodzi
     # przez politykę z Ustawień (rodzaj `competence_report`, domyślnie wyłączony).
     COMPETENCE_REPORT_SENDER_ENABLED: bool = True
+    # Ustawienia → Bezpieczeństwo (0800, `tasks/security_sync.py`): co 30 min
+    # biegi `security-weekly.yml` z GitHub API (repo publiczne, token opcjonalny
+    # — tylko dla limitu), wyjątki po terminie i rutyny po terminie. DefectDojo,
+    # Wazuh, CrowdSec i Falco same wysyłają dane na `/api/security/ingest*`.
+    # Env na produkcji ustawia wyłącznie workflow „Coolify set env”.
+    SECURITY_SYNC_ENABLED: bool = True
+    SECURITY_SYNC_INTERVAL_SECONDS: int = 1800
+    SECURITY_GITHUB_REPO: str = "B2B-net-S-A/NEXUS"
+    SECURITY_GITHUB_WORKFLOW: str = "security-weekly.yml"
+    SECURITY_GITHUB_TOKEN: str = ""
+    # Webhook `/api/security/ingest*` na klucz konta serwisowego.
+    SECURITY_INGEST_RATE_LIMIT: str = "120/minute"
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
     M365_MAIL_TENANT_ID: str = ""
@@ -1876,7 +1888,8 @@ class Settings(BaseSettings):
     KSEF_SALES_ISSUE_TOKEN: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
-    # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
+    # test = wykazpodatnikowvat-test.mf.gov.pl, live = wykazpodatnikowvat.mf.gov.pl
+    # (`app/services/mf_white_list_hosts.py`; stary wl-api.mf.gov.pl do 1.12.2026).
     WHITE_LIST_MODE: str = "off"
     # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
     # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.

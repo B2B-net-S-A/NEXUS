@@ -1,0 +1,53 @@
+# Falco + Falcosidekick na nexus-prod (27.11.2026, sesja "Utwardzenie serwera").
+# Poza Coolify: /opt/falco. Cofniecie: docker compose down w /opt/falco.
+name: falco
+services:
+  falco:
+    image: falcosecurity/falco:0.45.2@sha256:1562a643953f938e02f47319b5214d93a235f11f646d60e9b8a516fd5a64698e
+    container_name: falco
+    restart: unless-stopped
+    # modern eBPF bez --privileged: tylko te capabilities, ktorych wymaga sonda (jadro >= 5.8).
+    cap_drop: [ALL]
+    cap_add: [BPF, PERFMON, SYS_RESOURCE, SYS_PTRACE]
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=unconfined
+    pid: host
+    environment:
+      HOST_ROOT: /host
+      FALCO_HOSTNAME: nexus-prod
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /etc:/host/etc:ro
+      - /opt/falco/config.d/nexus.yaml:/etc/falco/config.d/zz-nexus.yaml:ro
+      - /opt/falco/rules.d:/etc/falco/rules.d:ro
+      - /var/log/falco:/var/log/falco
+    networks: [falco]
+    depends_on: [falcosidekick]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8765/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+  falcosidekick:
+    image: falcosecurity/falcosidekick:2.35.1@sha256:a9bb60d2c7742febd912315ca1155839abc0199bf322c58d3adbb8b0849fadb9
+    container_name: falcosidekick
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    env_file:
+      - /opt/falco/sidekick.env
+    networks: [falco]
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:2801/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+networks:
+  falco:
+    name: falco

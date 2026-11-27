@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   downloadStaffDocument,
+  type InvoiceRead,
   useCardDocuments,
   useDocumentDecision,
   type SenderContract,
@@ -43,6 +44,30 @@ function contractLabel(contract: SenderContract): string {
     .filter(Boolean)
     .join(" ");
   return [contract.client ?? "Bez klienta", String(contract.id), period].filter(Boolean).join(" · ");
+}
+
+/** „FV 1/10/2026 · 30.10.2026 · NIP 1234567890 · netto 24 000,00 PLN”. */
+function readLine(read: InvoiceRead): string {
+  const amount = read.net_amount ?? read.gross_amount;
+  const money = amount
+    ? `${read.net_amount ? "netto" : "brutto"} ${Number(amount).toLocaleString("pl-PL", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })} ${read.currency ?? "PLN"}`
+    : null;
+  const day = read.issue_date ? read.issue_date.split("-").reverse().join(".") : null;
+  return [read.invoice_number, day, read.seller_nip ? `NIP ${read.seller_nip}` : null, money]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function readText(read: InvoiceRead): string {
+  if (read.counts) return `Odczyt z pliku (liczy się w kontroli miesiąca): ${readLine(read)}`;
+  if (read.status === "retry") return "Odczyt pliku jeszcze się nie udał. NEXUS spróbuje ponownie.";
+  if (read.status === "read") {
+    return `Odczyt z pliku bez kwoty netto: ${readLine(read)}. Kontrola miesiąca tej faktury nie liczy.`;
+  }
+  return "Nie udało się odczytać kwoty z pliku. Kontrola miesiąca tej faktury nie liczy.";
 }
 
 function DocumentRow({ document_ }: { document_: StaffDocument }) {
@@ -96,6 +121,11 @@ function DocumentRow({ document_ }: { document_: StaffDocument }) {
         {document_.period_guessed ? " (okres nie z nazwy pliku: sprawdź)" : ""}
         {document_.sender_email ? ` · ${document_.sender_email}` : ""}
       </p>
+      {document_.invoice_read ? (
+        <p className="text-xs text-muted-foreground">
+          {readText(document_.invoice_read)}
+        </p>
+      ) : null}
       {unmatched ? (
         <div className="space-y-1">
           <label className="flex flex-wrap items-center gap-2 text-xs">

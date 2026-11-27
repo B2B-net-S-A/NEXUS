@@ -38,7 +38,7 @@ import time
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
 from fastapi import HTTPException
@@ -132,6 +132,11 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 _RATE_PAIR = re.compile(r"\b\d{2,4}\s*/\s*\d{2,4}\b")
 _DENIAL = re.compile(r"\b(?:nie|bez|brak|nigdy|not|no|never|without)\b", re.IGNORECASE)
 CONFIRMATIONS_MAX = 20
+CONFIRM_PREFIX = "Potwierdzone z kandydatem: "
+_CONFIRM_ROLE = re.compile(r"(.+) \(([^()]+)\)")
+# Zapis notatki ustawia `updated_at` tuż po `created_at`; „poprawione” dopiero
+# przy realnej zmianie.
+CONFIRM_EDIT_GRACE = timedelta(seconds=5)
 DESCRIPTIVE_MIN_WORDS = 6
 HEADER_BLOCKS = 6
 TITLE_BLOCKS = 3
@@ -3529,15 +3534,30 @@ def advisory_mode() -> bool:
     return bool(settings.CV_QC_ADVISORY)
 
 
-async def _confirmations(db: AsyncSession, candidate_id: int) -> list[dict]:
-    """Potwierdzenia z kandydatem zapisane z okna QC — co, kto i kiedy."""
+async def _confirmations(
+    db: AsyncSession, candidate_id: int, roles: Sequence[str] = ()
+) -> list[dict]:
+    """Potwierdzenia z kandydatem zapisane z okna QC — co, kto i kiedy.
+
+    `id`, `author_id` i `job_id` służą „Popraw” / „Cofnij” (27.11.2026); trasa
+    liczy z nich `can_edit` dla oglądającego. `term`, `role` i `said` wypełniają
+    formularz poprawki.
+    """
 
     from app.models.note import Note
     from app.models.user import User
     from app.services import note_kinds
 
     rows = await db.execute(
-        select(Note.content, Note.created_at, User.name)
+        select(
+            Note.id,
+            Note.content,
+            Note.created_at,
+            Note.updated_at,
+            Note.author_id,
+            Note.job_id,
+            User.name,
+        )
         .outerjoin(User, User.id == Note.author_id)
         .where(
             Note.candidate_id == candidate_id,
@@ -3550,10 +3570,54 @@ async def _confirmations(db: AsyncSession, candidate_id: int) -> list[dict]:
         .order_by(Note.created_at.desc(), Note.id.desc())
         .limit(CONFIRMATIONS_MAX)
     )
-    return [
-        {"text": dz._strip_html(row.content), "by_name": row.name, "at": row.created_at}
-        for row in rows
-    ]
+    out = []
+    for row in rows:
+        text = dz._strip_html(row.content)
+        edited = (
+            row.updated_at is not None
+            and row.created_at is not None
+            and row.updated_at - row.created_at > CONFIRM_EDIT_GRACE
+        )
+        out.append(
+            {
+                "id": row.id,
+                "text": text,
+                "by_name": row.name,
+                "at": row.created_at,
+                "edited_at": row.updated_at if edited else None,
+                "author_id": row.author_id,
+                "job_id": row.job_id,
+                **confirmation_parts(text, roles),
+            }
+        )
+    return out
+
+
+def confirmation_content(literal: str, role: Optional[str], said: str) -> str:
+    """Treść notatki „Potwierdzone z kandydatem: X (Firma) — słowa kandydata”."""
+    # Bez kropki po nazwie: „Java 17.” czytałoby się jak inna wersja.
+    return (
+        f"{CONFIRM_PREFIX}{literal}"
+        + (f" ({role})" if role else "")
+        + (f" — {said}" if said else "")
+    )
+
+
+def confirmation_parts(text: str, roles: Sequence[str] = ()) -> dict:
+    """Blokada, rola i słowa kandydata z treści `confirmation_content`.
+
+    Nawias na końcu to rola tylko wtedy, gdy to firma z historii kandydata —
+    „CI/CD (Jenkins)” zostaje nazwą blokady.
+    """
+
+    body = text[len(CONFIRM_PREFIX) :] if text.startswith(CONFIRM_PREFIX) else text
+    head, sep, said = body.partition(" — ")
+    term, role = head.strip(), None
+    match = _CONFIRM_ROLE.fullmatch(term)
+    known = {r.casefold() for r in roles}
+    if match and match.group(2).strip().casefold() in known:
+        term, role = match.group(1).strip(), match.group(2).strip()
+    return {"term": term, "role": role, "said": said.strip() if sep else ""}
 
 
 async def _load_sources(db: AsyncSession, stage: CandidateStage) -> dz.ReviewSources:
@@ -3911,8 +3975,9 @@ async def run_qc(
         "override": override,
         "qc_state": state,
         "advisory": advisory_mode(),
-        "confirmations": await _confirmations(db, src.candidate.id),
+        "confirmations": await _confirmations(db, src.candidate.id, confirm_roles(src)),
         "confirm_roles": confirm_roles(src),
+        "confirm_locked": await confirmations_locked(db, stage),
         "run_id": run_id,
         "computed_at": computed_at,
         "cv": _cv_payload(src),
@@ -4179,6 +4244,161 @@ async def confirm_with_candidate(
     return await run_qc(db, stage, user_id=user_id, persist=True, src=src)
 
 
+class ConfirmationForbidden(Exception):
+    """Cudze potwierdzenie poprawia tylko admin (403)."""
+
+
+async def confirmations_locked(db: AsyncSession, stage: CandidateStage) -> bool:
+    """Karta stoi na „CV wysłane” albo dalej: potwierdzenie jest śladem wysyłki."""
+    from app.services import integration_cv
+    from app.services.candidate_claim import stage_column
+
+    current = await integration_cv.current_stage(
+        db, candidate_id=stage.candidate_id, job_id=stage.job_id
+    )
+    return current is not None and integration_cv.locked_after_send(
+        await stage_column(db, current)
+    )
+
+
+def can_edit_confirmation(item: dict, *, user: Any, job_id: int, locked: bool) -> bool:
+    """„Popraw” / „Cofnij”: autor albo admin, ta rekrutacja, przed wysyłką."""
+    from app.models.user import UserRole
+
+    if locked or item.get("job_id") != job_id or item.get("id") is None:
+        return False
+    return item.get("author_id") == user.id or user.has_any_role(UserRole.admin)
+
+
+async def _own_confirmation(
+    db: AsyncSession, stage: CandidateStage, note_id: int, user: Any
+):
+    """Notatka potwierdzenia tej pary, którą `user` może zmienić."""
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    note = await db.get(Note, note_id)
+    if (
+        note is None
+        or note.external_source != note_kinds.QC_CONFIRM_SOURCE
+        or note.candidate_id != stage.candidate_id
+        or note.job_id != stage.job_id
+    ):
+        raise ApplyError("Tego potwierdzenia nie ma w tej rekrutacji — odśwież okno.")
+    item = {"id": note.id, "author_id": note.author_id, "job_id": note.job_id}
+    if not can_edit_confirmation(item, user=user, job_id=stage.job_id, locked=False):
+        raise ConfirmationForbidden("Poprawić albo cofnąć może tylko autor wpisu.")
+    if await confirmations_locked(db, stage):
+        raise ApplyError(
+            "CV jest już u klienta — tego potwierdzenia nie da się zmienić."
+        )
+    return note
+
+
+def _confirmation_activity(
+    db: AsyncSession, stage: CandidateStage, action: str, user: Any, details: dict
+) -> None:
+    from app.models.activity import Activity
+
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action=action,
+            user_id=user.id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                **details,
+            },
+        )
+    )
+
+
+async def edit_confirmation(
+    db: AsyncSession,
+    stage: CandidateStage,
+    note_id: int,
+    *,
+    term: str,
+    text: Optional[str],
+    user: Any,
+    role: Optional[str] = None,
+) -> dict:
+    """„Popraw” (27.11.2026): inna blokada, zdanie albo rola w tej samej notatce.
+
+    Zgłoszenie rekrutera: przy dwóch blokadach wpisał słowa kandydata pod
+    niewłaściwą. Blokada musi być ta sama co dotąd albo jedną z tych, które QC
+    teraz zgłasza; notatka zachowuje autora i datę, QC liczy się od nowa.
+    """
+
+    from app.services.candidate_notes_facts import mark_notes_changed
+
+    check_confirmation_text(text)
+    note = await _own_confirmation(db, stage, note_id, user)
+    src, checks = await _action_checks(db, stage)
+    role = checked_role(src, role)
+    before = confirmation_parts(dz._strip_html(note.content), confirm_roles(src))
+    wanted = _norm(term)
+    if wanted and wanted == _norm(before["term"]):
+        literal = before["term"]
+    else:
+        item = next(
+            (
+                i
+                for c in checks
+                if c["key"] == "no_unsupported" and c["status"] == "fail"
+                for i in c["items"]
+                if wanted and _norm(i.get("term") or i.get("requirement")) == wanted
+            ),
+            None,
+        )
+        if item is None:
+            raise ApplyError("QC nie zgłasza takiej blokady — odśwież okno.")
+        literal = str(item.get("term") or item.get("requirement") or "").strip()
+    said = " ".join((text or "").split())[:CONFIRM_TEXT_MAX]
+    note.content = confirmation_content(literal, role, said)
+    candidate = src.candidate
+    mark_notes_changed(candidate, now_iso=datetime.now(timezone.utc).isoformat())
+    _confirmation_activity(
+        db,
+        stage,
+        "cv_qc_confirmation_edited",
+        user,
+        {
+            "note_id": note.id,
+            "term_before": before["term"][:120],
+            "term": literal[:120],
+        },
+    )
+    await db.flush()
+    return await run_qc(db, stage, user_id=user.id, persist=True)
+
+
+async def retract_confirmation(
+    db: AsyncSession, stage: CandidateStage, note_id: int, *, user: Any
+) -> tuple[dict, int]:
+    """„Cofnij” (27.11.2026): usuń potwierdzenie; blokada wraca do listy.
+
+    Zwraca też id kandydata, żeby trasa wyczyściła fakty z notatek tą samą
+    drogą co usunięcie notatki w profilu.
+    """
+
+    note = await _own_confirmation(db, stage, note_id, user)
+    term = confirmation_parts(dz._strip_html(note.content))["term"]
+    candidate_id = note.candidate_id
+    _confirmation_activity(
+        db,
+        stage,
+        "cv_qc_confirmation_retracted",
+        user,
+        {"note_id": note.id, "term": term[:120]},
+    )
+    await db.delete(note)
+    await db.flush()
+    return await run_qc(db, stage, user_id=user.id, persist=True), candidate_id
+
+
 def check_confirmation_text(text: Optional[str]) -> None:
     """Słowa kandydata: bez nich potwierdzenie niczego nie dowodzi."""
     if len(" ".join((text or "").split())) < CONFIRM_TEXT_MIN:
@@ -4409,10 +4629,7 @@ def _add_confirmation(
     said = " ".join((text or "").split())[:CONFIRM_TEXT_MAX]
     db.add(
         Note(
-            # Bez kropki po nazwie: „Java 17.” czytałoby się jak inna wersja.
-            content=f"Potwierdzone z kandydatem: {literal}"
-            + (f" ({role})" if role else "")
-            + (f" — {said}" if said else ""),
+            content=confirmation_content(literal, role, said),
             note_type=NoteType.general,
             candidate_id=src.candidate.id,
             job_id=src.job.id,

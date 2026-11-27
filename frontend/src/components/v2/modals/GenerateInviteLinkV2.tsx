@@ -23,6 +23,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GeneralLinkTab } from "@/components/v2/career-share/GeneralLinkTab";
 import { JobShareTab } from "@/components/v2/career-share/JobShareTab";
+import { LinkedInPostTab } from "@/components/v2/career-share/LinkedInPostTab";
 import { LinkResultsTab } from "@/components/v2/career-share/LinkResultsTab";
 
 interface Props {
@@ -35,23 +36,28 @@ interface Props {
   defaultJobId?: number;
 }
 
-type ShareTab = "job" | "general" | "results";
+type ShareTab = "job" | "post" | "general" | "results";
 
 export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props) {
   const [tab, setTab] = useState<ShareTab>("job");
   const [jobTitle, setJobTitle] = useState<string | null>(null);
+  // Rekrutacja wybrana w „Link do tej rekrutacji” — z niej zakładka posta bierze dane.
+  const [jobId, setJobId] = useState<number | null>(defaultJobId ?? null);
 
   useEffect(() => {
     if (!open) {
       setTab("job");
       setJobTitle(null);
+      setJobId(defaultJobId ?? null);
     }
-  }, [open]);
+  }, [open, defaultJobId]);
 
   const handleJobChange = useCallback((title: string | null) => setJobTitle(title), []);
 
   const description =
-    tab === "general"
+    tab === "post"
+      ? "Grafika w poście, link do aplikacji w pierwszym komentarzu — bez klienta i stawek."
+      : tab === "general"
       ? "Twój stały link do bazy — do profilu LinkedIn, stopki i postów."
       : tab === "results"
         ? "Wejścia, zgłoszenia i to, jak daleko zaszły osoby z Twoich linków."
@@ -77,6 +83,7 @@ export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props
             </div>
             <TabsList className="border-b-0">
               <TabsTrigger value="job">Link do tej rekrutacji</TabsTrigger>
+              <TabsTrigger value="post">Post na LinkedIn</TabsTrigger>
               <TabsTrigger value="general">Mój link ogólny</TabsTrigger>
               <TabsTrigger value="results">Wyniki</TabsTrigger>
             </TabsList>
@@ -87,7 +94,11 @@ export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props
               enabled={open && tab === "job"}
               defaultJobId={defaultJobId}
               onJobChange={handleJobChange}
+              onJobIdChange={setJobId}
             />
+          </TabsContent>
+          <TabsContent value="post" className="mt-0 flex min-h-0 flex-1 flex-col">
+            <LinkedInPostTab enabled={open && tab === "post"} jobId={jobId} onGoToLink={() => setTab("job")} />
           </TabsContent>
           <TabsContent value="general" className="mt-0 flex min-h-0 flex-1 flex-col">
             <GeneralLinkTab enabled={open && tab === "general"} />

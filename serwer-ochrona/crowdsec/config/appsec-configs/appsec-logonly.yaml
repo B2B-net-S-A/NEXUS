@@ -1,0 +1,8 @@
+# Tylko-loguj: te same reguly co appsec-default + generic-rules, ale poza pasmem
+# (alert i zdarzenie, bez blokady 403 w zadaniu).
+name: custom/appsec-logonly
+default_remediation: ban
+outofband_rules:
+  - crowdsecurity/base-config
+  - crowdsecurity/vpatch-*
+  - crowdsecurity/generic-*

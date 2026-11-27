@@ -1,5 +1,5 @@
 # Dane firm z rejestrów państwowych (biała lista VAT i KRS) — decyzja Artura 13.11.2026
-<!-- indeks: services/sales/registry.py, services/sales/registry_cards.py, bez migracji i bez biegu bota, custom_fields registry_history / registry_checked_at / registry_checked_key / registry_state, app_settings sales_registry_usage, wl-api.mf.gov.pl search/nips, limit 100 zapytań MF wspólny z Rozliczeniami (hr/white_list.py), DAILY_MF_QUERIES, api-krs.ms.gov.pl OdpisAktualny i OdpisPelny, firma wykreślona, likwidacja, upadłość, pole człowieka zostaje, pole automatu (rejestr, bot enrich) się aktualizuje, dubel NIP-u albo KRS-u z inną kartą, historia karty bot_card_history.registry_entries „Rejestry”, 30 dni, noc 1–6, po zapisaniu NIP-u (ekran Firmy, bot enrich), SALES_REGISTRY_ENABLED, staging bez wyjścia do rejestrów, skrypt sales_registry_trial -->
+<!-- indeks: services/sales/registry.py, services/sales/registry_cards.py, bez migracji i bez biegu bota, custom_fields registry_history / registry_checked_at / registry_checked_key / registry_state, app_settings sales_registry_usage, wykazpodatnikowvat.mf.gov.pl search/nips (dawniej wl-api.mf.gov.pl), mf_white_list_hosts.py, limit 100 zapytań MF wspólny z Rozliczeniami (hr/white_list.py), DAILY_MF_QUERIES, api-krs.ms.gov.pl OdpisAktualny i OdpisPelny, firma wykreślona, likwidacja, upadłość, pole człowieka zostaje, pole automatu (rejestr, bot enrich) się aktualizuje, dubel NIP-u albo KRS-u z inną kartą, historia karty bot_card_history.registry_entries „Rejestry”, 30 dni, noc 1–6, po zapisaniu NIP-u (ekran Firmy, bot enrich), SALES_REGISTRY_ENABLED, staging bez wyjścia do rejestrów, skrypt sales_registry_trial -->
 
 Krok 6 planu botów Sprzedaży (raport: https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV).
 Artur 13.11.2026: dane od botów zapisują się od razu, bez „Przyjmij”, a NIP, KRS,
@@ -13,7 +13,9 @@ nagrania odpowiedzi w `backend/tests/data/sales_registry/` (fikcyjne firmy, bez 
 
 ## Źródła
 
-- **Biała lista VAT** (`wl-api.mf.gov.pl`, metoda `search/nips`): po NIP-ie nazwa,
+- **Biała lista VAT** (`wykazpodatnikowvat.mf.gov.pl`, metoda `search/nips`; host
+  w `services/mf_white_list_hosts.py`, wspólny dla Generatora umów, Sprzedaży
+  i Rozliczeń — stary `wl-api.mf.gov.pl` MF obsługiwało do 1.12.2026): po NIP-ie nazwa,
   REGON, KRS, adres siedziby i status VAT. Limit MF: 100 zapytań `search` dziennie,
   do 30 NIP-ów w jednym, po wyczerpaniu blokada do 0:00
   (https://www.gov.pl/web/kas/api-wykazu-podatnikow-vat). **Ten sam limit zużywają

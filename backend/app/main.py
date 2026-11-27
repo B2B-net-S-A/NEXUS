@@ -195,6 +195,7 @@ from app.api import b2b_documents
 from app.api import custom_document_templates
 from app.api import b2b_esign
 from app.api import b2b_mass_send as b2b_mass_send_api
+from app.api import b2b_krz as b2b_krz_api
 from app.api import pre_contracts as pre_contracts_api
 from app.api import start_documents as start_documents_api
 from app.api import pair_owners as pair_owners_api
@@ -358,6 +359,8 @@ from app.api import job_team_panel as job_team_panel_api
 from app.api import public_job_team_panel as public_job_team_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import competence_reports as competence_reports_api
+from app.api import security as security_api
+from app.api import security_ingest as security_ingest_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
 from app.api import dashboard_metrics as dashboard_metrics_api
@@ -867,6 +870,7 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.contract_alerts import contract_alerts_loop
     from app.tasks.teams_prep_scope_alerts import teams_prep_scope_alerts_loop
+    from app.tasks.security_sync import security_sync_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
@@ -1056,6 +1060,9 @@ async def lifespan(app: FastAPI):
             "teams_prep_scope_alerts": asyncio.create_task(
                 teams_prep_scope_alerts_loop()
             ),
+            # 0800: Ustawienia → Bezpieczeństwo — biegi CI, DefectDojo, wyjątki
+            # i rutyny po terminie (dzwonek do adminów).
+            "security_sync": asyncio.create_task(security_sync_loop()),
             "fx_refresh": asyncio.create_task(fx_refresh_loop()),
             "competition_autofreeze": asyncio.create_task(
                 competition_autofreeze_loop()
@@ -2009,6 +2016,12 @@ app.include_router(
 app.include_router(
     b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
 )
+# Sprawdzenie Partnera w Krajowym Rejestrze Zadłużonych przed podpisem (0801).
+app.include_router(
+    b2b_krz_api.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
 # Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0757).
 app.include_router(
     b2b_mass_send_api.router,
@@ -2877,6 +2890,11 @@ app.include_router(
     competence_reports_api.router,
     prefix="/api/competence-reports",
     tags=["competence-reports"],
+)
+# 0800: Ustawienia → Bezpieczeństwo (admin) i wejście źródeł (klucz `security:ingest`).
+app.include_router(security_api.router, prefix="/api/security", tags=["security"])
+app.include_router(
+    security_ingest_api.router, prefix="/api/security", tags=["security-ingest"]
 )
 app.include_router(app_settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(
@@ -4493,6 +4511,12 @@ async def api_health_deep_check(request: Request):
     from app.models.integration_write_receipt import IntegrationWriteReceipt
     from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
     from app.models.job_previous_recruiter import JobPreviousRecruiter
+    from app.models.security import (
+        SecurityEvent,
+        SecurityFinding,
+        SecurityRoutine,
+        SecuritySourceState,
+    )
     from app.models.job_champion import JobChampion
     from app.models.job_autofill_pool import JobAutofillPool
     from app.models.autofill_feedback import AutofillFeedback
@@ -5281,6 +5305,11 @@ async def api_health_deep_check(request: Request):
         ("cv_stage_draft_snapshots", CvStageDraftSnapshot),
         # 0447: poprzedni rekruterzy rekrutacji.
         ("job_previous_recruiters", JobPreviousRecruiter),
+        # 0800: Ustawienia → Bezpieczeństwo.
+        ("security_findings", SecurityFinding),
+        ("security_events", SecurityEvent),
+        ("security_routines", SecurityRoutine),
+        ("security_source_states", SecuritySourceState),
         # 0450: championi rekrutacji.
         ("job_champions", JobChampion),
         # 0513, 0516, 0518: dopełnianie „Nowych” — pula, powody odrzucenia

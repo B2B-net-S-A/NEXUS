@@ -47,6 +47,31 @@ Makiety: https://claude.ai/artifact/NDLBxLTB1GZZpWMQst5Hnk.
 - Automat nie obsługuje: `Offer:`, `Re:`, nowych zapytań `Request:`. Temat spoza
   `SUBJECT_FILTER` nic nie zmienia.
 
+## Robot widzi zamknięty request: NEXUS zamyka rekrutację (27.11.2026)
+
+CPro **nie wysyła maila o zamknięciu requestu, który wygrała nasza osoba**
+(oferta CONTRACTED). 27.11 rekrutacja z dwiema osobami w „Zatrudnionych”
+została przez to „published”. Ludzie dalej trafiali z niej do „Do Cpro”,
+a robot osiem razy skończył ich karty wynikiem `failed/request_closed`.
+W CPro request miał status CLOSED i baner „The Requisition is not Active”.
+
+Decyzja Artura z 27.11.2026: gdy robot zobaczy zamknięty request, NEXUS sam
+zamyka rekrutację (`cpro_mail.close_from_robot`, wołane z
+`cpro_bot/ingest.apply_report`).
+
+- Zamyka wszystkie otwarte rekrutacje z tym numerem requestu, tą samą ścieżką
+  co mail: `close_job_core` i dzwonek do rekruterów (`notify_closed_from_cpro`).
+- **Powód:** jeśli ktoś jest w „Zatrudnionych”, to `filled_by_us`; w każdym innym
+  przypadku `other`, bo robot nie zna powodu z CPro i rekrutacja trafia do przeglądu
+  zamknięć. Osoba w „Umowie” tu nie zatrzymuje zamknięcia (inaczej niż przy mailu),
+  bo strona CPro pokazuje stan bieżący, a nie stary mail.
+- **Rekrutacji, którą ktoś już kiedyś zamknął i otworzył ponownie ręcznie, robot
+  nie zamyka.** Robot zagląda do CPro co kilka minut, więc nie może walczyć
+  z decyzją człowieka.
+- Obowiązuje ten sam wyłącznik reguły „closed” w `/settings/cpro`. Wpisu w
+  dzienniku maili nie ma; ślad zostaje w `activities` (notatka „robot zobaczył…”)
+  i w logu `cpro_bot … closed_request`.
+
 ## Zmiany w kontrakcie: nowy adres faktury (24.11.2026)
 
 „Important changes made to contract N — Please update your invoice reference details”
