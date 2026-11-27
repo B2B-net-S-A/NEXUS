@@ -78,7 +78,10 @@ import {
   RejectionV2,
   type CandidateOfferResponse,
 } from "@/components/v2/modals/RejectionV2";
-import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  rejectionWorkModeMoveFields,
+  type RejectionWorkModeChoice,
+} from "@/components/v2/modals/RejectionWorkModeField";
 import {
   rejectionRateMoveFields,
   type RejectionRateChoice,
@@ -355,8 +358,7 @@ export function JobInterviewsTab({
           rejection_email_body: vars.emailText?.body,
           rejection_email_other_processes: vars.emailText?.otherProcesses,
           rejection_email_merge: vars.emailText?.merge,
-          work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
-          work_mode_save_to_profile: vars.workMode?.saveToProfile,
+          ...rejectionWorkModeMoveFields(vars.workMode),
           ...rejectionRateMoveFields(vars.rate),
           not_looking_until: vars.notLookingUntil ?? undefined,
           residence_country: vars.residenceCountry ?? undefined,

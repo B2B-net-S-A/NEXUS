@@ -1,0 +1,70 @@
+name: coolify-proxy
+networks:
+  coolify:
+    external: true
+  # Sieci aplikacji NEXUSA (27.11.2026): Coolify dopina je do proxy poleceniem `docker network connect`,
+  # wiec odtworzenie kontenera bez nich daje 504 na wszystkich hostach (19:58 UTC 27.11, ok. 2,5 min).
+  ocgkwcbovpve9wvf9smxl0kx:
+    external: true
+  nexus-front:
+    external: true
+services:
+  traefik:
+    container_name: coolify-proxy
+    image: 'traefik:v3.6'
+    restart: unless-stopped
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      - coolify
+      - ocgkwcbovpve9wvf9smxl0kx
+      - nexus-front
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+      - '8080:8080'
+    healthcheck:
+      test: 'wget -qO- http://localhost:80/ping || exit 1'
+      interval: 4s
+      timeout: 2s
+      retries: 5
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+      - '/data/coolify/proxy/:/traefik'
+      - '/var/log/traefik:/var/log/traefik'
+      - '/data/coolify/proxy/plugins-local:/plugins-local:ro'
+    command:
+      - '--ping=true'
+      - '--ping.entrypoint=http'
+      - '--api.dashboard=true'
+      - '--entrypoints.http.address=:80'
+      - '--entrypoints.https.address=:443'
+      - '--entrypoints.http.http.encodequerysemicolons=true'
+      - '--entryPoints.http.http2.maxConcurrentStreams=250'
+      - '--entrypoints.https.http.encodequerysemicolons=true'
+      - '--entryPoints.https.http2.maxConcurrentStreams=250'
+      - '--entrypoints.https.http3'
+      - '--providers.file.directory=/traefik/dynamic/'
+      - '--providers.file.watch=true'
+      - '--certificatesresolvers.letsencrypt.acme.httpchallenge=true'
+      - '--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=http'
+      - '--certificatesresolvers.letsencrypt.acme.storage=/traefik/acme.json'
+      - '--api.insecure=false'
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--accesslog=true'
+      - '--accesslog.filepath=/var/log/traefik/access.log'
+      - '--accesslog.format=json'
+      - '--accesslog.bufferingsize=100'
+      - '--accesslog.fields.headers.defaultmode=drop'
+      - '--accesslog.fields.headers.names.User-Agent=keep'
+      - '--experimental.localplugins.crowdsec.modulename=github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin'
+      - '--entrypoints.https.http.middlewares=crowdsec@file'
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.traefik.entrypoints=http
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.services.traefik.loadbalancer.server.port=8080
+      - coolify.managed=true
+      - coolify.proxy=true

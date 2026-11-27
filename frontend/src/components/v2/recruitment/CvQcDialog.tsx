@@ -70,6 +70,7 @@ import {
   useCvQcFixes,
   useQcApply,
   useQcConfirm,
+  useQcConfirmationFix,
   useQcDismiss,
   useQcManualRoles,
   useQcRestore,
@@ -415,6 +416,7 @@ export function CvQcBody({
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
   const confirm = useQcConfirm(stageId, onChanged);
+  const confirmationFix = useQcConfirmationFix(stageId, onChanged);
   const manualRoles = useQcManualRoles(stageId, onChanged);
   const dismiss = useQcDismiss(stageId, onChanged);
   const restore = useQcRestore(stageId, onChanged);
@@ -453,6 +455,32 @@ export function CvQcBody({
       }),
     confirming: confirm.isPending,
     confirmRoles: data?.confirm_roles ?? [],
+    confirmationFix: impersonating
+      ? undefined
+      : {
+          edit: (id, body, onSaved) =>
+            confirmationFix.mutate(
+              { kind: "edit", id, body },
+              {
+                onSuccess: () => {
+                  showSuccess("Potwierdzenie poprawione — QC przeliczone.");
+                  onSaved?.();
+                },
+                onError: (error) =>
+                  showError(apiErrorMessage(error, "Nie udało się poprawić potwierdzenia. Spróbuj ponownie.")),
+              },
+            ),
+          retract: (id) =>
+            confirmationFix.mutate(
+              { kind: "retract", id },
+              {
+                onSuccess: () => showSuccess("Potwierdzenie cofnięte — QC przeliczone."),
+                onError: (error) =>
+                  showError(apiErrorMessage(error, "Nie udało się cofnąć potwierdzenia. Spróbuj ponownie.")),
+              },
+            ),
+          pending: confirmationFix.isPending,
+        },
     manualRoles: (body, onSaved) =>
       manualRoles.mutate(body, {
         onSuccess: () => {
@@ -528,7 +556,7 @@ export function CvQcBody({
       </div>
       <div className="space-y-3 p-4 lg:min-h-0 lg:overflow-y-auto">
         <Explainer data={data} audience={audience} />
-        <Confirmations items={data.confirmations ?? []} />
+        <Confirmations items={data.confirmations ?? []} ctx={ctx} />
         {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
             QC: przepuszczone{data.override.by_name ? ` · ${data.override.by_name}` : ""}

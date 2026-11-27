@@ -3209,5 +3209,50 @@
         "explain": "W tej kolumnie powstaje CV firmowe. Gotowe CV przesuwasz do „QC CV”, gdzie sprawdza je kontrola jakości, a potem Delivery Lead."
       }
     ]
+  },
+  {
+    "id": "lekcja-karta-dojazdu",
+    "title": "Za daleko do biura: miasto na profil",
+    "novelties": [
+      "odrzucenie-karta-dojazdu"
+    ],
+    "task": "Kandydat z rekrutacji ćwiczebnej mieszka w Krakowie i nie dojedzie do biura w Warszawie. Otwórz odrzucenie i wybierz powód „Lokalizacja lub tryb pracy”.",
+    "solo_href": "/jobs/990001?candidate=990101",
+    "check": {
+      "kind": "click",
+      "anchor": "rejection.location-mode"
+    },
+    "questions": [
+      {
+        "q": "Osoba mieszka w Krakowie, w biurze bywa chętnie, ale do Warszawy 3 dni w tygodniu nie dojedzie. Co wybierasz w „Co nie pasuje?”?",
+        "options": [
+          "„Za daleko do biura” i miasto Kraków",
+          "„Chce mniej dni w biurze” i „Tylko zdalnie”",
+          "„Inne” i „Kraków” w opisie"
+        ],
+        "answer": 0,
+        "explain": "Miasto trafi na profil, a tryb pracy zostanie, jaki był. „Tylko zdalnie” byłoby nieprawdą i chowałoby tę osobę także z hybryd w Krakowie."
+      },
+      {
+        "q": "Nie pytałeś, czy osoba przeprowadzi się do Warszawy. Co zrobić z pytaniem „Przeprowadzka?”",
+        "options": [
+          "Zostawić „Nie pytałem”",
+          "Zaznaczyć „Nie”",
+          "Nie da się zapisać bez odpowiedzi"
+        ],
+        "answer": 0,
+        "explain": "„Nie pytałem” niczego nie zapisuje. Zaznacz „Nie” tylko wtedy, gdy osoba to powiedziała."
+      },
+      {
+        "q": "Gdzie później zobaczysz, że osoba mieszka w Krakowie i dojedzie do biura w Katowicach?",
+        "options": [
+          "Na profilu, w karcie „Do propozycji”: Mieszka i Biuro",
+          "Tylko w notatce odrzucenia",
+          "Nigdzie, to tylko do raportu"
+        ],
+        "answer": 0,
+        "explain": "Profil pokazuje wiersze Mieszka i Biuro ze źródłem „z odrzucenia”, a system bierze je pod uwagę przy kolejnych rekrutacjach."
+      }
+    ]
   }
 ]

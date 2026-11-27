@@ -99,6 +99,8 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "ops:snapshot",
       "sales_signals:read",
       "sales_signals:write",
+      // Ustawienia → Bezpieczeństwo (27.11.2026): CrowdSec, Falco, Wazuh, CI.
+      "security:ingest",
     ],
   },
 ];

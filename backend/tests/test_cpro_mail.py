@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.cpro_mail import CproMailEvent
@@ -582,3 +583,148 @@ async def test_log_and_rules_gates(app_client):
     assert (
         await app_client.put("/api/cpro/rules", json=body, headers=hor)
     ).status_code == 200
+
+
+# --- Robot Cpro zobaczył zamknięty request (decyzja Artura 27.11.2026) ---------
+# Cpro nie wysyła maila, gdy request wygrała nasza osoba (CONTRACTED), więc
+# rekrutacja zostawała „published”, a robot w kółko kończył jej karty wynikiem
+# failed/request_closed.
+
+
+async def _robot_report(db, stage_ids: list[int], number: str, reason: str) -> None:
+    from app.models.cpro_bot import CproBotRun  # noqa: PLC0415
+    from app.services.cpro_bot import ingest  # noqa: PLC0415
+
+    run = CproBotRun(
+        status="started",
+        submit=False,
+        stage_ids=stage_ids,
+        request={
+            "items": [{"ref": ref, "request_number": number} for ref in stage_ids]
+        },
+        report={},
+    )
+    db.add(run)
+    await db.commit()
+    report = ingest.CproReport(
+        items=[
+            ingest.ReportItem(ref=ref, outcome="failed", reason=reason)
+            for ref in stage_ids
+        ]
+    )
+    await ingest.apply_report(db, run, report, now=datetime.now(timezone.utc))
+
+
+async def _stage_ids(db, job: Job) -> list[int]:
+    return list(
+        (
+            await db.scalars(
+                select(CandidateStage.id).where(CandidateStage.job_id == job.id)
+            )
+        ).all()
+    )
+
+
+@pytest.mark.asyncio
+async def test_robot_seeing_closed_request_closes_job_and_tells_recruiters():
+    async with AsyncSessionLocal() as db:
+        number = _number()
+        lead = await _user(db, UserRole.delivery_lead)
+        recruiter = await _user(db)
+        job = await _job(db, number, lead)
+        await _card(db, job, recruiter, PipelineStage.verified)
+        await db.commit()
+        ids = (job.id, recruiter.id)
+        stages = await _stage_ids(db, job)
+
+    async with AsyncSessionLocal() as db:
+        await _robot_report(db, stages, number, "request_closed")
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Job, ids[0])
+        assert row.status == JobStatus.closed
+        assert row.close_reason == JobCloseReason.other
+        assert "robot" in row.close_notes
+        assert await _bells(db, ids[1], NotificationType.job_closed_people_waiting)
+
+
+@pytest.mark.asyncio
+async def test_robot_closed_request_with_our_hire_counts_as_filled_by_us():
+    async with AsyncSessionLocal() as db:
+        number = _number()
+        lead = await _user(db, UserRole.delivery_lead)
+        job = await _job(db, number, lead)
+        await _card(db, job, lead, PipelineStage.hired)
+        await _card(db, job, lead, PipelineStage.verified)
+        await db.commit()
+        job_id = job.id
+        stages = await _stage_ids(db, job)
+
+    async with AsyncSessionLocal() as db:
+        await _robot_report(db, stages[-1:], number, "request_closed")
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Job, job_id)
+        assert row.status == JobStatus.closed
+        assert row.close_reason == JobCloseReason.filled_by_us
+
+
+@pytest.mark.asyncio
+async def test_robot_leaves_job_reopened_by_hand_and_other_failures_alone():
+    async with AsyncSessionLocal() as db:
+        number = _number()
+        lead = await _user(db, UserRole.delivery_lead)
+        reopened = await _job(db, number, lead)
+        await _card(db, reopened, lead, PipelineStage.verified)
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=reopened.id,
+                action="closed",
+                user_id=lead.id,
+                details={"reason": "other"},
+            )
+        )
+        other_number = _number()
+        failing = await _job(db, other_number, lead)
+        await _card(db, failing, lead, PipelineStage.verified)
+        await db.commit()
+        ids = (reopened.id, failing.id)
+        reopened_stages = await _stage_ids(db, reopened)
+        failing_stages = await _stage_ids(db, failing)
+
+    async with AsyncSessionLocal() as db:
+        await _robot_report(db, reopened_stages, number, "request_closed")
+    async with AsyncSessionLocal() as db:
+        await _robot_report(db, failing_stages, other_number, "other")
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, ids[0])).status == JobStatus.published
+        assert (await db.get(Job, ids[1])).status == JobStatus.published
+
+
+@pytest.mark.asyncio
+async def test_robot_closing_respects_closed_rule_switch():
+    async with AsyncSessionLocal() as db:
+        number = _number()
+        lead = await _user(db, UserRole.delivery_lead)
+        job = await _job(db, number, lead)
+        await _card(db, job, lead, PipelineStage.verified)
+        await db.commit()
+        job_id, lead_id = job.id, lead.id
+        stages = await _stage_ids(db, job)
+
+    async with AsyncSessionLocal() as db:
+        await cpro_mail.save_rules(db, {cpro_mail.RULE_CLOSED: False}, actor_id=lead_id)
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            await _robot_report(db, stages, number, "request_closed")
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Job, job_id)).status == JobStatus.published
+    finally:
+        async with AsyncSessionLocal() as db:
+            await cpro_mail.save_rules(
+                db, {cpro_mail.RULE_CLOSED: True}, actor_id=lead_id
+            )
+            await db.commit()

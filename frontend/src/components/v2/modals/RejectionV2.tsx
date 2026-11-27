@@ -34,12 +34,18 @@ import {
  type RejectionEmailFieldState,
  type RejectionEmailPeople,
 } from "@/components/v2/modals/RejectionEmailField";
-import {
- RejectionWorkModeField,
- type RejectionWorkModeChoice,
- type RejectionWorkModeJob,
- type RejectionWorkModeProfile,
+import type {
+ RejectionWorkModeChoice,
+ RejectionWorkModeJob,
+ RejectionWorkModeProfile,
 } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+ EMPTY_WORK_MODE_DRAFT,
+ profileCityOf,
+ RejectionWorkModeIssueField,
+ workModeChoiceFromDraft,
+ type RejectionWorkModeDraft,
+} from "@/components/v2/modals/RejectionWorkModeIssueField";
 import {
   profileAbroadCountry,
   RejectionResidenceField,
@@ -131,7 +137,8 @@ interface Props {
   *  `null` — treść domyślna. */
  emailText?: RejectionEmailText | null,
  /** Powód „Nie akceptuje trybu pracy” (14.10.2026): ile dni w biurze
-  *  kandydat akceptuje i czy zapisać to na profilu; `null` przy innym powodzie. */
+  *  kandydat akceptuje i czy zapisać to na profilu; od 27.11.2026 także
+  *  „Co nie pasuje?” i karta dojazdu; `null` przy innym powodzie. */
  workMode?: RejectionWorkModeChoice | null,
  /** Osoba od systemu (23.10.2026): powód dla systemu; `null`, gdy okno
   *  go nie pytało (żadna osoba od systemu z „Nowych”/„Screeningu”). */
@@ -297,9 +304,11 @@ export function RejectionV2({
  const [offerResponse, setOfferResponse] =
  useState<CandidateOfferResponse |"">("");
 
- // „Nie akceptuje trybu pracy” (D2–D3): domyślnie „Tylko zdalnie” i zapis
- // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
- const [officeDays, setOfficeDays] = useState(0);
+ // „Lokalizacja lub tryb pracy” (karta dojazdu, 27.11.2026): najpierw „Co nie
+ // pasuje?”; przy „Chce mniej dni” dni jak dotąd (domyślnie „Tylko zdalnie”),
+ // przy „Za daleko” wszystko poza miastem na „Nie pytałem”. Zapis na profilu
+ // domyślnie włączony — najświeższa deklaracja z rozmowy nadpisuje profil.
+ const [workModeDraft, setWorkModeDraft] = useState<RejectionWorkModeDraft>(EMPTY_WORK_MODE_DRAFT);
  const [saveWorkMode, setSaveWorkMode] = useState(true);
  // „Mieszka poza Polską” (24.11.2026): wybrany kraj; pusty = kraj z profilu.
  const [residenceCountry, setResidenceCountry] = useState("");
@@ -330,7 +339,7 @@ export function RejectionV2({
  setOfferResponse("");
  setEndedBy(startEndedBy());
  setCancelAgreement(true);
- setOfficeDays(0);
+ setWorkModeDraft(EMPTY_WORK_MODE_DRAFT);
  setSaveWorkMode(true);
  setResidenceCountry("");
  setNewRate("");
@@ -385,6 +394,13 @@ export function RejectionV2({
  ? [reasonLabel, notes.trim()].filter(Boolean).join(". ")
  : notes;
  const several = (emailPreview?.people.length ?? 1) > 1;
+ const workModeChoice: RejectionWorkModeChoice | null = workModeReason
+ ? workModeChoiceFromDraft(workModeDraft, {
+ several,
+ profileCity: several ? null : profileCityOf(profileResidence),
+ saveToProfile: saveWorkMode,
+ })
+ : null;
  const parsedNewRate = parseRateInput(newRate);
  const rateChoice: RejectionRateChoice | null =
  rateReason && !several && parsedNewRate !== null
@@ -447,9 +463,7 @@ export function RejectionV2({
  endedByValue,
  cancelAgreementId,
  emailText,
- workModeReason
- ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
- : null,
+ workModeChoice,
  autofillChoice,
  rateChoice,
  meetingsChoice,
@@ -490,6 +504,9 @@ export function RejectionV2({
  (descriptionRequired && !otherNoteHasWords(notes)) ||
  (offerResponseRequired && !offerResponse) ||
  (abroadReason && !several && !chosenResidence) ||
+ // „Co nie pasuje?” obowiązkowe — bez niego serwer nie wie, czy zapisać
+ // miasto, czy tryb pracy.
+ (workModeReason && hasReasons && workModeChoice == null) ||
  (autofillAsked && autofillChoice == null) ||
  (emailAvailable && sendEmail && emailState.invalid);
 
@@ -584,12 +601,13 @@ export function RejectionV2({
  />
  ) : null}
  {workModeReason ? (
- <RejectionWorkModeField
+ <RejectionWorkModeIssueField
  job={workModeJob}
- profile={several ? undefined : profileWorkMode}
+ profileWorkMode={several ? undefined : profileWorkMode}
+ profileResidence={several ? undefined : profileResidence}
  several={several}
- days={officeDays}
- onDaysChange={setOfficeDays}
+ draft={workModeDraft}
+ onDraftChange={setWorkModeDraft}
  saveToProfile={saveWorkMode}
  onSaveToProfileChange={setSaveWorkMode}
  />

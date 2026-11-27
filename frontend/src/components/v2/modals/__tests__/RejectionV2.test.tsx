@@ -802,16 +802,25 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
     return onConfirm;
   }
 
-  it("pyta o dni w biurze dopiero po wybraniu powodu", () => {
+  // Od 27.11.2026 (karta dojazdu) dni w biurze pyta dopiero „Chce mniej dni w biurze”.
+  function pickOfficeDays() {
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    fireEvent.click(screen.getByText("Chce mniej dni w biurze"));
+  }
+
+  it("pyta o dni w biurze dopiero po wybraniu powodu i „Chce mniej dni w biurze”", () => {
     renderWorkMode();
     expect(screen.queryByTestId("rejection-work-mode")).toBeNull();
     fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    expect(screen.getByTestId("rejection-work-mode-issue")).toBeInTheDocument();
+    expect(screen.queryByTestId("rejection-work-mode")).toBeNull();
+    fireEvent.click(screen.getByText("Chce mniej dni w biurze"));
     expect(screen.getByTestId("rejection-work-mode")).toBeInTheDocument();
   });
 
   it("pokazuje tylko mniej dni, niż wymaga rekrutacja, i jej tryb pracy", () => {
     renderWorkMode({ workModeJob: { remotePolicy: "hybrid", onsiteDaysPerWeek: 2 } });
-    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    pickOfficeDays();
     const choices = screen.getByRole("radiogroup", {
       name: "Ile dni w biurze kandydat akceptuje",
     });
@@ -825,28 +834,33 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
   it("domyślnie „Tylko zdalnie” z zapisem na profilu — idzie w 9. argumencie", () => {
     const onConfirm = renderWorkMode();
-    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    pickOfficeDays();
     expect(screen.getByText(/Tryb pracy → Tylko zdalnie/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][0]).toBe("9");
-    expect(onConfirm.mock.calls[0][8]).toEqual({ maxOnsiteDays: 0, saveToProfile: true });
+    expect(onConfirm.mock.calls[0][8]).toMatchObject({
+      issue: "office_days",
+      maxOnsiteDays: 0,
+      saveToProfile: true,
+      acceptsMoreOfficeDays: null,
+    });
   });
 
   it("wybrany dzień i odznaczony zapis trafiają do ruchu", () => {
     const onConfirm = renderWorkMode();
-    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    pickOfficeDays();
     fireEvent.click(screen.getByText("Do 1 dnia"));
     expect(
       screen.getByText(/Tryb pracy → Hybrydowo lub zdalnie · do 1 dnia w biurze/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
-    expect(onConfirm.mock.calls[0][8]).toEqual({ maxOnsiteDays: 1, saveToProfile: false });
+    expect(onConfirm.mock.calls[0][8]).toMatchObject({ maxOnsiteDays: 1, saveToProfile: false });
   });
 
   it("przy jednej osobie pokazuje, co jest teraz na profilu", () => {
     renderWorkMode({ profileWorkMode: { modes: ["remote", "hybrid"], days: 3 } });
-    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    pickOfficeDays();
     expect(screen.getByTestId("rejection-work-mode-current")).toHaveTextContent(
       "Teraz na profilu: Hybrydowo lub zdalnie · do 3 dni w biurze w tygodniu",
     );
@@ -854,7 +868,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
   it("pusty profil to „Nie uzupełniono”", () => {
     renderWorkMode({ profileWorkMode: { modes: [], days: null } });
-    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    pickOfficeDays();
     expect(screen.getByTestId("rejection-work-mode-current")).toHaveTextContent(
       "Teraz na profilu: Nie uzupełniono",
     );
@@ -872,7 +886,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
         ],
       },
     });
-    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
+    pickOfficeDays();
     expect(screen.getByText(/Zapisz na profilach kandydatów/)).toBeInTheDocument();
     expect(screen.queryByTestId("rejection-work-mode-current")).toBeNull();
   });

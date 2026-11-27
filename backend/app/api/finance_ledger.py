@@ -59,7 +59,7 @@ from app.services.hr.payroll_access import is_payroll
 costs_router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 counterparties_router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
-MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
+MONTH_PATTERN = r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"
 Stage = Literal["received", "new", "verified", "ready", "booked", "rejected"]
 Action = Literal[
     "accept", "reject", "verify", "ready", "back", "flag_add", "flag_remove"

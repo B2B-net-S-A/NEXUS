@@ -127,6 +127,19 @@
         "Rekruter",
         "Delivery Lead"
       ]
+    },
+    "bezpieczenstwo": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/bezpieczenstwo.md",
+      "sciezki": [
+        "frontend/src/components/settings/security/**",
+        "backend/app/api/security.py",
+        "backend/app/api/security_ingest.py",
+        "backend/app/services/security_*.py"
+      ],
+      "role": [
+        "Admin",
+        "Rekruter"
+      ]
     }
   }
 }

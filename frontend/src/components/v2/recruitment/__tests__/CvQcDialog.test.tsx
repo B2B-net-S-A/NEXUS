@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+const patch = vi.fn();
+const del = vi.fn();
 // Propozycje AI ładują się same (D5, 14.10.2026) — osobna atrapa, żeby
 // asercje o zapisach (`post`) nie liczyły odczytu propozycji.
 const fixesPost = vi.fn();
@@ -18,6 +20,8 @@ vi.mock("@/lib/api", () => ({
     get: (...a: unknown[]) => get(...a),
     post: (url: string, ...rest: unknown[]) =>
       String(url).endsWith("/qc/fixes") ? fixesPost(url, ...rest) : post(url, ...rest),
+    patch: (...a: unknown[]) => patch(...a),
+    delete: (...a: unknown[]) => del(...a),
   },
 }));
 vi.mock("@/components/Toast", () => ({
@@ -1068,7 +1072,8 @@ describe("CvQcDialog — QC CV", () => {
 
   describe("„Potwierdzone z kandydatem” — treść spoza oryginału", () => {
     const DOCKER = "Docker — jest w CV, a nie ma tego w oryginale";
-    const FIELD = "Co dokładnie powiedział kandydat? (wymagane)";
+    // Etykieta nazywa blokadę (27.11.2026): przy dwóch formularzach łatwo było wpisać w zły.
+    const FIELD = "Co kandydat powiedział o „Docker”? (wymagane)";
     const SAID = "Używał Dockera w projekcie migracji";
 
     it("zapisuje to, co powiedział kandydat, i podmienia wynik QC", async () => {
@@ -1192,6 +1197,97 @@ describe("CvQcDialog — QC CV", () => {
       const explainer = within(dialog).getByRole("region", { name: "Co sprawdza QC" });
       expect(explainer.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(explainer.nextElementSibling).toBe(list);
+    });
+
+    describe("„Popraw” i „Cofnij” (zgłoszenie rekrutera 27.11.2026)", () => {
+      const at = "2026-11-27T16:48:00Z";
+      // Słowa o Dockerze zapisane pod „Kafka” — druga blokada („Docker”) dalej otwarta.
+      const wrong = {
+        id: 41,
+        text: "Potwierdzone z kandydatem: Kafka — Używał Dockera w projekcie migracji",
+        term: "Kafka",
+        role: null,
+        said: "Używał Dockera w projekcie migracji",
+        by_name: "Marta Rekruterka",
+        at,
+        edited_at: null,
+        can_edit: true,
+      };
+
+      async function confirmations() {
+        const dialog = await screen.findByRole("dialog");
+        return within(dialog).findByRole("region", { name: "Potwierdzone z kandydatem" });
+      }
+
+      it("autor przenosi wpis na właściwą blokadę — ta sama notatka, świeży wynik QC", async () => {
+        serve(result({ confirmations: [wrong] }));
+        patch.mockResolvedValue({ data: passed() });
+        const { onChanged } = renderDialog();
+        const list = await confirmations();
+        await userEvent.click(within(list).getByRole("button", { name: "Popraw potwierdzenie: Kafka" }));
+        const form = within(list).getByRole("form", { name: "Popraw potwierdzenie: Kafka" });
+        const which = within(form).getByLabelText("Której blokady dotyczy?");
+        expect(within(which).getAllByRole("option").map((o) => o.textContent)).toEqual(["Kafka", "Docker"]);
+        expect(within(form).getByLabelText("Co kandydat powiedział o „Kafka”? (wymagane)")).toHaveValue(wrong.said);
+        await userEvent.selectOptions(which, "Docker");
+        expect(within(form).getByLabelText(FIELD)).toHaveValue(wrong.said);
+        await userEvent.click(within(form).getByRole("button", { name: "Zapisz poprawkę" }));
+        await waitFor(() =>
+          expect(patch).toHaveBeenCalledWith(`${QC_URL}/confirm/41`, { term: "Docker", text: wrong.said }),
+        );
+        await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Potwierdzenie poprawione — QC przeliczone."));
+        expect(onChanged).toHaveBeenCalled();
+        expect(post).not.toHaveBeenCalled();
+      });
+
+      it("„Cofnij” pyta o zgodę i dopiero wtedy usuwa wpis", async () => {
+        serve(result({ confirmations: [wrong] }));
+        del.mockResolvedValue({ data: result() });
+        renderDialog();
+        const list = await confirmations();
+        await userEvent.click(within(list).getByRole("button", { name: "Cofnij potwierdzenie: Kafka" }));
+        expect(del).not.toHaveBeenCalled();
+        await userEvent.click(await screen.findByRole("button", { name: "Cofnij potwierdzenie" }));
+        await waitFor(() => expect(del).toHaveBeenCalledWith(`${QC_URL}/confirm/41`));
+        await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Potwierdzenie cofnięte — QC przeliczone."));
+      });
+
+      it("cudzy wpis, wpis po „CV wysłane” i podgląd jako inny użytkownik — bez przycisków", async () => {
+        serve(result({ confirmations: [{ ...wrong, can_edit: false }] }));
+        renderDialog();
+        let list = await confirmations();
+        expect(within(list).queryByRole("button")).toBeNull();
+        cleanup();
+        signIn("recruiter", { realUser: { id: 9, role: "admin", roles: ["admin"] } });
+        serve(result({ confirmations: [wrong] }));
+        renderDialog();
+        list = await confirmations();
+        expect(within(list).queryByRole("button")).toBeNull();
+      });
+
+      it("odmowa serwera zostawia formularz i pokazuje jego zdanie", async () => {
+        serve(result({ confirmations: [wrong] }));
+        patch.mockRejectedValue({
+          response: {
+            status: 422,
+            data: { detail: { code: "CV_QC_CONFIRM_EDIT_FAILED", message: "QC nie zgłasza takiej blokady — odśwież okno." } },
+          },
+        });
+        renderDialog();
+        const list = await confirmations();
+        await userEvent.click(within(list).getByRole("button", { name: "Popraw potwierdzenie: Kafka" }));
+        await userEvent.click(within(list).getByRole("button", { name: "Zapisz poprawkę" }));
+        await waitFor(() => expect(showError).toHaveBeenCalledWith("QC nie zgłasza takiej blokady — odśwież okno."));
+        expect(within(list).getByRole("form", { name: "Popraw potwierdzenie: Kafka" })).toBeTruthy();
+      });
+
+      it("poprawiony wpis mówi kiedy", async () => {
+        const edited = "2026-11-27T17:10:00Z";
+        serve(result({ confirmations: [{ ...wrong, edited_at: edited }] }));
+        renderDialog();
+        const list = await confirmations();
+        expect(list).toHaveTextContent(`Marta Rekruterka, ${formatDate(at)}, poprawione ${formatDate(edited)}`);
+      });
     });
 
     it("bez potwierdzeń sekcji nie ma", async () => {

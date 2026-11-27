@@ -5843,5 +5843,44 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "odrzucenie-karta-dojazdu",
+    "pr": 4140,
+    "title": "Odrzucenie za lokalizację zapisuje miasto",
+    "why": "Przy „Lokalizacja lub tryb pracy” okno pyta, co nie pasuje. Przy „Za daleko do biura” wpisujesz, gdzie osoba mieszka i do jakich biur dojedzie; miasto trafia na profil, a tryb pracy zostaje bez zmian.",
+    "tier": "dot",
+    "shipped_on": "2026-11-28",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Warunki → Lokalizacja lub tryb pracy",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
+    "section": "pipeline",
+    "dot_anchor": "rejection.location-mode",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno z powodami odrzucenia. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.location-mode",
+        "text": "W grupie Warunki wybierz „Lokalizacja lub tryb pracy”.",
+        "hint": "Pod powodem pojawi się pytanie „Co nie pasuje?”."
+      },
+      {
+        "anchor": "rejection.commute-issue",
+        "text": "„Za daleko do biura” albo „Chce mniej dni w biurze”.",
+        "hint": "Przy „Za daleko” wpisz miasto i biura, do których dojedzie. Reszta pytań może zostać na „Nie pytałem”.",
+        "ack": true
+      }
+    ]
   }
 ]

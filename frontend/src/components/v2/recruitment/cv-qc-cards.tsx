@@ -48,6 +48,7 @@ import { Button } from "@/components/ui/button";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { ConsentScreenshotThumb } from "@/components/v2/cv/ConsentScreenshotThumb";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import type {
   QcCheck,
   QcConfirmBody,
@@ -155,6 +156,17 @@ export interface ActionContext {
    */
   manualRoles?: (body: QcManualRolesBody, onSaved?: () => void) => void;
   manualRolesPending?: boolean;
+  /**
+   * „Popraw” / „Cofnij” przy wpisie „Potwierdzone z kandydatem” (27.11.2026).
+   * Brak = ten widok wpisów nie zmienia (np. podgląd).
+   */
+  confirmationFix?: ConfirmationFix;
+}
+
+export interface ConfirmationFix {
+  edit: (id: number, body: QcConfirmBody, onSaved?: () => void) => void;
+  retract: (id: number) => void;
+  pending: boolean;
 }
 
 /** Krytyczne z rolami „sprawdź ręcznie” (odczyt bez opisów ról), po kolei. */
@@ -598,7 +610,7 @@ function ConfirmForm({ term, ctx, onClose }: { term: string; ctx: ActionContext;
       }}
     >
       <label htmlFor={fieldId} className="block text-xs font-medium">
-        Co dokładnie powiedział kandydat? (wymagane)
+        Co kandydat powiedział o „{term}”? (wymagane)
       </label>
       <textarea
         id={fieldId}
@@ -1309,25 +1321,182 @@ export function DismissedSection({ entries, restoring }: { entries: DismissedEnt
   );
 }
 
-/** Co rekruterzy potwierdzili u kandydata z tego okna — notatki pary, najnowsze pierwsze. */
-export function Confirmations({ items }: { items: QcConfirmation[] }) {
+/** Blokady „spoza oryginału”, które QC teraz zgłasza — do wyboru przy „Popraw”. */
+function openConfirmTerms(data: QcResult): string[] {
+  const check = data.checks.find((c) => c.key === "no_unsupported" && c.status === "fail");
+  return (check?.items ?? []).map((item) => (item.term ?? item.requirement ?? "").trim()).filter(Boolean);
+}
+
+/**
+ * Co rekruterzy potwierdzili u kandydata z tego okna — notatki pary, najnowsze
+ * pierwsze. Autor (i admin) poprawia albo cofa swój wpis do „CV wysłane”
+ * (zgłoszenie rekrutera 27.11.2026: słowa kandydata wpisane pod niewłaściwą
+ * blokadą, a jedyną drogą była notatka w profilu).
+ */
+export function Confirmations({ items, ctx }: { items: QcConfirmation[]; ctx?: ActionContext | null }) {
+  const [editing, setEditing] = useState<number | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   if (items.length === 0) return null;
+  const fix = ctx?.confirmationFix;
+  const retract = async (item: QcConfirmation) => {
+    if (!fix || item.id == null) return;
+    const ok = await askConfirm({
+      title: `Cofnąć potwierdzenie „${item.term ?? ""}”?`,
+      description:
+        "Notatka zniknie z profilu kandydata, a QC przeliczy się od nowa — blokada wróci, jeśli nic innego jej nie potwierdza.",
+      confirmLabel: "Cofnij potwierdzenie",
+    });
+    if (ok) fix.retract(item.id);
+  };
   return (
     <section
       aria-label="Potwierdzone z kandydatem"
       className="space-y-1 rounded-lg border border-info/30 bg-info-muted px-3 py-2 text-xs leading-relaxed text-info-muted-foreground"
     >
       <h3 className="text-xs font-semibold">Potwierdzone z kandydatem</h3>
-      <ul className="space-y-0.5">
-        {items.map((item, i) => (
-          <li key={i} className="[overflow-wrap:anywhere]">
-            {item.text}
-            {" — "}
-            {[item.by_name, formatDate(item.at)].filter(Boolean).join(", ")}
-          </li>
-        ))}
+      <ul className="space-y-1">
+        {items.map((item, i) => {
+          const id = item.id ?? null;
+          const canFix = Boolean(fix && ctx && id != null && item.can_edit);
+          const meta = [item.by_name, formatDate(item.at), item.edited_at ? `poprawione ${formatDate(item.edited_at)}` : null]
+            .filter(Boolean)
+            .join(", ");
+          return (
+            <li key={id ?? `i${i}`} className="space-y-1">
+              <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                  {item.text}
+                  {" — "}
+                  {meta}
+                </p>
+                {canFix && editing !== id ? (
+                  <span className="flex shrink-0 gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      disabled={fix?.pending}
+                      aria-label={`Popraw potwierdzenie: ${item.term ?? ""}`}
+                      onClick={() => setEditing(id)}
+                    >
+                      Popraw
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      disabled={fix?.pending}
+                      aria-label={`Cofnij potwierdzenie: ${item.term ?? ""}`}
+                      onClick={() => void retract(item)}
+                    >
+                      Cofnij
+                    </Button>
+                  </span>
+                ) : null}
+              </div>
+              {canFix && editing === id && fix && ctx && id != null ? (
+                <ConfirmationEditForm item={item} id={id} ctx={ctx} fix={fix} onClose={() => setEditing(null)} />
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
+      {confirmDialog}
     </section>
+  );
+}
+
+/** „Popraw”: inna blokada (z tych, które QC zgłasza), zdanie albo rola — ta sama notatka. */
+function ConfirmationEditForm({
+  item,
+  id,
+  ctx,
+  fix,
+  onClose,
+}: {
+  item: QcConfirmation;
+  id: number;
+  ctx: ActionContext;
+  fix: ConfirmationFix;
+  onClose: () => void;
+}) {
+  const current = (item.term ?? "").trim();
+  const terms = [current, ...openConfirmTerms(ctx.data).filter((t) => t.toLowerCase() !== current.toLowerCase())].filter(Boolean);
+  const roles = ctx.confirmRoles ?? [];
+  const [term, setTerm] = useState(current);
+  const [text, setText] = useState(item.said ?? "");
+  const [role, setRole] = useState(item.role && roles.includes(item.role) ? item.role : "");
+  const termId = useId();
+  const fieldId = useId();
+  const roleId = useId();
+  const said = text.trim();
+  return (
+    <form
+      className="space-y-1.5 rounded-md border border-info/30 bg-background p-2 text-foreground"
+      aria-label={`Popraw potwierdzenie: ${current}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        fix.edit(id, role ? { term, text: said, role } : { term, text: said }, onClose);
+      }}
+    >
+      <div>
+        <label htmlFor={termId} className="block text-xs font-medium">
+          Której blokady dotyczy?
+        </label>
+        <select
+          id={termId}
+          className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+        >
+          {terms.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </div>
+      <label htmlFor={fieldId} className="block text-xs font-medium">
+        Co kandydat powiedział o „{term}”? (wymagane)
+      </label>
+      <textarea
+        id={fieldId}
+        className="min-h-16 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+        maxLength={CONFIRM_TEXT_MAX}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {roles.length > 0 ? (
+        <div>
+          <label htmlFor={roleId} className="block text-xs font-medium">
+            W której roli?
+          </label>
+          <select
+            id={roleId}
+            className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+          >
+            <option value="">Nie w konkretnej roli (tylko umiejętności)</option>
+            {roles.map((company) => (
+              <option key={company} value={company}>
+                {company}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      <p className="text-muted-foreground">QC przeliczy się od razu. Autor i data wpisu zostają.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" disabled={fix.pending || said.length < QC_CONFIRM_TEXT_MIN}>
+          {fix.pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+          Zapisz poprawkę
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose} disabled={fix.pending}>
+          Anuluj
+        </Button>
+      </div>
+    </form>
   );
 }
 
