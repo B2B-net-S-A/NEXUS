@@ -51,13 +51,22 @@ Z mniejszego dysku na większy można; z powrotem już nie.
     50 odpowiedzi 401/403 z jednego adresu w 60 s → 10.
   - FIM w `/etc/ssh/`, `/root/.ssh/`, `/data/coolify/proxy/` → 10 (100200).
 - Progi: od 7 alert idzie do NEXUSA (ekran Ustawienia → Bezpieczeństwo, `docs/claude/ui/ekran-bezpieczenstwo.md`),
-  od 10 mailem do Artura (postfix na hoście jako relay do konta SMTP, maks. 12 maili/h).
+  od 10 mailem do Artura (integracja `custom-mail`, maks. 20 maili/h, reszta tylko w `integrations.log`).
+- Maile idą przez Microsoft Graph `sendMail` z rejestracji aplikacji NEXUSA (`M365_APP_MAIL_*`, nadawca
+  `M365_MAIL_SENDER_UPN`), decyzja Artura z 27.11. Osobnego konta SMTP nie ma, a Hetzner blokuje z nowego
+  serwera wyjście na porty 25 i 465. Poświadczenia leżą w `/opt/nexus-security/wazuh/nexus_graph_mail.env`.
+  **Ten sam sekret jest w dwóch miejscach: przy rotacji `M365_APP_MAIL_CLIENT_SECRET` w NEXUSIE podmień go
+  też tutaj** (edycja w miejscu), inaczej maile z alertów cicho przestaną wychodzić (`HTTP 401` w
+  `/var/ossec/logs/integrations.log` managera).
+- Python frameworku Wazuha nie ma własnych CA: bez `ssl.create_default_context(cafile=certifi.where())`
+  każde wywołanie HTTPS z integracji kończy się `CERTIFICATE_VERIFY_FAILED` (pierwszy test 27.11).
 - Integracja `custom-nexus` wysyła do `POST /api/security/ingest/wazuh` tylko id, czas, regułę (id, poziom,
   opis, grupy) i nazwę agenta. `full_log`, `data` i `srcip` nie opuszczają serwera. Pusty klucz w
   `nexus_ingest.key` = integracja uśpiona.
 - Retencja: polityka ISM `nexus-retencja-90d` usuwa `wazuh-alerts-*` i `wazuh-archives-*` po 90 dniach.
 - Test: na nexus-prod `touch /etc/ssh/wazuh-fim-test.txt`, po ok. 10 s alert 100200 w
   `/var/ossec/logs/alerts/alerts.json` managera i mail; potem usuń plik (drugi alert, „usunięty”).
+  27.11 o 22:06 mail z tego testu doszedł do skrzynki Artura.
 
 ## DefectDojo: produkt i konta
 
@@ -79,9 +88,9 @@ Z mniejszego dysku na większy można; z powrotem już nie.
 
 ## Obsługa
 
-- Wpisanie sekretów, których Claude nie zna: `ssh -t root@<nexus-security> nexus-security-smtp` (konto SMTP do maili)
-  i `nexus-security-keys` (klucze kont `wazuh-soc` i `defectdojo-sync` z NEXUSA). Hasła bez echa.
-- Pliki montowane do kontenera managera (`local_rules.xml`, `authd.pass`, klucz) edytuj w miejscu.
+- Klucze kont `wazuh-soc` i `defectdojo-sync` z NEXUSA wpisuje się na serwerze komendą
+  `ssh -t root@<nexus-security> nexus-security-keys` (bez echa).
+- Pliki montowane do kontenera managera (`local_rules.xml`, `authd.pass`, klucze, skrypty integracji) edytuj w miejscu.
   Podmiana pliku (`install`, `cp` na nowy inode, edytor z zapisem przez rename) zrywa bind mount:
   kontener widzi starą treść aż do `docker compose up -d --force-recreate wazuh.manager`.
 - Rejestracja nowego agenta wymaga hasła z `authd.pass` (`use_password yes`).
