@@ -156,12 +156,19 @@ def _call_model(content: bytes, mime: str) -> str:
     return text_of(message)
 
 
-async def read_document(content: bytes, mime: str) -> ReadResult:
-    """Wywołanie modelu (wołający deklaruje ``ai_feature``); awaria = ``failed``."""
+async def try_read(content: bytes, mime: str) -> Optional[ReadResult]:
+    """Jak ``read_document``, ale awaria wywołania (sieć, 429, 529) = ``None``:
+    wołający może spróbować później, zamiast zapisać „nieczytelny”."""
 
     try:
         reply = await run_in_threadpool(_call_model, content, mime)
     except Exception as exc:  # noqa: BLE001 — odczyt to dodatek, dokument zostaje
         logger.warning("approvals: odczyt dokumentu nieudany (%s)", type(exc).__name__)
-        return ReadResult("failed")
+        return None
     return parse_reply(reply)
+
+
+async def read_document(content: bytes, mime: str) -> ReadResult:
+    """Wywołanie modelu (wołający deklaruje ``ai_feature``); awaria = ``failed``."""
+
+    return await try_read(content, mime) or ReadResult("failed")

@@ -36,12 +36,14 @@ from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.client_settlement import ClientContractorInvoice
+from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.finance_archive import FinanceArchiveDocument
 from app.models.hr_approval import ApprovalDocument
 from app.services.client_invoicing import requirements
 from app.services.client_invoicing.unknown_refs import marked_people, same_person
 from app.services.client_settlements.contractor_invoices import clean_nip
+from app.services.consultant_portal.invoice_read import cost_net, counts_as_cost
 from app.services.contract_rate_history import collect as rh
 from app.services.contract_rate_history import infer
 from app.services.hr.calendar import month_days, holiday_name
@@ -506,6 +508,11 @@ async def _costs(
         "unbound": 0,
         "archive": 0,
         "archive_unbound": 0,
+        "archive_duplicate": 0,
+        "pdf": 0,
+        "pdf_unbound": 0,
+        "pdf_duplicate": 0,
+        "pdf_other_nip": 0,
     }
     docs: list[rules.CostDoc] = []
     seen: set[str] = set()
@@ -570,8 +577,10 @@ async def _costs(
             )
         )
     # Faktury papierowe spoza KSeF z archiwum eBI24 (odpowiedź Finansów
-    # z 27.11.2026: Abdelmoneim IX, Balcerzak VIII, Tracz i Gawryluk IV).
-    # Tylko bez numeru KSeF — te z numerem są już wyżej.
+    # z 27.11.2026: konsultanci wystawiający poza KSeF w IV, VIII i IX).
+    # Tylko bez numeru KSeF — te z numerem są już wyżej. Ten sam numer
+    # u tej samej osoby co faktura z KSeF liczy się raz (``_twin``).
+    keys = _keys_of(docs)
     archive = (
         await db.scalars(
             select(FinanceArchiveDocument).where(
@@ -590,19 +599,142 @@ async def _costs(
         if cand is None:
             stats["archive_unbound"] += 1
             continue
-        stats["archive"] += 1
         net = Decimal(doc.net_amount)
-        docs.append(
-            rules.CostDoc(
-                candidate_id=cand,
-                number=doc.invoice_number or f"eBI24 {doc.source_id}",
-                issue_date=doc.issue_date,
-                net=net,
-                currency=doc.currency or PLN,
-                correction=net < 0,
-            )
+        item = rules.CostDoc(
+            candidate_id=cand,
+            number=doc.invoice_number or f"eBI24 {doc.source_id}",
+            issue_date=doc.issue_date,
+            net=net,
+            currency=doc.currency or PLN,
+            correction=net < 0,
         )
+        if _twin(keys, item, doc.invoice_number):
+            stats["archive_duplicate"] += 1
+            continue
+        stats["archive"] += 1
+        docs.append(item)
+    await _nexus_pdf_costs(db, world, by_nip, issued_from, docs, keys, stats)
     return docs, stats
+
+
+def _number_key(number: Optional[str]) -> Optional[str]:
+    """Numer faktury bez spacji, kresek i wielkości liter („FV 1/10/2026” = „fv1102026”)."""
+
+    clean = re.sub(r"[^0-9A-Za-z]", "", number or "").upper()
+    return clean or None
+
+
+class _Seen:
+    """Faktury już policzone: numery i (dzień, netto) z numerami tego dnia."""
+
+    def __init__(self) -> None:
+        self.numbers: set[tuple[int, str]] = set()
+        self.days: dict[tuple[int, date, Decimal], set[Optional[str]]] = {}
+
+    def add(self, doc: rules.CostDoc, number: Optional[str]) -> None:
+        clean = _number_key(number)
+        if clean:
+            self.numbers.add((doc.candidate_id, clean))
+        key = (doc.candidate_id, doc.issue_date, doc.net)
+        self.days.setdefault(key, set()).add(clean)
+
+
+def _keys_of(docs: Iterable[rules.CostDoc]) -> _Seen:
+    seen = _Seen()
+    for doc in docs:
+        seen.add(doc, doc.number)
+    return seen
+
+
+def _twin(seen: _Seen, doc: rules.CostDoc, number: Optional[str]) -> bool:
+    """Ta sama faktura z innego źródła (KSeF, eBI24, PDF z NEXUSA) liczy się raz.
+
+    Ten sam numer u tej samej osoby. Dzień wystawienia i kwota netto łączą
+    tylko wtedy, gdy jednej z faktur brakuje numeru: dwie faktury z różnymi
+    numerami, tym samym dniem i kwotą (stała stawka, dwa kontrakty) to dwa
+    koszty (przegląd 27.11.2026). Nowy dokument dopisuje się do ``seen``,
+    więc dwa pliki PDF tej samej faktury (mail i przekazanie dalej) też liczą
+    się raz."""
+
+    clean = _number_key(number)
+    if clean and (doc.candidate_id, clean) in seen.numbers:
+        return True
+    same_day = seen.days.get((doc.candidate_id, doc.issue_date, doc.net))
+    if same_day is not None and (clean is None or None in same_day):
+        return True
+    seen.add(doc, number)
+    return False
+
+
+async def _nexus_pdf_costs(
+    db: AsyncSession,
+    world: rh.World,
+    by_nip: dict[str, set[int]],
+    issued_from: date,
+    docs: list[rules.CostDoc],
+    keys: _Seen,
+    stats: dict[str, int],
+) -> None:
+    """Faktury PDF z rozliczenia@ i z portalu z polami z ``invoice_read``.
+
+    Decyzja Artura z 27.11.2026: działają równolegle z eBI24, nie dopiero po
+    jego wyłączeniu. Osoba z kontraktu dokumentu, a dokument bez kontraktu
+    (czeka na „Przypisz” w Back Office) — po NIP-ie z faktury, potem po nazwie
+    sprzedawcy. NIP z faktury, który należy do kogoś innego niż osoba
+    z kontraktu, nie liczy się nikomu (``pdf_other_nip``)."""
+
+    rows = (
+        await db.execute(
+            select(CpDocument, Contract.candidate_id)
+            .outerjoin(Contract, Contract.id == CpDocument.contract_id)
+            .where(
+                CpDocument.kind == "invoice",
+                CpDocument.status != "rejected",
+                CpDocument.invoice_fields.is_not(None),
+            )
+            .order_by(CpDocument.id)
+        )
+    ).all()
+    for document, contract_person in rows:
+        fields = document.invoice_fields or {}
+        if not counts_as_cost(fields):
+            continue
+        try:
+            issued = date.fromisoformat(str(fields.get("issue_date")))
+        except ValueError:
+            stats["pdf_unbound"] += 1
+            continue
+        net = cost_net(fields)
+        if issued < issued_from or net is None:
+            continue
+        owners = by_nip.get(clean_nip(fields.get("seller_nip")) or "", set())
+        by_invoice_nip = next(iter(owners)) if len(owners) == 1 else None
+        cand: Optional[int] = int(contract_person) if contract_person else None
+        if cand is not None and by_invoice_nip is not None and by_invoice_nip != cand:
+            stats["pdf_other_nip"] += 1
+            continue
+        cand = (
+            cand
+            or by_invoice_nip
+            or rh.match_seller(world, str(fields.get("seller_name") or ""))
+        )
+        if cand is None:
+            stats["pdf_unbound"] += 1
+            continue
+        number = fields.get("invoice_number")
+        item = rules.CostDoc(
+            candidate_id=cand,
+            number=str(number or f"PDF {document.id}"),
+            issue_date=issued,
+            net=net,
+            currency=str(fields.get("currency") or PLN),
+            correction=net < 0,
+        )
+        if _twin(keys, item, number):
+            stats["pdf_duplicate"] += 1
+            continue
+        stats["pdf"] += 1
+        docs.append(item)
 
 
 async def _collective_clients(

@@ -624,6 +624,33 @@ def staff_row(document: CpDocument) -> dict[str, Any]:
         "invoice_signal_at": document.invoice_signal_at.isoformat()
         if document.invoice_signal_at
         else None,
+        "invoice_read": _invoice_read(document),
+    }
+
+
+_READ_KEYS = (
+    "status",
+    "seller_name",
+    "seller_nip",
+    "invoice_number",
+    "issue_date",
+    "currency",
+    "net_amount",
+    "gross_amount",
+)
+
+
+def _invoice_read(document: CpDocument) -> Optional[dict[str, Any]]:
+    """Pola faktury odczytane z PDF (``invoice_read``): to policzy kontrola miesiąca."""
+
+    from app.services.consultant_portal.invoice_read import counts_as_cost
+
+    fields = document.invoice_fields
+    if document.kind != "invoice" or not isinstance(fields, dict):
+        return None
+    return {
+        **{key: fields.get(key) for key in _READ_KEYS},
+        "counts": counts_as_cost(fields),
     }
 
 
