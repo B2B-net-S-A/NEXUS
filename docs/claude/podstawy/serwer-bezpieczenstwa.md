@@ -46,7 +46,11 @@ Z mniejszego dysku na większy można; z powrotem już nie.
     python `docker` w apt.
   - Podatności pakietów: wbudowany `vulnerability-detection` z inwentarzem syscollectora.
 - Reguły lokalne (`/opt/nexus-security/wazuh/local_rules.xml`):
-  - Falco: Warning/Notice → 7, Error → 10, Critical/Alert/Emergency → 12.
+  - Falco: Warning → 7, Notice → 5 (zostaje w Wazuhu; to m.in. odczyty kluczy SSH przez sesje administracyjne),
+    Error → 10, Critical/Alert/Emergency → 12. Odczyty `/etc/shadow`, `sudoers`, `pam.d` przez procesy
+    `wazuh-*` (skany SCA i FIM samego agenta) → 0; bez tego pierwszy wieczór dał 91 fałszywych alertów.
+    W mailu z alertu Falco nie ma `full_log`, bo pole `output` to linia poleceń procesu (bywają w niej sekrety).
+    Pola Falco w regułach Wazuha są zagnieżdżone: `output_fields.proc.name`, nie `output_fields["proc.name"]`.
   - Traefik: znane ścieżki skanerów → 6, 30 takich prób z jednego adresu w 60 s → 10,
     50 odpowiedzi 401/403 z jednego adresu w 60 s → 10.
   - FIM w `/etc/ssh/`, `/root/.ssh/`, `/data/coolify/proxy/` → 10 (100200).
