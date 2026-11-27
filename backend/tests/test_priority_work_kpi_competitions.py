@@ -899,7 +899,11 @@ def test_canonical_cte_is_attempt_aware_and_anchors_credit_on_verifier() -> None
     assert "cp.kpi_eligible IS TRUE" in normalized
     assert "cp.credit_user_id IS NOT NULL" in normalized
     assert "mf.reached_at >= verified.reached_at" in normalized
-    assert "afm.first_reached_at < fc.first_opened_at" in normalized
+    # 0797: przed pierwszym procesem decyduje chwila samej weryfikacji.
+    assert (
+        "THEN milestone_stage.moved_at ELSE afm.first_reached_at "
+        "END < fc.first_opened_at"
+    ) in normalized
     assert "COALESCE(a.verifier, mf.first_mover)" in normalized
     assert (
         "SELECT * FROM classified_credited "

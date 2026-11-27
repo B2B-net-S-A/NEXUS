@@ -369,9 +369,11 @@ async def test_link_verified_counts_like_the_portals_from_qc_cv() -> None:
             db, owner_id=owner, job_id=None, candidate_id=stuck, at=day
         )
         db.add(_stage(stuck, job_id, PipelineStage.verified, day + timedelta(hours=1)))
+        # Jeden link ogólny na osobę (`ux_candidate_invite_links_one_recruiter_link`).
+        other_owner = await _owner(db)
         moved_on = await _candidate(db, created_at=day)
         await _link_application(
-            db, owner_id=owner, job_id=None, candidate_id=moved_on, at=day
+            db, owner_id=other_owner, job_id=None, candidate_id=moved_on, at=day
         )
         db.add(
             _stage(moved_on, job_id, PipelineStage.verified, day + timedelta(hours=1))
