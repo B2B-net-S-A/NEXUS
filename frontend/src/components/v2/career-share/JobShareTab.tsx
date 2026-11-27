@@ -126,9 +126,11 @@ export interface JobShareTabProps {
   defaultJobId?: number;
   /** Zmiana wybranej rekrutacji — opis w nagłówku okna. */
   onJobChange?: (title: string | null) => void;
+  /** Zmiana wybranej rekrutacji — zakładka „Post na LinkedIn” bierze z niej dane. */
+  onJobIdChange?: (jobId: number | null) => void;
 }
 
-export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabProps) {
+export function JobShareTab({ enabled, defaultJobId, onJobChange, onJobIdChange }: JobShareTabProps) {
   const qc = useQueryClient();
   const { showSuccess, showError } = useToast();
 
@@ -185,6 +187,10 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
   useEffect(() => {
     onJobChange?.(jobTitle);
   }, [jobTitle, onJobChange]);
+
+  useEffect(() => {
+    onJobIdChange?.(jobId);
+  }, [jobId, onJobIdChange]);
 
   // Zmiana rekrutacji zeruje edycję, znaleziska z odmowy i świeży link.
   useEffect(() => {
