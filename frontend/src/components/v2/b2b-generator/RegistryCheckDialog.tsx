@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { krzDialogLine, type KrzFormState } from "@/lib/b2b-krz";
 import {
   registryName,
   type CompanyVerification,
@@ -34,6 +35,7 @@ export function RegistryCheckDialog({
   onApplyRegistryChange,
   onConfirm,
   onCancel,
+  krz,
 }: {
   verification: CompanyVerification | null;
   diffs: RegistryDiff[];
@@ -41,18 +43,24 @@ export function RegistryCheckDialog({
   onApplyRegistryChange: (value: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Wynik KRZ z kroku „Partner” (0800); brak = formularz bez sprawdzenia KRZ. */
+  krz?: KrzFormState;
 }) {
   const applyId = React.useId();
   const warnings = verification?.warnings ?? [];
   const unverified = verification?.status === "unverified";
   const registry = registryName(verification?.registry ?? null);
+  const krzLine = krz ? krzDialogLine(krz) : null;
+  const onlyKrz = warnings.length === 0 && !unverified && diffs.length === 0;
 
   const title =
     warnings.length > 0
       ? "Sprawdź status firmy Partnera"
       : unverified
         ? "Dane firmy nie zostały zweryfikowane"
-        : `Dane firmy w ${registry} różnią się od formularza`;
+        : onlyKrz
+          ? "Partner nie jest sprawdzony w KRZ"
+          : `Dane firmy w ${registry} różnią się od formularza`;
 
   return (
     <Dialog
@@ -71,6 +79,14 @@ export function RegistryCheckDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-3">
+          {krzLine ? (
+            <Alert
+              variant={krzLine.tone === "success" ? "success" : "warning"}
+              title={krzLine.title}
+              description={krzLine.description}
+              data-testid="registry-dialog-krz"
+            />
+          ) : null}
           {warnings.length > 0 ? (
             <Alert variant="error" title={`Ostrzeżenie z ${registry}`}>
               {/* Dzieci, nie `description`: ten renderuje się w <p>, a lista

@@ -13,6 +13,7 @@ import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { KrzGate } from "@/components/v2/b2b-generator/krz/KrzGate";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { EsignRowStatus } from "@/components/v2/b2b-generator/esign/EsignRowStatus";
@@ -78,6 +79,17 @@ export function AgreementSignatureAction({
           NEXUS potwierdzi podpis sam, gdy podpiszą obie strony. Ręczne „Oznacz jako
           podpisaną” wróci po przejściu na zwykłą drogę.
         </p>
+      </div>
+    );
+  }
+
+  // KRZ przed podpisem (0800): bez wyniku albo z wpisem bez decyzji DL nie ma
+  // ani „Oznacz jako podpisaną”, ani prośby do DL — serwer odpowie 409.
+  if (row.krz?.block_reason) {
+    return (
+      <div className="space-y-1" data-testid="agreement-krz-gate">
+        <KrzGate row={row} compact />
+        <p className="text-[11px] text-muted-foreground">{row.krz.block_reason}</p>
       </div>
     );
   }

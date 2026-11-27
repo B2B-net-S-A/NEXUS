@@ -3879,6 +3879,46 @@ export interface B2BRenderPayload extends AgreementAdminFields {
   rate_stages?: B2BRateStage[] | null;
   currency: string;
   scope_items_override?: string[] | null;
+  /** Wynik sprawdzenia w KRZ z kroku „Partner” (0800). Bez PESEL-u. */
+  krz_check?: B2BKrzCheckInput | null;
+}
+
+/** Rodzaje wpisów w Krajowym Rejestrze Zadłużonych (art. 2 ustawy o KRZ). */
+export type B2BKrzEntryKind =
+  | "bankruptcy"
+  | "consumer_bankruptcy"
+  | "restructuring"
+  | "enforcement"
+  | "business_ban"
+  | "alimony"
+  | "other";
+
+/** Wynik zaznaczony przez człowieka po sprawdzeniu w portalu KRZ. */
+export interface B2BKrzCheckInput {
+  result: "clear" | "entry";
+  entry_kind?: B2BKrzEntryKind | null;
+  entry_note?: string | null;
+}
+
+/** Stan KRZ przy wierszu rejestru (0800): wynik, decyzja DL i bramka podpisu. */
+export interface B2BKrzState {
+  required: boolean;
+  result: "clear" | "entry" | null;
+  entry_kind: string | null;
+  entry_label: string | null;
+  entry_note: string | null;
+  checked_at: string | null;
+  checked_by_name: string | null;
+  decision: "allowed" | "rejected" | null;
+  decision_reason: string | null;
+  decided_at: string | null;
+  decided_by_name: string | null;
+  nip_changed: boolean;
+  /** Komunikat bramki; `null` = wysyłka i „Oznacz jako podpisaną” wolne. */
+  block_reason: string | null;
+  decider_names: string[];
+  can_record: boolean;
+  can_decide: boolean;
 }
 
 export const b2bGeneratorApi = {
@@ -4159,6 +4199,22 @@ export const b2bGeneratorApi = {
         `/api/b2b-generator/generated/${id}/signature-request`,
       )
       .then((r) => r.data),
+  /** Zapis wyniku sprawdzenia w KRZ przy umowie z rejestru (0800). */
+  recordKrz: (id: number, body: B2BKrzCheckInput) =>
+    api
+      .put<B2BGeneratedContractRow>(`/api/b2b-generator/generated/${id}/krz`, body)
+      .then((r) => r.data),
+  /** Decyzja Delivery Leada przy wpisie w KRZ: dopuść albo anuluj umowę. */
+  decideKrz: (
+    id: number,
+    body: { decision: "allowed" | "rejected"; reason: string },
+  ) =>
+    api
+      .post<B2BGeneratedContractRow>(
+        `/api/b2b-generator/generated/${id}/krz/decision`,
+        body,
+      )
+      .then((r) => r.data),
   /** Powiąż podpisaną umowę bez kontraktora z istniejącym kontraktem. */
   linkContract: (id: number, contractId: number) =>
     api
@@ -4322,7 +4378,7 @@ export interface B2BStatusEvent {
   created_at: string | null;
   /** Etap 1b (21.10.2026): `esign` = wpis z wysyłki do podpisu w NEXUSIE,
    *  treść w `label`, `id` ujemne. */
-  kind?: "status" | "esign";
+  kind?: "status" | "esign" | "krz";
   label?: string | null;
   /** Zmiana wykonana przez zakończenie kontraktu (0367): kontrakt, koniec
    *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
@@ -4447,6 +4503,8 @@ export interface B2BGeneratedContractRow {
   can_relink_esign?: boolean;
   /** „Przejmij obsługę” — obsługuje ktoś inny (zastępstwo, 27.10.2026). */
   can_take_over_esign?: boolean;
+  /** Krajowy Rejestr Zadłużonych (0800); brak = wiersz poza sprawdzeniem. */
+  krz?: B2BKrzState | null;
   /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
   can_download_signed_esign?: boolean;
   can_delete: boolean;

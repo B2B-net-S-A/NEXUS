@@ -151,6 +151,15 @@ import {
   RegisterStartDate,
 } from "@/components/v2/b2b-generator/RegisterAnnexLabel";
 import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
+import { KrzGate } from "@/components/v2/b2b-generator/krz/KrzGate";
+import { KrzSearchPanel } from "@/components/v2/b2b-generator/krz/KrzSearchPanel";
+import {
+  EMPTY_KRZ_FORM,
+  digitsOnly,
+  krzFormFromPayload,
+  krzFormToPayload,
+  type KrzFormState,
+} from "@/lib/b2b-krz";
 import { RedlineDialog } from "@/components/legal-assistant/redline/RedlineDialog";
 import { contractAccess } from "@/lib/contract-access";
 import type { RedlineTarget } from "@/lib/legal-redline";
@@ -2400,12 +2409,14 @@ export function StatusHistoryDialog({
           ) : (
             <ol className="space-y-3">
               {(q.data ?? []).map((e) =>
-                e.kind === "esign" ? (
+                e.kind === "esign" || e.kind === "krz" ? (
                   <li key={e.id} className="border-l-2 border-primary/40 pl-3">
                     <p className="text-sm font-medium">{e.label}</p>
                     <p className="text-xs text-muted-foreground">
                       {[
-                        "Podpis w NEXUSIE",
+                        e.kind === "krz"
+                          ? "Krajowy Rejestr Zadłużonych"
+                          : "Podpis w NEXUSIE",
                         e.changed_by_name,
                         e.created_at ? formatDateTimePl(e.created_at) : null,
                       ]
@@ -3318,11 +3329,16 @@ export function GeneratedContractsTab({
                             // chowała je ona przy 1280 px. Tu zostaje stan wysyłki
                             // (z „Wyślij nowy link” po terminie).
                             <EsignRowStatus row={r} />
-                          ) : r.blocked_reason && !r.can_confirm_signed && !r.can_send_esign ? (
+                          ) : r.blocked_reason &&
+                            !r.can_confirm_signed &&
+                            !r.can_send_esign &&
+                            r.blocked_reason !== r.krz?.block_reason ? (
                             <span className="max-w-60 text-xs text-muted-foreground">
                               {r.blocked_reason}
                             </span>
                           ) : null}
+                          {/* KRZ przed podpisem (0800): plakietka i następny krok. */}
+                          {!signed && r.krz ? <KrzGate row={r} /> : null}
                         </div>
                       </td>
                       <td className="py-2 pr-3">
@@ -4241,6 +4257,21 @@ export function GeneratorForm({
   const [partnerName, setPartnerName] = useState("");
   const [partnerLegalName, setPartnerLegalName] = useState("");
   const [partnerNip, setPartnerNip] = useState("");
+  // Krajowy Rejestr Zadłużonych (0800): wynik zaznaczony w kroku „Partner”
+  // i NIP, dla którego go zaznaczono — inny NIP to inna firma, wynik znika.
+  const [krzForm, setKrzForm] = useState<KrzFormState>(EMPTY_KRZ_FORM);
+  const [krzNip, setKrzNip] = useState("");
+  const partnerNipDigits = digitsOnly(partnerNip);
+  useEffect(() => {
+    if (krzForm.result !== null && krzNip && krzNip !== partnerNipDigits) {
+      setKrzForm(EMPTY_KRZ_FORM);
+      setKrzNip("");
+    }
+  }, [krzForm.result, krzNip, partnerNipDigits]);
+  const onKrzChange = (next: KrzFormState) => {
+    setKrzForm(next);
+    setKrzNip(partnerNipDigits);
+  };
   const [partnerRegon, setPartnerRegon] = useState("");
   const [partnerBusinessAddress, setPartnerBusinessAddress] = useState("");
   // JDG bez stałego miejsca wykonywania działalności w CEIDG: umowa i DPA
@@ -4714,6 +4745,7 @@ export function GeneratorForm({
       setPartnerInstrumental("");
       setPartnerLegalName("");
       setPartnerNip("");
+      setKrzForm(EMPTY_KRZ_FORM);
       setPartnerRegon("");
       setPartnerBusinessAddress("");
       setPartnerAddressForService(false);
@@ -4936,6 +4968,7 @@ export function GeneratorForm({
     partner_address_for_service: !isCompany && partnerAddressForService,
     partner_correspondence_address: partnerCorrespondenceAddress.trim() || null,
     partner_nip: partnerNip.trim() || null,
+    krz_check: krzFormToPayload(krzForm),
     // Podpowiedź wyświetlania, nie dane umowy: backend zapisuje ją jako
     // snapshot, a gdy jej brak — rozstrzyga heurystyką po nazwie firmy.
     partner_entity_type: partnerEntityType,
@@ -5226,6 +5259,8 @@ export function GeneratorForm({
     setPartnerInstrumental(form.partner_instrumental ?? "");
     setPartnerLegalName(form.partner_legal_name ?? "");
     setPartnerNip(form.partner_nip ?? "");
+    setKrzForm(krzFormFromPayload(form.krz_check));
+    setKrzNip(digitsOnly(form.partner_nip ?? ""));
     setPartnerRegon(form.partner_regon ?? "");
     setPartnerBusinessAddress(form.partner_business_address ?? "");
     setPartnerAddressForService(Boolean(form.partner_address_for_service));
@@ -5297,6 +5332,7 @@ export function GeneratorForm({
     setPartnerName("");
     setPartnerLegalName("");
     setPartnerNip("");
+    setKrzForm(EMPTY_KRZ_FORM);
     setPartnerRegon("");
     setPartnerBusinessAddress("");
     setPartnerAddressForService(false);
@@ -5398,7 +5434,10 @@ export function GeneratorForm({
       },
       verification.company,
     );
-    if (!needsRegistryDialog(verification, diffs)) {
+    // KRZ niesprawdzony (0800): okno przypomina o tym przed pobraniem, ale
+    // niczego nie blokuje — bramka stoi przy wysyłce do podpisu.
+    const krzPending = krzFormToPayload(krzForm) === null;
+    if (!needsRegistryDialog(verification, diffs) && !krzPending) {
       docxMut.mutate();
       return;
     }
@@ -6112,6 +6151,18 @@ export function GeneratorForm({
           />
         </div>
       </Field>
+      <Field label="Krajowy Rejestr Zadłużonych" full fieldKey="krz">
+        <div
+          className="space-y-2 rounded-lg border border-border p-3"
+          data-testid="generator-krz"
+        >
+          <p className="text-xs text-muted-foreground">
+            Przed podpisem sprawdź Partnera w KRZ. Wynik zapisze się przy „Pobierz DOCX”,
+            a bez niego umowa nie pójdzie do podpisu.
+          </p>
+          <KrzSearchPanel nip={partnerNip} value={krzForm} onChange={onKrzChange} />
+        </div>
+      </Field>
     </div>
   );
 
@@ -6496,6 +6547,7 @@ export function GeneratorForm({
       onApplyRegistryChange={setApplyRegistry}
       onConfirm={confirmRegistryCheck}
       onCancel={() => setRegistryCheck(null)}
+      krz={krzForm}
     />
   );
 

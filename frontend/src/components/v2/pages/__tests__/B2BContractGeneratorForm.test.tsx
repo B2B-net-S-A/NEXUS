@@ -283,6 +283,8 @@ async function fillForm(user: ReturnType<typeof setupUser>) {
   fireEvent.change(screen.getByLabelText("Stawka godz. (netto) *"), {
     target: { value: "150" },
   });
+  // KRZ sprawdzony (0800) — bez wyniku „Pobierz DOCX” najpierw przypomina o KRZ.
+  await user.click(screen.getByRole("radio", { name: "Brak wpisów" }));
 }
 
 describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
@@ -575,6 +577,8 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
 
 describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
   const SAVED_FORM = {
+    // Wynik KRZ (0800) przychodzi z wiersza razem z formularzem.
+    krz_check: { result: "clear", entry_kind: null, entry_note: null },
     candidate_id: 42,
     job_id: 10,
     role_id: 3,
@@ -1158,5 +1162,50 @@ describe("GeneratorForm — adres do doręczeń z CEIDG", () => {
     expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
       partner_address_for_service: false,
     });
+  });
+});
+
+describe("GeneratorForm — Krajowy Rejestr Zadłużonych (0800)", () => {
+  it("wynik KRZ idzie z pobraniem, a zmiana NIP-u go kasuje", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+    expect(screen.getByRole("radio", { name: "Brak wpisów" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    // Inny NIP to inna firma — wynik znika.
+    fireEvent.change(screen.getByLabelText("NIP (auto z rejestru) *"), {
+      target: { value: "7331345328" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { name: "Brak wpisów" })).toHaveAttribute(
+        "aria-checked",
+        "false",
+      ),
+    );
+
+    // Bez wyniku: przypomnienie, które niczego nie blokuje.
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    expect(
+      await screen.findByRole("heading", { name: "Partner nie jest sprawdzony w KRZ" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("registry-dialog-krz")).toHaveTextContent("KRZ: nie sprawdzono");
+    await user.click(screen.getByRole("button", { name: "Generuj umowę" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({ krz_check: null });
+
+    // Z wynikiem: pobiera od razu, wynik w żądaniu, PESEL nigdzie.
+    await user.type(screen.getByPlaceholderText("PESEL Partnera"), "44051401359");
+    await user.click(screen.getByRole("radio", { name: "Brak wpisów" }));
+    mocks.rerenderGenerated.mockResolvedValue(docxResponse("77"));
+    // Ta sama umowa (nr z pierwszego pobrania) — poprawka niesie nowy wynik KRZ.
+    await user.click(screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0]);
+    await waitFor(() => expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1));
+    const last = mocks.rerenderGenerated.mock.calls[0][1];
+    expect(last).toMatchObject({ krz_check: { result: "clear" } });
+    expect(JSON.stringify(last)).not.toContain("44051401359");
   });
 });

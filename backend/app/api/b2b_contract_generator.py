@@ -1535,7 +1535,9 @@ async def _serialize_generated_contracts(
             users=users,
             block=krz_block,
             from_mass_send=row.id in krz_mass_send_ids,
-            may_record=(may_handle_esign or may_confirm_row) and not is_signed,
+            may_record=(may_handle_esign or may_confirm_row)
+            and not is_signed
+            and row.contract_status == "in_progress",
         )
 
         # Wygasły link: nowy na tym samym PDF-ie, gdy umowy nikt nie poprawił.
