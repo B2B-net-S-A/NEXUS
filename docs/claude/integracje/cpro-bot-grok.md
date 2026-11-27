@@ -124,8 +124,10 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 - **Available from:** karta screeningu wygrywa z datą z NEXUSA (osoba od Cpro
   26.11.2026: profil 25.12 przy „2 tyg wypowiedzenia” dawał złą datę).
   Z karty: ASAP → dziś; okres wypowiedzenia od dziś; data albo miesiąc
-  („od grudnia” → 01.12) → ta data. Bez dostępności w karcie data z NEXUSA
-  w przyszłości (profil albo koniec umowy), inaczej dziś.
+  („od grudnia” → 01.12, „od 1 grudnia” → 01.12 — 27.11.2026 robot wpisał
+  datę z profilu 18.12) → ta data. Termin bez roku, który minął najwyżej
+  90 dni temu, to „od zaraz”, a nie ten dzień za rok. Bez dostępności
+  w karcie data z NEXUSA w przyszłości (profil albo koniec umowy), inaczej dziś.
 - **Wypowiedzenie:** 1–4 tygodnie, „30 dni” i **każdy „1 miesiąc”, także UoP**
   → `a N-week notice period` (1 miesiąc = `a 4-week notice period`, data dziś +
   28 dni) — osoba od Cpro i decyzja Artura 26.11.2026. Dłuższe okresy:
@@ -157,7 +159,12 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   Bot pobiera go z `GET /api/integrations/cpro-bot/runs/{id}/cv/{stage_id}`
   na token biegu. Nazwa pliku ma końcówkę `.pdf` i nie zawiera `#`.
   Po zapisaniu szkicu bot otwiera ofertę ponownie i sprawdza zaznaczony PDF
-  w podglądzie Cpro, w tym firmowy układ strony.
+  w podglądzie Cpro, w tym firmowy układ strony. Cpro po „Save as draft” sam
+  przechodzi na stronę oferty, więc otwarcie listy ofert w tym czasie
+  przeglądarka przerywa (`net::ERR_ABORTED`, 8 kart 27.11.2026 z wynikiem
+  `draft_unconfirmed` mimo zapisanego szkicu). Robot otwiera strony przez
+  `_goto` w `cpro_robot/portal.py`: przy przerwanym przejściu czeka i próbuje
+  do trzech razy.
 - Stałe pola (w poleceniu rutyny, `cpro_bot/task_text.py`): Self-employed
   (B2B), subcontractor `B2B.net S.A.`, subcontractor rate 0,00, UK tax No,
   Gender Other, pięć suwaków Matching na „Perfect”, imiennik w Cpro → Title =
