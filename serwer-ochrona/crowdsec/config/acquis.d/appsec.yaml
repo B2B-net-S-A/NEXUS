@@ -1,0 +1,8 @@
+# AppSec (WAF) dla bouncera w Traefiku. Tryb tylko-loguj: custom/appsec-logonly (reguly poza pasmem).
+# Po 48 h i przegladzie: appsec_configs: [crowdsecurity/appsec-default, crowdsecurity/generic-rules]
+source: appsec
+listen_addr: 0.0.0.0:7422
+appsec_config: custom/appsec-logonly
+name: appsec-traefik
+labels:
+  type: appsec

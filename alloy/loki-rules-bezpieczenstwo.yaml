@@ -1,0 +1,52 @@
+# Reguły alertów Loki (Grafana Cloud) dla bezpieczeństwa NEXUSA (27.11.2026).
+# Aktywne dopiero, gdy Alloy wysyła log Traefika: COMPOSE_PROFILES z `observability` i GRAFANA_LOKI_*
+# ustawione workflowem „Coolify set env”, a ten plik wgrany do rulera Grafana Cloud, np.:
+#   lokitool rules load alloy/loki-rules-bezpieczenstwo.yaml --address=<URL Loki> --id=<user> --key=<token z rules:write>
+# Te same trzy progi liczą scenariusze CrowdSec `nexus/*` (serwer-ochrona/crowdsec/config/scenarios/nexus-alerts.yaml);
+# zmiana progu = poprawka w obu miejscach.
+namespace: nexus-bezpieczenstwo
+groups:
+  - name: nexus-bezpieczenstwo
+    interval: 1m
+    rules:
+      - alert: NexusSeria401403ZJednegoAdresu
+        expr: |
+          sum by (client) (
+            count_over_time({app="nexus", source="traefik-access"}
+              | json client="ClientHost", status="DownstreamStatus", host="RequestHost"
+              | status=~"401|403"
+              | host=~"api\\.nexus\\.b2bnetwork\\.pl|nexus\\.b2bnetwork\\.pl|api\\.nexus\\.dynaminds\\.pl|coolify-nexus\\.dynaminds\\.pl"
+              [5m])
+          ) > 40
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ponad 40 odpowiedzi 401/403 w 5 min dla jednego adresu"
+      - alert: NexusOdmowySSO
+        expr: |
+          sum by (client) (
+            count_over_time({app="nexus", source="traefik-access"}
+              | json client="ClientHost", path="RequestPath", host="RequestHost"
+              | host="nexus.b2bnetwork.pl"
+              | path=~"/login\\?(.*&)?error=(domain_forbidden|foreign_tenant|identity_mismatch|account_disabled|aad_no_role|aad_role_invalid|missing_identity_claims|state_expired|missing_code_state).*"
+              [10m])
+          ) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ponad 2 odmowy logowania SSO w 10 min z jednego adresu"
+      - alert: NexusDuzyEksport
+        expr: |
+          sum by (client) (
+            count_over_time({app="nexus", source="traefik-access"}
+              | json client="ClientHost", path="RequestPath", host="RequestHost", status="DownstreamStatus", size="DownstreamContentSize"
+              | host=~"api\\.nexus\\.(b2bnetwork|dynaminds)\\.pl" | status="200"
+              | path=~"(?i).*(/export|\\.csv|\\.xlsx).*"
+              | size > 20000000
+              [5m])
+          ) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Eksport CSV/XLSX ponad 20 MB w jednej odpowiedzi"
