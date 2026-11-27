@@ -5777,5 +5777,44 @@
         "hint": "Lista zawęża się do wygranych. „Bez wyniku” pokaże projekty do uzupełnienia."
       }
     ]
+  },
+  {
+    "id": "cv-format-pliku-dla-klienta",
+    "pr": 4047,
+    "title": "Format pliku CV z reguły klienta",
+    "why": "Karta „CV do klienta” pisze, w jakim pliku klient chce CV (Word, PDF albo oba), i ten plik daje pierwszy przycisk pobrania. Drugi format jest w „⋯”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-26",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → CV do klienta",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
+    "section": "pipeline",
+    "dot_anchor": "person.cv.client-file-format",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "Tu są oryginał i CV do klienta tej osoby."
+      },
+      {
+        "anchor": "person.dock.cv-to-client",
+        "text": "Kliknij „CV do klienta: strony i wersje”.",
+        "hint": "Otworzy się karta „CV do klienta”."
+      },
+      {
+        "anchor": "person.cv.client-file-format",
+        "text": "„Klient chce: Word” — tak mówi reguła CV tego klienta.",
+        "hint": "Pierwszy przycisk pobrania daje plik, którego chce klient. Drugi format jest w „⋯”. Format ustawia DL w regule CV klienta.",
+        "ack": true
+      }
+    ]
   }
 ]

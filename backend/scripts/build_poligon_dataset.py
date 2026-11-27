@@ -736,6 +736,9 @@ BRANDED_DRAFT = {
     "language": "pl",
     "from_generator": True,
     "source": "generator",
+    # Lekcja „Format pliku dla klienta” (27.11.2026): klient ćwiczebny chce
+    # Worda. Przy klasycznym układzie przyciski zostają jak bez wymagań.
+    "client_file_format": "docx",
 }
 
 
