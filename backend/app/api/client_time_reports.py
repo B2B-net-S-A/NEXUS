@@ -39,7 +39,7 @@ from app.services.client_settlements.service import SettlementError
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
-MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
+MONTH_PATTERN = r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"
 KEY_PATTERN = r"^([A-Za-z][A-Za-z0-9]{3,15}|c[0-9]{1,10})$"
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 
