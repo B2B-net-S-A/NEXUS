@@ -140,7 +140,7 @@ async def test_moves_are_newest_first_with_the_previous_stage_per_person(
     assert [
         (i["candidate_id"], i["from_stage_name"], i["to_stage_name"]) for i in items
     ] == [
-        (world["anna"], "Screening", "Zweryfikowany"),
+        (world["anna"], "Screening", "Przygotowanie CV"),
         # Poprzedni etap Bo to JEGO „new", nie sąsiedni w czasie wiersz Anny;
         # nazwa kolumny szablonu wygrywa z etykietą enuma.
         (world["bo"], "Nowi / Analiza CV", world["custom_name"]),
@@ -253,7 +253,7 @@ async def test_moves_of_one_person_keep_that_pairs_previous_stage(
     # Ruchy Bo przeplatają się w czasie z ruchami Anny — poprzedni etap dalej
     # pochodzi z JEJ historii, nie z sąsiedniego wiersza.
     assert [(i["from_stage_name"], i["to_stage_name"]) for i in items] == [
-        ("Screening", "Zweryfikowany"),
+        ("Screening", "Przygotowanie CV"),
         ("Nowi / Analiza CV", "Screening"),
         (None, "Nowi / Analiza CV"),
     ]
