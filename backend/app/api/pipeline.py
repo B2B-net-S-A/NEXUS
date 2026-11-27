@@ -1945,7 +1945,7 @@ async def apply_move(
         raise HTTPException(
             status_code=403,
             detail=(
-                "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
+                "Ruch na etap 'Przygotowanie CV' może nieść stawkę kandydata i wymaga "
                 "roli admin, head_of_recruitment, delivery_lead, "
                 "talent_community_manager, recruiter lub finance."
             ),

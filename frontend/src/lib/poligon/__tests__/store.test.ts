@@ -802,7 +802,7 @@ describe("poligon: stop do podpisu przedwstępnej (lekcje nowości, 23.11.2026)"
   it("ruch w lewo i osoba z podpisaną umową przechodzą", () => {
     const { store } = setup();
     expect(move(store, SIGNED, "CV Wysłane")).toMatchObject({ status: 200 });
-    expect(move(store, STOPPED, "Zweryfikowany")).toMatchObject({ status: 200 });
+    expect(move(store, STOPPED, "Przygotowanie CV")).toMatchObject({ status: 200 });
     expect(store.stageOf(STOPPED)).toBe("verified");
   });
 

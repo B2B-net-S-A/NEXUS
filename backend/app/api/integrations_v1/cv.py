@@ -150,7 +150,9 @@ class CvGenerationOut(BaseModel):
     status: Literal["processing", "ready", "failed"]
     language: str
     content_mode: str
-    origin: str = Field(description="manual | auto (automat po „Zweryfikowany”).")
+    origin: str = Field(
+        description="manual | auto (automat po wejściu na „Przygotowanie CV”)."
+    )
     created_at: Optional[datetime]
     attached: bool = Field(
         description="Wynik jest CV pary (szkic albo zatwierdzone). ``false`` przy "

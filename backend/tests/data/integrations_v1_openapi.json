@@ -3459,7 +3459,7 @@
             "type": "string"
           },
           "origin": {
-            "description": "manual | auto (automat po „Zweryfikowany”).",
+            "description": "manual | auto (automat po wejściu na „Przygotowanie CV”).",
             "title": "Origin",
             "type": "string"
           },

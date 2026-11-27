@@ -4816,7 +4816,7 @@
   {
     "id": "arkusz-rozmowy-na-lewej-polowie",
     "title": "„Arkusz rozmowy” na dużej połowie ekranu",
-    "why": "W „Trybie rozmowy” formularz screeningu staje się arkuszem na pół ekranu, a CV zostaje obok. Na górze widzisz, czego brakuje do „Zweryfikowany”; braki znikają, gdy je wpisujesz.",
+    "why": "W „Trybie rozmowy” formularz screeningu staje się arkuszem na pół ekranu, a CV zostaje obok. Na górze widzisz, czego brakuje do „Przygotowania CV”; braki znikają, gdy je wpisujesz.",
     "tier": "tour",
     "shipped_on": "2026-11-23",
     "pr": 3809,
@@ -4840,7 +4840,7 @@
       },
       {
         "anchor": "screening.sheet.gaps",
-        "text": "Ten pasek mówi, czego brakuje do „Zweryfikowany”.",
+        "text": "Ten pasek mówi, czego brakuje do „Przygotowania CV”.",
         "hint": "Kliknij brak, a kursor stanie w tym polu. Obok widać, na ile pytań i wymagań masz już odpowiedź.",
         "ack": true
       }
@@ -5012,7 +5012,7 @@
       {
         "anchor": "job.pre-contract.edit",
         "text": "Kliknij „Zmień”.",
-        "hint": "Bez ustawienia przycisk nazywa się „Ustaw dla wszystkich”. Prośby o umowę zakładają się same od „Zweryfikowanego”."
+        "hint": "Bez ustawienia przycisk nazywa się „Ustaw dla wszystkich”. Prośby o umowę zakładają się same od „Przygotowania CV”."
       },
       {
         "anchor": "pre-contract.rule.stop",
@@ -5813,6 +5813,33 @@
         "anchor": "person.cv.client-file-format",
         "text": "„Klient chce: Word” — tak mówi reguła CV tego klienta.",
         "hint": "Pierwszy przycisk pobrania daje plik, którego chce klient. Drugi format jest w „⋯”. Format ustawia DL w regule CV klienta.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "tablica-kolumna-przygotowanie-cv",
+    "title": "Kolumna „Zweryfikowany” nazywa się teraz „Przygotowanie CV”",
+    "why": "W tej kolumnie powstaje CV firmowe, więc nazywa się „Przygotowanie CV”. „Weryfikacje” w celach liczą się od wejścia osoby na „QC CV”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-27",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → kolumna „Przygotowanie CV”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.column.prep-cv",
+    "steps": [
+      {
+        "anchor": "board.column.prep-cv",
+        "text": "Dawne „Zweryfikowany” to teraz „Przygotowanie CV”.",
+        "hint": "Tu przygotowujesz CV firmowe i przesuwasz kartę do „QC CV”. Weryfikacja w celach liczy się dopiero wtedy.",
         "ack": true
       }
     ]

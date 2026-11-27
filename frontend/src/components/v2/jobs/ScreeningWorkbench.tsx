@@ -333,7 +333,7 @@ export function ScreeningWorkbench({
 
   const forward =
     entry && verifiedCol && !readOnly
-      ? { stage: VERIFIED_STAGE, stageDefId: verifiedCol.stage_def_id ?? null, label: "Zweryfikowany" }
+      ? { stage: VERIFIED_STAGE, stageDefId: verifiedCol.stage_def_id ?? null, label: "Przygotowanie CV" }
       : null;
   const reject =
     entry && rejectedCol && !readOnly

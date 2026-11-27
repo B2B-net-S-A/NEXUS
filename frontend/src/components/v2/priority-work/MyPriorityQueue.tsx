@@ -73,7 +73,7 @@ const STAGE_LABELS: Record<string, string> = {
   new: "Nowy",
   prep_call: "Prep call",
   screening: "Screening",
-  verified: "Zweryfikowany",
+  verified: "Przygotowanie CV",
   interview: "Interview wewnętrzne",
   cv_sent: "CV wysłane do klienta",
   client_interview: "Interview u klienta",

@@ -60,7 +60,7 @@ export function verifiedRequirementsOf(error: unknown): VerifiedRequirementsMiss
     message:
       typeof detail.message === "string" && detail.message.trim()
         ? detail.message
-        : "Przed „Zweryfikowany” uzupełnij arkusz screeningu i stawkę kandydata.",
+        : "Przed „Przygotowaniem CV” uzupełnij arkusz screeningu i stawkę kandydata.",
   };
 }
 

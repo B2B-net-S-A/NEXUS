@@ -282,7 +282,7 @@ export function AddToRecruitmentDialog({
         for (const candidateId of response.added) {
           await move.send(
             { candidate_id: candidateId, job_id: job.id, stage: "verified" },
-            { candidateName: subject ?? "Kandydat", fallbackMessage: "Dodano do „Nowych”, ale nie udało się przesunąć na „Zweryfikowany”." },
+            { candidateName: subject ?? "Kandydat", fallbackMessage: "Dodano do „Nowych”, ale nie udało się przesunąć na „Przygotowanie CV”." },
           );
         }
       }
@@ -411,7 +411,7 @@ export function AddToRecruitmentDialog({
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { value: false, label: "Nowi" },
-                      { value: true, label: "Zweryfikowany" },
+                      { value: true, label: "Przygotowanie CV" },
                     ].map((option) => (
                       <Button
                         key={option.label}
@@ -452,7 +452,7 @@ export function AddToRecruitmentDialog({
               <Button onClick={() => void submit()} disabled={!job || count === 0} loading={pending}>
                 {job
                   ? canPickStage && toVerified
-                    ? "Dodaj na „Zweryfikowany”"
+                    ? "Dodaj na „Przygotowanie CV”"
                     : `Dodaj do „${jobDisplayTitle(job)}”`
                   : "Dodaj"}
               </Button>

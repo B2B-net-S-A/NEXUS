@@ -1,10 +1,11 @@
 {
-  "_comment": "Tablica rekrutacji (8 kolumn od 24.09.2026, makiety https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW): Nowi · Screening · Zweryfikowany · QC CV · CV wysłane · Rozmowa u klienta · Umowa · Zatrudniony. Etap szablonu → kolumna Tablicy + znacznik na karcie. „Przepuszczony przez DZ” i „QC CV” to gospodarz kolumny QC CV (bez znacznika); „Wysłać do Cpro” (Nordea) wpada do QC CV ze znacznikiem cpro = „w kolejce Cpro”. Odznaki posting/acceptance wynikają z KODU etapu, pozostałe z NAZWY. Czyta go frontend (lib/board-stages.ts) i backend (services/board_stage_badges.py). Przypadki to prawdziwe nazwy etapów z trzech szablonów na produkcji.",
+  "_comment": "Tablica rekrutacji (8 kolumn od 24.09.2026, makiety https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW): Nowi · Screening · Przygotowanie CV · QC CV · CV wysłane · Rozmowa u klienta · Umowa · Zatrudniony. Kolumna verified nazywa się od 27.11.2026 „Przygotowanie CV” (szablony NEXUSA, migracja 0798); szablon z Traffita dalej ma etap „Zweryfikowany” i ląduje w niej po kodzie. Etap szablonu → kolumna Tablicy + znacznik na karcie. „Przepuszczony przez DZ” i „QC CV” to gospodarz kolumny QC CV (bez znacznika); „Wysłać do Cpro” (Nordea) wpada do QC CV ze znacznikiem cpro = „w kolejce Cpro”. Odznaki posting/acceptance wynikają z KODU etapu, pozostałe z NAZWY. Czyta go frontend (lib/board-stages.ts) i backend (services/board_stage_badges.py). Przypadki to prawdziwe nazwy etapów z trzech szablonów na produkcji.",
   "cases": [
     {"name": "Ogłoszenia", "stage": "posting", "category": "internal", "column": "new", "badge": "posting"},
     {"name": "Nowi / Analiza CV", "stage": "new", "category": "internal", "column": "new", "badge": null},
     {"name": "Screening", "stage": "screening", "category": "internal", "column": "screening", "badge": null},
     {"name": "Zweryfikowany", "stage": "verified", "category": "internal", "column": "verified", "badge": null},
+    {"name": "Przygotowanie CV", "stage": "verified", "category": "internal", "column": "verified", "badge": null},
     {"name": "Przepuszczony przez DZ", "stage": "interview", "category": "internal", "column": "cv_qc", "badge": null},
     {"name": "QC CV", "stage": "interview", "category": "internal", "column": "cv_qc", "badge": null},
     {"name": "Wysłać do Cpro", "stage": "new", "category": "internal", "column": "cv_qc", "badge": "cpro"},

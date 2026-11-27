@@ -81,7 +81,7 @@ describe("proces wybierany sam", () => {
     expect(autoProcessChoice([a, b], 999)).toBe("");
   });
   it("etykieta: stanowisko · klient · etap", () => {
-    expect(processLabel(a)).toBe("Senior Java Developer · PKO BP · Zweryfikowany");
+    expect(processLabel(a)).toBe("Senior Java Developer · PKO BP · Przygotowanie CV");
     expect(processLabel(recruitment({ client_name: null }))).toContain("bez klienta");
   });
 });
@@ -336,6 +336,6 @@ describe("stanowisko i nazwa pliku w formularzu", () => {
         job_working_title: "Senior Fullstack Developer · C#",
         job_client_reference: "ZOB-3156",
       })),
-    ).toBe("ZOB-3156 Senior Fullstack Developer · C# · Zweryfikowany");
+    ).toBe("ZOB-3156 Senior Fullstack Developer · C# · Przygotowanie CV");
   });
 });

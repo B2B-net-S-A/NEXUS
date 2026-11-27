@@ -550,11 +550,11 @@ function CvTab({
             busyKey={chooser.busyKey}
             onChoose={(option) => void chooseCv(option)}
             onPreviewDocument={previewDocument}
-            intro="CV firmowe tej rekrutacji jeszcze nie powstało. Możesz wybrać gotowe CV z profilu i je poprawić — albo poczekać: po przekazaniu osoby na „Zweryfikowany” wygeneruje się samo."
+            intro="CV firmowe tej rekrutacji jeszcze nie powstało. Możesz wybrać gotowe CV z profilu i je poprawić — albo poczekać: po przekazaniu osoby na „Przygotowanie CV” wygeneruje się samo."
           />
         ) : (
           <Notice>
-            CV firmowe jeszcze nie powstało — generuje się po przekazaniu osoby na „Zweryfikowany”. Wtedy zobaczysz
+            CV firmowe jeszcze nie powstało — generuje się po przekazaniu osoby na „Przygotowanie CV”. Wtedy zobaczysz
             je tutaj.
           </Notice>
         );

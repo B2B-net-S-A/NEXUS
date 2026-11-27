@@ -29,7 +29,7 @@ export const CARE_COLUMN_LABELS: Record<CareColumn, string> = {
   client_interview: "rozmowa u klienta",
   cv_sent: "CV wysłane",
   cv_qc: "QC CV",
-  verified: "zweryfikowani",
+  verified: "przygotowanie CV",
   screening: "screening",
   new: "nowi",
 };

@@ -49,7 +49,7 @@ WAITING = "waiting"
 COLUMN_LABEL: dict[str, str] = {
     "new": "Nowi",
     "screening": "Screening",
-    "verified": "Zweryfikowany",
+    "verified": "Przygotowanie CV",
     "cv_qc": "QC CV",
     "cv_sent": "CV wysłane",
     "client_interview": "Rozmowa u klienta",

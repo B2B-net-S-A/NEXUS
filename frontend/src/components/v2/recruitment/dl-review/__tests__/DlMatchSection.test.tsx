@@ -88,7 +88,7 @@ describe("Match — podsumowanie po wysyłce", () => {
     expect(summary.sent).toBeNull();
     expect(summary.problems).toEqual([
       "ZOB-3 Java: weto HM",
-      "ZOB-4 Java: dodano na „Zweryfikowany”, wysyłka nie przeszła — Rekrutacja zamknięta",
+      "ZOB-4 Java: dodano na „Przygotowanie CV”, wysyłka nie przeszła — Rekrutacja zamknięta",
     ]);
   });
 });

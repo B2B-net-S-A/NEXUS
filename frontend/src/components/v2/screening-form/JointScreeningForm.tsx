@@ -482,7 +482,7 @@ function JointFormBody({
     queryClient.getQueryData<ScreeningFormState>(screeningFormQueryKey(pair.jobId, candidateId)) ?? pair.state;
 
   const move = async (pair: JointPair, expectedStateVersion: number, acknowledgeEligibility: boolean, rate: ReturnType<typeof rateFromValues>) => {
-    if (pair.verifiedStageDefId == null) return { kind: "no_stage" as const, message: "Ta rekrutacja nie ma etapu „Zweryfikowany” w szablonie — przesuń kartę na jej Tablicy." };
+    if (pair.verifiedStageDefId == null) return { kind: "no_stage" as const, message: "Ta rekrutacja nie ma etapu „Przygotowanie CV” w szablonie — przesuń kartę na jej Tablicy." };
     const outcome = await moveCore.send(
       {
         candidate_id: candidateId,
@@ -734,7 +734,7 @@ function JointFormBody({
                 {busy === "save" ? "Zapisuję…" : `Zapisz w ${pairs.length}`}
               </Button>
               <Button type="button" size="sm" disabled={busy != null} onClick={() => void run(true)}>
-                {busy === "forward" ? "Przekazuję…" : `Zapisz i przekaż dalej w ${pairs.length} → Zweryfikowany`}
+                {busy === "forward" ? "Przekazuję…" : `Zapisz i przekaż dalej w ${pairs.length} → Przygotowanie CV`}
               </Button>
             </div>
             {moveCore.dialogs}
@@ -774,7 +774,7 @@ function JointFormBody({
           </div>
           <div className="flex justify-end">
             <Button type="button" disabled={busy != null} onClick={() => void run(true)}>
-              {busy === "forward" ? "Przekazuję…" : `Zapisz i przekaż dalej w ${pairs.length} → Zweryfikowany`}
+              {busy === "forward" ? "Przekazuję…" : `Zapisz i przekaż dalej w ${pairs.length} → Przygotowanie CV`}
             </Button>
           </div>
         </div>
@@ -854,8 +854,8 @@ function JointSheetGapsBar({
       <div className="flex flex-wrap items-center gap-x-2">
         <span className="font-semibold">
           {missing > 0
-            ? "Do „Zweryfikowany” brakuje:"
-            : `Do „Zweryfikowany”: komplet pól w ${pairs.length} rekrutacjach`}
+            ? "Do „Przygotowania CV” brakuje:"
+            : `Do „Przygotowania CV”: komplet pól w ${pairs.length} rekrutacjach`}
         </span>
         {groups.length > 0 ? (
           <span className="ml-auto whitespace-nowrap">
@@ -1624,7 +1624,7 @@ function ResultCard({
   const LABEL: Record<ResultKind, string> = {
     saved: "zapisano",
     unchanged: "bez zmian",
-    moved: "→ Zweryfikowany",
+    moved: "→ Przygotowanie CV",
     save_failed: "nie zapisano",
     move_refused: "zapisano, nie przekazano",
     deal_breaker: "zapisano, nie przekazano",

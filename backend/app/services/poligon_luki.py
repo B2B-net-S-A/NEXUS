@@ -91,7 +91,7 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature(
         "zweryfikowany",
-        "„Zweryfikowany” przez bramkę",
+        "„Przygotowanie CV” przez bramkę",
         "Rdzeń procesu",
         ("poligon-screening-bramka", "poligon-screening-zweryfikuj"),
         _act("stage_changed") + " AND details::jsonb->>'stage' = 'verified'",

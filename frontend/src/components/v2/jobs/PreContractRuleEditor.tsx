@@ -37,7 +37,7 @@ export function PreContractRuleEditor({ value, onChange, idPrefix, disabled = fa
         <span>
           <span className="font-medium">Każda osoba podpisuje umowę przedwstępną</span>
           <span className="block text-xs text-muted-foreground">
-            Prośba zakłada się sama, gdy osoba wejdzie na „Zweryfikowany”; wystawia rekruter prowadzący.
+            Prośba zakłada się sama, gdy osoba wejdzie na „Przygotowanie CV”; wystawia rekruter prowadzący.
           </span>
         </span>
       </label>

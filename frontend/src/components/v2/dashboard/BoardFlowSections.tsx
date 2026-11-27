@@ -218,7 +218,7 @@ export function BoardFlowSections({
       {flow && flow.screening.length > 0 && (
         <Section
           title="Screening — brakuje danych"
-          hint="Bez arkusza screeningu i stawki kandydata karta nie wejdzie na „Zweryfikowany”. W rekrutacji bez pytań zamiast arkusza wystarcza „Dlaczego ten kandydat”."
+          hint="Bez arkusza screeningu i stawki kandydata karta nie wejdzie na „Przygotowanie CV”. W rekrutacji bez pytań zamiast arkusza wystarcza „Dlaczego ten kandydat”."
           count={flow.screening.length}
           expanded={expanded["flow_screening"] === true}
           onToggle={() => onToggle("flow_screening")}
@@ -249,7 +249,7 @@ export function BoardFlowSections({
 
       {flow && flow.verified.length > 0 && (
         <Section
-          title="Zweryfikowani — czekają na CV do QC"
+          title="Przygotowanie CV — czekają na CV do QC"
           hint="Przygotuj CV firmowe i przesuń kartę do „QC CV”."
           count={flow.verified.length}
           expanded={expanded["flow_verified"] === true}

@@ -327,7 +327,7 @@ async def _send_one(
             title=title,
             status="failed",
             destination=destination,
-            reason="Szablon tej rekrutacji nie ma etapu „Zweryfikowany” albo etapu wysyłki.",
+            reason="Szablon tej rekrutacji nie ma etapu „Przygotowanie CV” albo etapu wysyłki.",
         )
 
     # 1. Dodanie (kopia CV z A) + „Zweryfikowany” przez DL-a.

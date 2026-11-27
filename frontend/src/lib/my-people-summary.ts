@@ -10,7 +10,7 @@ export const UNCATEGORIZED_LABEL = "Pozostałe";
 
 /** Etapy, które mogą być „najdalszym" — lista zawiera tylko ludzi po wysyłce. */
 export const FURTHEST_STAGE_LABELS: Record<string, string> = {
-  verified: "Zweryfikowany",
+  verified: "Przygotowanie CV",
   interview: "Rozmowa",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",

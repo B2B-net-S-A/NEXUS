@@ -72,7 +72,7 @@ function friendlyStage(stage: string): string {
     new: "Nowy",
     prep_call: "Przygotowanie rozmowy",
     screening: "Screening",
-    verified: "Zweryfikowany",
+    verified: "Przygotowanie CV",
     interview: "Rozmowa wewnętrzna",
     cv_sent: "Wysłany do klienta",
     client_interview: "Interview",

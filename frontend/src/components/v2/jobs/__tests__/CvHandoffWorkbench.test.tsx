@@ -156,7 +156,7 @@ function columns(verified: KanbanItem[]): KanbanColumn[] {
   return [
     {
       stage: "verified",
-      name: "Zweryfikowany",
+      name: "Przygotowanie CV",
       category: "internal",
       stage_def_id: 4,
       count: verified.length,
@@ -250,7 +250,7 @@ describe("CvHandoffWorkbench", () => {
 
   it("osoba poza etapem „Zweryfikowany” to zdanie o etapie, a 403 to brak uprawnień", () => {
     const { unmount } = renderWorkbench({ columns: columns([]) });
-    expect(screen.getByText(/dostępne na etapie „Zweryfikowany”/)).toBeTruthy();
+    expect(screen.getByText(/dostępne na etapie „Przygotowanie CV”/)).toBeTruthy();
     unmount();
 
     renderWorkbench({
@@ -260,7 +260,7 @@ describe("CvHandoffWorkbench", () => {
       error: { response: { status: 403 } },
     });
     expect(screen.getByText("Brak uprawnień")).toBeTruthy();
-    expect(screen.queryByText(/dostępne na etapie „Zweryfikowany”/)).toBeNull();
+    expect(screen.queryByText(/dostępne na etapie „Przygotowanie CV”/)).toBeNull();
   });
 
   it("osoba w „Nowych” dostaje kartę CV bez sekcji wysyłki (12.10.2026)", () => {
@@ -280,7 +280,7 @@ describe("CvHandoffWorkbench", () => {
     });
 
     expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:11/111/7/rw");
-    expect(screen.getByTestId("cv-send-later-note")).toHaveTextContent("na etapie „Zweryfikowany”");
+    expect(screen.getByTestId("cv-send-later-note")).toHaveTextContent("na etapie „Przygotowanie CV”");
     expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
     expect(screen.queryByTestId("saved-cv-view")).toBeNull();
   });
@@ -683,7 +683,7 @@ it("successful move must preserve the one-time share link after queue refresh", 
   }
   render(<QueryClientProvider client={qc}><AuditHost/></QueryClientProvider>);
   await userEvent.click(await readySendButton());
-  await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
+  await screen.findByText(/dostępne na etapie „Przygotowanie CV”/);
   expect(shareCreate).toHaveBeenCalledOnce();
   expect(move).toHaveBeenCalledOnce();
   expect(screen.queryByText(/abc123/)).not.toBeNull();
@@ -705,7 +705,7 @@ it("retains each result with its original candidate when moving to the next one"
   await userEvent.click(await readySendButton());
   await screen.findByText(/\/cv\/first/);
   await userEvent.click(await readySendButton());
-  await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
+  await screen.findByText(/dostępne na etapie „Przygotowanie CV”/);
   const results = screen.getByRole("region", {name: "Utworzone linki do CV"});
   expect(within(results).getByText(/\/cv\/first/)).toBeTruthy();
   expect(within(results).getByText(/\/cv\/second/)).toBeTruthy();
@@ -780,7 +780,7 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
   it("osoby nie ma na Tablicy: zdanie o etapie, nie pustka ani błąd", () => {
     renderWorkbench({ layout: "panel", focusCandidateId: 999 });
     expect(
-      screen.getByText(/Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”/),
+      screen.getByText(/Przekazanie CV klientowi jest dostępne na etapie „Przygotowanie CV”/),
     ).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(brandedGet).not.toHaveBeenCalled();
@@ -839,7 +839,7 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     await readySendButton();
     await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(await sendButton());
-    await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
+    await screen.findByText(/dostępne na etapie „Przygotowanie CV”/);
     expect(calls).toEqual(["move", "share_link"]);
     expect(shareCreate).toHaveBeenCalledWith(21, 14);
     expect(screen.queryByText(/abc123/)).not.toBeNull();

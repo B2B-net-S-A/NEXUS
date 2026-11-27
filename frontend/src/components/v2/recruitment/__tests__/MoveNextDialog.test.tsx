@@ -235,7 +235,7 @@ describe("MoveNextDialog", () => {
   it("pomijane kolumny są oznaczone i nazwane", async () => {
     respond({ from_column: "screening", to_column: "cv_qc", skipped_columns: ["verified"] });
     renderDialog({ fromKey: "screening" });
-    await screen.findByText(/Pomijasz: Zweryfikowany/);
+    await screen.findByText(/Pomijasz: Przygotowanie CV/);
     const steps = within(screen.getByTestId("move-next-steps")).getAllByRole("listitem");
     expect(steps[2]).toHaveAttribute("data-state", "skipped");
   });

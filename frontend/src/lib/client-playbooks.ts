@@ -183,7 +183,7 @@ export const PLAYBOOK_FIELD_LABELS: Record<string, string> = {
   process_rules_md: "Zasady procesu rekrutacji (Markdown)",
   onboarding_md: "Onboarding po akceptacji (Markdown)",
   documents: "Dokumenty (nazwa + link)",
-  verified_required_fields: "Przed „Zweryfikowany” wymagaj też",
+  verified_required_fields: "Przed „Przygotowaniem CV” wymagaj też",
   prep_spec: "Specyfika na prep",
 };
 

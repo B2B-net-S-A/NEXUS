@@ -218,7 +218,7 @@ _STAGE_LABELS = {
     "new": "Nowy / analiza CV",
     "prep_call": "Preparation call",
     "screening": "Screening",
-    "verified": "Zweryfikowany",
+    "verified": "Przygotowanie CV",
     "interview": "Interview wewnętrzny",
     "cv_sent": "CV wysłane do klienta",
     "client_interview": "Rozmowa u klienta",
