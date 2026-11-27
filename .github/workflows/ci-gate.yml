@@ -76,6 +76,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       # Bezpośrednia instalacja CLI zamiast ``gitleaks/gitleaks-action@v2``:
       # akcja zaczęła zwracać porażkę bez możliwych do pobrania logów (blob
       # logu 404-uje z Azure storage), więc debugowanie było niemożliwe.
@@ -153,6 +154,8 @@ jobs:
         run: echo "::notice::Na PR-ze type-check biegnie w „Frontend (typecheck + build)” (ci.yml) — tu pominięty. Kolejka merge'ów i push na maina sprawdzają go tutaj."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ github.event_name != 'pull_request' }}
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: ${{ github.event_name != 'pull_request' }}
         with:
@@ -198,6 +201,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # 21.10.2026: `alembic upgrade heads` niżej przyjmuje dwie głowy bez
       # błędu, więc kolizję migracji łapał dopiero pytest w kolejce (~25 min;
       # #2520 wypadł tak 6× jednego dnia). Ten krok (stdlib, przed instalacją

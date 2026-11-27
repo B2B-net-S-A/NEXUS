@@ -1,8 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from app.models.candidate_risk import CandidateOfferResponse
 from app.models.contract import RateUnit
@@ -13,6 +13,24 @@ from app.models.recruitment_pipeline import (
 )
 from app.schemas.candidate import EmploymentMarker
 from app.schemas.candidate_contact import ContactCaseSummaryResponse
+
+# Miasto z karty dojazdu (27.11.2026) — długość jak `candidates.city`.
+PlaceName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+]
+
+
+def _unique_places(value: Optional[list[str]]) -> Optional[list[str]]:
+    """Bez powtórzeń bez względu na wielkość liter; kolejność jak w oknie."""
+    if value is None:
+        return None
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for city in value:
+        if city.casefold() not in seen:
+            seen.add(city.casefold())
+            ordered.append(city)
+    return ordered
 
 
 class StageMove(BaseModel):
@@ -67,12 +85,28 @@ class StageMove(BaseModel):
     # Wspólny mail (17.10.2026, D3) — `None`/`True` = gdy do osoby czeka już
     # mail odrzucenia z innej rekrutacji, wychodzi jeden o obu; `False` = osobny.
     rejection_email_merge: Optional[bool] = None
-    # Powód „Nie akceptuje trybu pracy” (`work_mode_mismatch`, 14.10.2026):
-    # ile dni w biurze kandydat akceptuje (0 = tylko zdalnie). Przy tym
-    # powodzie wymagane, przy każdym innym → 422. `save_to_profile` = zapis
-    # trybu pracy na profilu (ptaszek w oknie, domyślnie włączony).
-    work_mode_max_onsite_days: Optional[int] = Field(None, ge=0, le=4)
+    # Powód „Lokalizacja lub tryb pracy” (`work_mode_mismatch`, 14.10.2026):
+    # ile dni w biurze kandydat akceptuje (0 = tylko zdalnie, 5 = cały
+    # tydzień). Przy tym powodzie wymagane (poza „Za daleko do biura”), przy
+    # każdym innym → 422. `save_to_profile` = zapis na profilu wszystkich pól
+    # tego powodu (ptaszek w oknie, domyślnie włączony).
+    work_mode_max_onsite_days: Optional[int] = Field(None, ge=0, le=5)
     work_mode_save_to_profile: bool = True
+    # Karta dojazdu (27.11.2026, wariant D): „Co nie pasuje?”. `None` = stare
+    # wywołania (screening, DL, rozmowy, partia QC) — tylko dni jak dotąd.
+    # Reguły „które pole przy czym” (422): `candidate_commute.rejection_fields_error`.
+    work_mode_issue: Optional[Literal["distance", "office_days"]] = None
+    # Tylko przy „distance”: gdzie mieszka, do jakich biur dojedzie, czy do
+    # innego miasta raz w miesiącu, czy się przeprowadzi i dokąd (pusta lista
+    # przy `relocation_willing=True` = „gdziekolwiek”).
+    residence_city: Optional[PlaceName] = None
+    commute_office_cities: Optional[list[PlaceName]] = Field(None, max_length=10)
+    occasional_commute: Optional[bool] = None
+    relocation_willing: Optional[bool] = None
+    relocation_targets: Optional[list[PlaceName]] = Field(None, max_length=5)
+    # Tylko przy „office_days”: zgoda na więcej dni przy wyjątkowym projekcie
+    # (kolumna `candidates.accepts_more_office_days`).
+    accepts_more_office_days: Optional[bool] = None
     # Powód „Mieszka poza Polską” (`outside_poland`, 24.11.2026): kraj
     # zamieszkania (ISO 3166-1 alfa-2, nie PL) trafia na profil jak ołówek
     # „Lokalizacja”. Opcjonalny (kilka osób naraz, profil już ma kraj); przy
@@ -219,6 +253,11 @@ class StageMove(BaseModel):
     ] = None
     # QC-8 (08.11.2026): decyzja DL przy luce kandydata w krytycznej — ślad w Activity.
     gap_decision: Optional[Literal["send_anyway", "return"]] = None
+
+    @field_validator("commute_office_cities", "relocation_targets")
+    @classmethod
+    def _places_unique(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        return _unique_places(value)
 
     @field_validator("rejection_email_subject")
     @classmethod

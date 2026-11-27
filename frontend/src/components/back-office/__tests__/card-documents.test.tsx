@@ -173,3 +173,78 @@ describe("Przypisz: kontrakty nadawcy jako podpowiedź (26.11.2026)", () => {
     expect(screen.queryByText(/Nadawca/)).not.toBeInTheDocument();
   });
 });
+
+
+describe("Odczyt faktury z pliku (27.11.2026)", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("pokazuje pola, które policzy kontrola miesiąca", async () => {
+    show(
+      document_({
+        invoice_read: {
+          status: "read",
+          seller_name: "Firma Przykładowa",
+          seller_nip: "1234567890",
+          invoice_number: "FV 1/10/2026",
+          issue_date: "2026-10-30",
+          currency: "PLN",
+          net_amount: "24000.00",
+          gross_amount: "24000.00",
+          counts: true,
+        },
+      }),
+    );
+    const line = await screen.findByText(/Odczyt z pliku/);
+    expect(line.textContent).toContain(
+      "FV 1/10/2026 · 30.10.2026 · NIP 1234567890 · netto",
+    );
+    expect(line.textContent).toMatch(/24\s000,00 PLN/);
+  });
+
+  it("nieudany odczyt mówi, że faktura się nie liczy", async () => {
+    show(
+      document_({
+        invoice_read: {
+          status: "failed",
+          seller_name: null,
+          seller_nip: null,
+          invoice_number: null,
+          issue_date: null,
+          currency: null,
+          net_amount: null,
+          gross_amount: null,
+          counts: false,
+        },
+      }),
+    );
+    expect(
+      await screen.findByText(/Nie udało się odczytać kwoty/),
+    ).toBeInTheDocument();
+  });
+
+  it("brutto bez netto i bez VAT-u nie liczy się", async () => {
+    show(
+      document_({
+        invoice_read: {
+          status: "read",
+          seller_name: null,
+          seller_nip: null,
+          invoice_number: "FV 2/10/2026",
+          issue_date: "2026-10-30",
+          currency: "PLN",
+          net_amount: null,
+          gross_amount: "29520.00",
+          counts: false,
+        },
+      }),
+    );
+    const line = await screen.findByText(/bez kwoty netto/);
+    expect(line.textContent).toContain("Kontrola miesiąca tej faktury nie liczy");
+  });
+
+  it("raport nie ma linii odczytu", async () => {
+    show(document_({ kind: "report" }));
+    await screen.findByText(/Faktura_FV1_11_2026/);
+    expect(screen.queryByText(/Odczyt z pliku/)).not.toBeInTheDocument();
+  });
+});

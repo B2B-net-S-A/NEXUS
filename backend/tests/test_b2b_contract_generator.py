@@ -1144,9 +1144,10 @@ class TestRateLines:
             language="pl",
             currency="PLN",
         ) == [
-            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia "
-            "16.11.2026 do dnia 31.05.2027,",
-            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027",
+            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) netto + VAT w okresie "
+            "od dnia 16.11.2026 do dnia 31.05.2027,",
+            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) netto + VAT od dnia "
+            "01.06.2027.",
         ]
 
     def test_single_stage_has_no_lines(self):
@@ -1163,13 +1164,15 @@ class TestRateLines:
             "obliczane jako iloczyn liczby godzin faktycznego świadczenia Usług w "
             "danym miesiącu oraz stawki godzinowej w wysokości:"
         )
+        # „netto + VAT” po każdej kwocie, nie raz na końcu za datą (dział umów
+        # 27.11.2026: wychodziło „od dnia 01.03.2027 netto + VAT”).
         assert texts[at + 1] == (
-            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia "
-            "16.11.2026 do dnia 31.05.2027,"
+            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) netto + VAT w okresie "
+            "od dnia 16.11.2026 do dnia 31.05.2027,"
         )
         assert texts[at + 2] == (
-            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027 "
-            "netto + VAT."
+            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) netto + VAT od dnia "
+            "01.06.2027."
         )
         # Podpunkty nie są kolejnymi ustępami: bez numeracji, a ustęp 2 zostaje 2.
         assert paragraphs[at]._p.pPr.numPr is not None
@@ -1181,12 +1184,11 @@ class TestRateLines:
         texts = [p.text for p in _progressive_contract_paragraphs("en", **_TWO_STAGES)]
         at = next(i for i, t in enumerate(texts) if t.startswith("For the proper"))
         assert texts[at].endswith("an hourly rate of:")
+        vat = ") net + VAT in accordance with the applicable regulations "
         assert texts[at + 1].startswith("a) 122 PLN (in words:")
-        assert texts[at + 1].endswith(",")
+        assert vat + "in the period from 16.11.2026 to 31.05.2027," in texts[at + 1]
         assert texts[at + 2].startswith("b) 127 PLN (in words:")
-        assert texts[at + 2].endswith(
-            "net + VAT in accordance with the applicable regulations."
-        )
+        assert texts[at + 2].endswith(vat + "from 01.06.2027.")
 
     @pytest.mark.parametrize("language", ["pl", "en"])
     def test_docx_single_rate_sentence_is_unchanged(self, language):
@@ -1205,12 +1207,12 @@ class TestRateLines:
         ctx = _sample_context(language)
         progressive = {
             **ctx,
-            "b2b": {**ctx["b2b"], "rate_lines": ["a) 1 PLN,", "b) 2 PLN"]},
+            "b2b": {**ctx["b2b"], "rate_lines": ["a) 1 PLN,", "b) 2 PLN."]},
         }
         html = template.render(**progressive)
+        # Końcówkę („netto + VAT”, kropka) niesie każdy podpunkt, nie szablon.
         assert "<p>a) 1 PLN,</p>" in html
-        suffix = "netto + VAT." if language == "pl" else "net + VAT"
-        assert f"<p>b) 2 PLN {suffix}" in html
+        assert "<p>b) 2 PLN.</p>" in html
         # Kontrakt bez listy (`_contract_vars` zawsze ją daje) renderuje zdanie.
         single = {**ctx, "b2b": {**ctx["b2b"], "rate_lines": []}}
         assert ctx["b2b"]["rate_clause"] in template.render(**single)

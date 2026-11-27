@@ -238,6 +238,7 @@ TABLE_DDL: tuple[str, ...] = (
     decided_at TIMESTAMPTZ NULL,
     reject_reason VARCHAR({COMMENT_MAX}) NULL,
     invoice_signal_at TIMESTAMPTZ NULL,
+    invoice_fields JSONB NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_cp_documents_kind CHECK ({CK_DOCUMENT_KIND}),
@@ -257,7 +258,13 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-COLUMN_DDL: tuple[str, ...] = ()
+#: 0799 (27.11.2026): pola faktury PDF spoza KSeF odczytane przez model
+#: (``consultant_portal/invoice_read.py``) — koszt w kontroli miesiąca.
+INVOICE_FIELDS_DDL = (
+    "ALTER TABLE cp_documents ADD COLUMN IF NOT EXISTS invoice_fields JSONB NULL"
+)
+
+COLUMN_DDL: tuple[str, ...] = (INVOICE_FIELDS_DDL,)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_cp_links_contract "

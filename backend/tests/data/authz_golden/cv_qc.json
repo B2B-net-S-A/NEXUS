@@ -31,9 +31,11 @@
   "back_office"
  ],
  "routes": {
+  "DELETE /api/pipeline/stages/{stage_id}/qc/confirm/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/pipeline/stages/{stage_id}/qc/consent-screenshot": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PATCH /api/pipeline/stages/{stage_id}/qc/confirm/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",

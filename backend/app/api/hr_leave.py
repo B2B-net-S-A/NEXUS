@@ -810,7 +810,9 @@ async def report_conflict(
 async def calendar_month(
     current_user: LeaveCalendarReader,
     db: AsyncSession = Depends(get_db),
-    month: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    month: Optional[str] = Query(
+        default=None, pattern=r"^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$"
+    ),
     department: Optional[str] = Query(default=None, max_length=200),
     team: bool = Query(default=False),
 ) -> dict:

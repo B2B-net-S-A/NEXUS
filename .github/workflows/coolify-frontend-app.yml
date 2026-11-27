@@ -38,6 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Verify output redaction
         run: |
           python3 -m unittest discover -s .github/scripts/tests -p test_coolify_frontend_app.py

@@ -1,0 +1,77 @@
+{
+  "zizmor": "1.33.1",
+  "findings": [
+    {
+      "rule": "overprovisioned-secrets",
+      "path": ".github/workflows/coolify-set-env.yml",
+      "line": 78,
+      "route": "",
+      "fingerprint": "7a20d644d0c3b317",
+      "status": "zweryfikowane",
+      "reason": "Celowe: `secrets[inputs.value_from_secret]` to jedyna droga, żeby wartość sekretu nie przeszła przez `inputs` (zostają na stałe w metadanych biegu). Tylko `workflow_dispatch`, job tylko z `main` (OPS-N05), wartość trafia do jednej zmiennej kroku i jest maskowana."
+    },
+    {
+      "rule": "dangerous-triggers",
+      "path": ".github/workflows/deploy.yml",
+      "line": 102,
+      "route": "on.workflow_run",
+      "fingerprint": "787b49e16c0ad0c6",
+      "status": "zweryfikowane",
+      "reason": "`workflow_run` po „CI Gate” z warunkiem `head_branch == 'main'`; checkouty bez `ref:` (domyślna gałąź) i tylko `.github/scripts` (sparse, `persist-credentials: false`). Kod z gałęzi PR-a ani artefakty PR-a nie są tu wykonywane."
+    },
+    {
+      "rule": "dangerous-triggers",
+      "path": ".github/workflows/e2e.yml",
+      "line": 31,
+      "route": "on.workflow_run",
+      "fingerprint": "f23f19b83170cd9d",
+      "status": "zweryfikowane",
+      "reason": "`workflow_run` tylko po „Deploy” na `main` (`branches: [main]`); job `playwright` robi checkout domyślnej gałęzi (bez `ref:`) i bije w produkcję odczytami. Job `stack` ma `if: event_name != 'workflow_run'`."
+    },
+    {
+      "rule": "github-env",
+      "path": ".github/workflows/e2e.yml",
+      "line": 111,
+      "route": "jobs.stack.steps.run",
+      "fingerprint": "5fc237703fab4bb0",
+      "status": "zweryfikowane",
+      "reason": "Do `$GITHUB_ENV` trafia tylko `openssl rand -hex 24` (heks, bez nowych linii) wygenerowane w tym kroku — nic z zewnątrz, więc nie da się wstrzyknąć zmiennej ani `NODE_OPTIONS`."
+    },
+    {
+      "rule": "artipacked",
+      "path": ".github/workflows/migration-rechain.yml",
+      "line": 91,
+      "route": "jobs.rechain.steps",
+      "fingerprint": "adedd65943d7238d",
+      "status": "zweryfikowane",
+      "reason": "Potrzebne: `queue_rechain_migrations.py` robi `git push` przepięcia na gałęzie PR-ów przez poświadczenie `QUEUE_BOT_TOKEN` zapisane przez checkout. Job wykonuje tylko skrypty z `main` skopiowane do `$RUNNER_TEMP` przed przełączeniem na gałąź PR-a; nie uruchamia kodu z gałęzi i nie wgrywa artefaktów."
+    },
+    {
+      "rule": "dangerous-triggers",
+      "path": ".github/workflows/queue-failure-feedback.yml",
+      "line": 29,
+      "route": "on.workflow_run",
+      "fingerprint": "e6584c5ee674624b",
+      "status": "zweryfikowane",
+      "reason": "`workflow_run` po CI grupy kolejki merge'ów (`event == 'merge_group'`); checkout domyślnej gałęzi (sparse `.github/scripts`, bez poświadczeń); skrypt czyta tylko API (wyniki jobów) i pisze status/komentarz. Kod z kolejki nie jest wykonywany."
+    },
+    {
+      "rule": "dangerous-triggers",
+      "path": ".github/workflows/queue-migration-lane.yml",
+      "line": 39,
+      "route": "on.workflow_run",
+      "fingerprint": "6e7d798c9780cefa",
+      "status": "zweryfikowane",
+      "reason": "`workflow_run` po CI grup kolejki i `pull_request_target` (enqueued/dequeued/labeled, tylko migracje) — oba biegną z definicji i kodu z `main`: checkout bez `ref:`, sparse `.github/scripts`, `persist-credentials: false`. PR-owi czyta się tylko numer i etykiety przez API, kod gałęzi nie jest pobierany."
+    },
+    {
+      "rule": "dangerous-triggers",
+      "path": ".github/workflows/queue-migration-lane.yml",
+      "line": 43,
+      "route": "on.pull_request_target",
+      "fingerprint": "f49b86921cbddd9c",
+      "status": "zweryfikowane",
+      "reason": "`workflow_run` po CI grup kolejki i `pull_request_target` (enqueued/dequeued/labeled, tylko migracje) — oba biegną z definicji i kodu z `main`: checkout bez `ref:`, sparse `.github/scripts`, `persist-credentials: false`. PR-owi czyta się tylko numer i etykiety przez API, kod gałęzi nie jest pobierany."
+    }
+  ]
+}

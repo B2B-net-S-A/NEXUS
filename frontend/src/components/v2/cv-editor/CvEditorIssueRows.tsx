@@ -386,7 +386,7 @@ function ConfirmInline({ term, qc, onClose }: { term: string; qc: ActionContext;
       }}
     >
       <label htmlFor={fieldId} className="block font-medium">
-        Co dokładnie powiedział kandydat? (wymagane)
+        Co kandydat powiedział o „{term}”? (wymagane)
       </label>
       <textarea
         id={fieldId}

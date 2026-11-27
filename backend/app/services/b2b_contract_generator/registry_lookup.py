@@ -14,7 +14,7 @@ Moczydłowski"), a nie samo imię i nazwisko właściciela.
   - **CEIDG API v3** (`dane.biznes.gov.pl`) — oficjalne API maszynowe, ale
     wymaga tokenu (`settings.CEIDG_API_TOKEN`). Jeśli token jest — ma priorytet
     nad biznes.gov.pl.
-  - **Biała Lista MF** (`wl-api.mf.gov.pl`) — adres siedziby + osoba (dla JDG
+  - **Biała Lista MF** (`wykazpodatnikowvat.mf.gov.pl`) — adres siedziby + osoba (dla JDG
     imię+nazwisko właściciela) + REGON + KRS. Zawsze dostępna; fallback nazwy.
   - **KRS OpenAPI** (`api-krs.ms.gov.pl`) — po numerze KRS (spółki).
 
@@ -41,10 +41,11 @@ from app.services.b2b_contract_generator.entity_type import (
     COMPANY,
     entity_type_from_registry,
 )
+from app.services.mf_white_list_hosts import MF_WHITE_LIST_LIVE
 
 logger = logging.getLogger(__name__)
 
-_WL_BASE = "https://wl-api.mf.gov.pl"
+_WL_BASE = MF_WHITE_LIST_LIVE
 _KRS_BASE = "https://api-krs.ms.gov.pl"
 _CEIDG_BASE = "https://dane.biznes.gov.pl"
 _BIZNES_BASE = "https://www.biznes.gov.pl/pl/wyszukiwarka-firm/api/data-warehouse"

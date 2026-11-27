@@ -317,6 +317,13 @@
    "home": "Karta „Do propozycji”"
   },
   {
+   "id": "f.commute",
+   "opis": "Karta dojazdu: „Mieszka”, „Biuro” (do jakich biur dojedzie, dojazd okazjonalny do innego miasta), „Przeprowadzka” i źródło „z odrzucenia …” — zapis z odrzucenia „Za daleko do biura” (wariant D, 27.11.2026)",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "fact-commute-source",
+   "home": "Karta „Do propozycji”"
+  },
+  {
    "id": "f.languages",
    "opis": "Języki",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",

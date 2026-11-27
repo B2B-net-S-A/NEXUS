@@ -275,7 +275,7 @@ async def test_krs_outage_with_vat_answer_still_checks_the_card(fake) -> None:
     assert (summary.checked, summary.errors) == (1, 0)
     assert summary.cards[company]["krs_unavailable"] is True
     line = _lines(await _history(company))["regon"]
-    assert line["url"].startswith("https://wl-api.mf.gov.pl/")
+    assert line["url"].startswith("https://wykazpodatnikowvat.mf.gov.pl/")
     assert (await _card(company)).krs == krs
 
 

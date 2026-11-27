@@ -831,13 +831,16 @@ async def _record_work_mode_from_rejection(
     job: Job,
     stage: CandidateStage,
     max_onsite_days: int,
+    accepts_more_office_days: Optional[bool] = None,
     user: User,
 ) -> None:
     """Odrzucenie „Nie akceptuje trybu pracy” zapisuje tryb pracy na profilu.
 
     Ta sama ścieżka co ołówek „Tryb pracy” na profilu (audyt
     ``candidate_work_mode_changed``, odświeżenie wyników dopasowań), tylko ze
-    źródłem — rekrutacja i etap, z którego przyszła deklaracja.
+    źródłem — rekrutacja i etap, z którego przyszła deklaracja. Karta „Chce
+    mniej dni w biurze” (27.11.2026) niesie też zgodę na więcej dni przy
+    wyjątkowym projekcie — zapis po trybie pracy, bo ten zgodę kasuje.
     """
     from app.services.candidate_notes_facts import set_work_mode_from_rejection
     from app.services.match_score_cache import mark_stale_for_candidate
@@ -858,19 +861,78 @@ async def _record_work_mode_from_rejection(
         user_name=user.name,
         at_iso=stage.moved_at.isoformat(),
     )
+    details = {**change, "source": "rejection", "job_id": job.id, "stage_id": stage.id}
+    if accepts_more_office_days is not None:
+        candidate.accepts_more_office_days = accepts_more_office_days
+        details["accepts_more_office_days"] = accepts_more_office_days
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.WORK_MODE_CHANGED,
         user_id=user.id,
         entity_id=candidate_id,
-        details={
-            **change,
-            "source": "rejection",
-            "job_id": job.id,
-            "stage_id": stage.id,
-        },
+        details=details,
     )
     await mark_stale_for_candidate(db, candidate_id)
+
+
+async def _record_commute_from_rejection(
+    db: AsyncSession,
+    *,
+    data: StageMove,
+    job: Job,
+    stage: CandidateStage,
+    user: User,
+) -> None:
+    """Karta „Za daleko do biura” (27.11.2026) na profilu: miasto jak ołówek
+    „Lokalizacja”, biura / inne miasto / przeprowadzka w ``preferences``
+    (audyt ``candidate_commute_changed``), potem odświeżenie dopasowań."""
+    from app.services import candidate_commute, residence
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == data.candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    city_changed = data.residence_city is not None and (
+        residence.record_city_from_rejection(
+            db,
+            candidate,
+            city=data.residence_city,
+            user_id=user.id,
+            job_id=job.id,
+            stage_id=stage.id,
+        )
+    )
+    changed = candidate_commute.apply_commute_from_rejection(
+        candidate,
+        office_cities=data.commute_office_cities,
+        occasional_commute=data.occasional_commute,
+        relocation_willing=data.relocation_willing,
+        relocation_targets=data.relocation_targets,
+        origin={
+            "source": "rejection",
+            "job_id": job.id,
+            "job_title": job.working_title or job.title,
+            "at": stage.moved_at.isoformat(),
+            "user_id": user.id,
+        },
+    )
+    if changed:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.COMMUTE_CHANGED,
+            user_id=user.id,
+            entity_id=candidate.id,
+            details={
+                "changed": changed,
+                "source": "rejection",
+                "job_id": job.id,
+                "stage_id": stage.id,
+            },
+        )
+    if city_changed or changed:
+        await mark_stale_for_candidate(db, candidate.id)
 
 
 def _stage_response(
@@ -2272,25 +2334,21 @@ async def apply_move(
         from app.services import autofill_feedback  # noqa: PLC0415
 
         autofill_feedback.check_not_looking_until(data.not_looking_until)
-    # Powód „Nie akceptuje trybu pracy” (14.10.2026): liczba dni w biurze,
+    # Powód „Lokalizacja lub tryb pracy” (14.10.2026): liczba dni w biurze,
     # które kandydat akceptuje, jest przy nim obowiązkowa (trafia na profil),
-    # a przy każdym innym ruchu nie ma czego zapisać.
+    # a przy każdym innym ruchu nie ma czego zapisać. Karta dojazdu
+    # (27.11.2026): przy „Za daleko do biura” dni są opcjonalne, a miasto,
+    # biura i przeprowadzka mają sens tylko tam.
+    from app.services import candidate_commute  # noqa: PLC0415
+
     work_mode_rejection = (
         reason is not None and reason.name == rejection_reason_labels.WORK_MODE_MISMATCH
     )
-    if work_mode_rejection and data.work_mode_max_onsite_days is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Podaj, ile dni w biurze kandydat akceptuje.",
-        )
-    if not work_mode_rejection and data.work_mode_max_onsite_days is not None:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Liczbę dni w biurze podaje się tylko przy powodzie "
-                "„Nie akceptuje trybu pracy”."
-            ),
-        )
+    work_mode_error = candidate_commute.rejection_fields_error(
+        data, work_mode_rejection=work_mode_rejection
+    )
+    if work_mode_error is not None:
+        raise HTTPException(status_code=422, detail=work_mode_error)
     # Powód „Mieszka poza Polską” (24.11.2026): kraj zamieszkania trafia na
     # profil; przy innym powodzie nie ma czego zapisać.
     abroad_rejection = (
@@ -2441,6 +2499,8 @@ async def apply_move(
             is_minimum=data.rejection_rate_is_minimum,
             notes=effective_notes,
         )
+    if work_mode_rejection:
+        effective_notes = candidate_commute.rejection_note(data, notes=effective_notes)
 
     stage = await transition_process(
         db,
@@ -2686,14 +2746,21 @@ async def apply_move(
             actor_id=policy.actor_id,
         )
     if work_mode_rejection and data.work_mode_save_to_profile:
-        await _record_work_mode_from_rejection(
-            db,
-            candidate_id=data.candidate_id,
-            job=job,
-            stage=stage,
-            max_onsite_days=data.work_mode_max_onsite_days,
-            user=policy.actor,
-        )
+        # „Za daleko do biura” bez dni nie jest odmową biura — tryb pracy zostaje.
+        if data.work_mode_max_onsite_days is not None:
+            await _record_work_mode_from_rejection(
+                db,
+                candidate_id=data.candidate_id,
+                job=job,
+                stage=stage,
+                max_onsite_days=data.work_mode_max_onsite_days,
+                accepts_more_office_days=data.accepts_more_office_days,
+                user=policy.actor,
+            )
+        if data.work_mode_issue == "distance":
+            await _record_commute_from_rejection(
+                db, data=data, job=job, stage=stage, user=policy.actor
+            )
     remark_note = stage_remarks.record(
         db, stage=stage, author_id=policy.actor_id, text=data.recruiter_remark
     )
