@@ -3332,7 +3332,10 @@ export function GeneratedContractsTab({
                           ) : r.blocked_reason &&
                             !r.can_confirm_signed &&
                             !r.can_send_esign &&
-                            r.blocked_reason !== r.krz?.block_reason ? (
+                            // Przy bramce KRZ (0800) następnym krokiem jest KRZ —
+                            // inaczej rekruter bez „Podpisu B2B” dostawał nagle
+                            // komunikat o uprawnieniu, który przy wysyłce znikał.
+                            !r.krz?.block_reason ? (
                             <span className="max-w-60 text-xs text-muted-foreground">
                               {r.blocked_reason}
                             </span>

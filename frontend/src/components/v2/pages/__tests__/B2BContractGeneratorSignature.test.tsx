@@ -794,6 +794,41 @@ describe("GeneratedContractsTab — umowa anulowana", () => {
     mocks.apiGet.mockRejectedValue(new Error("brak zapytań w tym teście"));
   });
 
+  it("przy bramce KRZ pokazuje „Sprawdź w KRZ”, nie komunikat o uprawnieniu (0800)", async () => {
+    // Ścieżka na stagingu 27.11.2026: rekruter bez „Podpisu B2B” widział dotąd
+    // „Wyślij do podpisu”. Bramka KRZ chowa wysyłkę, więc wyskakiwał komunikat
+    // o uprawnieniu, choć następnym krokiem jest sprawdzenie w KRZ.
+    renderTab([
+      generatedRow({
+        can_confirm_signed: false,
+        can_send_esign: false,
+        blocked_reason:
+          "Brak uprawnienia „Oznaczanie podpisu umowy B2B”. Administrator może je nadać w Ustawienia → Uprawnienia.",
+        krz: {
+          required: true,
+          result: null,
+          entry_kind: null,
+          entry_label: null,
+          entry_note: null,
+          checked_at: null,
+          checked_by_name: null,
+          decision: null,
+          decision_reason: null,
+          decided_at: null,
+          decided_by_name: null,
+          nip_changed: false,
+          block_reason: "Najpierw sprawdź Partnera w Krajowym Rejestrze Zadłużonych.",
+          decider_names: [],
+          can_record: true,
+          can_decide: false,
+        },
+      }),
+    ]);
+    expect(await screen.findByText("KRZ: nie sprawdzono")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sprawdź w KRZ" })).toBeInTheDocument();
+    expect(screen.queryByText(/Brak uprawnienia „Oznaczanie podpisu/)).toBeNull();
+  });
+
   it("czerwieni wskaźnik przy „Niepodpisana” i chowa przycisk podpisu", async () => {
     // Backend liczy `can_confirm_signed`/`blocked_reason` — front tylko je
     // renderuje. Gdyby przycisk zniknął przez WŁASNY warunek, mielibyśmy dwie

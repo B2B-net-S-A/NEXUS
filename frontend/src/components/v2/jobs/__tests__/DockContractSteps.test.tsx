@@ -103,6 +103,39 @@ describe("DockContractSteps", () => {
     expect(await screen.findByRole("button", { name: "Przypomnij o podpisie" })).toBeInTheDocument();
   });
 
+  it("bramka KRZ (0800): „Sprawdź w KRZ” zamiast „Czeka na podpis” i prośby do DL", async () => {
+    // Ścieżka na stagingu 27.11.2026: nad bramką stało „Czeka na podpis od 1 dnia”,
+    // choć umowa czeka na sprawdzenie w KRZ.
+    generated.mockResolvedValue([
+      {
+        ...ROW,
+        krz: {
+          required: true,
+          result: null,
+          entry_kind: null,
+          entry_label: null,
+          entry_note: null,
+          checked_at: null,
+          checked_by_name: null,
+          decision: null,
+          decision_reason: null,
+          decided_at: null,
+          decided_by_name: null,
+          nip_changed: false,
+          block_reason: "Najpierw sprawdź Partnera w Krajowym Rejestrze Zadłużonych.",
+          decider_names: [],
+          can_record: true,
+          can_decide: false,
+        },
+      },
+    ]);
+    renderSteps();
+    expect(await screen.findByText("KRZ: nie sprawdzono")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sprawdź w KRZ" })).toBeInTheDocument();
+    expect(screen.queryByText(/Czeka na podpis od/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Poproś o potwierdzenie podpisu" })).toBeNull();
+  });
+
   it("prośba już wysłana (z karty): przycisk przypomina, zdanie podaje datę", async () => {
     generated.mockResolvedValue([ROW]);
     renderSteps({
