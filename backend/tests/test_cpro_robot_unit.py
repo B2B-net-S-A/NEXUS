@@ -365,3 +365,67 @@ def test_new_profile_without_nationality_stops_before_cpro():
     with pytest.raises(Outcome) as exc:
         run.add_consultant()
     assert "narodowość" in exc.value.message
+
+
+class _PageAbortingFirstGoto:
+    """Strona, na której pierwszy goto przerywa przejście po „Save as draft”."""
+
+    def __init__(self, failures: int = 1):
+        self.failures = failures
+        self.visited: list[str] = []
+
+    def goto(self, url, **_):
+        self.visited.append(url)
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError(f"Page.goto: net::ERR_ABORTED at {url}")
+
+    def wait_for_load_state(self, *_, **__):
+        return None
+
+    def wait_for_timeout(self, *_):
+        return None
+
+    def evaluate(self, *_):
+        return []
+
+
+def test_offer_list_survives_navigation_aborted_by_save():
+    """Biegi 67–92 (27.11.2026): szkic zapisany, a lista ofert po Save
+    padała na net::ERR_ABORTED — karta zostawała „niepotwierdzona”."""
+
+    from cpro_robot.portal import ItemRun
+
+    item = {
+        "candidate": {"first_name": "Jan", "last_name": "Kowal"},
+        "offer": {},
+        "request_number": "43280",
+    }
+    page = _PageAbortingFirstGoto()
+    run = ItemRun(
+        page, server.PORTAL_BASE, item, rules.Account("IGOR", "u", "p", "x"), b"", False
+    )
+    assert run.my_offers() == []
+    assert len(page.visited) == 2
+
+
+def test_other_navigation_errors_are_not_retried():
+    from cpro_robot.portal import ItemRun
+
+    class _Broken(_PageAbortingFirstGoto):
+        def goto(self, url, **_):
+            self.visited.append(url)
+            raise RuntimeError("Page.goto: net::ERR_NAME_NOT_RESOLVED")
+
+    item = {
+        "candidate": {"first_name": "Jan", "last_name": "Kowal"},
+        "offer": {},
+        "request_number": "43280",
+    }
+    page = _Broken()
+    run = ItemRun(
+        page, server.PORTAL_BASE, item, rules.Account("IGOR", "u", "p", "x"), b"", False
+    )
+    with pytest.raises(RuntimeError):
+        run.my_offers()
+    assert len(page.visited) == 1
