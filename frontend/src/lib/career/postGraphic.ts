@@ -124,9 +124,11 @@ export function carouselSlides(d: PostData): CarouselSlide[] {
 
 const HASHTAG_MAP: Record<string, string> = { "c#": "csharp", ".net": "dotnet", "c++": "cpp", "f#": "fsharp", "node.js": "nodejs" };
 
-/** „REST API” → `#restapi`, „C#” → `#csharp`; litery spoza alfabetu łacińskiego zostają. */
+/** „REST API” → `#restapi`, „C#” → `#csharp`; polskie litery zostają; nazwy z 3+ słów bez hashtagu. */
 export function hashtag(skill: string): string | null {
   const key = skill.trim().toLocaleLowerCase("pl-PL");
+  // Trzy słowa sklejone w hashtag („#sqldatamodelling”) nikt nie szuka ani nie przeczyta.
+  if (key.split(/\s+/).length > 2) return null;
   const mapped = HASHTAG_MAP[key] ?? key.replace(/[^\p{L}\p{N}]+/gu, "");
   if (mapped.length < 2 || /^\d+$/.test(mapped)) return null;
   return `#${mapped}`;

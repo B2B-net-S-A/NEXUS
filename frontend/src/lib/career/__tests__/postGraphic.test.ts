@@ -120,6 +120,7 @@ describe("grafika i treść posta na LinkedIn", () => {
     expect(hashtag("REST API")).toBe("#restapi");
     expect(hashtag("Zarządzanie projektami")).toBe("#zarządzanieprojektami");
     expect(hashtag("8")).toBeNull();
+    expect(hashtag("SQL data modelling")).toBeNull();
     expect(postHashtags(["Python", "python", "FastAPI"])).toEqual(["#python", "#fastapi", "#praca", "#b2b"]);
   });
 
