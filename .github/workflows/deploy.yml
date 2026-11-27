@@ -217,6 +217,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Poczekaj na ciszę na mainie (grupowanie deployów)
         if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
@@ -346,6 +347,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Czy HEAD maina nadal ma czerwoną bramkę?
         id: hold
         env:
@@ -398,6 +400,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
 
       - name: Skip if release already live (burst coalescing)
         id: precheck

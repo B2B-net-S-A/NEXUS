@@ -201,6 +201,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Verify redaction and read-only request scope
         run: python3 -m unittest discover -s .github/scripts/tests -p test_linkedin_extension_audit.py
       - name: Read public extension IDs and sanitized route counts
@@ -219,6 +220,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Verify redaction, scope rejection and cleanup
         run: python3 -m unittest discover -s .github/scripts/tests -p test_teams_prep_probe.py
       - name: Probe fixed organizer and excluded mailbox
@@ -240,6 +242,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Verify diagnostic redaction
         run: python3 -m unittest discover -s .github/scripts/tests -p test_app_mail_config_audit.py
       - name: Read identities or send one explicitly requested owner probe
@@ -265,6 +268,7 @@ jobs:
             .github/scripts
             backend/app/services/candidate_terms.py
           sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Verify probe tests
         run: python3 -m unittest discover -s .github/scripts/tests -p test_candidate_terms_mail_probe.py
       - name: Send one candidate terms mail to the owner
@@ -285,6 +289,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Verify diagnostic redaction
         run: python3 -m unittest discover -s .github/scripts/tests -p test_coolify_release_audit.py
       - name: Read configuration flags only
@@ -1174,6 +1179,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Run the selected fixed index operation
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
@@ -1207,6 +1214,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Uruchom audyt albo zatwierdzony plan
         # Production credentials and the one-shot approval hash are visible
@@ -1255,6 +1264,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Uruchom audyt albo zatwierdzony plan Nexus.xlsx
         # Apply is unlocked out-of-band: after the exact audit is accepted,
@@ -1318,6 +1329,8 @@ jobs:
       # opiera się właśnie na tym, że ten zbiór NIE dryfuje.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-ab-text' || inputs.action == 'eval-ab-text-notes' || inputs.action == 'eval-ab-query-adapter'
+        with:
+          persist-credentials: false
 
       - name: Odpal jednorazowy A/B
         id: ab
@@ -1544,6 +1557,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Evaluate synthetic sources or recover an existing metric receipt
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
@@ -1588,6 +1603,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Read sanitized execution metadata
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
@@ -1604,6 +1621,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Remove only the stopped diagnostic with the exact command
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
@@ -1620,6 +1639,8 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Read provider and generation event codes
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
@@ -1635,6 +1656,8 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Read `[startup-timing]` lines of the last backend boot
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}

@@ -1,0 +1,150 @@
+# Wyjątki Trivy dla OBRAZÓW produkcji (`security-weekly.yml`, job „Trivy obrazów
+# produkcji”, `.github/scripts/trivy_images.sh`). Osobno od `.trivyignore`, bo ten
+# działa też w skanie zależności na PR-ach i ukryłby tam tę samą podatność.
+# Każdy wpis: komentarz z uzasadnieniem nad grupą i termin `exp:` (RRRR-MM-DD) —
+# po terminie wyjątek przestaje działać i bieg tygodniowy znów jest czerwony.
+# Pilnuje `.github/scripts/tests/test_security_ratchets.py`.
+
+# Obraz backendu (nexus-backend, z wdrożonego a613205d0, 27.11.2026): urllib3 2.7.0,
+# msgpack 1.1.2 i setuptools 70.3.0 w site-packages obrazu oraz libzstd1 z Debiana
+# bazowego python:3.15-slim. Poprawka = podbicie wersji w requirements i świeży digest
+# obrazu bazowego (osobna sesja z 27.11.2026). Krótki termin, bo to nasz obraz.
+CVE-2025-47273 exp:2026-12-31
+CVE-2026-114613 exp:2026-12-31
+CVE-2026-124851 exp:2026-12-31
+CVE-2026-97687 exp:2026-12-31
+CVE-2026-97689 exp:2026-12-31
+GHSA-6v7p-g79w-8964 exp:2026-12-31
+
+# Obraz frontu (nexus-frontend, z wdrożonego a613205d0, 27.11.2026): openssl, musl,
+# zlib z Alpine w node:24-alpine (digest sprzed łatek) oraz brace-expansion, tar, undici,
+# pacote, ip-address z npm wbudowanego w obraz Node (runtime go nie używa). Poprawka =
+# świeży digest obrazu bazowego, npm usunięty z etapu runner (osobna sesja z 27.11.2026).
+CVE-2026-102276 exp:2026-12-31
+CVE-2026-102278 exp:2026-12-31
+CVE-2026-107891 exp:2026-12-31
+CVE-2026-109383 exp:2026-12-31
+CVE-2026-109869 exp:2026-12-31
+CVE-2026-12151 exp:2026-12-31
+CVE-2026-13149 exp:2026-12-31
+CVE-2026-14257 exp:2026-12-31
+CVE-2026-14456 exp:2026-12-31
+CVE-2026-19534 exp:2026-12-31
+CVE-2026-59873 exp:2026-12-31
+CVE-2026-59874 exp:2026-12-31
+CVE-2026-69152 exp:2026-12-31
+CVE-2026-69192 exp:2026-12-31
+CVE-2026-73566 exp:2026-12-31
+CVE-2026-85091 exp:2026-12-31
+CVE-2026-87018 exp:2026-12-31
+CVE-2026-9496 exp:2026-12-31
+
+# postgres:16-alpine (upstream, 27.11.2026): gosu zbudowany starym Go (stdlib) i libxml2
+# z Alpine 3.24.4. Najnowszy obraz tego tagu ma te same wersje — poprawka przyjdzie
+# z nowym buildem obrazu Dockera; gosu działa tylko przy starcie kontenera (zejście
+# z roota), baza nie ma portu na hoście. Przegląd przy terminie albo nowym digeście.
+CVE-2025-61726 exp:2027-01-31
+CVE-2025-61729 exp:2027-01-31
+CVE-2025-68121 exp:2027-01-31
+CVE-2026-111943 exp:2027-01-31
+CVE-2026-11979 exp:2027-01-31
+CVE-2026-25679 exp:2027-01-31
+CVE-2026-27145 exp:2027-01-31
+CVE-2026-32280 exp:2027-01-31
+CVE-2026-32281 exp:2027-01-31
+CVE-2026-32283 exp:2027-01-31
+CVE-2026-33811 exp:2027-01-31
+CVE-2026-33814 exp:2027-01-31
+CVE-2026-33818 exp:2027-01-31
+CVE-2026-39820 exp:2027-01-31
+CVE-2026-39821 exp:2027-01-31
+CVE-2026-39822 exp:2027-01-31
+CVE-2026-39836 exp:2027-01-31
+CVE-2026-42499 exp:2027-01-31
+CVE-2026-42504 exp:2027-01-31
+CVE-2026-56853 exp:2027-01-31
+CVE-2026-56858 exp:2027-01-31
+CVE-2026-56859 exp:2027-01-31
+CVE-2026-56860 exp:2027-01-31
+CVE-2026-56862 exp:2027-01-31
+CVE-2026-78667 exp:2027-01-31
+CVE-2026-78669 exp:2027-01-31
+CVE-2026-86138 exp:2027-01-31
+CVE-2026-86139 exp:2027-01-31
+CVE-2026-86140 exp:2027-01-31
+CVE-2026-86142 exp:2027-01-31
+CVE-2026-86143 exp:2027-01-31
+CVE-2026-86144 exp:2027-01-31
+CVE-2026-97031 exp:2027-01-31
+
+# qdrant/qdrant:v1.17.1 (upstream, przypięty świadomie w docker-compose.yml, 27.11.2026):
+# Debian 13.4 (openssl, perl-base, util-linux, pcre2, sqlite…), paczki Node.js z
+# wbudowanego UI (axios, tar, undici, vite…) i zależności Rusta (aws-lc-sys, quinn-proto,
+# rustls-webpki, pyo3). Qdrant bez portu na hoście, tylko sieć compose. Poprawka =
+# podbicie wersji Qdranta osobnym PR-em z lekturą release notes (osobna sesja z 27.11.2026).
+# (16 identyfikatorów tego obrazu stoi już wyżej, przy obrazie z wcześniejszym terminem.)
+CVE-2026-101898 exp:2027-01-31
+CVE-2026-101901 exp:2027-01-31
+CVE-2026-103111 exp:2027-01-31
+CVE-2026-104848 exp:2027-01-31
+CVE-2026-104849 exp:2027-01-31
+CVE-2026-109518 exp:2027-01-31
+CVE-2026-112942 exp:2027-01-31
+CVE-2026-11822 exp:2027-01-31
+CVE-2026-11824 exp:2027-01-31
+CVE-2026-12143 exp:2027-01-31
+CVE-2026-13221 exp:2027-01-31
+CVE-2026-28387 exp:2027-01-31
+CVE-2026-28388 exp:2027-01-31
+CVE-2026-28389 exp:2027-01-31
+CVE-2026-28390 exp:2027-01-31
+CVE-2026-31789 exp:2027-01-31
+CVE-2026-31812 exp:2027-01-31
+CVE-2026-33671 exp:2027-01-31
+CVE-2026-39363 exp:2027-01-31
+CVE-2026-41992 exp:2027-01-31
+CVE-2026-42033 exp:2027-01-31
+CVE-2026-42035 exp:2027-01-31
+CVE-2026-42043 exp:2027-01-31
+CVE-2026-42264 exp:2027-01-31
+CVE-2026-42496 exp:2027-01-31
+CVE-2026-42497 exp:2027-01-31
+CVE-2026-44486 exp:2027-01-31
+CVE-2026-44487 exp:2027-01-31
+CVE-2026-44488 exp:2027-01-31
+CVE-2026-44494 exp:2027-01-31
+CVE-2026-44495 exp:2027-01-31
+CVE-2026-44496 exp:2027-01-31
+CVE-2026-45447 exp:2027-01-31
+CVE-2026-45623 exp:2027-01-31
+CVE-2026-47429 exp:2027-01-31
+CVE-2026-4800 exp:2027-01-31
+CVE-2026-48779 exp:2027-01-31
+CVE-2026-4878 exp:2027-01-31
+CVE-2026-48962 exp:2027-01-31
+CVE-2026-53612 exp:2027-01-31
+CVE-2026-53613 exp:2027-01-31
+CVE-2026-53614 exp:2027-01-31
+CVE-2026-53615 exp:2027-01-31
+CVE-2026-57432 exp:2027-01-31
+CVE-2026-57433 exp:2027-01-31
+CVE-2026-59869 exp:2027-01-31
+CVE-2026-67213 exp:2027-01-31
+CVE-2026-67214 exp:2027-01-31
+CVE-2026-73086 exp:2027-01-31
+CVE-2026-73088 exp:2027-01-31
+CVE-2026-73089 exp:2027-01-31
+CVE-2026-73646 exp:2027-01-31
+CVE-2026-8376 exp:2027-01-31
+CVE-2026-84375 exp:2027-01-31
+CVE-2026-84782 exp:2027-01-31
+CVE-2026-86145 exp:2027-01-31
+CVE-2026-89157 exp:2027-01-31
+CVE-2026-89161 exp:2027-01-31
+CVE-2026-93749 exp:2027-01-31
+GHSA-36hh-v3qg-5jq4 exp:2027-01-31
+GHSA-394x-vwmw-crm3 exp:2027-01-31
+GHSA-4w2j-m93h-cj5j exp:2027-01-31
+GHSA-5p4m-2wfm-xmqj exp:2027-01-31
+GHSA-82j2-j2ch-gfr8 exp:2027-01-31
+GHSA-9f94-5g5w-gf6r exp:2027-01-31
