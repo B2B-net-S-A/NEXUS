@@ -418,3 +418,23 @@ async def test_link_closes_new_person_entry_without_duplicating_cv(api):
     assert result.candidate_id == person.id
     assert result.submission.status == "linked"
     assert len(docs) == 1
+
+
+async def test_eicar_cv_from_website_is_rejected_before_saving(api, monkeypatch):
+    """Pakiet „Ochrona wejścia” (28.11.2026): plik od kandydata ze strony WWW
+    przechodzi skan clamd jak `/apply`; wirus = 422 przy `cv`, bez zapisu."""
+    from tests._clamd_fake import eicar_docx, fake_clamd
+
+    email = _email("eicar")
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    async with fake_clamd() as port:
+        monkeypatch.setattr(settings, "CLAMAV_HOST", "127.0.0.1")
+        monkeypatch.setattr(settings, "CLAMAV_PORT", port)
+        resp = await _post(
+            api, _offer_form(email), files=_cv("cv.docx", eicar_docx(), docx)
+        )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "cv"]
+    assert await _candidate(email) is None
+    assert await _submissions(email) == []

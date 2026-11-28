@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ApplyForm from "@/app/apply/[token]/ApplyForm";
 
+// Zagadkę ALTCHA sprawdza `lib/__tests__/altcha.test.ts`; tu wysyłka dostaje gotowe rozwiązanie.
+vi.mock("@/lib/altcha", () => ({
+  warmAltcha: vi.fn(),
+  takeAltchaPayload: vi.fn(async () => "altcha-rozwiazanie"),
+}));
+
 /*
  * jsdom nie przenosi plików wybranych przez `input.files` do `new FormData(form)`
  * (zawsze wstawia pusty File — dokładnie jak przeglądarka przy braku wyboru).
@@ -148,6 +154,30 @@ describe("ApplyForm — walidacja", () => {
 
     expect(await screen.findByText("Dziękujemy!")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("dokleja rozwiązanie zagadki ALTCHA do zgłoszenia", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201));
+    const { container } = renderForm();
+    fillValid(container);
+
+    submit();
+
+    expect(await screen.findByText("Dziękujemy!")).toBeInTheDocument();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.body as FormData).get("altcha")).toBe("altcha-rozwiazanie");
+  });
+
+  it("skaner niedostępny (503): komunikat zamiast ogólnego błędu", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(503, { detail: "x" }));
+    const { container } = renderForm();
+    fillValid(container);
+
+    submit();
+
+    expect(
+      await screen.findByText("Nie możemy teraz sprawdzić pliku. Spróbuj ponownie za kilka minut."),
+    ).toBeInTheDocument();
   });
 
   it("wymaga CV przy wysyłce bez wybranego pliku", () => {

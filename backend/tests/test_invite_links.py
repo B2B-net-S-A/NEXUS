@@ -898,3 +898,62 @@ async def test_failed_owner_notification_does_not_500_a_saved_application(
             select(Candidate).where(Candidate.email == applicant_email)
         )
         assert cand is not None
+
+
+@pytest.mark.asyncio
+async def test_public_apply_rejects_eicar_and_needs_altcha(
+    inv_client: AsyncClient, monkeypatch
+):
+    """Pakiet „Ochrona wejścia” (28.11.2026) na `/apply/{token}`: wirus = 422 przy
+    `cv` bez kandydata; po okresie przejścia brak zagadki ALTCHA = 400.
+    → docs/claude/podstawy/skan-plikow-i-altcha.md"""
+    from app.core.config import settings
+    from app.services import altcha
+    from tests._clamd_fake import eicar_docx, fake_clamd
+
+    uid, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(inv_client, email, password)
+    job_id = await _seed_job()
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={"job_id": job_id, "expires_in_days": 30},
+            headers=headers,
+        )
+    ).json()["token"]
+    applicant_email = f"eicar-{uuid.uuid4().hex[:6]}@example.com"
+    form = {
+        "consent": "true",
+        "first_name": "Jan",
+        "last_name": "Wirusowy",
+        "email": applicant_email,
+    }
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    async with fake_clamd() as port:
+        monkeypatch.setattr(settings, "CLAMAV_HOST", "127.0.0.1")
+        monkeypatch.setattr(settings, "CLAMAV_PORT", port)
+        resp = await inv_client.post(
+            f"/api/public/apply/{token}",
+            data=form,
+            files={"cv": ("cv.docx", io.BytesIO(eicar_docx()), docx)},
+        )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "cv"]
+
+    monkeypatch.setattr(settings, "CLAMAV_HOST", "")
+    monkeypatch.setattr(settings, "ALTCHA_REQUIRED", True)
+    after = altcha.MISSING_ALLOWED_UNTIL.timestamp() + 60
+    monkeypatch.setattr(altcha.time, "time", lambda: after)
+    no_altcha = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data=form,
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4 minimal"), "application/pdf")},
+    )
+    assert no_altcha.status_code == 400, no_altcha.text
+
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.email == applicant_email)
+        )
+    assert cand is None

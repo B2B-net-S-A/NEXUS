@@ -184,6 +184,14 @@ async def download_for_email(
             else:
                 content = base64.b64decode(content_b64)
 
+            # Pakiet „Ochrona wejścia” (28.11.2026): wirus nie trafia na dysk ani
+            # do parsera CV. Skaner niedostępny = zapis jak dotąd (fail-open).
+            signature = await _virus_signature(content)
+            if signature:
+                row.parse_error = f"{VIRUS_FOUND_PREFIX}: {signature}"[:500]
+                results.append(row)
+                continue
+
             # Sync disk write + hashing — offload off the event loop.
             rel_path = await asyncio.to_thread(
                 _persist_bytes, email_row, filename, content
@@ -204,6 +212,20 @@ async def download_for_email(
 
     await db.flush()
     return results
+
+
+# Załącznik odrzucony przez clamd — końcowy powód, pętla ``m365_cv_parse`` go
+# nie ponawia (ponawia tylko ``download_failed``).
+VIRUS_FOUND_PREFIX = "virus_found"
+
+
+async def _virus_signature(content: bytes) -> Optional[str]:
+    from app.services import file_scan
+
+    result = await file_scan.scan_internal(content, source="m365_attachment")
+    if result.verdict is file_scan.Verdict.INFECTED:
+        return result.signature or "unknown"
+    return None
 
 
 # INT-08 — licznik prób pobrania żyje w samym ``parse_error``
@@ -242,6 +264,10 @@ async def retry_attachment_download(
             f"/me/messages/{email_row.m365_message_id}/attachments/"
             f"{row.m365_attachment_id}/$value"
         )
+        signature = await _virus_signature(content)
+        if signature:
+            row.parse_error = f"{VIRUS_FOUND_PREFIX}: {signature}"[:500]
+            return False
         rel_path = await asyncio.to_thread(
             _persist_bytes, email_row, row.filename, content
         )

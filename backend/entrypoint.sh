@@ -1433,6 +1433,16 @@ except Exception as _departure_care_err:  # noqa: BLE001
     print(f"departure care DDL unavailable: {_departure_care_err!r}")
     _DEPARTURE_CARE_DDL = []
 
+# Zużyte wyzwania ALTCHA (migracja 0805) — JEDNO źródło z migracją
+# (`app/services/altcha_schema.py`).
+try:
+    from app.services import altcha_schema as _altcha_schema
+
+    _ALTCHA_DDL = list(_altcha_schema.TABLE_DDL)
+except Exception as _altcha_schema_err:  # noqa: BLE001
+    print(f"altcha DDL unavailable: {_altcha_schema_err!r}")
+    _ALTCHA_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1789,6 +1799,7 @@ _COLUMN_STATEMENTS = [
     *_DUTY_SEARCH_DDL,
     *_CV_GENERATOR_FEEDBACK_DDL,
     *_DEPARTURE_CARE_DDL,
+    *_ALTCHA_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

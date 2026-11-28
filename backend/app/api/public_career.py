@@ -6,6 +6,7 @@ Prefiks ``/api/public/career``:
 * ``GET /p/{slug}`` — stały link rekrutera i jego otwarte rekrutacje;
 * ``GET /jobs`` — tablica wszystkich otwartych rekrutacji (strona główna,
   etap 6) i link „Zostaw CV”;
+* ``GET /challenge`` — zagadka ALTCHA do formularzy zgłoszeń (też ``/apply``);
 * ``POST /apply`` — formularz (multipart), link po slugu.
 
 Nigdy nie zwracamy nazwy klienta, stawek, budżetu, nazwiska ani kontaktu
@@ -382,6 +383,16 @@ def _valid_cv_email(value: Optional[str]) -> Optional[str]:
         return None
 
 
+@router.get("/challenge")
+@limiter.limit("30/minute")
+async def get_apply_challenge(request: Request, response: Response) -> dict:
+    """Zagadka do formularza zgłoszenia (liczona w przeglądarce)."""
+    from app.services import altcha
+
+    _no_cache(response)
+    return altcha.create_challenge()
+
+
 @router.post("/apply", status_code=status.HTTP_201_CREATED, response_model=None)
 @limiter.limit("5/minute; 30/hour")
 async def submit_career_apply(
@@ -405,17 +416,20 @@ async def submit_career_apply(
     utm_campaign: Optional[str] = Form(None, max_length=120),
     utm_term: Optional[str] = Form(None, max_length=120),
     utm_content: Optional[str] = Form(None, max_length=120),
+    altcha: Optional[str] = Form(None, max_length=2000),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Zgłoszenie ze strony kariery (link rekrutacji albo stały link)."""
     from app.api.public_share import _MAX_CV_BYTES, _validate_cv_file
-    from app.services import public_apply
+    from app.services import altcha as altcha_gate
+    from app.services import file_scan, public_apply
 
     # Pułapka na boty: ukryte pole wypełnione = cichy sukces, zero zapisu.
     if website and website.strip():
         return {"ok": True, "status": "received"}
 
     link = await _apply_link(db, link_slug)
+    await altcha_gate.verify(db, altcha, form="career")
     public_apply.require_consent(consent)
     optional = public_apply.parse_optional_fields(
         expected_rate_hourly=expected_rate_hourly,
@@ -426,6 +440,8 @@ async def submit_career_apply(
     # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
     content = await cv.read(_MAX_CV_BYTES + 1)
     _validate_cv_file(cv, content)
+    # Przed odczytem tożsamości z CV i zapisem do magazynu (pakiet „Ochrona wejścia”).
+    await file_scan.require_clean_public_upload(content, source="career_apply")
 
     form_email = (email or "").strip() or None
     if form_email:

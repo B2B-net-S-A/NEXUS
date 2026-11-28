@@ -162,6 +162,31 @@ services:
       - qdrant_data:/qdrant/storage
     logging: *default-logging
 
+  # Skan antywirusowy plików z zewnątrz (ClamAV, GPL-2.0; decyzja Artura
+  # 28.11.2026, pakiet „Ochrona wejścia”). Backend i worker wysyłają bajty
+  # komendą INSTREAM na `clamav:3310` przed zapisem CV; freshclam w tym samym
+  # kontenerze pobiera sygnatury 12 razy na dobę. Obraz Debian, bo alpine
+  # nie ma arm64 (staging na laptopie). → docs/claude/podstawy/skan-plikow-i-altcha.md
+  clamav:
+    image: clamav/clamav:1.5.5-debian13-slim
+    restart: unless-stopped
+    # ~0,97 GiB po załadowaniu sygnatur (pomiar 28.11.2026). Bez
+    # `ConcurrentDatabaseReload` przeładowanie nie trzyma dwóch kopii bazy
+    # w pamięci (~2,3 GiB); skany czekają wtedy ok. 30 s.
+    mem_limit: 1536m
+    mem_reservation: 1g
+    environment:
+      CLAMD_CONF_ConcurrentDatabaseReload: "no"
+      CLAMD_CONF_StreamMaxLength: 32M
+      CLAMD_CONF_MaxFileSize: 32M
+      CLAMD_CONF_MaxScanSize: 100M
+      FRESHCLAM_CHECKS: "12"
+    expose:
+      - "3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    logging: *default-logging
+
   backend:
     build:
       context: ./backend
@@ -187,6 +212,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
+      # Skan plików z zewnątrz; pusty = wyłączony (→ skan-plikow-i-altcha.md).
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
       # Łagodne zatrzymanie przy deployu (plan skracania przerwy, Etap 3).
       # Uvicorn czyta opcje CLI z env z prefiksem UVICORN_ (click
       # auto_envvar_prefix), więc linia `exec uvicorn` w entrypoint.sh zostaje.
@@ -295,6 +322,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
+      # Skan plików z zewnątrz; pusty = wyłączony (→ skan-plikow-i-altcha.md).
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
       NEXUS_PROCESS_ROLE: worker
       WEB_CONCURRENCY: "1"
@@ -489,6 +518,7 @@ volumes:
   postgres_data:
   qdrant_data:
   uploads_data:
+  clamav_data:
 
 # Sieć wspólna z aplikacją frontu `nexus-frontend` (destination `nexus-front`
 # w Coolify): front woła `http://backend:8000` (INTERNAL_API_URL). Dołącza do niej

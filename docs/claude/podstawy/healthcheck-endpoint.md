@@ -110,3 +110,7 @@
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`. GitHub uruchamia „godzinowy” cron co 1–6 h, więc to NIE jest sonda dostępności — od tego jest zewnętrzna sonda Grafana Synthetic Monitoring (MON-05). Awaria joba `probe` albo `backup-freshness` z crona otwiera issue (job `alert`), tak jak `health-checks`, restore drill i digest Sentry.
 - **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue). Konto, sekrety i odczyt wyniku: `konto-e2e-na-produkcji.md`. Produkcja jest SSO-only (`/api/auth/methods` → `password:false`), więc `/login` nie ma formularza hasła: setup loguje się wtedy przez API i oddaje token sondzie sesji (`e2e/helpers/session.ts`), a adres konta E2E musi być na `PASSWORD_LOGIN_BREAK_GLASS_EMAILS`.
 - **GIT_SHA / BUILT_AT:** SHA pochodzi z tagu obrazu budowanego przez Coolify (`release.sh` → `/app/.nexus-build-sha`, #1524), nie z env `$SOURCE_COMMIT`.
+- **`checks.clamav` (od 28.11.2026):** `zPING` do clamd w 2 s → `healthy` /
+  `unhealthy`, przy pustym `CLAMAV_HOST` `disabled`. Informacyjna, nie zmienia
+  `status`: bez clamd publiczny upload CV odpowiada 503 (fail-closed), reszta
+  działa. → `skan-plikow-i-altcha.md`

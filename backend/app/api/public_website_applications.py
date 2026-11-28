@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.security import secrets_equal
+from app.services import file_scan
 from app.services import website_applications as website
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,10 @@ async def submit_website_application(
             await cv.seek(0)
             content = await cv.read(public_share._MAX_CV_BYTES + 1)
             public_share._validate_cv_file(cv, content)
+            # Plik od kandydata z internetu — skan jak w `/apply` (fail-closed).
+            await file_scan.require_clean_public_upload(
+                content, source="website_application"
+            )
         website.require_cv_or_linkedin(app, has_cv=cv is not None)
         return await website.submit(
             db,

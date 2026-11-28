@@ -104,6 +104,24 @@ services:
       - "127.0.0.1:7170:7070"
     logging: *default-logging
 
+  # Skan plików z zewnątrz — ten sam obraz i ustawienia co w docker-compose.yml.
+  # Port 13310 na 127.0.0.1 do ręcznej próby EICAR. → podstawy/skan-plikow-i-altcha.md
+  clamav:
+    image: clamav/clamav:1.5.5-debian13-slim
+    restart: unless-stopped
+    mem_limit: 1536m
+    environment:
+      CLAMD_CONF_ConcurrentDatabaseReload: "no"
+      CLAMD_CONF_StreamMaxLength: 32M
+      CLAMD_CONF_MaxFileSize: 32M
+      CLAMD_CONF_MaxScanSize: 100M
+      FRESHCLAM_CHECKS: "12"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    ports:
+      - "127.0.0.1:13310:3310"
+    logging: *default-logging
+
   mailpit:
     image: axllent/mailpit:v1.24
     restart: unless-stopped
@@ -151,6 +169,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${STAGING_DATABASE_NAME:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
+      CLAMAV_HOST: clamav
       # 3101 = front z gałęzi (`npm run dev`) na danych stagingu — wariant „po”
       # w makietach, docs/claude/ui/makiety-na-stagingu.md
       CORS_ORIGINS: '["http://localhost:3100", "http://localhost:3101"]'
@@ -404,3 +423,4 @@ volumes:
   qdrant_data:
   s3_data:
   uploads_data:
+  clamav_data:

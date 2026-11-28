@@ -8928,6 +8928,12 @@ async def _read_upload_bounded(file: UploadFile, *, label: str) -> bytes:
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     content = await file.read(max_bytes + 1)
     _validate_upload_size(content, label=label)
+    # Plik od kandydata (mail, komunikator) przed zapisem i ekstrakcją: wirus =
+    # 422, skaner niedostępny = przepuszczamy z ostrzeżeniem (fail-open).
+    # → docs/claude/podstawy/skan-plikow-i-altcha.md
+    from app.services import file_scan
+
+    await file_scan.require_clean_internal_upload(content, source="recruiter_upload")
     return content
 
 

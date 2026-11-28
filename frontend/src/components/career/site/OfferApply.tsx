@@ -13,6 +13,7 @@ import { capitalize, pluralForm } from "@/lib/career/site";
 import {
   careerPayload,
   sendCareerApplication,
+  warmCareerSubmit,
   type CareerField,
   type CareerFieldErrors,
 } from "@/lib/career/submit";
@@ -179,7 +180,13 @@ export function OfferApply({
     });
   };
 
+  // Zagadka ALTCHA liczy się w tle od pierwszej zmiany pola (sam fokus i klik nie, bo harness `/preview/*` nie może wysyłać zapytań) (`lib/altcha`).
+  const warm = () => {
+    if (!preview) warmCareerSubmit();
+  };
+
   const pickFile = (next: File | null) => {
+    warm();
     setFile(next);
     revalidate(next);
   };
@@ -292,6 +299,7 @@ export function OfferApply({
           noValidate
           onSubmit={onSubmit}
           onChange={() => revalidate()}
+          onChangeCapture={warm}
           aria-label="Formularz zgłoszenia"
         >
           {n > 0 || formError ? (
