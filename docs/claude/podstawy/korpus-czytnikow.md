@@ -31,3 +31,7 @@ dwóch rewizjach.
 - **CI:** `tests/test_reader_corpus_guard.py` (strażnik bez bazy: anonimizacja
   korpusu w repo, przypadki CV na HEAD) i `tests/test_reader_corpus_settlements_db.py`
   (przypadki rozliczeń na Postgresie, osobna baza `<baza>_korpus`).
+- **Drugi czytnik tekstu CV:** Docling zmierzony na 89 oryginałach z korpusu
+  z produkcji 28.11.2026 i odrzucony (gorsze daty przy stanowiskach, puste wyniki,
+  +1,5 GB pamięci na odczyt): `docling-drugi-czytnik-cv-nie-bierzemy.md`. Nowy
+  czytnik tekstu przechodzi ten sam pomiar przed wpięciem.
