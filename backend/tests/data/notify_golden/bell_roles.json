@@ -557,6 +557,9 @@
   "break_glass_password_login": [
    "admin"
   ],
+  "security_defender_incident": [
+   "admin"
+  ],
   "candidate_added": [
    "admin",
    "automation",

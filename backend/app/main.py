@@ -872,6 +872,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.contract_alerts import contract_alerts_loop
     from app.tasks.teams_prep_scope_alerts import teams_prep_scope_alerts_loop
     from app.tasks.security_sync import security_sync_loop
+    from app.tasks.security_defender import security_defender_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
@@ -1063,6 +1064,9 @@ async def lifespan(app: FastAPI):
             # 0800: Ustawienia → Bezpieczeństwo — biegi CI, DefectDojo, wyjątki
             # i rutyny po terminie (dzwonek do adminów).
             "security_sync": asyncio.create_task(security_sync_loop()),
+            # Źródło „Microsoft Defender” (28.11.2026): incydenty i Secure Score
+            # z Graph co 15 min; bez rejestracji aplikacji bieg nic nie robi.
+            "security_defender": asyncio.create_task(security_defender_loop()),
             "fx_refresh": asyncio.create_task(fx_refresh_loop()),
             "competition_autofreeze": asyncio.create_task(
                 competition_autofreeze_loop()

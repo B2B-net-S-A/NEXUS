@@ -1,0 +1,17 @@
+{
+  "_opis": "Przykład odpowiedzi GET /security/secureScores?$top=1 (Microsoft Graph v1.0), dane fikcyjne. Test: tests/test_security_defender.py.",
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#security/secureScores",
+  "value": [
+    {
+      "id": "tenant-fikcyjny_2026-11-28",
+      "azureTenantId": "tenant-fikcyjny",
+      "activeUserCount": 66,
+      "createdDateTime": "2026-11-28T00:00:00Z",
+      "currentScore": 277.8,
+      "maxScore": 400.0,
+      "enabledServices": ["HasExchange", "HasOD4B", "HasSharePoint"],
+      "averageComparativeScores": [{ "basis": "AllTenants", "averageScore": 41.5 }],
+      "controlScores": []
+    }
+  ]
+}

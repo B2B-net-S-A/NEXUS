@@ -279,8 +279,15 @@ function FindingBody({
           </p>
         ) : null}
       </SheetBody>
-      <SheetFooter className="sm:justify-start">
-        <Button size="sm" onClick={() => void copyBrief()}>
+      <SheetFooter className="sm:flex-wrap sm:justify-start">
+        {finding.link ? (
+          <Button size="sm" asChild>
+            <a href={finding.link} target="_blank" rel="noreferrer">
+              Otwórz w Defenderze
+            </a>
+          </Button>
+        ) : null}
+        <Button size="sm" variant={finding.link ? "outline" : "primary"} onClick={() => void copyBrief()}>
           Otwórz sesję naprawy
         </Button>
         {finding.status !== "fixed" ? (

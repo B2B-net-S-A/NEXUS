@@ -1,0 +1,172 @@
+{
+  "_opis": "Przykład odpowiedzi GET /security/incidents?$expand=alerts (Microsoft Graph v1.0) w kształcie z dokumentacji, z fikcyjnymi danymi: domeny example.com, adresy z zakresów dokumentacyjnych (RFC 5737), wymyślone id. Test: tests/test_security_defender.py.",
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#security/incidents(alerts())",
+  "value": [
+    {
+      "id": "101",
+      "tenantId": "tenant-fikcyjny",
+      "status": "active",
+      "incidentWebUrl": "https://security.microsoft.com/incidents/101?tid=tenant-fikcyjny",
+      "redirectIncidentId": null,
+      "displayName": "Password Spray i nietypowe logowanie dla osoba@example.com z 203.0.113.7",
+      "createdDateTime": "2026-11-22T09:14:55.1234567Z",
+      "lastUpdateDateTime": "2026-11-22T09:20:01.7654321Z",
+      "assignedTo": null,
+      "classification": "unknown",
+      "determination": "unknown",
+      "severity": "high",
+      "customTags": [],
+      "comments": [],
+      "systemTags": [],
+      "description": "Opis z danymi osoby, którego NEXUS nie czyta.",
+      "alerts": [
+        {
+          "id": "aa101-1",
+          "title": "Password Spray",
+          "severity": "high",
+          "status": "new",
+          "category": "CredentialAccess",
+          "serviceSource": "azureAdIdentityProtection",
+          "detectionSource": "azureAdIdentityProtection",
+          "description": "Opis alertu, którego NEXUS nie czyta.",
+          "evidence": [
+            {
+              "@odata.type": "#microsoft.graph.security.userEvidence",
+              "createdDateTime": "2026-11-22T09:14:55Z",
+              "verdict": "suspicious",
+              "remediationStatus": "none",
+              "roles": [],
+              "userAccount": {
+                "accountName": "osoba",
+                "domainName": "example.com",
+                "userPrincipalName": "osoba@example.com",
+                "azureAdUserId": "osoba-fikcyjna-id",
+                "displayName": "Osoba Przykładowa"
+              }
+            },
+            {
+              "@odata.type": "#microsoft.graph.security.ipEvidence",
+              "createdDateTime": "2026-11-22T09:14:55Z",
+              "verdict": "suspicious",
+              "remediationStatus": "none",
+              "ipAddress": "203.0.113.7",
+              "countryLetterCode": "ZZ"
+            }
+          ]
+        },
+        {
+          "id": "aa101-2",
+          "title": "Unfamiliar sign-in properties",
+          "severity": "medium",
+          "status": "new",
+          "category": "InitialAccess",
+          "serviceSource": "azureAdIdentityProtection",
+          "evidence": [
+            {
+              "@odata.type": "#microsoft.graph.security.userEvidence",
+              "createdDateTime": "2026-11-22T09:16:02Z",
+              "verdict": "unknown",
+              "remediationStatus": "none",
+              "roles": ["compromised"],
+              "userAccount": {
+                "accountName": "osoba",
+                "domainName": "example.com",
+                "userPrincipalName": "osoba@example.com",
+                "azureAdUserId": "osoba-fikcyjna-id",
+                "displayName": "Osoba Przykładowa"
+              }
+            },
+            {
+              "@odata.type": "#microsoft.graph.security.ipEvidence",
+              "createdDateTime": "2026-11-22T09:16:02Z",
+              "verdict": "unknown",
+              "remediationStatus": "none",
+              "ipAddress": "198.51.100.20",
+              "countryLetterCode": "ZZ"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "102",
+      "tenantId": "tenant-fikcyjny",
+      "status": "inProgress",
+      "displayName": "Wiadomości usunięte po dostarczeniu",
+      "createdDateTime": "2026-11-26T07:02:10Z",
+      "lastUpdateDateTime": "2026-11-26T07:30:00Z",
+      "assignedTo": "analityk@example.com",
+      "severity": "informational",
+      "alerts": [
+        {
+          "id": "aa102-1",
+          "title": "Email messages removed after delivery",
+          "severity": "informational",
+          "category": "ThreatManagement",
+          "serviceSource": "microsoftDefenderForOffice365",
+          "evidence": [
+            {
+              "@odata.type": "#microsoft.graph.security.mailboxEvidence",
+              "primaryAddress": "osoba@example.com",
+              "displayName": "Osoba Przykładowa"
+            },
+            {
+              "@odata.type": "#microsoft.graph.security.analyzedMessageEvidence",
+              "networkMessageId": "wiadomosc-1",
+              "subject": "Faktura do zapłaty",
+              "senderIp": "192.0.2.15"
+            },
+            {
+              "@odata.type": "#microsoft.graph.security.analyzedMessageEvidence",
+              "networkMessageId": "wiadomosc-2",
+              "subject": "Faktura do zapłaty (2)",
+              "senderIp": "192.0.2.15"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "103",
+      "status": "resolved",
+      "displayName": "Podejrzany proces na jednym urządzeniu",
+      "createdDateTime": "2026-11-20T12:00:00Z",
+      "lastUpdateDateTime": "2026-11-21T08:45:00Z",
+      "assignedTo": "analityk@example.com",
+      "classification": "falsePositive",
+      "severity": "medium",
+      "alerts": [
+        {
+          "id": "aa103-1",
+          "category": "Execution",
+          "serviceSource": "microsoftDefenderForEndpoint",
+          "evidence": [
+            {
+              "@odata.type": "#microsoft.graph.security.deviceEvidence",
+              "deviceDnsName": "laptop-01.example.com",
+              "mdeDeviceId": "urzadzenie-1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "104",
+      "status": "redirected",
+      "redirectIncidentId": "101",
+      "displayName": "Scalony z incydentem 101",
+      "createdDateTime": "2026-11-22T09:15:00Z",
+      "lastUpdateDateTime": "2026-11-22T09:21:00Z",
+      "severity": "high",
+      "alerts": []
+    },
+    {
+      "id": "../../incidents?x=1",
+      "status": "active",
+      "displayName": "Id spoza wzorca — pomijany",
+      "createdDateTime": "2026-11-27T10:00:00Z",
+      "severity": "high",
+      "alerts": []
+    }
+  ]
+}

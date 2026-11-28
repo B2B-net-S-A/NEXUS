@@ -60,6 +60,7 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.hr_m365_scope_missing,
         NotificationType.security_routine_overdue,
         NotificationType.break_glass_password_login,
+        NotificationType.security_defender_incident,
     }
 )
 

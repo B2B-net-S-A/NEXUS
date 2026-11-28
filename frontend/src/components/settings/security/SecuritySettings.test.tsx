@@ -133,6 +133,43 @@ describe("panel znaleziska", () => {
     );
   });
 
+  it("incydent Defendera ma przycisk do portalu Microsoftu, inne źródła nie", async () => {
+    const incident: SecurityFinding = {
+      ...FINDING,
+      id: 21,
+      source: "defender",
+      scanner: "defender",
+      title: "Password Spray i nietypowe logowanie",
+      link: "https://security.microsoft.com/incidents/101",
+    };
+    wrap(
+      <SecurityOverviewPanel
+        data={{
+          ...OVERVIEW,
+          waiting: [incident],
+          tiles: {
+            ...OVERVIEW.tiles,
+            defender: { configured: true, connected: true, open: 1, urgent: 1, secure_score: 69.45, secure_score_on: "2026-11-28" },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("security-tile-defender")).toHaveTextContent("1 otwarty");
+    fireEvent.click(screen.getByRole("button", { name: "Otwórz" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("link", { name: "Otwórz w Defenderze" })).toHaveAttribute(
+      "href",
+      "https://security.microsoft.com/incidents/101",
+    );
+  });
+
+  it("znalezisko bez linku nie ma przycisku Defendera", async () => {
+    wrap(<SecurityOverviewPanel data={OVERVIEW} />);
+    fireEvent.click(screen.getByRole("button", { name: "Otwórz" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("link", { name: "Otwórz w Defenderze" })).not.toBeInTheDocument();
+  });
+
   it("„Zamknij jako naprawione” pyta o potwierdzenie przed zapisem", async () => {
     wrap(<SecurityOverviewPanel data={OVERVIEW} />);
     fireEvent.click(screen.getByRole("button", { name: "Otwórz" }));
