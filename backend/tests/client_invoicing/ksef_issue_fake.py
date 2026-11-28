@@ -4,7 +4,9 @@ Rozszerza ``tests/_ksef_fake.FakeKsef`` (uwierzytelnienie tokenem, klucze
 publiczne MF) o ``/sessions/online``: serwer naprawdę odszyfrowuje klucz AES
 swoim kluczem ``SymmetricKeyEncryption`` i plik faktury, sprawdza skróty
 i rozmiary, a wynik przetwarzania bierze z kolejki ``invoice_codes``.
-Numery KSeF fikcyjne, z poprawną sumą kontrolną.
+Numery KSeF fikcyjne, z poprawną sumą kontrolną. Logowanie certyfikatem
+(XAdES) obsługuje ``FakeKsef``; pieczęć do testów powstaje w pamięci
+(``seal_pem``), żadna nie leży w repo.
 """
 
 from __future__ import annotations
@@ -12,14 +14,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Optional
 
 import httpx
-from cryptography.hazmat.primitives import hashes
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives import padding as sym_padding
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import ec, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.x509.oid import NameOID
 from lxml import etree
 
 from app.services.client_invoicing import ksef_send
@@ -198,21 +202,53 @@ class FakeKsefIssue(FakeKsef):
         return httpx.Response(200, json=payload)
 
 
+def seal_pem(clock: Clock, *, days: int = 60) -> tuple[str, str]:
+    """Samopodpisana pieczęć testowa (certyfikat, klucz) w PEM, ważna od wczoraj."""
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "Fikcyjna Spółka"),
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "PL"),
+        ]
+    )
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(clock() - timedelta(days=1))
+        .not_valid_after(clock() + timedelta(days=days))
+        .sign(key, hashes.SHA256())
+    )
+    private = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    return (
+        cert.public_bytes(serialization.Encoding.PEM).decode("ascii"),
+        private.decode("ascii"),
+    )
+
+
+#: Prawdziwa fabryka sprzed podmiany w testach (``monkeypatch`` na ``default_client``).
+_default_client = ksef_send.default_client
+
+
 def factory(fake: FakeKsefIssue) -> ksef_send.ClientFactory:
+    """Klient z ``ksef_send.default_client`` — z tym samym tokenem i certyfikatem."""
+
     async def _no_sleep(_seconds: float) -> None:
         return None
 
     def build(config: ksef_send.IssueConfig) -> ksef_send.KsefIssueClient:
-        return ksef_send.KsefIssueClient(
-            config.api_url or "https://api-test.ksef.mf.gov.pl/v2",
-            context_nip=config.context_nip,
-            token=config.token,
-            transport=fake.transport,
-            sleep=_no_sleep,
-            now=fake.clock,
+        return _default_client(
+            config, transport=fake.transport, sleep=_no_sleep, now=fake.clock
         )
 
     return build
 
 
-__all__ = ["TOKEN", "UPO", "FakeKsefIssue", "factory"]
+__all__ = ["TOKEN", "UPO", "FakeKsefIssue", "factory", "seal_pem"]

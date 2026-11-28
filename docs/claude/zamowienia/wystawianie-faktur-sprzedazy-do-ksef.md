@@ -70,6 +70,18 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 - `KSEF_SALES_ISSUE_MODE=off|test|prod` (domyślnie `off`: „Wyślij do KSeF” nieaktywny z wyjaśnieniem; szkice
   działają). Kontekst `KSEF_CONTEXT_NIP`. Token z `InvoiceWrite`: `KSEF_SALES_ISSUE_TOKEN`, a gdy pusty —
   `KSEF_TOKEN`, który od 16.11.2026 ma pełne prawa (decyzja Artura). Ustawiane wyłącznie workflow „Coolify set env”.
+- **Uwierzytelnienie: certyfikat przed tokenem** (od 28.11.2026, tak samo jak odczyt w `hr/ksef/client.py`).
+  Kolejność: 1) certyfikat spółki `KSEF_CERTIFICATE` + `KSEF_CERTIFICATE_KEY` (i `KSEF_CERTIFICATE_KEY_PASSWORD`,
+  gdy klucz ma hasło), podpis XAdES, `POST /auth/xades-signature`; 2) token zapasowy `KSEF_SALES_ISSUE_TOKEN`,
+  a gdy pusty — `KSEF_TOKEN`. Na token przechodzimy tylko po odmowie certyfikatu (401/403, odrzucenie, certyfikat
+  poza ważnością), z ERROR w logu; awaria MF albo 429 nie przełącza. Zmienne certyfikatu są wspólne z odczytem
+  faktur kosztowych, osobnego certyfikatu do wystawiania nie ma. Sam certyfikat bez tokenu wystarcza.
+  Brak obu = „Wyślij do KSeF” nieaktywny z powodem `missing_token` (komunikat wymienia obie drogi); zepsuty
+  certyfikat bez tokenu = `invalid_certificate`; zepsuty certyfikat przy tokenie = wysyłka tokenem i ERROR w logu.
+  Token wolno używać tylko do **31.12.2026** (§ 13 ust. 1 pkt 1 rozporządzenia, Dz.U. 2025 poz. 1815), więc do
+  tego dnia certyfikat musi być ustawiony na produkcji (`zamowienia/ksef-tokeny-termin-i-certyfikat.md`).
+  Na KSeF testowym MF 28.11.2026 przeszło logowanie pieczęcią testową i wystawienie tokenem z tej sesji;
+  samej wysyłki faktury w tej ścieżce na MF jeszcze nikt nie przeszedł, jest tylko na fałszywym KSeF w testach.
 - Sesja interaktywna (`ksef_send.py`): AES-256-CBC, klucz szyfrowany RSA-OAEP kluczem MF
   `SymmetricKeyEncryption`, `POST /sessions/online`, faktura, status (ok. 14 s odpytywania), zamknięcie, UPO.
   Wynik przetwarzania: 200 = `accepted` (numer KSeF), inny kod 4xx/5xx = `rejected` (kod i opis).
