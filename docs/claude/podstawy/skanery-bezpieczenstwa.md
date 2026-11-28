@@ -199,6 +199,32 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   jobów `security-weekly.yml` ekran czyta z API GitHuba — nazwy pliku i jobów
   zmieniaj tylko razem z ekranem (`SECURITY_GITHUB_WORKFLOW`, nazwy jobów idą na ekran wprost).
 
+### Do DefectDojo tylko to, co czeka na reakcję (28.11.2026)
+- Pierwszy pełny import (28.11, ok. 13:35) wystawił na ekranie Bezpieczeństwo
+  287 pozycji „czeka na reakcję”: 237 Semgrep, 36 Trivy, 8 zizmor, 6 npm —
+  co do sztuki wyjątki, które zapadki już przepuszczały z powodem. Import brał
+  surowe raporty, więc każdy bieg wystawiałby je od nowa.
+- Od teraz każdy job wysyła raport PO zapadce, w formacie skanera:
+  `semgrep_ratchet.py dojo` (bez wpisów `zweryfikowane`), `zizmor_ratchet.py
+  dojo` (SARIF z tego samego biegu, para z JSON-em po regule, pliku i linii;
+  brak pary = czerwień), `dependency_audit.py --dojo-output` (bez porad z ważnym
+  wyjątkiem i pakietów, które są w raporcie tylko przez nie), Trivy z
+  `.trivyignore-images`. `do-przegladu`, nowe znaleziska, wagi pod progiem
+  bramki bez wyjątku i wyjątki po terminie idą do DefectDojo jak dawniej.
+- `close_old_findings` zamyka w DefectDojo to, czego nowy raport nie ma, a
+  sync z `complete: true` zamyka to na ekranie. Na ekranie wygląda to jak
+  „naprawione”; powód i termin wyjątku są w pliku zapadki, nie w DefectDojo.
+- Przegląd 28.11.2026 (klasyfikacja wszystkich 287): `text()` z wklejaniem
+  tylko stałych, białych list i placeholderów (bindy dla wartości); md5/sha1 jako
+  skrót tożsamości tekstu i klucz cache; `jwt.decode` bez podpisu tylko do
+  wyświetlenia `exp` naszego klucza JJIT; AES-CBC wymagany przez API KSeF; HTML
+  w mailu zgód przez `html.escape`; trzy `dangerouslySetInnerHTML` po DOMPurify
+  albo JSON-LD z `<` → `\u003c`; „token” w logach to id, kody błędów i liczby;
+  zizmor jak w baseline. Trivy i npm: powody nad wpisami w `.trivyignore-images`
+  (gosu bez sieci i TLS, libxml2 bez funkcji XML w SQL, libzstd w Qdrancie i we
+  freshclamie ClamAV) i `dependency-audit-baseline.json` (glob/minimatch tylko
+  we wtyczce budowania Sentry, termin 28.02.2027). Wynik: 0 pozycji do reakcji.
+
 ### Gitleaks na pełnej historii (jednorazowo, 27.11.2026)
 - gitleaks 8.21.2, `.gitleaks.toml`, `--log-opts=--all`, `--redact`: 13 558
   commitów, 46 trafień, drzewo `main` 0. Aktualne sekrety były tylko w

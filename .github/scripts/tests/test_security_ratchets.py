@@ -154,6 +154,48 @@ class SemgrepRatchetTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("::notice file=backend/app/x.py", out)
 
+    def _dojo(self, results):
+        output = self.root / "semgrep-dojo.json"
+        code, out = self._run(
+            "dojo", "--results", str(results), "--baseline", str(self.baseline),
+            "--root", str(self.root), "--output", str(output),
+        )
+        return code, out, json.loads(output.read_text(encoding="utf-8"))
+
+    def test_dojo_report_drops_only_verified_baseline_findings(self):
+        """DefectDojo (i ekran Bezpieczeństwo) dostaje to, na co trzeba
+        zareagować: przejrzany wyjątek z baseline nie wraca jako „czeka na
+        reakcję” co tydzień, a nowe i „do-przegladu” zostają (28.11.2026)."""
+        self._update(self._scan(SOURCE, [SNIPPET]))
+        other = "text(f\"SELECT 1 FROM {other}\")"
+        source = SOURCE + "\ndef more(other):\n    return " + other + "\n"
+        code, out, report = self._dojo(self._scan(source, [SNIPPET, other]))
+        self.assertEqual(code, 0, out)
+        self.assertEqual([r["start"]["line"] for r in report["results"]], [7])
+        self.assertIn("paths", report)
+        self.assertIn("pominięte jako zweryfikowane: 1", out)
+
+        data = json.loads(self.baseline.read_text(encoding="utf-8"))
+        data["findings"][0]["status"] = "do-przegladu"
+        self.baseline.write_text(json.dumps(data), encoding="utf-8")
+        _, _, report = self._dojo(self._scan(source, [SNIPPET, other]))
+        self.assertEqual(len(report["results"]), 2)
+
+    def test_dojo_report_keeps_second_occurrence_of_verified_snippet(self):
+        self._update(self._scan(SOURCE, [SNIPPET]))
+        twice = SOURCE + "\ndef again(table):\n    return " + SNIPPET + "\n"
+        raw = twice.encode("utf-8")
+        second = _result(twice, SNIPPET)
+        offset = raw.rindex(SNIPPET.encode("utf-8"))
+        second["start"].update(offset=offset, line=raw[:offset].count(b"\n") + 1)
+        second["end"]["offset"] = offset + len(SNIPPET.encode("utf-8"))
+        results = self._scan(twice, [SNIPPET])
+        data = json.loads(results.read_text(encoding="utf-8"))
+        data["results"].append(second)
+        results.write_text(json.dumps(data), encoding="utf-8")
+        _, _, report = self._dojo(results)
+        self.assertEqual(len(report["results"]), 1)
+
     def test_include_escapes_next_route_brackets(self):
         self.assertEqual(
             RATCHET.escape_include("frontend/src/app/kariera/r/[slug]/page.tsx"),
@@ -288,6 +330,64 @@ class ZizmorRatchetTest(unittest.TestCase):
         self.baseline.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual(self._compare(self._results(_zizmor_finding()))[0], 1)
 
+    def _sarif(self, *locations):
+        path = self.root / "zizmor.sarif"
+        results = [
+            {
+                "ruleId": f"zizmor/{rule}",
+                "level": "error",
+                "message": {"text": "x"},
+                "locations": [{"physicalLocation": {
+                    "artifactLocation": {"uri": uri}, "region": {"startLine": line},
+                }}],
+            }
+            for rule, uri, line in locations
+        ]
+        path.write_text(json.dumps({"version": "2.1.0", "runs": [
+            {"tool": {"driver": {"name": "zizmor"}}, "results": results}
+        ]}), encoding="utf-8")
+        return path
+
+    def _dojo(self, results, sarif):
+        output = self.root / "zizmor-dojo.sarif"
+        code, out = self._run(
+            "dojo", "--results", str(results), "--sarif", str(sarif),
+            "--baseline", str(self.baseline), "--output", str(output),
+        )
+        return code, out, json.loads(output.read_text(encoding="utf-8"))
+
+    def test_dojo_sarif_drops_only_verified_baseline_findings(self):
+        self._update(self._results(_zizmor_finding()))
+        results = self._results(_zizmor_finding(), _zizmor_finding(ident="github-env", row=99))
+        sarif = self._sarif(
+            ("template-injection", ".github/workflows/x.yml", 42),
+            ("github-env", ".github/workflows/x.yml", 100),
+        )
+        code, out, report = self._dojo(results, sarif)
+        self.assertEqual(code, 0, out)
+        kept = report["runs"][0]["results"]
+        self.assertEqual([r["ruleId"] for r in kept], ["zizmor/github-env"])
+        self.assertEqual(report["runs"][0]["tool"]["driver"]["name"], "zizmor")
+
+        data = json.loads(self.baseline.read_text(encoding="utf-8"))
+        data["findings"][0]["status"] = "do-przegladu"
+        self.baseline.write_text(json.dumps(data), encoding="utf-8")
+        _, _, report = self._dojo(results, sarif)
+        self.assertEqual(len(report["runs"][0]["results"]), 2)
+
+    def test_dojo_sarif_without_matching_json_finding_is_red(self):
+        """SARIF i JSON z tego samego biegu muszą się zgadzać; rozjazd to
+        błąd, nie cicha wysyłka wszystkiego albo niczego."""
+        self._update(self._results(_zizmor_finding()))
+        sarif = self._sarif(("template-injection", ".github/workflows/x.yml", 7))
+        output = self.root / "zizmor-dojo.sarif"
+        code, _ = self._run(
+            "dojo", "--results", str(self._results(_zizmor_finding())), "--sarif", str(sarif),
+            "--baseline", str(self.baseline), "--output", str(output),
+        )
+        self.assertEqual(code, 1)
+        self.assertFalse(output.exists())
+
     def test_unreadable_result_is_red_not_a_silent_pass(self):
         broken = self.root / "zizmor.json"
         broken.write_text('{"error": "no audit was performed"}', encoding="utf-8")
@@ -315,6 +415,24 @@ class RepoZizmorAndImageIgnoresTest(unittest.TestCase):
             if e["rule"] == "artipacked"
         }
         self.assertEqual(allowed, {".github/workflows/migration-rechain.yml"})
+
+    def test_defectdojo_gets_only_reports_after_the_ratchets(self):
+        """Do DefectDojo idą raporty po zapadkach: bez zweryfikowanych wpisów
+        baseline i bez wyjątków z `.trivyignore-images`. 28.11.2026 surowe
+        raporty dały na ekranie 287 pozycji „czeka na reakcję”, wszystkie
+        dawno przejrzane."""
+        workflow = (ROOT / "workflows/security-weekly.yml").read_text(encoding="utf-8")
+        imports = [line for line in workflow.splitlines() if "defectdojo_import.sh" in line]
+        self.assertTrue(imports)
+        self.assertIn('"Semgrep" semgrep-dojo.json', workflow)
+        self.assertIn('"zizmor" zizmor-dojo.sarif', workflow)
+        self.assertIn('"pip-audit" pip-audit-dojo.json', workflow)
+        self.assertIn('"npm audit" npm-audit-dojo.json', workflow)
+        self.assertNotIn(" semgrep.json\n", "\n".join(imports) + "\n")
+        trivy = (ROOT / "scripts/trivy_images.sh").read_text(encoding="utf-8")
+        self.assertRegex(
+            trivy, r'--ignorefile "\$ignorefile" --format json --output "\$outdir/trivy-\$safe\.json"'
+        )
 
     def test_image_ignores_have_reason_and_valid_expiry(self):
         lines = (ROOT.parent / ".trivyignore-images").read_text(encoding="utf-8").splitlines()
@@ -389,6 +507,59 @@ class DependencyAuditTest(unittest.TestCase):
         errors, notes = AUDIT.check([], entries, TODAY)
         self.assertEqual(len(notes), 1)
         self.assertIn("uzasadnienia", errors[0])
+
+    def test_dojo_npm_report_drops_excepted_advisories_and_their_chains(self):
+        """Do DefectDojo nie idzie porada z ważnym wyjątkiem ani pakiety, które
+        są na liście tylko przez nią (28.11.2026: glob/minimatch pod wtyczką
+        Sentry dały 6 pozycji na ekranie Bezpieczeństwo)."""
+        report = json.loads(json.dumps(NPM_REPORT))
+        report["vulnerabilities"]["minimatch"] = {"severity": "moderate", "via": [
+            {"source": 3, "name": "minimatch", "severity": "moderate", "title": "ReDoS",
+             "url": "https://github.com/advisories/GHSA-7777-8888-9999", "range": "<11"}
+        ]}
+        report["vulnerabilities"]["@sentry/nextjs"] = {"severity": "moderate", "via": ["glob"]}
+        both = [
+            {"id": "GHSA-4444-5555-6666", "reason": "tylko build", "expires": "2027-01-01"},
+            {"id": "GHSA-7777-8888-9999", "reason": "tylko build", "expires": "2027-01-01"},
+        ]
+        out, skipped = AUDIT.dojo_report("npm", report, both, TODAY)
+        self.assertEqual(sorted(out["vulnerabilities"]), ["next"])
+        self.assertEqual(skipped, 2)
+
+        out, _ = AUDIT.dojo_report("npm", report, both[:1], TODAY)
+        self.assertEqual(sorted(out["vulnerabilities"]), ["@sentry/nextjs", "glob", "minimatch", "next"])
+        self.assertEqual(out["vulnerabilities"]["glob"]["via"], ["minimatch"])
+
+        expired = [dict(e, expires="2026-11-01") for e in both]
+        out, skipped = AUDIT.dojo_report("npm", report, expired, TODAY)
+        self.assertEqual(len(out["vulnerabilities"]), 4)
+        self.assertEqual(skipped, 0)
+
+    def test_dojo_python_report_drops_excepted_vuln_by_alias(self):
+        entry = {"id": "GHSA-aaaa-bbbb-cccc", "reason": "brak poprawki", "expires": "2026-12-01"}
+        out, skipped = AUDIT.dojo_report("python", PIP_REPORT, [entry], TODAY)
+        self.assertEqual(skipped, 1)
+        self.assertEqual([d["vulns"] for d in out["dependencies"]], [[], []])
+        self.assertEqual(len(PIP_REPORT["dependencies"][0]["vulns"]), 1)
+
+    def test_moderate_exception_under_high_gate_is_not_reported_as_unused(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "npm.json").write_text(json.dumps(NPM_REPORT), encoding="utf-8")
+        (root / "baseline.json").write_text(json.dumps({"python": [], "npm": [
+            {"id": "GHSA-4444-5555-6666", "reason": "tylko build", "expires": "2099-01-01"},
+            {"id": "GHSA-1111-2222-3333", "reason": "brak poprawki", "expires": "2099-01-01"},
+        ]}), encoding="utf-8")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = AUDIT.main([
+                "npm", "--report", str(root / "npm.json"), "--baseline", str(root / "baseline.json"),
+                "--dojo-output", str(root / "dojo.json"),
+            ])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertNotIn("już nie występuje", out.getvalue())
+        self.assertEqual(json.loads((root / "dojo.json").read_text("utf-8"))["vulnerabilities"], {})
 
     def test_missing_report_file_fails(self):
         out = io.StringIO()

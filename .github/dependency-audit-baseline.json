@@ -1,5 +1,18 @@
 {
   "_opis": "Świadome wyjątki audytu zależności (pip-audit dla backend/requirements.txt, npm audit --omit=dev high+ dla frontend/). Wpis pasuje po id albo aliasie, ma uzasadnienie i termin expires (RRRR-MM-DD); po terminie znów czerwieni. Opis: docs/claude/podstawy/skanery-bezpieczenstwa.md",
   "python": [],
-  "npm": []
+  "npm": [
+    {
+      "id": "GHSA-3g3m-2fjr-6pw4",
+      "package": "glob",
+      "reason": "Tylko łańcuch wtyczki budowania Sentry (@sentry/nextjs → @sentry/bundler-plugin-core 5.3.0 → glob ^13 → minimatch 10); najnowsza wtyczka nadal wymaga glob ^13, poprawka jest w glob 14 / minimatch 11 (nowe wersje główne). Wtyczka biegnie tylko przy `next build` (wzorce i pliki z naszego repo, bez danych z zewnątrz), obraz `runner` z wyjściem standalone jej nie uruchamia. Waga moderate, pod progiem bramki high. Przegląd przy terminie albo wydaniu wtyczki na glob 14.",
+      "expires": "2027-02-28"
+    },
+    {
+      "id": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "reason": "Tylko łańcuch wtyczki budowania Sentry (@sentry/nextjs → @sentry/bundler-plugin-core 5.3.0 → glob ^13 → minimatch 10); najnowsza wtyczka nadal wymaga glob ^13, poprawka jest w glob 14 / minimatch 11 (nowe wersje główne). Wtyczka biegnie tylko przy `next build` (wzorce i pliki z naszego repo, bez danych z zewnątrz), obraz `runner` z wyjściem standalone jej nie uruchamia. Waga moderate, pod progiem bramki high. Przegląd przy terminie albo wydaniu wtyczki na glob 14.",
+      "expires": "2027-02-28"
+    }
+  ]
 }
