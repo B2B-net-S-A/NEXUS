@@ -3054,17 +3054,20 @@ async def api_health_live():
 
     `usageCounter` to sama flaga z konfiguracji dla sondy przeglądarki
     (`telemetry-capability.ts`): pełne `/api/health` robi kilkanaście zapytań,
-    a każda karta pytała o nie przy wczytaniu.
+    a każda karta pytała o nie przy wczytaniu. `usageAnalytics` to publiczny
+    klucz projektu PostHog albo `null` (flaga wyłączona, brak klucza, zły format).
     """
     import os
 
     from app.core.config import settings
+    from app.core.usage_analytics import usage_analytics_key
     from app.core.shutdown_drain import is_draining
 
     body = {
         "status": "alive",
         "version": os.environ.get("GIT_SHA", "unknown"),
         "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
+        "usageAnalytics": usage_analytics_key(settings),
     }
     # Po SIGTERM przy rolling update: Docker oznacza kontener jako unhealthy,
     # Traefik przestaje na niego kierować, a żądania w toku się kończą.

@@ -13,6 +13,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
 import { OffLimitsConfirmHost } from "@/components/v2/recruitment/OffLimitsConfirmHost";
 import { IS_STAGING, StagingBadge } from "@/components/StagingBadge";
+import { UsageAnalytics } from "@/components/UsageAnalytics";
 import { NONCE_HEADER } from "@/lib/csp";
 
 // Fonts are self-hosted from `./fonts` on purpose — `next/font/google` fetches
@@ -142,6 +143,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ChunkReloadGuard />
         <AppVersionGuard />
         <StagingBadge />
+        <UsageAnalytics />
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>

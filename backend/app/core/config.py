@@ -2259,6 +2259,17 @@ class Settings(BaseSettings):
     ACCESS_USAGE_COUNTER_ENABLED: bool = False
     ACCESS_USAGE_RETENTION_DAYS: int = 90
 
+    # ── Analityka użycia ekranów (PostHog Cloud EU) ─────────────────────────
+    # Które ekrany i przyciski są używane: front wysyła wzorzec trasy i nazwę
+    # przycisku do PostHog w regionie UE. Domyślnie WYŁĄCZONE, bo to pomiar pracy
+    # zespołu: włącza Artur po poinformowaniu zespołu. Klucz projektu (`phc_…`)
+    # jest publiczny z natury (trafia do przeglądarki), ale nie stoi w repo:
+    # oba ustawia workflow „Coolify set env”. Front dostaje klucz z sondy
+    # `/api/health/live` tylko przy włączonej fladze i poprawnym formacie.
+    # `docs/claude/podstawy/analityka-uzycia-posthog.md`.
+    USAGE_ANALYTICS_ENABLED: bool = False
+    POSTHOG_PROJECT_KEY: str = ""
+
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):
     # `false` → pętla kończy się przed startem, zapis zamówienia i odczyt
