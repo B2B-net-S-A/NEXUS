@@ -4,6 +4,7 @@
     semgrep_ratchet.py include-args <lista-plików>
     semgrep_ratchet.py compare --results semgrep.json [--baseline .semgrep-baseline.json]
     semgrep_ratchet.py update  --results semgrep.json --reason "…" [--status zweryfikowane]
+    semgrep_ratchet.py dojo    --results semgrep.json --output semgrep-dojo.json
 
 `include-args` zamienia listę zmienionych plików na argumenty `--include=…`.
 Semgrep skanuje jawnie podane pliki nawet wtedy, gdy `.semgrepignore` je
@@ -21,6 +22,12 @@ liczą się jak multizbiór — wpis w baseline pokrywa jedno wystąpienie.
 `update` dopisuje nowe znaleziska z podanym powodem, odświeża numery linii
 i usuwa wpisy, których już nie ma, wyłącznie w plikach, które Semgrep
 przeskanował (wynik skanu częściowego nie kasuje reszty baseline).
+
+`dojo` zapisuje wynik skanu w tym samym formacie, ale bez znalezisk pokrytych
+wpisem `zweryfikowane` — to idzie do DefectDojo, a z niego na ekran
+Ustawienia → Bezpieczeństwo. Przejrzany wyjątek nie wraca co tydzień jako
+„czeka na reakcję” (28.11.2026: 237 takich pozycji na ekranie); nowe
+znaleziska i wpisy `do-przegladu` zostają. Powód wyjątku jest w baseline.
 """
 
 from __future__ import annotations
@@ -71,6 +78,7 @@ def load_findings(results_path: Path, root: Path) -> tuple[list[dict], set[str]]
         path = result["path"]
         findings.append(
             {
+                "index": len(findings),
                 "rule": result["check_id"],
                 "path": path,
                 "line": result["start"]["line"],
@@ -232,6 +240,27 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def verified_indexes(covered: list[tuple[dict, dict]]) -> set[int]:
+    """Indeksy znalezisk pokrytych wpisem `zweryfikowane` (przejrzany wyjątek)."""
+    return {finding["index"] for finding, entry in covered if entry.get("status") == "zweryfikowane"}
+
+
+def cmd_dojo(args: argparse.Namespace) -> int:
+    results_path = Path(args.results)
+    findings, scanned = load_findings(results_path, Path(args.root))
+    baseline = load_baseline(Path(args.baseline))
+    _, covered, _ = split(findings, baseline, scanned)
+    skip = verified_indexes(covered)
+    data = json.loads(results_path.read_text(encoding="utf-8"))
+    data["results"] = [r for i, r in enumerate(data.get("results", [])) if i not in skip]
+    Path(args.output).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    print(
+        f"Raport do DefectDojo: {len(data['results'])} znalezisk "
+        f"(pominięte jako zweryfikowane: {len(skip)})."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -249,6 +278,13 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--reason", default="")
             p.add_argument("--status", choices=STATUSES, default="do-przegladu")
         p.set_defaults(func=func)
+
+    dojo = sub.add_parser("dojo")
+    dojo.add_argument("--results", required=True)
+    dojo.add_argument("--baseline", default=DEFAULT_BASELINE)
+    dojo.add_argument("--root", default=".")
+    dojo.add_argument("--output", required=True)
+    dojo.set_defaults(func=cmd_dojo)
 
     args = parser.parse_args(argv)
     return args.func(args)

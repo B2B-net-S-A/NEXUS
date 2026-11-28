@@ -1,4 +1,4 @@
-# Docelowy /opt/crowdsec/config/profiles.yaml po wlaczeniu powiadomien (http_nexus).
+# /opt/crowdsec/config/profiles.yaml na serwerze od 28.11.2026 (powiadomienia http_nexus wlaczone; wdrozone bez linii komentarza).
 # Pierwszy profil: scenariusze nexus/* tylko alarmuja (bez decyzji) i ida na ekran.
 name: nexus_alert_only
 filters:

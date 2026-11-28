@@ -14,8 +14,10 @@
  * naprawdę boli w takiej kolejce, to zgłoszenie leżące tydzień.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { TabbedNav } from "@/components/ds/TabbedNav";
+import { ReferralsPanel } from "@/components/referrals/ReferralsPanel";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { ERASED_CANDIDATE_CONFIRM, erasedCandidateMessage } from "@/lib/erased-candidate";
 import {
@@ -42,6 +44,7 @@ import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
 import { formatPhone } from "@/lib/phone-format";
+import { useUrlTab } from "@/lib/url-tab";
 /** Zgłoszenie starsze niż to jest sygnałem, że kolejka nie ma właściciela. */
 const STALE_AFTER_HOURS = 24;
 
@@ -106,7 +109,51 @@ function actionsFor(submission: ApplicationSubmission): ActionSpec[] {
   return specs;
 }
 
-export default function ApplicationsQueuePage() {
+// „Polecenia” (0806): polecenia ze strony i premia za nie, obok kolejki zgłoszeń.
+const TABS = ["queue", "referrals"] as const;
+type Tab = (typeof TABS)[number];
+
+export default function ApplicationsPage() {
+  // Zakładka z adresu po zamontowaniu: bez `useSearchParams` (Suspense) i bez
+  // rozjazdu hydracji, bo serwer zawsze renderuje kolejkę.
+  const [requested, setRequested] = useState<string | null>(null);
+  useEffect(() => {
+    setRequested(new URLSearchParams(window.location.search).get("tab"));
+  }, []);
+  const [tab, selectTab] = useUrlTab<Tab>({
+    requested,
+    validTabs: TABS,
+    defaultTab: "queue",
+  });
+  const nav = (
+    <TabbedNav
+      ariaLabel="Zgłoszenia i polecenia"
+      value={tab}
+      onValueChange={(value) => selectTab(value as Tab)}
+      tabs={[
+        { value: "queue", label: "Zgłoszenia" },
+        { value: "referrals", label: "Polecenia" },
+      ]}
+    />
+  );
+  if (tab === "referrals") {
+    return (
+      <main className="mx-auto max-w-[1100px] space-y-6 md:px-6 md:py-6">
+        <header className="min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Sourcing</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Zgłoszenia do rozpatrzenia
+          </h1>
+        </header>
+        {nav}
+        <ReferralsPanel />
+      </main>
+    );
+  }
+  return <ApplicationsQueue nav={nav} />;
+}
+
+function ApplicationsQueue({ nav }: { nav: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -186,6 +233,8 @@ export default function ApplicationsQueuePage() {
           </span>
         )}
       </header>
+
+      {nav}
 
       {sorted.length >= APPLICATION_SUBMISSIONS_PAGE_LIMIT && (
         <p className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">

@@ -358,6 +358,7 @@ from app.api import client_panel as client_panel_api
 from app.api import job_team_panel as job_team_panel_api
 from app.api import public_job_team_panel as public_job_team_panel_api
 from app.api import application_submissions as application_submissions_api
+from app.api import candidate_referrals as candidate_referrals_api
 from app.api import competence_reports as competence_reports_api
 from app.api import security as security_api
 from app.api import security_ingest as security_ingest_api
@@ -2883,6 +2884,18 @@ app.include_router(
     prefix="/api/application-submissions",
     tags=["application-submissions"],
 )
+# 0806 (28.11.2026): polecenia inżynierów ze strony — rekruter (Sourcing)
+# i „Wypłacona” dla modułu Finanse (osobny router za sekcją Finanse).
+app.include_router(
+    candidate_referrals_api.router,
+    prefix="/api/candidate-referrals",
+    tags=["candidate-referrals"],
+)
+app.include_router(
+    candidate_referrals_api.finance_router,
+    prefix="/api/candidate-referrals",
+    tags=["candidate-referrals"],
+)
 # N6 (25.11.2026): kolejka rekrutera dla raportów kompetencji ze strony.
 app.include_router(
     competence_reports_api.router,
@@ -3054,17 +3067,20 @@ async def api_health_live():
 
     `usageCounter` to sama flaga z konfiguracji dla sondy przeglądarki
     (`telemetry-capability.ts`): pełne `/api/health` robi kilkanaście zapytań,
-    a każda karta pytała o nie przy wczytaniu.
+    a każda karta pytała o nie przy wczytaniu. `usageAnalytics` to publiczny
+    klucz projektu PostHog albo `null` (flaga wyłączona, brak klucza, zły format).
     """
     import os
 
     from app.core.config import settings
+    from app.core.usage_analytics import usage_analytics_key
     from app.core.shutdown_drain import is_draining
 
     body = {
         "status": "alive",
         "version": os.environ.get("GIT_SHA", "unknown"),
         "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
+        "usageAnalytics": usage_analytics_key(settings),
     }
     # Po SIGTERM przy rolling update: Docker oznacza kontener jako unhealthy,
     # Traefik przestaje na niego kierować, a żądania w toku się kończą.
@@ -4103,6 +4119,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.services.altcha_schema import ALTCHA_SPENT_CHALLENGES
+    from app.models.website_intake import CandidateReferral, MarketTrainerApplication
     from app.models.rate_card import RateCardAdder
     from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
@@ -5321,6 +5338,9 @@ async def api_health_deep_check(request: Request):
         ("security_source_states", SecuritySourceState),
         # 0805: zużyte wyzwania ALTCHA (bez modelu ORM, lekkie `table()`).
         ("altcha_spent_challenges", ALTCHA_SPENT_CHALLENGES),
+        # 0806: trener z rynku i polecenie ze strony WWW.
+        ("market_trainer_applications", MarketTrainerApplication),
+        ("candidate_referrals", CandidateReferral),
         # 0450: championi rekrutacji.
         ("job_champions", JobChampion),
         # 0513, 0516, 0518: dopełnianie „Nowych” — pula, powody odrzucenia

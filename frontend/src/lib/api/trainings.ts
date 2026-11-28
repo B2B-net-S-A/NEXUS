@@ -273,6 +273,29 @@ export interface TrainerApplication {
   sent_at: string;
 }
 
+/** Kandydat na trenera spoza B2B — zgłoszenie ze strony B2B Network (0806). */
+export type MarketTrainerStatus = "new" | "interview" | "accepted" | "rejected";
+
+export interface MarketTrainerApplication {
+  id: number;
+  full_name: string;
+  email: string;
+  linkedin: string | null;
+  topics: string[];
+  other_topic: string | null;
+  first_training: string;
+  experience: string;
+  sample_url: string | null;
+  /** Działający kontrakt pod tym adresem: to nasz konsultant. */
+  contract_id: number | null;
+  status: MarketTrainerStatus;
+  status_note: string;
+  status_changed_at: string | null;
+  submissions: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PendingSignature {
   id: number;
   title: string;
@@ -359,6 +382,7 @@ export const trainingKeys = {
   partner: (id: number) => ["trainings", "partner", id] as const,
   people: (id: number) => ["trainings", "people", id] as const,
   applications: ["trainings", "applications"] as const,
+  marketApplications: ["trainings", "market-applications"] as const,
   pending: ["trainings", "signatures", "pending"] as const,
   settings: ["trainings", "settings"] as const,
   users: (q: string) => ["trainings", "users", q] as const,
@@ -437,6 +461,20 @@ export function useTrainerApplications(enabled = true) {
     queryFn: async () =>
       (await api.get<{ applications: TrainerApplication[] }>(`${BASE}/applications`)).data
         .applications,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useMarketTrainerApplications(enabled = true) {
+  return useQuery({
+    queryKey: trainingKeys.marketApplications,
+    queryFn: async () =>
+      (
+        await api.get<{ applications: MarketTrainerApplication[] }>(
+          `${BASE}/market-applications`,
+        )
+      ).data.applications,
     enabled,
     retry: false,
   });
@@ -576,6 +614,21 @@ export function useCompanySignature(id: number) {
 }
 
 /** To samo z listy „Do podpisu” — reprezentant nie musi mieć wglądu w kartę. */
+export function useMarketTrainerStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: number; status: MarketTrainerStatus; note?: string }) =>
+      (
+        await api.post<{ application: MarketTrainerApplication }>(
+          `${BASE}/market-applications/${input.id}/status`,
+          { status: input.status, note: input.note },
+        )
+      ).data.application,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: trainingKeys.marketApplications }),
+  });
+}
+
 export function useCompanySignatureFor() {
   const invalidate = useInvalidateTrainings();
   return useMutation({

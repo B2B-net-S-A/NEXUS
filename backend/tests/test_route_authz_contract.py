@@ -409,6 +409,9 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     # Serwer strony B2B Network: token Bearer z env sprawdza handler przed
     # odczytem treści (`api/public_website_applications.py`).
     ("POST", "/api/public/website-applications"),
+    # Ten sam serwer strony i token: „Zostań trenerem” i „Poleć inżyniera” (0806).
+    ("POST", "/api/public/website-trainer-applications"),
+    ("POST", "/api/public/website-referrals"),
     ("GET", "/api/public/champion-card/{token}"),
     ("GET", "/api/public/consultant-mail/unsubscribe/{token}"),
     ("POST", "/api/public/consultant-mail/unsubscribe/{token}"),

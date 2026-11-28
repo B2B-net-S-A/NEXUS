@@ -5,9 +5,12 @@
 # z wdrożonego SHA) albo `remote` (rejestr, linux/amd64 jak serwer).
 #
 # Dla każdego obrazu dwa przebiegi na tej samej bazie:
-#   * `<katalog>/trivy-<obraz>.json` — HIGH/CRITICAL z poprawką, BEZ wyjątków
-#     (do DefectDojo, który pokazuje też to, co zapadka przepuszcza);
-#   * ten sam skan z `.trivyignore-images` — o wyniku decyduje ten licznik.
+#   * HIGH/CRITICAL z poprawką bez wyjątków — tylko licznik „wszystkie”
+#     w podsumowaniu biegu;
+#   * ten sam skan z `.trivyignore-images` — `<katalog>/trivy-<obraz>.json`,
+#     o wyniku decyduje ten licznik i ten raport idzie do DefectDojo. Do
+#     28.11.2026 szedł raport bez wyjątków i ekran Bezpieczeństwo pokazywał
+#     36 przejrzanych CVE z terminem jako „czeka na reakcję”.
 # Wyjątki z terminem `exp:` jak w `.trivyignore`; po terminie znów czerwień.
 # Osobny plik, bo wspólny `.trivyignore` ukryłby tę samą podatność także
 # w skanie zależności na PR-ach (`ci.yml`, job „Trivy + hadolint”).
@@ -39,8 +42,8 @@ while read -r src image; do
   fi
   ok=true
   for attempt in 1 2 3; do
-    if trivy "${args[@]}" --format json --output "$outdir/trivy-$safe.json" "$image" \
-        && trivy "${args[@]}" --ignorefile "$ignorefile" --format json --output "$outdir/gate-$safe.json" "$image"; then
+    if trivy "${args[@]}" --format json --output "$outdir/all-$safe.json" "$image" \
+        && trivy "${args[@]}" --ignorefile "$ignorefile" --format json --output "$outdir/trivy-$safe.json" "$image"; then
       ok=true
       break
     fi
@@ -54,8 +57,8 @@ while read -r src image; do
     failed=$((failed + 1))
     continue
   fi
-  all=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$outdir/trivy-$safe.json")
-  new=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$outdir/gate-$safe.json")
+  all=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$outdir/all-$safe.json")
+  new=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$outdir/trivy-$safe.json")
   echo "| \`$image\` | **$new** | $all |" >> "$summary"
   echo "Trivy $image: nowe $new, wszystkie z poprawką $all"
   if [ "$new" -gt 0 ]; then
@@ -68,10 +71,10 @@ while read -r src image; do
       echo "|---|---|---|---|---|"
       jq -r '[.Results[]?.Vulnerabilities[]?] | unique_by(.VulnerabilityID + .PkgName) | .[:60][]
         | "| `\(.VulnerabilityID)` | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "") | \(.Severity) |"' \
-        "$outdir/gate-$safe.json"
+        "$outdir/trivy-$safe.json"
     } >> "$details"
   fi
-  rm -f "$outdir/gate-$safe.json"
+  rm -f "$outdir/all-$safe.json"
 done < "$list"
 
 cat "$details" >> "$summary"

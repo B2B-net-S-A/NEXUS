@@ -3,6 +3,7 @@
 
     dependency_audit.py python --report pip-audit.json [--baseline …]
     dependency_audit.py npm    --report npm-audit.json [--baseline …] [--min-severity high]
+    … [--dojo-output raport-do-defectdojo.json]
 
 `python` czyta `pip-audit -f json` (każda podatność się liczy — pip-audit nie
 podaje wagi), `npm` czyta `npm audit --json` (v7+) i liczy porady o wadze
@@ -11,7 +12,13 @@ co najmniej `--min-severity` (domyślnie high, jak `--audit-level=high`).
 Wyjątek w `.github/dependency-audit-baseline.json` pasuje po identyfikatorze
 albo aliasie (PYSEC/GHSA/CVE) i ma termin `expires` (RRRR-MM-DD). Po terminie
 znów czerwieni: wyjątek bez daty zostałby na zawsze, jak kiedyś `.trivyignore`
-przed QA-05. Wpis, którego podatność już nie występuje, daje notkę do usunięcia.
+przed QA-05. Wpis, którego podatność już nie występuje (w żadnej wadze), daje
+notkę do usunięcia.
+
+`--dojo-output` zapisuje raport w tym samym formacie bez podatności z ważnym
+wyjątkiem (a w npm także bez pakietów, które są w raporcie tylko przez nie) —
+to idzie do DefectDojo i na ekran Ustawienia → Bezpieczeństwo. Wagi poniżej
+progu zapadki zostają w raporcie: tam są do przeglądu, nie blokują.
 """
 
 from __future__ import annotations
@@ -115,12 +122,62 @@ def check(vulns: list[dict], entries: list[dict], today: date) -> tuple[list[str
     return errors, notes
 
 
+def _active_exception_ids(entries: list[dict], today: date) -> set[str]:
+    ids: set[str] = set()
+    for entry in entries:
+        try:
+            if date.fromisoformat(str(entry.get("expires", ""))) < today:
+                continue
+        except ValueError:
+            continue
+        if str(entry.get("reason", "")).strip():
+            ids |= {entry.get("id"), *entry.get("aliases", [])} - {None}
+    return ids
+
+
+def dojo_report(ecosystem: str, report: dict, entries: list[dict], today: date) -> tuple[dict, int]:
+    """(raport bez podatności z ważnym wyjątkiem, liczba pominiętych porad)."""
+    excepted = _active_exception_ids(entries, today)
+    out = json.loads(json.dumps(report))
+    skipped = 0
+    if ecosystem == "python":
+        for dep in out.get("dependencies", []):
+            kept = [v for v in dep.get("vulns", []) if not ({v["id"], *v.get("aliases", [])} & excepted)]
+            skipped += len(dep.get("vulns", [])) - len(kept)
+            dep["vulns"] = kept
+        return out, skipped
+    vulnerabilities = out.get("vulnerabilities", {})
+    for entry in vulnerabilities.values():
+        kept = []
+        for via in entry.get("via", []):
+            match = _GHSA.search(str(via.get("url", ""))) if isinstance(via, dict) else None
+            if match and match.group(0) in excepted:
+                skipped += 1
+                continue
+            kept.append(via)
+        entry["via"] = kept
+    # Pakiet na liście tylko przez łańcuch do usuniętej porady znika razem z nią.
+    changed = True
+    while changed:
+        changed = False
+        for name in list(vulnerabilities):
+            via = [v for v in vulnerabilities[name].get("via", []) if not isinstance(v, str) or v in vulnerabilities]
+            if len(via) != len(vulnerabilities[name].get("via", [])):
+                vulnerabilities[name]["via"] = via
+                changed = True
+            if not via:
+                del vulnerabilities[name]
+                changed = True
+    return out, skipped
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("ecosystem", choices=("python", "npm"))
     parser.add_argument("--report", required=True)
     parser.add_argument("--baseline", default=DEFAULT_BASELINE)
     parser.add_argument("--min-severity", choices=tuple(SEVERITY), default="high")
+    parser.add_argument("--dojo-output", default="")
     args = parser.parse_args(argv)
 
     try:
@@ -135,7 +192,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error title=Audyt zależności ({args.ecosystem})::Nie da się odczytać raportu: {exc}")
         return 1
     baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
-    errors, notes = check(vulns, baseline.get(args.ecosystem, []), company_today())
+    entries = baseline.get(args.ecosystem, [])
+    today = company_today()
+    errors, notes = check(vulns, entries, today)
+    if args.ecosystem == "npm":
+        # Wyjątek dla porady poniżej progu (np. moderate pod bramką high)
+        # jest używany przez raport do DefectDojo — to nie „już nie występuje”.
+        present = set().union(*(v["ids"] for v in npm_vulns(report, "info")))
+        unused = {e.get("id") for e in entries if not ({e.get("id"), *e.get("aliases", [])} & present)}
+        notes = [n for n in notes if any(f"Wyjątek {ident} " in n for ident in unused)]
+    if args.dojo_output:
+        dojo, skipped = dojo_report(args.ecosystem, report, entries, today)
+        Path(args.dojo_output).write_text(json.dumps(dojo, ensure_ascii=False), encoding="utf-8")
+        print(f"{args.ecosystem}: raport do DefectDojo bez {skipped} porad z ważnym wyjątkiem")
 
     for message in errors:
         print(f"::error title=Audyt zależności ({args.ecosystem})::{message}")
