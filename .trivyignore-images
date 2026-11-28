@@ -11,6 +11,11 @@
 # z roota), baza nie ma portu na hoście. Przegląd przy terminie albo nowym digeście.
 # Sprawdzone ponownie 28.11.2026: najnowszy `16-alpine` (16.16, alpine3.24, build z 22.11)
 # ma te same 33 — nadal nic do podbicia po naszej stronie.
+# Osiągalność (przegląd 28.11.2026, w tym krytyczne CVE-2025-68121 w crypto/tls): gosu tylko
+# robi setuid i exec przy starcie, bez sieci, TLS i parsowania danych, więc kod stdlib z tych
+# CVE w nim nie biegnie. libxml2 Postgres używa tylko w funkcjach XML SQL, a backend ich nie
+# woła (grep `xmlparse|xpath(|::xml|query_to_xml` w `backend/app` i `backend/scripts`: tylko
+# lxml w Pythonie, inny obraz).
 CVE-2025-61726 exp:2027-01-31
 CVE-2025-61729 exp:2027-01-31
 CVE-2025-68121 exp:2027-01-31
@@ -49,5 +54,9 @@ CVE-2026-97031 exp:2027-01-31
 # i zlib1g z Debiana 13.7 w obrazie bazowym Qdranta — łatki są w Debianie, czekają na
 # nowy build obrazu upstream. Qdrant bez portu na hoście, tylko sieć compose. Przegląd
 # przy terminie albo nowym wydaniu Qdranta.
+# Ten sam libzstd1 (CVE-2026-124851) jest w clamav/clamav:1.5.5-debian13-slim (Debian 13.7,
+# dopisane 28.11.2026 po pierwszym imporcie do DefectDojo). Skaner ClamAV nie dekompresuje
+# zstd z plików; libzstd dociera tam przez libcurl freshclama (pobieranie sygnatur po TLS
+# z serwerów ClamAV). Kontener bez portu na hoście. Przegląd przy terminie albo nowym tagu.
 CVE-2026-124851 exp:2027-01-31
 CVE-2026-85091 exp:2027-01-31
