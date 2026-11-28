@@ -6,8 +6,8 @@
 # podnosi tunel WireGuard z konfiguracji peera w DEFECTDOJO_WG_CONF (job
 # podaje swój sekret `DEFECTDOJO_WG_CONF_<JOB>`; peer widzi w tunelu
 # wyłącznie DefectDojo) i woła DEFECTDOJO_URL (domyślnie adres w
-# tunelu). Token DEFECTDOJO_TOKEN: konto `ci-import`, rola Writer tylko na
-# produkcie NEXUS. Bez sekretów krok kończy się notką — import jest pusty,
+# tunelu). Token DEFECTDOJO_TOKEN: konto `ci-import`, dostęp tylko do produktu
+# NEXUS (`authorized_users` produktu; DefectDojo 3.x nie ma ról). Bez sekretów krok kończy się notką — import jest pusty,
 # nie czerwony. Produkt, typ produktu i engagement zakłada sesja SOC z góry;
 # `auto_create_context` dokłada tylko brakujące testy.
 #
