@@ -117,10 +117,15 @@ export function describeClick(
 // albo treść elementu. Do tego żadnych obiektów i adresów w wartościach.
 const PRIVATE_PROPERTY = /url|pathname|referr|host|search|hash|title|utm_|gclid|fbclid|msclkid|elements|el_text|query|person_info|\$set/i;
 const ADDRESS_VALUE = /^(?:[a-z][a-z0-9+.-]*:|\/)/i;
+// Cel linku z `describeClick` to wzorzec trasy (`/clients/[id]`): małe litery, `[nazwa]`,
+// najwyżej trzy cyfry z rzędu (`microsoft365`). Adres z id tego nie spełnia.
+const ROUTE_PATTERN_VALUE = /^\/(?:[a-z0-9-]+|\[(?:\.\.\.)?[A-Za-z]+\])(?:\/(?:[a-z0-9-]+|\[(?:\.\.\.)?[A-Za-z]+\]))*$/;
 
-function isPublicValue(value: unknown): boolean {
+function isPublicValue(key: string, value: unknown): boolean {
   if (value === null || typeof value === "number" || typeof value === "boolean") return true;
-  return typeof value === "string" && !ADDRESS_VALUE.test(value);
+  if (typeof value !== "string") return false;
+  if (key === "target" && ROUTE_PATTERN_VALUE.test(value) && !/\d{4,}/.test(value)) return true;
+  return !ADDRESS_VALUE.test(value);
 }
 
 /**
@@ -135,7 +140,7 @@ export function scrubEvent(
   if (state.screen.startsWith("/preview")) return null;
   const kept: Properties = {};
   for (const [key, value] of Object.entries(event.properties ?? {})) {
-    if (!PRIVATE_PROPERTY.test(key) && isPublicValue(value)) kept[key] = value;
+    if (!PRIVATE_PROPERTY.test(key) && isPublicValue(key, value)) kept[key] = value;
   }
   const scrubbed: CaptureResult = {
     uuid: event.uuid,

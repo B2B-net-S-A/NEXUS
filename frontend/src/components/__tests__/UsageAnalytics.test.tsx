@@ -123,6 +123,19 @@ it("kliknięcie przycisku wysyła data-track, nie treść", async () => {
   });
 });
 
+it("kliknięcie linku dochodzi do PostHog z celem jako wzorcem trasy", async () => {
+  await mount({ body: { usageAnalytics: KEY } });
+  document.body.innerHTML = '<a href="/candidates/4821">Jan Kowalski</a>';
+  const link = document.querySelector("a");
+  link?.addEventListener("click", event => event.preventDefault());
+  link?.click();
+  const [, properties] = posthog.capture.mock.calls.find(([name]) => name === "ui_click") ?? [];
+  expect(properties).toEqual({ target: "/candidates/[id]", source: "link", element: "a" });
+  const options = posthog.init.mock.calls[0][1];
+  const sent = options.before_send({ uuid: "u", event: "ui_click", properties });
+  expect(sent.properties.target).toBe("/candidates/[id]");
+});
+
 it("„Podgląd jako” nie startuje pomiaru ani sondy", async () => {
   const fetchMock = await mount({ body: { usageAnalytics: KEY }, impersonating: true });
   expect(fetchMock).not.toHaveBeenCalled();

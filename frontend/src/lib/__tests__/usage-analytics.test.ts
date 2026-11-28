@@ -140,6 +140,18 @@ describe("scrubEvent — before_send", () => {
     expect(JSON.stringify(result)).not.toMatch(/4821|Kowalski/);
   });
 
+  it("cel linku jako wzorzec trasy przechodzi, adres z id nie", () => {
+    // 28.11.2026 ścieżka na stagingu: filtr adresów wycinał każdy `target` linku.
+    const sent = (target: string) => scrubEvent(event("ui_click", { target, source: "link" }), state)?.properties.target;
+    expect(sent("/clients/[id]")).toBe("/clients/[id]");
+    expect(sent("/help/[...rest]")).toBe("/help/[...rest]");
+    expect(sent("/microsoft365")).toBe("/microsoft365");
+    expect(sent("/clients/4821")).toBeUndefined();
+    expect(sent("/candidates/jan.kowalski@example.com")).toBeUndefined();
+    expect(sent("/jobs?q=Kowalski")).toBeUndefined();
+    expect(scrubEvent(event("ui_click", { note: "/clients/[id]" }), state)?.properties.note).toBeUndefined();
+  });
+
   it("przepuszcza tylko odsłonę i kliknięcie", () => {
     expect(scrubEvent(event("ui_click", { target: "cv.download" }), state)?.event).toBe("ui_click");
     for (const name of ["$autocapture", "$identify", "$pageleave", "$exception", "$rageclick", "$web_vitals", "$set"]) {
