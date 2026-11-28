@@ -267,7 +267,7 @@ SPECS: dict[str, _Spec] = {
         label="Otwórz Bezpieczeństwo",
         use_title=True,
     ),
-    # 0807: temat = tytuł dzwonka (waga i nazwa incydentu po `scrub`).
+    # 0808: temat = tytuł dzwonka (waga i nazwa incydentu po `scrub`).
     "security_defender_incident": _Spec(
         "Incydent w Microsoft Defenderze",
         chip="Bezpieczeństwo",

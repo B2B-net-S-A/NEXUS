@@ -183,7 +183,7 @@ class NotificationType(str, enum.Enum):
     # przy wyłączonym logowaniu hasłem — omija MFA Entra, więc każde takie
     # logowanie widzą wszyscy admini, mail od razu (`services/security_screen.py`).
     break_glass_password_login = "break_glass_password_login"
-    # 0807: nowy albo wznowiony incydent High/Critical z Microsoft Defendera
+    # 0808: nowy albo wznowiony incydent High/Critical z Microsoft Defendera
     # (źródło ekranu Bezpieczeństwo) — tylko admini, mail od razu
     # (`services/security_defender.py`).
     security_defender_incident = "security_defender_incident"

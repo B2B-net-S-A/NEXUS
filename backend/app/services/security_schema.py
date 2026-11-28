@@ -33,10 +33,10 @@ SOURCES: tuple[str, ...] = (
     "manual",
     # 0802 (28.11.2026): alerty Grafany Cloud przez webhook kontaktu.
     "grafana",
-    # 0807 (28.11.2026): incydenty Microsoft Defendera — NEXUS czyta je sam z Graph.
+    # 0808 (28.11.2026): incydenty Microsoft Defendera — NEXUS czyta je sam z Graph.
     "defender",
 )
-# Lista z 0802 — downgrade 0807 wraca do niej.
+# Lista z 0802 — downgrade 0808 wraca do niej.
 SOURCES_0802: tuple[str, ...] = tuple(s for s in SOURCES if s != "defender")
 # Lista z 0800 — downgrade 0802 wraca do niej.
 SOURCES_0800: tuple[str, ...] = tuple(s for s in SOURCES_0802 if s != "grafana")

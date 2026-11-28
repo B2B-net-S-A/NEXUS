@@ -1,7 +1,7 @@
 """Ekran Bezpieczeństwo: źródło ``defender`` (incydenty Microsoft Defendera).
 
-Revision ID: 0807_security_defender_source
-Revises: 0806_website_trainer_referral_intake
+Revision ID: 0808_security_defender_source
+Revises: 0807_market_trainer_portal
 
 Zlecenie Artura z 28.11.2026: incydent High z Defendera wisiał tydzień
 nieprzypisany, bo nikt nie zagląda do portalu Microsoftu. NEXUS czyta
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services import security_schema as schema
 
-revision = "0807_security_defender_source"
-down_revision = "0806_website_trainer_referral_intake"
+revision = "0808_security_defender_source"
+down_revision = "0807_market_trainer_portal"
 branch_labels = None
 depends_on = None
 
@@ -36,7 +36,7 @@ BEGIN
            SELECT 1 FROM notifications
            WHERE notification_type::text = 'security_defender_incident'
        ) THEN
-        RAISE EXCEPTION 'Downgrade 0807 odmawia: są wiersze źródła defender albo dzwonki security_defender_incident, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0808 odmawia: są wiersze źródła defender albo dzwonki security_defender_incident, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
