@@ -73,6 +73,9 @@ przesunięcie o miesiąc (dwa miesiące razem się zgadzają), nie jest sprawą.
   mimo to (`counts_as_cost`; 28.11.2026 na produkcji faktura za X z netto i bez
   brutto wypadała z kontroli). Aneksy umów i inne pliki z poczty oznaczone jako
   faktura nie mają kwoty i nie liczą się same z siebie.
+  Dokument, w którym sprzedawcą jest nasza spółka (NIP = `KSEF_CONTEXT_NIP`), też się
+  nie liczy (`invoice_read.own_company_document`): 28.11.2026 zamówienie klienta
+  („EITE/Z/UR/…”, 93 000 zł) przyszło na rozliczenia@ i odczytało się jak faktura.
   Odpowiedź modelu bez kwoty = `failed` na stałe, a awaria modelu (429, 529)
   albo chwilowy brak pliku = `retry`, najwyżej 3 próby
   (`invoice_read.MAX_ATTEMPTS`), bo jedna awaria oznaczałaby prawdziwe
