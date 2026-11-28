@@ -19,7 +19,7 @@ from typing import Any, Mapping, Optional
 LEVELS: tuple[str, ...] = ("block", "warn", "off")
 PARAM_MAX = 200
 #: Format mapy ``cl.ksef_contract.by_order`` — w komunikacie błędu zapisu.
-CONTRACT_MAP_EXAMPLE = "ZAM_1=1980.2015; ZAM_2=1980.2015 z 2015-06-01"
+CONTRACT_MAP_EXAMPLE = "ZAM_1=UM/2015/1; ZAM_2=UM/2015/1 z 2015-06-01"
 
 
 @dataclass(frozen=True)
@@ -514,7 +514,7 @@ SECTIONS: tuple[Section, ...] = (
                     ParamField(
                         "by_order",
                         "inna umowa dla zamówień",
-                        "np. 1127_2026=1980.2015; …",
+                        "np. ZAM_1=UM/2015/1; …",
                     ),
                 ),
                 "Trafia do warunków transakcji każdej faktury z NEXUSA. Zamówienie "

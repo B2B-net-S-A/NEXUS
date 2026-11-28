@@ -526,7 +526,7 @@ def test_unreadable_contract_map_is_refused_when_rules_are_saved() -> None:
         )
 
     for bad in ("ZAM/7_2026 UR/2015/5", "=UR/2015/5", "ZAM/7_2026=", "A=B z 2.03.2015"):
-        with pytest.raises(catalog.RulesError, match="ZAM_1=1980"):
+        with pytest.raises(catalog.RulesError, match="ZAM_1=UM/2015/1"):
             save(bad)
     saved = save("ZAM/7_2026=UR/2015/5;\nZAM/8_2026=UR/2015/6 z 2015-06-01;")
     assert saved["cl.ksef_contract"]["params"]["by_order"].startswith("ZAM/7_2026=")
