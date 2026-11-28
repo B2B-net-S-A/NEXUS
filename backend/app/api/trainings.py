@@ -584,17 +584,19 @@ async def market_company_lookup(
     current_user: Manager, nip: str = Query(..., max_length=20)
 ) -> dict:
     """Podpowiedź danych firmy z Białej Listy MF i biznes.gov.pl (jak Generator B2B)."""
-    from app.services.b2b_contract_generator.registry_lookup import (
+    from app.services.b2b_contract_generator import registry_lookup
+    from app.services.b2b_contract_generator.address_format import (
         format_registry_address,
-        lookup_company,
     )
 
     clean = market_panel.clean_nip(nip)
     if clean is None:
         raise HTTPException(422, "Podaj poprawny NIP (10 cyfr).")
-    data = await lookup_company(nip=clean)
+    data = await registry_lookup.lookup_company(nip=clean)
     if not data:
-        raise HTTPException(404, "Nie znaleziono firmy w rejestrze. Wpisz dane ręcznie.")
+        raise HTTPException(
+            404, "Nie znaleziono firmy w rejestrze. Wpisz dane ręcznie."
+        )
     return {
         "company_name": data.get("name") or "",
         "nip": clean,

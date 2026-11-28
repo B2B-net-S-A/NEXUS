@@ -150,10 +150,7 @@ async def for_trainer(
     """Szkolenie tego trenera; cudze i szkic wyglądają jak brak szkolenia."""
 
     training = await get(db, training_id, lock=lock)
-    if (
-        not is_trainers(training, contract_ids, market_id)
-        or training.status == "draft"
-    ):
+    if not is_trainers(training, contract_ids, market_id) or training.status == "draft":
         raise TrainingError(404, NOT_FOUND, "not_found")
     return training
 

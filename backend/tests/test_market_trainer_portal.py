@@ -211,8 +211,9 @@ async def test_market_trainer_from_invite_to_quote(
     assert "NIP" not in partner.json()["missing"]
 
 
+@pytest.mark.usefixtures("portal_all")
 async def test_trainer_session_does_not_open_consultant_routes(
-    app_client, monkeypatch, market_switch, portal_all
+    app_client, monkeypatch, market_switch
 ):
     mailer = install_mailer(monkeypatch)
     await market_switch(True)
@@ -380,3 +381,39 @@ async def test_only_tcm_opens_panel_and_only_admin_switches(
     )
     assert switched.status_code == 403
     assert (await app_client.get(f"{PORTAL}/status")).status_code == 200
+
+
+async def test_company_lookup_fills_company_data(app_client, monkeypatch):
+    """„Biała Lista” w oknie TCM: dane firmy z rejestru po NIP-ie (bez sieci w teście)."""
+    from app.services.b2b_contract_generator import registry_lookup
+
+    async def _found(nip=None, krs=None):
+        return {
+            "name": "Przykładowa Szkoła Sp. z o.o.",
+            "regon": "123456785",
+            "address": "ul. Prosta 1, 00-001 Warszawa",
+            "has_street": True,
+        }
+
+    monkeypatch.setattr(registry_lookup, "lookup_company", _found)
+    tcm = headers(await make_user(UserRole.talent_community_manager))
+
+    found = await app_client.get(
+        f"{STAFF}/market-applications/company-lookup",
+        headers=tcm,
+        params={"nip": NIP},
+    )
+    assert found.status_code == 200, found.text
+    body = found.json()
+    assert (body["company_name"], body["nip"], body["regon"]) == (
+        "Przykładowa Szkoła Sp. z o.o.",
+        NIP,
+        "123456785",
+    )
+    assert "Warszawa" in body["company_address"]
+    bad = await app_client.get(
+        f"{STAFF}/market-applications/company-lookup",
+        headers=tcm,
+        params={"nip": "1234567890"},
+    )
+    assert bad.status_code == 422
