@@ -1,4 +1,4 @@
-"""Alert przy logowaniu hasłem z listy awaryjnej (0802, decyzja Artura z 27.11.2026).
+"""Alert przy logowaniu hasłem z listy awaryjnej (0803, decyzja Artura z 27.11.2026).
 
 Konto z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` wchodzi hasłem mimo trybu
 SSO-only, czyli bez MFA Entra. Każde takie logowanie zostawia zdarzenie na

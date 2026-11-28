@@ -179,7 +179,7 @@ class NotificationType(str, enum.Enum):
     # 0800: rutyna bezpieczeństwa po terminie (Ustawienia → Bezpieczeństwo →
     # Rutyny) — tylko admini, mail od razu (`services/security_routines.py`).
     security_routine_overdue = "security_routine_overdue"
-    # 0802: logowanie hasłem z listy awaryjnej (``PASSWORD_LOGIN_BREAK_GLASS_EMAILS``)
+    # 0803: logowanie hasłem z listy awaryjnej (``PASSWORD_LOGIN_BREAK_GLASS_EMAILS``)
     # przy wyłączonym logowaniu hasłem — omija MFA Entra, więc każde takie
     # logowanie widzą wszyscy admini, mail od razu (`services/security_screen.py`).
     break_glass_password_login = "break_glass_password_login"

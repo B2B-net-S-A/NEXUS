@@ -1,7 +1,7 @@
 """Alert przy logowaniu hasłem z listy awaryjnej (break-glass).
 
-Revision ID: 0802_break_glass_login_alert
-Revises: 0801_b2b_krz_check
+Revision ID: 0803_break_glass_login_alert
+Revises: 0802_security_grafana_source
 
 Decyzja Artura z 27.11.2026 (organizacyjna część bezpieczeństwa): konto
 awaryjne NEXUSA zostaje, bo chroni przed awarią Microsoftu, ale omija MFA
@@ -12,8 +12,8 @@ do ``security_events`` (tabela z 0800). Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0802_break_glass_login_alert"
-down_revision = "0801_b2b_krz_check"
+revision = "0803_break_glass_login_alert"
+down_revision = "0802_security_grafana_source"
 branch_labels = None
 depends_on = None
 
@@ -29,7 +29,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'break_glass_password_login'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0802 odmawia: są dzwonki break_glass_password_login, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0803 odmawia: są dzwonki break_glass_password_login, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

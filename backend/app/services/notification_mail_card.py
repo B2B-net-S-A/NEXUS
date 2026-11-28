@@ -260,7 +260,7 @@ SPECS: dict[str, _Spec] = {
         label="Otwórz rutyny",
         use_title=True,
     ),
-    # 0802: temat = tytuł dzwonka (konto, które weszło hasłem awaryjnym).
+    # 0803: temat = tytuł dzwonka (konto, które weszło hasłem awaryjnym).
     "break_glass_password_login": _Spec(
         "Sprawdź, czy to Ty",
         chip="Bezpieczeństwo",

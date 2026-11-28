@@ -341,7 +341,7 @@ def test_new_notification_type_is_admin_only_and_mailed() -> None:
 
 
 def test_break_glass_login_bell_is_admin_only_mailed_and_mirrored() -> None:
-    """0802: alert przy logowaniu hasłem awaryjnym — tylko admini, mail od razu."""
+    """0803: alert przy logowaniu hasłem awaryjnym — tylko admini, mail od razu."""
     from app.models.notification import NotificationType
     from app.services.notification_access import ADMIN_ONLY_NOTIFICATION_TYPES
     from app.services.notification_delivery import immediate_email_kind
