@@ -31,7 +31,10 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   Tylko pod NIP-em klienta: drugi nabywca (Bosch GmbH, Nordea per kontrakt) ma własny adres i termin
   z listy nabywców. Szkice VII–IX na kopii: z tym adresem XML zgodny ze schematem MF w 710/718.
 - Nabywca z UE (VAT UE w `clients.nip`, np. `FI12345678`) dostaje serię UE i stawkę `np II` (odwrotne
-  obciążenie, `P_13_9`, `P_18`=1), chyba że klient ma nadpisanie.
+  obciążenie, `P_13_9`, `P_18`=1), chyba że klient ma nadpisanie stawką niekrajową (`np I`, `0 EX`, `zw`).
+  Nadpisanie krajowe (23, 8, 5, 0 KR) nabywcy z UE nie dotyczy, a `np II` nie dotyczy nabywcy krajowego
+  (28.11.2026, `issue_settings.client_vat`): ekran ustawień zapisuje dodanemu klientowi stawkę 23, więc
+  drugi nabywca z UE (Bosch GmbH obok spółki polskiej) dostałby 23% zamiast odwrotnego obciążenia.
 
 ## Numeracja
 
