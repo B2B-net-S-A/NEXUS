@@ -201,6 +201,8 @@ def test_number_regex_matches_only_this_series_and_month():
     assert re.match(rx, "323/11/2031").group(1) == "323"
     assert re.match(rx, "12/11/2031/UE") is None
     assert re.match(rx, "5/10/2031") is None
+    # Obcy długi numer nie może „wyczerpać” serii (NUMBER_MAX = 999999).
+    assert re.match(rx, "20261101/11/2031") is None
     ue = numbering.number_regex("{n}/{mm}/{yyyy}/UE", 2031, 1)
     assert re.match(ue, "7/01/2031/UE").group(1) == "7"
 

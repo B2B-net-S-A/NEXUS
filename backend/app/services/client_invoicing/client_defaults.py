@@ -89,9 +89,17 @@ async def for_client(
         address_l2 = " ".join(p for p in (party.postal_code, party.city) if p)
         country = party.country or ""
 
-    invoices = (
-        await db.scalars(
-            select(ClientSalesInvoice)
+    rows = (
+        await db.execute(
+            select(
+                ClientSalesInvoice.buyer_nip,
+                ClientSalesInvoice.buyer_foreign_id,
+                ClientSalesInvoice.buyer_address_line1,
+                ClientSalesInvoice.buyer_address_line2,
+                ClientSalesInvoice.buyer_country,
+                ClientSalesInvoice.issue_date,
+                ClientSalesInvoice.due_date,
+            )
             .where(
                 ClientSalesInvoice.client_id == client.id,
                 ClientSalesInvoice.invoice_kind == "original",
@@ -102,11 +110,7 @@ async def for_client(
             )
         )
     ).all()
-    own = [
-        invoice
-        for invoice in invoices
-        if nip_key(invoice.buyer_nip or invoice.buyer_foreign_id) == key
-    ]
+    own = [row for row in rows if nip_key(row.buyer_nip or row.buyer_foreign_id) == key]
     if not address_l1:
         for invoice in own:
             if (invoice.buyer_address_line1 or "").strip():

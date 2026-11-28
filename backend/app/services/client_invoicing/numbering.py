@@ -90,7 +90,9 @@ def number_regex(pattern: str, year: int, month: int) -> str:
 
     out = re.escape(pattern)
     for token, value in (
-        (re.escape("{n}"), "([0-9]+)"),
+        # Najwyżej tyle cyfr, ile ma NUMBER_MAX: obcy numer w rodzaju
+        # „20261101/11/2026” nie może „wyczerpać” serii.
+        (re.escape("{n}"), f"([0-9]{{1,{len(str(NUMBER_MAX))}}})"),
         (re.escape("{mm}"), f"{month:02d}"),
         (re.escape("{m}"), str(month)),
         (re.escape("{yyyy}"), f"{year:04d}"),
