@@ -60,6 +60,13 @@ export function createNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
+/**
+ * PostHog Cloud EU (analityka użycia, `lib/usage-analytics.ts`). Tylko `connect-src`:
+ * SDK nie ładuje skryptów z CDN (`disable_external_dependency_loading`), a bez
+ * klucza z API nie wysyła nic.
+ */
+export const POSTHOG_CONNECT_ORIGIN = "https://eu.i.posthog.com";
+
 export function buildCsp(nonce: string, env: CspEnv): string {
   const api = originOf(env.NEXT_PUBLIC_API_URL);
   const ws = api ? api.replace(/^http/, "ws") : null;
@@ -85,6 +92,7 @@ export function buildCsp(nonce: string, env: CspEnv): string {
       ws,
       sentryOrigin,
       "https://cloudflareinsights.com",
+      POSTHOG_CONNECT_ORIGIN,
       !isProd && "ws: http://localhost:*",
     ),
     "frame-src 'self' blob:",

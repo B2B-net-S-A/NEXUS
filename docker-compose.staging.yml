@@ -333,6 +333,9 @@ services:
       INTEGRATION_STALE_ALERTS_ENABLED:
       DL_ALERTS_ENABLED:
       ACCESS_USAGE_COUNTER_ENABLED:
+      # Bez POSTHOG_PROJECT_KEY na stagingu sonda i tak zwraca usageAnalytics: null,
+      # a front stagingu nie startuje pomiaru (IS_STAGING).
+      USAGE_ANALYTICS_ENABLED:
       ORDER_GAPS_ENABLED:
       LEGAL_CORPUS_EMBEDDINGS_ENABLED:
     volumes:

@@ -131,6 +131,12 @@ REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
         expires=date(2027, 1, 22),
     ),
     FeatureFlag(
+        name="USAGE_ANALYTICS_ENABLED",
+        purpose="Pomiar, które ekrany i przyciski są używane (PostHog Cloud EU, wzorzec trasy bez id, osoba = id i rola); włącza Artur po notatce do zespołu i ustawieniu POSTHOG_PROJECT_KEY.",
+        decided=date(2026, 11, 28),
+        expires=date(2027, 1, 27),
+    ),
+    FeatureFlag(
         name="AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED",
         purpose="Pierwszy przegląd nowej rekrutacji w dzień; włącza się razem z porcją dnia.",
         decided=date(2026, 11, 7),
