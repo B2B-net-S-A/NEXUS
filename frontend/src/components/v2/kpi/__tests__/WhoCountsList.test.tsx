@@ -300,6 +300,10 @@ describe("WhoCountsListView — marża placementów (27.11.2026)", () => {
       expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
     }
     expect(screen.queryByRole("columnheader", { name: "Godzina" })).not.toBeInTheDocument()
+    // 1280 px: kto wpisał zatrudnienie stoi pod „Liczy się”, nie w osobnej kolumnie.
+    expect(screen.queryByRole("columnheader", { name: "Zatrudnienie wpisał(a)" })).not.toBeInTheDocument()
+    expect(screen.getAllByText("wpisał(a): Marta Testowa (DL)")).toHaveLength(2)
+    expect(screen.getAllByTitle("Zatrudnienie wpisał(a)")).toHaveLength(2)
     expect(screen.getByText("100,00 zł/h")).toBeInTheDocument()
     expect(screen.getByText("z rekrutacji")).toBeInTheDocument()
     expect(screen.getByText("50,00 zł/h · 33,3 %")).toBeInTheDocument()
@@ -336,6 +340,7 @@ describe("WhoCountsListView — marża placementów (27.11.2026)", () => {
 
     expect(screen.queryByRole("columnheader", { name: "Marża" })).not.toBeInTheDocument()
     expect(screen.getByRole("columnheader", { name: "Godzina" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Zatrudnienie wpisał(a)" })).toBeInTheDocument()
     expect(screen.queryByTestId("who-counts-margin-summary")).not.toBeInTheDocument()
     expect(screen.queryByText(/zł\/h/)).not.toBeInTheDocument()
   })

@@ -154,6 +154,23 @@
         "Admin",
         "Rekruter"
       ]
+    },
+    "kto-sie-liczy": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/kto-sie-liczy.md",
+      "sciezki": [
+        "frontend/src/components/v2/kpi/WhoCounts*",
+        "frontend/src/lib/kpi-who-counts.ts",
+        "frontend/src/components/insights/sections/WhoCountsPanel.tsx",
+        "backend/app/services/recruitment_activity.py",
+        "backend/app/services/placement_margins.py"
+      ],
+      "role": [
+        "Admin",
+        "Finanse",
+        "Delivery Lead",
+        "Head of Recruitment",
+        "Rekruter"
+      ]
     }
   }
 }

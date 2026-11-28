@@ -90,7 +90,7 @@ export function WhoCountsListView({
 }: WhoCountsListViewProps) {
   const definition = WHO_COUNTS_METRICS[metric]
   const showCredited = response.scope === "team"
-  const showMover = response.items.some((item) => item.moved_by !== undefined)
+  const hasMover = response.items.some((item) => item.moved_by !== undefined)
   const showState = response.items.some((item) => item.state !== undefined)
   const filters = stateFilters(response)
   const showTerm = metric === "interview"
@@ -101,6 +101,10 @@ export function WhoCountsListView({
   // tylko kontom z prawem do kwot. Przy 1280 px miejsce robi kolumna „Godzina”.
   const showMargin = metric === "placement" && Boolean(response.margin_scope)
   const showTime = !showTerm && !showMargin
+  // Z marżą tabela nie mieści się w 1280 px (makieta B2): kto wpisał etap
+  // przechodzi pod „Liczy się”, zamiast znikać.
+  const moverUnderCredited = hasMover && showMargin && showCredited
+  const showMover = hasMover && !moverUnderCredited
   const groups = termLayout
     ? groupByTerm(response.items, today)
     : groupByDay(response.items, today)
@@ -304,8 +308,21 @@ export function WhoCountsListView({
                           </td>
                         ) : null}
                         {showCredited ? (
-                          <td className="whitespace-nowrap px-3 py-2 align-top">
+                          <td
+                            className={cn(
+                              "px-3 py-2 align-top",
+                              moverUnderCredited ? "max-w-[11rem]" : "whitespace-nowrap",
+                            )}
+                          >
                             {item.credited_user?.name ?? "—"}
+                            {moverUnderCredited ? (
+                              <span
+                                className="block text-xs text-muted-foreground"
+                                title={definition.moverLabel}
+                              >
+                                wpisał(a): {moverText(item.moved_by, viewerId)}
+                              </span>
+                            ) : null}
                           </td>
                         ) : null}
                         {showMargin ? <MarginCells item={item} /> : null}
