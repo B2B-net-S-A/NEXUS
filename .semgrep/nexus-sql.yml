@@ -1,0 +1,34 @@
+# Własne reguły Semgrepa NEXUSA (28.11.2026). Opis i zapadka:
+# docs/claude/podstawy/skanery-bezpieczenstwa.md
+rules:
+  # Reguła z rejestru `avoid-sqlalchemy-text` działa w trybie taint w obrębie
+  # jednej funkcji: widzi tylko SQL sklejany na miejscu (f-string, `+`, `%`,
+  # `.format`). SQL zbudowany w innej funkcji albo module, przez `.join(...)`
+  # albo przekazany parametrem przechodził bez przeglądu (124 wywołania
+  # 28.11.2026, wszystkie bezpieczne). Ta reguła łapie resztę niedosłownych
+  # argumentów; to, co widzi reguła rejestru, jest wykluczone, żeby jedno
+  # miejsce nie miało dwóch wpisów w baseline.
+  - id: nexus-sqlalchemy-text-built-elsewhere
+    languages: [python]
+    severity: WARNING
+    message: >-
+      text() dostaje SQL zbudowany poza tym wywołaniem. Sprawdź, skąd pochodzi
+      każda wklejana część (stała, biała lista, nazwa z katalogu bazy), a
+      wartości przekaż bindem (:nazwa). Świadomy wyjątek: .semgrep-baseline.json
+      z powodem.
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    paths:
+      # Predykaty indeksów i więzów w definicjach klas liczą się raz przy
+      # imporcie ze stałych modułu — żądanie tam nie sięga.
+      exclude:
+        - backend/app/models/
+    patterns:
+      - pattern: sqlalchemy.text($SQL, ...)
+      - pattern-not: sqlalchemy.text("...", ...)
+      - pattern-not: sqlalchemy.text(f"...", ...)
+      - pattern-not: sqlalchemy.text($A + $B, ...)
+      - pattern-not: sqlalchemy.text($A % $B, ...)
+      - pattern-not: sqlalchemy.text("...".format(...), ...)

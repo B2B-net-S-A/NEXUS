@@ -9,7 +9,7 @@ traversal ani audytu znanych podatności zależności na PR-ze.
 
 | Skaner | Kiedy | Gdzie |
 |---|---|---|
-| Semgrep (`p/python`, `p/fastapi`, `p/typescript`, `p/react`) | każdy PR, tylko zmienione pliki `backend/**/*.py` i `frontend/**/*.{ts,tsx,js,jsx,mjs,cjs}` | `ci.yml` → `semgrep-pr` |
+| Semgrep (`p/python`, `p/fastapi`, `p/typescript`, `p/react` + własne `.semgrep/nexus-sql.yml`) | każdy PR, tylko zmienione pliki `backend/**/*.py` i `frontend/**/*.{ts,tsx,js,jsx,mjs,cjs}` | `ci.yml` → `semgrep-pr` |
 | pip-audit (`backend/requirements.txt`) | PR, który zmienia `backend/requirements*.txt` | `ci.yml` → `deps-audit-pr` |
 | npm audit (`frontend/`, `--omit=dev`, waga high+) | PR, który zmienia `frontend/package.json` albo `package-lock.json` | `ci.yml` → `deps-audit-pr` |
 | zizmor (linter bezpieczeństwa GitHub Actions) | PR, który zmienia `.github/workflows/**`, `dependabot.yml` albo zapadkę | `ci.yml` → `zizmor-pr` |
@@ -47,7 +47,8 @@ traversal ani audytu znanych podatności zależności na PR-ze.
   ```bash
   pip install semgrep==1.136.0 setuptools==75.8.0   # wersja jak „semgrep” w baseline
   semgrep scan --metrics=off --config p/python --config p/fastapi \
-    --config p/typescript --config p/react --json --output semgrep.json backend frontend
+    --config p/typescript --config p/react --config .semgrep/nexus-sql.yml \
+    --json --output semgrep.json backend frontend
   python3 .github/scripts/semgrep_ratchet.py update --results semgrep.json \
     --status zweryfikowane --reason "Nazwa tabeli ze stałej listy, wartości przez bind."
   ```
@@ -224,6 +225,29 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   (gosu bez sieci i TLS, libxml2 bez funkcji XML w SQL, libzstd w Qdrancie i we
   freshclamie ClamAV) i `dependency-audit-baseline.json` (glob/minimatch tylko
   we wtyczce budowania Sentry, termin 28.02.2027). Wynik: 0 pozycji do reakcji.
+
+### Własna reguła: `text()` z SQL-em zbudowanym gdzie indziej (28.11.2026)
+- Reguła z rejestru `avoid-sqlalchemy-text` działa w trybie taint w obrębie jednej
+  funkcji. Źródłem jest dla niej tylko sklejanie na miejscu (f-string, `+`, `%`,
+  `.format`), więc nie widziała SQL-a z innej funkcji albo modułu
+  (`text(build_sql(...))`, `text(schema.X)`), z `.join(...)` ani przekazanego
+  parametrem. 28.11 takich wywołań było 124 (61 w `app/models/`). Przegląd:
+  wszystkie bezpieczne — stałe, białe listy, nazwy z katalogu bazy, wartości
+  przez bind.
+- `.semgrep/nexus-sql.yml` (`nexus-sqlalchemy-text-built-elsewhere`) łapie każdy
+  niedosłowny argument `text()` poza tym, co widzi reguła rejestru, bez
+  `backend/app/models/` (predykaty indeksów liczone przy imporcie). Baseline:
+  131 wpisów `zweryfikowane` z powodem per plik; 71 z nich to te same linie co
+  wpis reguły rejestru (pętla po zmiennej zbudowanej f-stringiem w funkcji).
+- Identyfikator reguły z pliku zależy od ścieżki (`semgrep.nexus-…`), więc każdy
+  skan podaje `--config .semgrep/nexus-sql.yml` względnie od korzenia repo; pilnuje
+  tego `test_every_semgrep_scan_uses_the_repo_rules_from_baseline`. Przykłady
+  reguły: `.semgrep/nexus-sql.py`, `semgrep --test --config .semgrep/nexus-sql.yml
+  .semgrep/nexus-sql.py`. PR zmieniający `.semgrep/` uruchamia test reguł i skan
+  całości, bo nowa reguła trafia też w niezmieniony kod.
+- Fingerprint wpisu to dopasowane `text(sql)`, nie budujący je kod: zmiana
+  w funkcji, która składa SQL, nie wymusi ponownego przeglądu. Reguła pilnuje
+  nowych miejsc wywołania, a nie zmian w budowniczych.
 
 ### Gitleaks na pełnej historii (jednorazowo, 27.11.2026)
 - gitleaks 8.21.2, `.gitleaks.toml`, `--log-opts=--all`, `--redact`: 13 558

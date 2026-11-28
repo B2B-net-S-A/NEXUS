@@ -628,12 +628,20 @@ jobs:
           gh api --paginate "/repos/$REPO/pulls/$PR_NUMBER/files" \
             --jq '.[] | select(.status != "removed") | .filename' > "$RUNNER_TEMP/pr-files.txt"
           : > "$RUNNER_TEMP/semgrep-targets.txt"
+          rules=false
           while IFS= read -r f; do
             case "$f" in
               backend/*.py|frontend/*.ts|frontend/*.tsx|frontend/*.js|frontend/*.jsx|frontend/*.mjs|frontend/*.cjs)
                 if [ -f "$f" ]; then printf '%s\n' "$f" >> "$RUNNER_TEMP/semgrep-targets.txt"; fi ;;
+              .semgrep/*) rules=true ;;
             esac
           done < "$RUNNER_TEMP/pr-files.txt"
+          # Zmiana własnych reguł (`.semgrep/`) = test reguł i skan całości,
+          # bo nowa reguła trafia też w niezmieniony kod.
+          if [ "$rules" = true ]; then
+            printf '%s\n' backend frontend > "$RUNNER_TEMP/semgrep-targets.txt"
+          fi
+          echo "rules=$rules" >> "$GITHUB_OUTPUT"
           count=$(wc -l < "$RUNNER_TEMP/semgrep-targets.txt" | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
           if [ "$count" = "0" ]; then
@@ -657,14 +665,23 @@ jobs:
       # Skan katalogów z `--include` zamiast listy plików: jawnie podany plik
       # Semgrep skanuje nawet wtedy, gdy `.semgrepignore` go pomija (testy).
       # Ponowienia: reguły przychodzą z rejestru semgrep.dev.
+      - name: Test własnych reguł Semgrepa
+        if: steps.files.outputs.rules == 'true'
+        run: semgrep --test --metrics=off --disable-version-check --config .semgrep/nexus-sql.yml .semgrep/nexus-sql.py
       - name: Semgrep
         if: steps.files.outputs.count != '0'
+        env:
+          RULES_CHANGED: ${{ steps.files.outputs.rules }}
         run: |
           set -euo pipefail
-          mapfile -t includes < <(python3 .github/scripts/semgrep_ratchet.py include-args "$RUNNER_TEMP/semgrep-targets.txt")
+          includes=()
+          if [ "$RULES_CHANGED" != "true" ]; then
+            mapfile -t includes < <(python3 .github/scripts/semgrep_ratchet.py include-args "$RUNNER_TEMP/semgrep-targets.txt")
+          fi
           for attempt in 1 2 3; do
             if semgrep scan --metrics=off --disable-version-check \
                 --config p/python --config p/fastapi --config p/typescript --config p/react \
+                --config .semgrep/nexus-sql.yml \
                 --json --output semgrep.json "${includes[@]}" backend frontend; then
               exit 0
             fi
