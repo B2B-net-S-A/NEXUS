@@ -1489,6 +1489,134 @@ async def test_keep_existing_terms_message_survives_the_cost_client_suffix(
     assert "Zamówienia nie utworzono automatycznie" in body["message"]
 
 
+@pytest.mark.parametrize("keep_existing_terms", [False, True])
+@pytest.mark.asyncio
+async def test_new_agreement_never_links_to_a_running_contract(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    keep_existing_terms: bool,
+):
+    """Umowa startująca PÓŹNIEJ niż kontrakt, który już trwa, to nowa umowa
+    (28.11.2026: umowa z listopada podpięta pod kontrakt z 2025 r. liczyła
+    placement od 2025 r. po starej stawce). „Zachowaj warunki” jej nie
+    podpina — twardy 409 bez podpowiedzi, kontrakt bez zmian."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2025, 2, 18),
+        rate_candidate=Decimal("220.000"),
+        rate_client=Decimal("219.000"),
+    )
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": keep_existing_terms},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["contract_ids"] == [existing_id]
+    assert detail.get("can_keep_existing_terms") is not True
+    assert "nowa umowa" in detail["message"]
+    assert "zmianę stawki" in detail["message"]
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        1,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, existing_id)
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert contract is not None
+        assert contract.start_date == date(2025, 2, 18)
+        assert contract.rate_candidate == Decimal("220.000")
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+        assert generated.contract_id is None
+        link_audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == existing_id,
+                Activity.action == "linked_to_generated_contract",
+            )
+        )
+        assert link_audit is None
+
+
+@pytest.mark.asyncio
+async def test_new_agreement_links_once_its_rate_step_is_on_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Droga wyjścia z blokady: zmiana stawki konsultanta od dnia startu
+    umowy, z jej stawką, już w kontrakcie — wtedy dokument opisuje ten krok
+    i „Zachowaj warunki” go podpina, nic nie nadpisując."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2025, 2, 18),
+        rate_candidate=Decimal("220.000"),
+        rate_client=Decimal("219.000"),
+    )
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                ContractCandidateRate(
+                    contract_id=existing_id,
+                    rate=Decimal("220.000"),
+                    effective_from=date(2025, 2, 18),
+                    effective_to=date(2026, 7, 31),
+                ),
+                ContractCandidateRate(
+                    contract_id=existing_id,
+                    rate=Decimal("150.500"),
+                    effective_from=date(2026, 8, 1),
+                ),
+            ]
+        )
+        await db.commit()
+
+    blocked = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["can_keep_existing_terms"] is True
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["contract_id"] == existing_id
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, existing_id)
+        assert contract is not None
+        assert contract.start_date == date(2025, 2, 18)
+        schedule = (
+            (
+                await db.execute(
+                    select(ContractCandidateRate)
+                    .where(ContractCandidateRate.contract_id == existing_id)
+                    .order_by(ContractCandidateRate.effective_from)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [(row.rate, row.effective_from) for row in schedule] == [
+            (Decimal("220.000"), date(2025, 2, 18)),
+            (Decimal("150.500"), date(2026, 8, 1)),
+        ]
+
+
 @pytest.mark.asyncio
 async def test_keep_existing_terms_is_a_no_op_without_conflicts(
     app_client: AsyncClient, app_auth_headers: dict[str, str]

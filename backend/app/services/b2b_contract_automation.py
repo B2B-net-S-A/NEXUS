@@ -156,6 +156,61 @@ def _raise_conflict(contract: Contract, details: list[str]) -> None:
     )
 
 
+_RUNNING_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+
+
+def _new_agreement_on_running_contract(
+    contract: Contract, payload: Any | None
+) -> date | None:
+    """Start podpisanej umowy, gdy to NOWA umowa na kontrakcie, który już trwa.
+
+    28.11.2026: umowa startująca 01.12.2026 została podpięta pod kontrakt
+    z 2025 r. z „zachowaj warunki” — placement liczył się od 2025 r. po
+    starej stawce, kroku stawki nie było. „Zachowaj warunki” jest dla tej
+    samej umowy zapisanej dwa razy, nie dla kontynuacji. Wyjście: etap stawki
+    konsultanta od dnia startu umowy z jej stawką już w kontrakcie — wtedy
+    dokument opisuje ten krok i blokada puszcza.
+    """
+
+    document_start = _payload_value(payload, "start_date")
+    if (
+        document_start is None
+        or contract.status not in _RUNNING_CONTRACT_STATUSES
+        or contract.start_date is None
+        or contract.start_date >= business_today()
+        or document_start <= contract.start_date
+    ):
+        return None
+    document_rate = _payload_value(payload, "rate_candidate")
+    for stage in contract.candidate_rate_schedule or []:
+        if stage.effective_from == document_start and (
+            document_rate is None
+            or Decimal(str(stage.rate)) == Decimal(str(document_rate))
+        ):
+            return None
+    return document_start
+
+
+def _raise_new_agreement(contract: Contract, document_start: date) -> None:
+    """Twardy 409 — bez ``can_keep_existing_terms``, flaga go nie obchodzi."""
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=_conflict_detail(
+            (
+                f"Podpisana umowa zaczyna się {document_start:%d.%m.%Y}, "
+                f"a kontrakt #{contract.id} trwa od "
+                f"{contract.start_date:%d.%m.%Y} — to nowa umowa, nie ta sama "
+                "zapisana drugi raz. Dodaj w kontrakcie zmianę stawki "
+                "konsultanta od dnia startu umowy i potwierdź podpis ponownie "
+                "albo zakończ dotychczasowy kontrakt (podpis założy nowy). "
+                "Jeśli to ta sama umowa, popraw datę startu kontraktu. "
+                "Nie zmieniono żadnych danych."
+            ),
+            contract_ids=[contract.id],
+        ),
+    )
+
+
 async def _is_skeletal_pipeline_draft(
     db: AsyncSession,
     contract: Contract,
@@ -1306,6 +1361,9 @@ async def ensure_b2b_employment_draft(
                     ),
                 )
         if require_b2b and validate_terms:
+            new_agreement_start = _new_agreement_on_running_contract(contract, payload)
+            if new_agreement_start is not None:
+                _raise_new_agreement(contract, new_agreement_start)
             conflicts = _collect_term_conflicts(
                 contract,
                 existing_detail,
