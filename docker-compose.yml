@@ -152,7 +152,7 @@ services:
     # wdrożenie, bo Qdrant gwarantuje zgodność storage tylko o jeden krok.
     # Próba na kopii wolumenu stagingu: 8 kolekcji green, te same liczby
     # punktów i wyniki query_points na każdym kroku.
-    image: qdrant/qdrant:v1.18.3
+    image: qdrant/qdrant:v1.19.2
     restart: unless-stopped
     # 370 MiB zmierzone 2026-08-12 (z kolekcją pasaży, INT8 always_ram);
     # 3G daje zapas na wzrost bazy i przyszłe eksperymenty z kolekcjami.
