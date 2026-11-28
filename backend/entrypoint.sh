@@ -1516,7 +1516,7 @@ try:
         *_sales_schema.BOT_LISTS_DDL,
         # 0770: przetargi z BZP i TED (ogłoszenia po bramce reguł Kingi).
         *_sales_schema.TENDERS_DDL,
-        # 0802: „Usuń z listy” w Dzwonieniu (miękkie usunięcie rekordu kolejki).
+        # 0804: „Usuń z listy” w Dzwonieniu (miękkie usunięcie rekordu kolejki).
         *_sales_schema.CALL_RECORD_REMOVAL_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)

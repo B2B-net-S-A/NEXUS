@@ -1,7 +1,7 @@
 """Sprzedaż → Dzwonienie: „Usuń z listy” z akcji zbiorczych Tabeli (miękkie usunięcie).
 
-Revision ID: 0802_sales_call_record_removed
-Revises: 0801_b2b_krz_check
+Revision ID: 0804_sales_call_record_removed
+Revises: 0803_break_glass_login_alert
 
 Decyzja Artura z 27.11.2026 (wariant A): ``sales_call_records.removed_at`` i kto usunął.
 Rekord znika z kolejki i Tabeli, „Cofnij” go przywraca, a bramka importu dalej go widzi.
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0802_sales_call_record_removed"
-down_revision = "0801_b2b_krz_check"
+revision = "0804_sales_call_record_removed"
+down_revision = "0803_break_glass_login_alert"
 branch_labels = None
 depends_on = None
 

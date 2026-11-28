@@ -199,7 +199,7 @@ def test_models_match_the_ddl(table: str, model: Any) -> None:
     )
     declared = set(re.findall(r"^\s+([a-z_0-9]+) [A-Z]", ddl, re.MULTILINE))
     # Kolumny dołożone później przez ALTER TABLE (0690: brief Bota Listy,
-    # 0802: „Usuń z listy” w Tabeli).
+    # 0804: „Usuń z listy” w Tabeli).
     for statement in (*schema.BOT_LISTS_DDL, *schema.CALL_RECORD_REMOVAL_DDL):
         declared |= set(
             re.findall(

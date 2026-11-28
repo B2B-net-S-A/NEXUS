@@ -1168,7 +1168,7 @@ TENDERS_DDL: tuple[str, ...] = (
 )
 TENDERS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_tender_notices",)
 
-# 0802: „Usuń z listy” z akcji zbiorczych Tabeli (decyzja Artura 27.11.2026, wariant A).
+# 0804: „Usuń z listy” z akcji zbiorczych Tabeli (decyzja Artura 27.11.2026, wariant A).
 # Usunięcie jest miękkie: rekord znika z kolejki, Tabeli, Przypomnień i liczników, ale
 # zostaje w bazie, więc „Cofnij” go przywraca, a bramka importu dalej go widzi i ten sam
 # NIP nie wraca z kolejną listą. Historia telefonów (``sales_activities``) się nie zmienia.
