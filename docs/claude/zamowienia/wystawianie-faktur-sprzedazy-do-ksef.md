@@ -83,6 +83,11 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 
 ## Wysyłka do KSeF
 
+- **Przed numerem** (28.11.2026, `issue.problems`): polski NIP nabywcy z błędną cyfrą kontrolną
+  i data wystawienia późniejsza niż dziś (`business_today()`) blokują wysyłkę. KSeF testowy MF
+  przyjął fakturę z NIP-em z błędną cyfrą kontrolną (na produkcji = korekta), a przyszłą datę
+  odrzuca kodem 450 dopiero po nadaniu numeru.
+
 - `KSEF_SALES_ISSUE_MODE=off|test|prod` (domyślnie `off`: „Wyślij do KSeF” nieaktywny z wyjaśnieniem; szkice
   działają). Kontekst `KSEF_CONTEXT_NIP`. Token z `InvoiceWrite`: `KSEF_SALES_ISSUE_TOKEN`, a gdy pusty —
   `KSEF_TOKEN`, który od 16.11.2026 ma pełne prawa (decyzja Artura). Ustawiane wyłącznie workflow „Coolify set env”.
