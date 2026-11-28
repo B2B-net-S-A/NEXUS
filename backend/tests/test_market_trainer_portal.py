@@ -1,4 +1,4 @@
-"""Wejście trenera z rynku do panelu (0807). Dane fikcyjne — repo jest publiczne.
+"""Wejście trenera z rynku do panelu (0808). Dane fikcyjne — repo jest publiczne.
 
 Pilnuje reguł z treści handlerów, których macierz bramek nie widzi:
 

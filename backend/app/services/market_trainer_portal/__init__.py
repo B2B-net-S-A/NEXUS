@@ -1,4 +1,4 @@
-"""Wejście trenera z rynku do panelu ``/konsultant`` (0807, decyzje Artura 28.11.2026).
+"""Wejście trenera z rynku do panelu ``/konsultant`` (0808, decyzje Artura 28.11.2026).
 
 * ``switch`` — własny włącznik ``app_settings['market_trainer_portal']``, niezależny
   od panelu konsultanta; wyłączony = publiczne trasy 404 i żaden mail nie wychodzi;

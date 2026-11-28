@@ -129,7 +129,7 @@ Trenerem może zgłosić się każdy, także bez kontraktu: tylko z firmą, rozl
 umowa szkoleniowa bez zmian. Zgłoszenie przychodzi ze strony do `market_trainer_applications`,
 a TCM prowadzi je w zakładce „Zgłoszenia trenerów” (nowe → rozmowa → w bazie trenerów /
 odrzucone). Trener z bazy wchodzi do panelu osobnym wejściem z danymi firmy od TCM, bez
-kontraktu w rejestrze (0807), a jego szkolenie idzie obiegiem trenera B2B z
+kontraktu w rejestrze (0808), a jego szkolenie idzie obiegiem trenera B2B z
 `trainer_market_id` → `ludzie/panel-trenera-z-rynku.md`. Kontrakt strony i reguły zgłoszeń →
 `integracje/strona-www-trener-i-polecenie.md`.
 

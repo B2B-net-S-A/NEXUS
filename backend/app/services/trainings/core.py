@@ -130,7 +130,7 @@ async def get(db: AsyncSession, training_id: int, *, lock: bool = False) -> Trai
 def is_trainers(
     training: Training, contract_ids: Iterable[int], market_id: Optional[int]
 ) -> bool:
-    """Szkolenie prowadzi ten trener: konsultant (kontrakty) albo trener z rynku (0807)."""
+    """Szkolenie prowadzi ten trener: konsultant (kontrakty) albo trener z rynku (0808)."""
     if market_id is not None and training.trainer_market_id == market_id:
         return True
     return (

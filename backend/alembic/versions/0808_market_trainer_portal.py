@@ -1,7 +1,7 @@
 """Wejście trenera z rynku do panelu: dane firmy, szkolenie bez kontraktu, sesje.
 
-Revision ID: 0807_market_trainer_portal
-Revises: 0806_website_trainer_referral_intake
+Revision ID: 0808_market_trainer_portal
+Revises: 0807_security_defender_source
 
 Decyzje Artura z 28.11.2026: osobne wejście trenera (link z maila na /konsultant,
 tylko „Szkolenia” i „Trener”), dane firmy wpisuje TCM z Białej Listy, własny
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import market_trainer_portal_schema as schema
 
-revision = "0807_market_trainer_portal"
-down_revision = "0806_website_trainer_referral_intake"
+revision = "0808_market_trainer_portal"
+down_revision = "0807_security_defender_source"
 branch_labels = None
 depends_on = None
 

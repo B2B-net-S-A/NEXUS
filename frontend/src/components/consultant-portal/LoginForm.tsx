@@ -14,7 +14,7 @@ import { PortalNotice } from "./PortalShell";
 interface LoginFormProps {
   /** Panel konsultanta przyjmuje logowanie (własny włącznik). */
   consultantOpen?: boolean;
-  /** Panel trenera z rynku przyjmuje logowanie (0807, własny włącznik). */
+  /** Panel trenera z rynku przyjmuje logowanie (0808, własny włącznik). */
   trainerOpen?: boolean;
 }
 

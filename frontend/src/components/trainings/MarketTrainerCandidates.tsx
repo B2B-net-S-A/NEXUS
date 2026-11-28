@@ -54,12 +54,12 @@ interface Props {
   applications: MarketTrainerApplication[];
   busy: boolean;
   onChange: (application: MarketTrainerApplication, to: MarketTrainerStatus, note: string) => void;
-  /** 0807: otwarcie (albo poprawka) panelu z danymi firmy; `true` = zapisane. */
+  /** 0808: otwarcie (albo poprawka) panelu z danymi firmy; `true` = zapisane. */
   onOpenPanel?: (application: MarketTrainerApplication, body: MarketPanelInput) => Promise<boolean>;
   onClosePanel?: (application: MarketTrainerApplication) => void;
 }
 
-/** Panel trenera z bazy: stan wejścia, zamówienie szkolenia, dane firmy (0807). */
+/** Panel trenera z bazy: stan wejścia, zamówienie szkolenia, dane firmy (0808). */
 function PanelRow({
   application,
   busy,

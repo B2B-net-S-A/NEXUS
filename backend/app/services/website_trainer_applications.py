@@ -239,7 +239,7 @@ def serialize(row: MarketTrainerApplication) -> dict[str, Any]:
         "submissions": row.submissions,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
-        # 0807: panel trenera z rynku (dane firmy i stan wejścia).
+        # 0808: panel trenera z rynku (dane firmy i stan wejścia).
         "panel": panel_view(row),
     }
 

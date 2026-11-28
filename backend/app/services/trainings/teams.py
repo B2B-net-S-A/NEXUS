@@ -107,7 +107,7 @@ async def trainer_email(db: AsyncSession, training: Training) -> Optional[str]:
 
 
 async def market_trainer_email(db: AsyncSession, market_id: int) -> Optional[str]:
-    """Trener z rynku (0807): adres logowania przy otwartym panelu i włączniku."""
+    """Trener z rynku (0808): adres logowania przy otwartym panelu i włączniku."""
     from app.models.website_intake import MarketTrainerApplication  # noqa: PLC0415
     from app.services.market_trainer_portal import switch  # noqa: PLC0415
 

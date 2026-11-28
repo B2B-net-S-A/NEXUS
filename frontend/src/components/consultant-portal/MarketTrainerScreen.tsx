@@ -5,7 +5,7 @@ import { portalApi, portalKeys, usePortalQuery } from "@/lib/api/consultant-port
 import { Failure, Fact, Loading, Panel, ScreenTitle, TRAINER_FLOW } from "./PanelScreens";
 
 /**
- * „Dane do umowy” trenera z rynku (0807). Dane firmy wpisuje TCM przy otwarciu panelu
+ * „Dane do umowy” trenera z rynku (0808). Dane firmy wpisuje TCM przy otwarciu panelu
  * (decyzja Artura 28.11.2026), więc tu są tylko do odczytu, jak dane do przelewu
  * konsultanta. Trener rozlicza się fakturą, umowa szkoleniowa jest ta sama.
  */

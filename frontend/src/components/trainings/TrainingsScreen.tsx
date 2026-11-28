@@ -211,7 +211,7 @@ function OrganizeTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-/** Włącznik wejścia trenerów z rynku (0807): stan widzi TCM, przełącza admin. */
+/** Włącznik wejścia trenerów z rynku (0808): stan widzi TCM, przełącza admin. */
 function MarketPortalSwitch({ isAdmin }: { isAdmin: boolean }) {
   const state = useMarketPortalSwitch();
   const save = useSaveMarketPortalSwitch();

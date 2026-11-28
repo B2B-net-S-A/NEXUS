@@ -56,7 +56,7 @@ describe("strefa konsultanta", () => {
     window.sessionStorage.clear();
     nav.pathname = "/konsultant";
     nav.replace.mockReset();
-    // Wejście trenerów z rynku (0807) domyślnie zamknięte, jak na produkcji.
+    // Wejście trenerów z rynku (0808) domyślnie zamknięte, jak na produkcji.
     vi.spyOn(trainerPortalApi, "status").mockRejectedValue(refuse(404, "Not Found"));
     vi.spyOn(portalApi, "faq").mockResolvedValue({ items: [] });
     vi.spyOn(portalApi, "cases").mockResolvedValue({ items: [] });

@@ -120,7 +120,7 @@ export function NewTrainingScreen() {
   const create = useCreateTraining();
   const run = useRunAction();
 
-  // 0807: ?market=<id> z listy „Kandydaci na trenerów” — trener z rynku z otwartym panelem.
+  // 0808: ?market=<id> z listy „Kandydaci na trenerów” — trener z rynku z otwartym panelem.
   const marketParam = Number(searchParams.get("market")) || null;
   const markets = useMarketTrainerApplications(canManage);
   const [source, setSource] = useState<TrainerSource>(marketParam ? "market" : "consultant");

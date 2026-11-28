@@ -17,7 +17,7 @@ import {
   trainerPortalApi,
 } from "@/lib/api/consultant-portal";
 
-/** Link trenera z rynku (0807) ma we fragmencie `trener=<token>`. */
+/** Link trenera z rynku (0808) ma we fragmencie `trener=<token>`. */
 const TRAINER_PREFIX = "trener=";
 
 export default function ConsultantPortalEntryPage() {

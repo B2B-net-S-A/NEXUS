@@ -67,7 +67,7 @@ z panelem pilnuje test; stronę zmienia się razem z nimi.
 - Adres z działającym kontraktem (`active`, `ending`) dostaje `contract_id`: na liście
   „nasz konsultant”, bo konsultant zgłasza się zwykle w panelu.
 - TCM nie ma dzwonka o nowym zgłoszeniu; licznik nowych stoi na zakładce.
-- **Wejście trenera z bazy do panelu** (0807): TCM otwiera panel z danymi firmy, trener
+- **Wejście trenera z bazy do panelu** (0808): TCM otwiera panel z danymi firmy, trener
   loguje się na `/konsultant` i widzi tylko szkolenia → `ludzie/panel-trenera-z-rynku.md`.
 
 ## Polecenie

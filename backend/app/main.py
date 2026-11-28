@@ -1502,7 +1502,7 @@ app.add_middleware(
             r"/api/public/consultant-portal/trainings/\d+/deliverables/[a-z]+",
             2_100 * 1024 * 1024,
         ),
-        # 0807: ten sam plik z Zał. 1 od trenera z rynku.
+        # 0808: ten sam plik z Zał. 1 od trenera z rynku.
         (
             r"/api/public/trainer-portal/trainings/\d+/deliverables/[a-z]+",
             2_100 * 1024 * 1024,
@@ -2779,7 +2779,7 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
-# 0807: panel trenera z rynku — własny włącznik i sesja, tylko trasy szkoleń.
+# 0808: panel trenera z rynku — własny włącznik i sesja, tylko trasy szkoleń.
 app.include_router(
     market_trainer_portal_api.router,
     prefix="/api/public/trainer-portal",
@@ -5359,7 +5359,7 @@ async def api_health_deep_check(request: Request):
         # 0806: trener z rynku i polecenie ze strony WWW.
         ("market_trainer_applications", MarketTrainerApplication),
         ("candidate_referrals", CandidateReferral),
-        # 0807: link i sesja trenera z rynku w panelu.
+        # 0808: link i sesja trenera z rynku w panelu.
         ("mt_portal_links", MtPortalLink),
         ("mt_portal_sessions", MtPortalSession),
         # 0450: championi rekrutacji.

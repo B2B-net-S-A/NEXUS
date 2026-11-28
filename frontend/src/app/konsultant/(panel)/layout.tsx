@@ -39,7 +39,7 @@ export default function ConsultantPanelLayout({ children }: { children: ReactNod
     setMounted(true);
   }, []);
 
-  // Dwa wejścia na jednym ekranie: panel konsultanta i panel trenera z rynku (0807),
+  // Dwa wejścia na jednym ekranie: panel konsultanta i panel trenera z rynku (0808),
   // każde z własnym włącznikiem. Zamknięte oba = komunikat „niedostępny”.
   const consultantStatus = usePortalQuery(["consultant-portal", "status"], portalApi.status, mounted);
   const trainerStatus = usePortalQuery(

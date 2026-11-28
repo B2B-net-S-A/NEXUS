@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import type { PortalMe } from "@/lib/api/consultant-portal";
 import { cn } from "@/lib/utils";
 
-/** Trener z rynku (0807) widzi tylko szkolenia i dane do umowy. */
+/** Trener z rynku (0808) widzi tylko szkolenia i dane do umowy. */
 export function trainerMayOpen(pathname: string | null): boolean {
   return pathname === "/konsultant/trener" || (pathname ?? "").startsWith("/konsultant/szkolenia");
 }

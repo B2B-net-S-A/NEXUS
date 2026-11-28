@@ -1,4 +1,4 @@
-# Panel trenera z rynku — osobne wejście, własny włącznik, dane firmy od TCM (0807)
+# Panel trenera z rynku — osobne wejście, własny włącznik, dane firmy od TCM (0808)
 <!-- indeks: trener z rynku, panel trenera, mt_portal_links, mt_portal_sessions, trainer_market_id, market_trainer_portal, otwórz panel trenera, Biała Lista, dane do umowy, /api/public/trainer-portal, #trener= -->
 
 Decyzje Artura z 28.11.2026: trener z rynku z bazy trenerów
@@ -12,7 +12,7 @@ Kod: `app/services/market_trainer_portal/` (`switch`, `mail`, `auth`, `panel`),
 trasy trenera `app/api/market_trainer_portal.py` (`/api/public/trainer-portal`),
 trasy TCM i admina w `app/api/trainings.py` (`/market-applications/{id}/panel`,
 `/panel/close`, `/market-applications/company-lookup`, `/market-portal`), schemat
-`services/market_trainer_portal_schema.py` (migracja 0807). Front: `LoginForm`,
+`services/market_trainer_portal_schema.py` (migracja 0808). Front: `LoginForm`,
 `konsultant/(panel)/layout.tsx`, `konsultant/wejscie`, `PanelNav`,
 `MarketTrainerScreen`, `MarketPanelDialog`, `NewTrainingScreen` (`?market=`).
 Testy: `tests/test_market_trainer_portal.py`, `portal-screens.test.tsx`,

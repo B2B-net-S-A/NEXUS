@@ -1443,7 +1443,7 @@ except Exception as _altcha_schema_err:  # noqa: BLE001
     print(f"altcha DDL unavailable: {_altcha_schema_err!r}")
     _ALTCHA_DDL = []
 
-# Wejście trenera z rynku do panelu (migracja 0807) — JEDNO źródło z migracją
+# Wejście trenera z rynku do panelu (migracja 0808) — JEDNO źródło z migracją
 # (`app/services/market_trainer_portal_schema.py`). Po `_HR_COLUMN_DDL`, bo
 # zmienia `trainings` i `training_files` z paczki HR.
 try:
@@ -7447,7 +7447,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
     # macierzy w `_DATA_STATEMENTS`).
     *_HR_COLUMN_DDL,
-    # 0807: wejście trenera z rynku (po `trainings` z paczki HR i po 0806).
+    # 0808: wejście trenera z rynku (po `trainings` z paczki HR i po 0806).
     *_MARKET_TRAINER_PORTAL_DDL,
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,

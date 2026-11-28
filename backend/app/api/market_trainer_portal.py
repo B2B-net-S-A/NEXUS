@@ -1,4 +1,4 @@
-"""Panel trenera z rynku: ``/api/public/trainer-portal`` (0807, decyzje Artura 28.11.2026).
+"""Panel trenera z rynku: ``/api/public/trainer-portal`` (0808, decyzje Artura 28.11.2026).
 
 Trener z rynku loguje się tym samym ekranem ``/konsultant`` co konsultant, ale jego
 link i sesja żyją w osobnych tabelach (``services/market_trainer_portal/auth``),

@@ -118,7 +118,7 @@ async def file_reviewed(
 async def _send_market(
     db: AsyncSession, training: Training, subject: str, body: str
 ) -> None:
-    """Trener z rynku (0807): adres logowania z panelu, wyłącznik wejścia trenera."""
+    """Trener z rynku (0808): adres logowania z panelu, wyłącznik wejścia trenera."""
     from app.models.website_intake import MarketTrainerApplication  # noqa: PLC0415
     from app.services.market_trainer_portal import mail  # noqa: PLC0415
 

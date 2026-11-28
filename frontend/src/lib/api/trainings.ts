@@ -141,7 +141,7 @@ export interface TrainingView {
   status_label: string;
   trainer_kind: TrainerKind;
   trainer_contract_id: number | null;
-  /** Trener z rynku (0807): obieg trenera B2B bez kontraktu. */
+  /** Trener z rynku (0808): obieg trenera B2B bez kontraktu. */
   trainer_market_id?: number | null;
   trainer_user_id: number | null;
   trainer_name: string;
@@ -297,7 +297,7 @@ export interface MarketTrainerApplication {
   submissions: number;
   created_at: string;
   updated_at: string;
-  /** 0807: panel trenera z rynku — dane firmy do umowy i stan wejścia. */
+  /** 0808: panel trenera z rynku — dane firmy do umowy i stan wejścia. */
   panel: MarketTrainerPanel;
 }
 

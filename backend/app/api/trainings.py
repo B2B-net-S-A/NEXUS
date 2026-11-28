@@ -215,7 +215,7 @@ class OrderBody(BaseModel):
 class CreateBody(OrderBody):
     trainer_contract_id: Optional[int] = None
     trainer_user_id: Optional[int] = None
-    # 0807: trener z rynku z otwartym panelem (``market_trainer_applications.id``).
+    # 0808: trener z rynku z otwartym panelem (``market_trainer_applications.id``).
     trainer_market_id: Optional[int] = None
     application_id: Optional[int] = None
 
@@ -544,7 +544,7 @@ async def market_application_status(
     return {"application": market_trainers.serialize(row)}
 
 
-# ── Panel trenera z rynku (0807, decyzje Artura 28.11.2026) ─────────────────
+# ── Panel trenera z rynku (0808, decyzje Artura 28.11.2026) ─────────────────
 # Otwiera i zamyka TCM (dane firmy do umowy z podpowiedzią z Białej Listy),
 # włącznik całego wejścia przełącza admin.
 
@@ -907,7 +907,7 @@ async def partner(
     except TrainingError as exc:
         raise _translate(exc) from exc
     if training.trainer_market_id is not None:
-        # 0807: trener z rynku — dane firmy wpisane przez TCM przy otwarciu panelu.
+        # 0808: trener z rynku — dane firmy wpisane przez TCM przy otwarciu panelu.
         from app.models.website_intake import MarketTrainerApplication
 
         trainer = await db.get(MarketTrainerApplication, training.trainer_market_id)

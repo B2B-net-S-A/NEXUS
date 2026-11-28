@@ -1,4 +1,4 @@
-"""Wejście trenera z rynku do panelu (0807) — JEDNO źródło dla migracji i siatki
+"""Wejście trenera z rynku do panelu (0808) — JEDNO źródło dla migracji i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 Decyzje Artura z 28.11.2026: trener z rynku (``market_trainer_applications``

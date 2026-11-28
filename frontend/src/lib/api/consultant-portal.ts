@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const PREFIX = `${API_BASE}/api/public/consultant-portal`;
-/** Panel trenera z rynku (0807): ten sam ekran, osobne trasy i sesja. */
+/** Panel trenera z rynku (0808): ten sam ekran, osobne trasy i sesja. */
 const TRAINER_PREFIX = `${API_BASE}/api/public/trainer-portal`;
 const SESSION_KEY = "nexus_consultant_portal_session";
 const KIND_KEY = "nexus_consultant_portal_kind";

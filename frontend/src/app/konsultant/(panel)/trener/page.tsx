@@ -8,7 +8,7 @@ import { portalKind, type PortalKind } from "@/lib/api/consultant-portal";
 
 /**
  * Panel konsultanta: zgłoszenie trenera (link z zakładki Szkolenia). Trener z rynku
- * (0807) widzi tu dane firmy do umowy. Sesję i wczytanie danych osoby pilnuje układ.
+ * (0808) widzi tu dane firmy do umowy. Sesję i wczytanie danych osoby pilnuje układ.
  */
 export default function Page() {
   const [kind, setKind] = useState<PortalKind | null>(null);

@@ -1,4 +1,4 @@
-# Scenariusz: panel trenera z rynku (0807)
+# Scenariusz: panel trenera z rynku (0808)
 
 Reguła: `docs/claude/ludzie/panel-trenera-z-rynku.md`. Backend gałęzi na własnej kopii
 bazy (zmiana schematu). Trener z rynku i jego firma fikcyjni (Anna Przykładowa,

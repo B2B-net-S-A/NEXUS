@@ -101,7 +101,7 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "require_scope",
     "get_extension_principal",
     "portal_context",
-    # Panel trenera z rynku (0807): sesja w ``mt_portal_sessions``.
+    # Panel trenera z rynku (0808): sesja w ``mt_portal_sessions``.
     "trainer_context",
     # Raport bota researchu: jednorazowy token biegu (``X-Run-Token``).
     "require_signal_run_token",
@@ -422,7 +422,7 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/public/consultant-portal/rating-form"),
     ("POST", "/api/public/consultant-portal/session"),
     ("GET", "/api/public/consultant-portal/status"),
-    # Panel trenera z rynku (0807): wejście jak w panelu konsultanta.
+    # Panel trenera z rynku (0808): wejście jak w panelu konsultanta.
     ("POST", "/api/public/trainer-portal/link"),
     ("POST", "/api/public/trainer-portal/session"),
     ("GET", "/api/public/trainer-portal/status"),

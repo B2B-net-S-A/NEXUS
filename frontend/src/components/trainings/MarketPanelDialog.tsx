@@ -41,7 +41,7 @@ function initial(application: MarketTrainerApplication): MarketPanelInput {
 }
 
 /**
- * „Otwórz panel trenera” (0807, decyzja Artura 28.11.2026): dane firmy do umowy
+ * „Otwórz panel trenera” (0808, decyzja Artura 28.11.2026): dane firmy do umowy
  * szkoleniowej wpisuje TCM, NIP podpowiada Biała Lista jak w Generatorze B2B.
  * Zapis wysyła trenerowi link do panelu (gdy wejście trenerów jest włączone).
  */

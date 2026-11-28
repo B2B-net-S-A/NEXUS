@@ -104,7 +104,7 @@ class MarketTrainerApplication(Base):
     submissions: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
-    # 0807: panel trenera z rynku — dane firmy do umowy (TCM z Białej Listy),
+    # 0808: panel trenera z rynku — dane firmy do umowy (TCM z Białej Listy),
     # adres logowania i kto/kiedy otworzył albo zamknął panel.
     company_name: Mapped[str] = mapped_column(
         String(portal_schema.COMPANY_MAX), nullable=False, server_default="", default=""

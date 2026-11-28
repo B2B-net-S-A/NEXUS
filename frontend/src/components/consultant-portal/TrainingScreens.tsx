@@ -611,7 +611,7 @@ export function TrainingsView({
   today?: string;
   initialTab?: TrainingsTab;
   initialRecording?: number | null;
-  /** Trener z rynku (0807): tylko „Prowadzę”, bez biblioteki i zapisów. */
+  /** Trener z rynku (0808): tylko „Prowadzę”, bez biblioteki i zapisów. */
   marketTrainer?: boolean;
 }) {
   const [tab, setTab] = useState<TrainingsTab>(

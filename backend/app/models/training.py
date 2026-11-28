@@ -52,7 +52,7 @@ class Training(Base):
         CheckConstraint(schema.CK_STATUS, name="ck_trainings_status"),
         CheckConstraint(schema.CK_TRAINER_KIND, name="ck_trainings_trainer_kind"),
         CheckConstraint(schema.CK_TRAINER, name="ck_trainings_trainer"),
-        # 0807: szkolenie trenera z rynku — obieg trenera B2B bez kontraktu.
+        # 0808: szkolenie trenera z rynku — obieg trenera B2B bez kontraktu.
         CheckConstraint(
             portal_schema.CK_TRAINER_MARKET, name="ck_trainings_trainer_market"
         ),
@@ -263,7 +263,7 @@ class TrainingFile(Base):
     uploaded_by_contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
     )
-    # 0807: plik od trenera z rynku (bez kontraktu).
+    # 0808: plik od trenera z rynku (bez kontraktu).
     uploaded_by_market_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("market_trainer_applications.id", ondelete="SET NULL"), nullable=True
     )
