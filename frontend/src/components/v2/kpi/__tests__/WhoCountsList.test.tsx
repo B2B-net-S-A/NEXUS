@@ -253,6 +253,99 @@ describe("WhoCountsListView — daty", () => {
   })
 })
 
+describe("WhoCountsListView — marża placementów (27.11.2026)", () => {
+  const MARGIN = {
+    cost_per_hour: 100,
+    client_per_hour: 150,
+    cost_currency: "PLN",
+    client_currency: "PLN",
+    per_hour: 50,
+    per_month: 8400,
+    percent: 33.3,
+    client_from_recruitment: false,
+    missing: null,
+  } as const
+  const placement = (id: number, overrides: Partial<RecruitmentActivityDetailResponse["items"][number]>) => ({
+    ...RESPONSE.items[0],
+    candidate: { id, name: `Osoba ${id}`, href: `/candidates/${id}` },
+    state: "hired" as const,
+    state_stage: "hired",
+    start_on: "2026-11-23",
+    ...overrides,
+  })
+  const PLACEMENTS: RecruitmentActivityDetailResponse = {
+    ...RESPONSE,
+    metric: "placement",
+    scope: "team",
+    margin_scope: "all",
+    margin_summary: {
+      per_hour: 49,
+      per_month: 8232,
+      counted: 2,
+      from_recruitment: 1,
+      negative: 1,
+      hidden: 0,
+      missing: 0,
+    },
+    items: [
+      placement(1, { margin: { ...MARGIN, client_from_recruitment: true } }),
+      placement(2, { margin: { ...MARGIN, cost_per_hour: 220, client_per_hour: 219, per_hour: -1, per_month: -168, percent: null } }),
+    ],
+  }
+
+  it("Finanse: koszt, klient i marża zamiast godziny, minus na czerwono, znaczek „z rekrutacji”", () => {
+    renderView("placement", PLACEMENTS)
+
+    for (const name of ["Koszt", "Klient", "Marża"]) {
+      expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
+    }
+    expect(screen.queryByRole("columnheader", { name: "Godzina" })).not.toBeInTheDocument()
+    // 1280 px: kto wpisał zatrudnienie stoi pod „Liczy się”, nie w osobnej kolumnie.
+    expect(screen.queryByRole("columnheader", { name: "Zatrudnienie wpisał(a)" })).not.toBeInTheDocument()
+    expect(screen.getAllByText("wpisał(a): Marta Testowa (DL)")).toHaveLength(2)
+    expect(screen.getAllByTitle("Zatrudnienie wpisał(a)")).toHaveLength(2)
+    expect(screen.getByText("100,00 zł/h")).toBeInTheDocument()
+    expect(screen.getByText("z rekrutacji")).toBeInTheDocument()
+    expect(screen.getByText("50,00 zł/h · 33,3 %")).toBeInTheDocument()
+    expect(screen.getByText("8 400 zł/mies.")).toBeInTheDocument()
+    expect(screen.getByText("-1,00 zł/h")).toHaveClass("text-destructive")
+    const summary = screen.getByTestId("who-counts-margin-summary")
+    expect(within(summary).getByText("Marża łącznie: 49,00 zł/h · 8 232 zł/mies.")).toBeInTheDocument()
+    expect(within(summary).getByText("1 ze stawką klienta z rekrutacji")).toBeInTheDocument()
+    expect(within(summary).getByText("1 na minus")).toBeInTheDocument()
+  })
+
+  it("Delivery Lead: klient spoza portfela to „—”, suma tylko z jego klientów", () => {
+    renderView("placement", {
+      ...PLACEMENTS,
+      margin_scope: "portfolio",
+      margin_summary: { per_hour: 50, per_month: 8400, counted: 1, from_recruitment: 0, negative: 0, hidden: 1, missing: 0 },
+      items: [placement(1, { margin: MARGIN }), placement(2, { margin: null, margin_hidden: true })],
+    })
+
+    const hiddenRow = screen.getByText("Osoba 2").closest("tr") as HTMLElement
+    expect(within(hiddenRow).getAllByTitle("Kwoty tylko klientów z Twojego portfela")).toHaveLength(3)
+    const summary = screen.getByTestId("who-counts-margin-summary")
+    expect(within(summary).getByText("Marża Twoich klientów (1 placement): 50,00 zł/h · 8 400 zł/mies.")).toBeInTheDocument()
+    expect(within(summary).getByText("1 placement klientów spoza Twojego portfela")).toBeInTheDocument()
+  })
+
+  it("bez prawa do kwot (Head of Recruitment, TCM): lista jak dziś, z godziną i bez kwot", () => {
+    renderView("placement", {
+      ...PLACEMENTS,
+      margin_scope: null,
+      margin_summary: null,
+      items: [placement(1, {}), placement(2, {})],
+    })
+
+    expect(screen.queryByRole("columnheader", { name: "Marża" })).not.toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Godzina" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Zatrudnienie wpisał(a)" })).toBeInTheDocument()
+    expect(screen.queryByTestId("who-counts-margin-summary")).not.toBeInTheDocument()
+    expect(screen.queryByText(/zł\/h/)).not.toBeInTheDocument()
+  })
+})
+
 describe("WhoCountsList", () => {
   function renderList(metric: "interview" | "recommendation" = "recommendation") {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

@@ -81,6 +81,33 @@ export interface RecruitmentActivitySummaryResponse {
 
 export type RecruitmentActivityDetailOrder = "reached" | "term"
 
+/** Marża placementu: zł/h z dnia startu, jak eksport „Placementy” (27.11.2026). */
+export interface RecruitmentActivityMargin {
+  cost_per_hour: number | null
+  client_per_hour: number | null
+  cost_currency: string
+  client_currency: string
+  /** W PLN; ujemna zostaje ujemna. */
+  per_hour: number | null
+  per_month: number | null
+  percent: number | null
+  /** Kontrakt bez stawki klienta — wzięta stawka „do klienta” z rekrutacji. */
+  client_from_recruitment: boolean
+  /** Brak liczby: bez kontraktu, bez stawki albo bez kursu waluty. */
+  missing: "no_contract" | "missing_rates" | "fx_missing" | null
+}
+
+export interface RecruitmentActivityMarginSummary {
+  per_hour: number
+  per_month: number
+  counted: number
+  from_recruitment: number
+  negative: number
+  /** Placementy klientów spoza portfela Delivery Leada. */
+  hidden: number
+  missing: number
+}
+
 export interface RecruitmentActivityDetailItem {
   candidate: { id: number; name: string; href: string }
   job: {
@@ -99,6 +126,8 @@ export interface RecruitmentActivityDetailItem {
   state?: RecruitmentActivityState | null
   state_stage?: string | null
   state_since?: string | null
+  /** Etap z procesu klienta (np. „Wysłać do Cpro”); przy odrzuceniu — etap, na którym para odpadła. */
+  state_stage_name?: string | null
   state_reason?: string | null
   /** W ilu rekrutacjach ta sama osoba liczy się w tym okresie. */
   candidate_jobs?: number
@@ -108,6 +137,10 @@ export interface RecruitmentActivityDetailItem {
   client_interview_tentative_at?: string | null
   /** Start współpracy: data z kontraktu, a bez kontraktu planowany start z akceptacji. */
   start_on?: string | null
+  /** Tylko placementy i tylko dla konta z prawem do kwot tego klienta. */
+  margin?: RecruitmentActivityMargin | null
+  /** Klient spoza portfela Delivery Leada — kwot nie ma. */
+  margin_hidden?: boolean
 }
 
 export interface RecruitmentActivityDetailResponse {
@@ -138,6 +171,12 @@ export interface RecruitmentActivityDetailResponse {
   history_total?: number
   /** Klienci tego etapu po filtrze roli, przed filtrem klienta (zakres zespołu). */
   clients?: RecruitmentActivityClient[]
+  /**
+   * Marża placementów: „all” (Moduł Finanse), „portfolio” (Delivery Lead — klienci
+   * z portfela), brak = lista bez kwot (Head of Recruitment, TCM, rekruter).
+   */
+  margin_scope?: "all" | "portfolio" | null
+  margin_summary?: RecruitmentActivityMarginSummary | null
 }
 
 interface RecruitmentActivityFilters {

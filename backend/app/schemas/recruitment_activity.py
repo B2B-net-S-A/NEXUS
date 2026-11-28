@@ -111,6 +111,38 @@ class RecruitmentActivityJob(RecruitmentActivityModel):
     href: str
 
 
+class RecruitmentActivityMargin(RecruitmentActivityModel):
+    """Marża placementu (27.11.2026): zł/h z dnia startu, jak eksport „Placementy”.
+
+    Stawki w swojej walucie, marża w PLN. ``missing`` = liczby nie ma
+    (brak kontraktu, stawki albo kursu) — nigdy zgadnięta.
+    """
+
+    cost_per_hour: float | None = None
+    client_per_hour: float | None = None
+    cost_currency: str = "PLN"
+    client_currency: str = "PLN"
+    per_hour: float | None = None
+    per_month: float | None = None
+    percent: float | None = None
+    # Kontrakt bez stawki klienta — wzięta stawka „do klienta” z rekrutacji.
+    client_from_recruitment: bool = False
+    missing: Literal["no_contract", "missing_rates", "fx_missing"] | None = None
+
+
+class RecruitmentActivityMarginSummary(RecruitmentActivityModel):
+    """Suma marży z wierszy okresu, które odbiorca widzi (przed filtrem stanu)."""
+
+    per_hour: float
+    per_month: float
+    counted: int
+    from_recruitment: int
+    negative: int
+    # Placementy klientów spoza portfela DL-a (bez kwot).
+    hidden: int
+    missing: int
+
+
 class RecruitmentActivityDetailItem(RecruitmentActivityModel):
     candidate: RecruitmentActivityCandidate
     job: RecruitmentActivityJob
@@ -122,6 +154,9 @@ class RecruitmentActivityDetailItem(RecruitmentActivityModel):
     state: RecruitmentActivityState | None = None
     state_stage: str | None = None
     state_since: datetime | None = None
+    # Nazwa etapu z procesu klienta (np. „Wysłać do Cpro”); przy odrzuceniu
+    # i rezygnacji — etap, na którym para odpadła.
+    state_stage_name: str | None = None
     state_reason: str | None = None
     # W ilu rekrutacjach ta sama osoba liczy się w tym okresie (≥ 1).
     candidate_jobs: int = 1
@@ -129,6 +164,10 @@ class RecruitmentActivityDetailItem(RecruitmentActivityModel):
     client_interview_at: datetime | None = None
     client_interview_tentative_at: datetime | None = None
     start_on: date | None = None
+    # Tylko placementy i tylko dla odbiorcy z prawem do kwot klienta.
+    margin: RecruitmentActivityMargin | None = None
+    # Klient spoza portfela Delivery Leada: kwot nie ma, front pisze „—”.
+    margin_hidden: bool = False
 
 
 class RecruitmentActivityDetailResponse(RecruitmentActivityModel):
@@ -159,6 +198,10 @@ class RecruitmentActivityDetailResponse(RecruitmentActivityModel):
     history_total: int = 0
     # Klienci tego etapu w okresie po filtrze roli, przed filtrem klienta.
     clients: list[RecruitmentActivityClient] = Field(default_factory=list)
+    # Marża placementów: „all” (Finanse), „portfolio” (DL — klienci z portfela),
+    # None = lista bez kwot (Head of Recruitment, TCM, rekruter).
+    margin_scope: Literal["all", "portfolio"] | None = None
+    margin_summary: RecruitmentActivityMarginSummary | None = None
 
 
 class RecruitmentActivityTeamTotalsResponse(RecruitmentActivityModel):

@@ -1699,7 +1699,7 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
-      "line": 82,
+      "line": 91,
       "fingerprint": "6511965306c9fdf1",
       "status": "zweryfikowane",
       "reason": "CREDITED_FROM_SNAPSHOT_CTE (literał) + literały + client_job_filter(\"job_id\") (stały szablon z literałem kolumny); daty, klient i migawka przez bind."
@@ -1707,7 +1707,7 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
-      "line": 238,
+      "line": 264,
       "fingerprint": "fbc5c8a846ff2bef",
       "status": "zweryfikowane",
       "reason": "person_filter tylko ze stałych _PERSON/_TEAM/_UNATTRIBUTED_FILTER (SQL budowany przy imporcie), stany z krotki DETAIL_STATES, client_job_filter z literałem; wartości przez bind (:stage, :user_ids, :client_id)."
@@ -1715,15 +1715,23 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
-      "line": 297,
-      "fingerprint": "c2d1ce65147c2b5b",
+      "line": 323,
+      "fingerprint": "f6420b6f5c22b499",
       "status": "zweryfikowane",
-      "reason": "person_filter ze stałych modułu, ORDER BY z dict _DETAIL_ORDER_BY (literały), pair_terms_lateral z literałami kolumn; zapytania prebudowane przy imporcie w _DETAIL_SQL; wartości przez bind."
+      "reason": "person_filter ze stałych modułu, ORDER BY z dict _DETAIL_ORDER_BY (literały), pair_terms_lateral z literałami kolumn, join pipeline_stage_defs po kolumnie; zapytania prebudowane przy imporcie w _DETAIL_SQL; wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
-      "line": 356,
+      "line": 385,
+      "fingerprint": "546a953e7d2f7195",
+      "status": "zweryfikowane",
+      "reason": "_pairs_sql: person_filter ze stałych _PERSON/_TEAM/_UNATTRIBUTED_FILTER, _DESCRIBED_CTE i client_job_filter z literałami; SQL prebudowany przy imporcie w _PAIRS_SQL; etap, okres, osoby i klient przez bind."
+    },
+    {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/recruitment_activity.py",
+      "line": 404,
       "fingerprint": "c2f4737246046a40",
       "status": "zweryfikowane",
       "reason": "person_filter ze stałych _PERSON_FILTER/_TEAM_FILTER; SQL budowany raz przy imporcie w _CLIENTS_SQL; etapy, okres i osoby przez bind (:stages expanding, :period_start, :user_ids)."

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import bindparam, select, text
@@ -23,6 +24,8 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityDetailItem,
     RecruitmentActivityDetailResponse,
     RecruitmentActivityJob,
+    RecruitmentActivityMargin,
+    RecruitmentActivityMarginSummary,
     RecruitmentActivityMetric,
     RecruitmentActivityMetricCounts,
     RecruitmentActivityPerson,
@@ -39,6 +42,7 @@ from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.kpi_engine import WARSAW
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_targets import resolve_kpi_target
+from app.services.placement_margins import PairMargin, margin_audience, pair_margins
 from app.services.person_workdays import (
     business_days,
     prorated_targets,
@@ -170,6 +174,11 @@ _DESCRIBED_CTE = """
                latest.stage AS latest_stage,
                latest.moved_at AS latest_at,
                latest.rejection_reason_id,
+               -- Etap z procesu klienta do nawiasu w „Teraz” (prośba Olafa
+               -- 27.11.2026): bieżący, a po odrzuceniu/rezygnacji ten, na
+               -- którym para odpadła.
+               coalesce(dropped.stage_def_id, latest.stage_def_id)
+                   AS state_stage_def_id,
                CASE
                    WHEN latest.stage IN ('hired', 'onboarding') THEN 'hired'
                    WHEN latest.stage = 'rejected' AND (
@@ -217,13 +226,25 @@ _DESCRIBED_CTE = """
             SELECT cs.stage::text AS stage,
                    cs.moved_at,
                    cs.ended_by,
-                   cs.rejection_reason_id
+                   cs.rejection_reason_id,
+                   cs.stage_def_id
             FROM candidate_stages cs
             WHERE cs.candidate_id = period_rows.candidate_id
               AND cs.job_id = period_rows.job_id
             ORDER BY cs.moved_at DESC, cs.id DESC
             LIMIT 1
         ) latest ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT cs.stage_def_id
+            FROM candidate_stages cs
+            WHERE latest.stage IN ('rejected', 'withdrawn')
+              AND cs.candidate_id = period_rows.candidate_id
+              AND cs.job_id = period_rows.job_id
+              AND cs.stage::text NOT IN ('rejected', 'withdrawn')
+              AND cs.stage_def_id IS NOT NULL
+            ORDER BY cs.moved_at DESC, cs.id DESC
+            LIMIT 1
+        ) dropped ON TRUE
     )
 """
 
@@ -327,6 +348,8 @@ def _detail_sql(person_filter: str, order: str):
            described.state,
            described.latest_stage,
            described.latest_at,
+           stage_def.name AS state_stage_name,
+           job.client_id,
            reason.name AS reason_name,
            described.candidate_jobs,
            coalesce(interview_term.next_at, interview_term.last_at)
@@ -340,6 +363,7 @@ def _detail_sql(person_filter: str, order: str):
     LEFT JOIN users credit ON credit.id = described.credit_user
     LEFT JOIN users mover ON mover.id = described.mover_id
     LEFT JOIN rejection_reasons reason ON reason.id = described.rejection_reason_id
+    LEFT JOIN pipeline_stage_defs stage_def ON stage_def.id = described.state_stage_def_id
     """
             + pair_terms_lateral("described.candidate_id", "described.job_id")
             + """
@@ -349,6 +373,25 @@ def _detail_sql(person_filter: str, order: str):
             + """
     OFFSET :offset
     LIMIT :limit
+    """
+        ),
+        person_filter,
+    )
+
+
+def _pairs_sql(person_filter: str):
+    """Pary okresu z klientem — marża placementów liczy się z całego okresu."""
+    return _with_user_ids(
+        text(
+            CREDITED_FROM_SNAPSHOT_CTE
+            + _DESCRIBED_CTE.format(
+                person_filter=person_filter,
+                client_filter=client_job_filter("credited.job_id"),
+            )
+            + """
+    SELECT DISTINCT described.candidate_id, described.job_id, job.client_id
+    FROM described
+    JOIN jobs job ON job.id = described.job_id
     """
         ),
         person_filter,
@@ -428,6 +471,14 @@ _DETAIL_SUMMARY_SQL = {
     "person": _detail_summary_sql(_PERSON_FILTER),
     "team": _detail_summary_sql(_TEAM_FILTER),
     "unattributed": _detail_summary_sql(_UNATTRIBUTED_FILTER),
+}
+_PAIRS_SQL = {
+    scope: _pairs_sql(person_filter)
+    for scope, person_filter in (
+        ("person", _PERSON_FILTER),
+        ("team", _TEAM_FILTER),
+        ("unattributed", _UNATTRIBUTED_FILTER),
+    )
 }
 _DETAIL_SQL = {
     (scope, order): _detail_sql(person_filter, order)
@@ -1011,7 +1062,32 @@ async def list_recruitment_activity_details(
             .all()
         )
 
-    items = [_detail_item(row) for row in rows]
+    margin_scope = None
+    margin_summary = None
+    margins: dict[tuple[int, int], PairMargin] = {}
+    if metric == "placement" and listed_total:
+        audience = await margin_audience(db, current_user)
+        if audience.scope is not None:
+            period_pairs = {
+                (int(pair["candidate_id"]), int(pair["job_id"])): int(pair["client_id"])
+                for pair in (await db.execute(_PAIRS_SQL[sql_scope], params))
+                .mappings()
+                .all()
+            }
+            visible = {
+                pair
+                for pair, pair_client_id in period_pairs.items()
+                if audience.sees(current_user, pair_client_id)
+            }
+            margins = await pair_margins(db, visible, business_today())
+            margin_scope = audience.scope
+            margin_summary = _margin_summary(
+                margins, hidden=len(period_pairs) - len(visible)
+            )
+
+    items = [
+        _detail_item(row, margins=margins if margin_scope else None) for row in rows
+    ]
     return RecruitmentActivityDetailResponse(
         generated_at=datetime.now(timezone.utc),
         metric=metric,
@@ -1031,6 +1107,41 @@ async def list_recruitment_activity_details(
         period_total=period_total,
         history_total=history_total,
         clients=clients,
+        margin_scope=margin_scope,
+        margin_summary=margin_summary,
+    )
+
+
+def _margin_payload(margin: PairMargin) -> RecruitmentActivityMargin:
+    def num(value: Decimal | None) -> float | None:
+        return None if value is None else float(value)
+
+    return RecruitmentActivityMargin(
+        cost_per_hour=num(margin.cost_per_hour),
+        client_per_hour=num(margin.client_per_hour),
+        cost_currency=margin.cost_currency,
+        client_currency=margin.client_currency,
+        per_hour=num(margin.per_hour),
+        per_month=num(margin.per_month),
+        percent=num(margin.percent),
+        client_from_recruitment=margin.client_from_recruitment,
+        missing=margin.missing,
+    )
+
+
+def _margin_summary(
+    margins: dict[tuple[int, int], PairMargin], *, hidden: int
+) -> RecruitmentActivityMarginSummary:
+    counted = [m for m in margins.values() if m.per_hour is not None]
+    per_hour = sum((m.per_hour for m in counted), Decimal(0))
+    return RecruitmentActivityMarginSummary(
+        per_hour=float(per_hour),
+        per_month=float(sum((m.per_month for m in counted), Decimal(0))),
+        counted=len(counted),
+        from_recruitment=sum(1 for m in counted if m.client_from_recruitment),
+        negative=sum(1 for m in counted if m.per_hour < 0),
+        hidden=hidden,
+        missing=len(margins) - len(counted),
     )
 
 
@@ -1160,9 +1271,13 @@ def _detail_person(
     )
 
 
-def _detail_item(row) -> RecruitmentActivityDetailItem:
+def _detail_item(
+    row, *, margins: dict[tuple[int, int], PairMargin] | None = None
+) -> RecruitmentActivityDetailItem:
+    """``margins`` None = lista bez kwot; para spoza słownika = klient spoza portfela."""
     candidate_id = int(row["candidate_id"])
     job_id = int(row["job_id"])
+    margin = margins.get((candidate_id, job_id)) if margins is not None else None
     return RecruitmentActivityDetailItem(
         candidate=RecruitmentActivityCandidate(
             id=candidate_id,
@@ -1186,11 +1301,14 @@ def _detail_item(row) -> RecruitmentActivityDetailItem:
         state=row["state"],
         state_stage=row["latest_stage"],
         state_since=row["latest_at"],
+        state_stage_name=row.get("state_stage_name") or None,
         state_reason=row["reason_name"] or None,
         candidate_jobs=max(int(row["candidate_jobs"] or 1), 1),
         client_interview_at=row["client_interview_at"],
         client_interview_tentative_at=row["client_interview_tentative_at"],
         start_on=row["start_on"],
+        margin=_margin_payload(margin) if margin is not None else None,
+        margin_hidden=margins is not None and margin is None,
     )
 
 
