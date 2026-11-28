@@ -85,9 +85,16 @@ jobs:
           # Linia po linii, bo `::add-mask::` obejmuje JEDNĄ linię — przy
           # wartości wielolinijkowej zamaskowałby się sam pierwszy wiersz.
           VALUE_PLAIN="$(jq -r '.inputs.value // ""' "${GITHUB_EVENT_PATH}")"
-          while IFS= read -r _line; do
-            [ -n "$_line" ] && echo "::add-mask::${_line}"
-          done <<< "${VALUE_PLAIN}"
+          # Wyjątek: nazwy profili compose są jawne (docker-compose.yml), a
+          # bramka COMPOSE_PROFILES niżej musi pokazać w logu obecne i nowe
+          # profile — pod maską byłyby „***”.
+          PUBLIC_VALUE=false
+          [ "${KEY}" = "COMPOSE_PROFILES" ] && PUBLIC_VALUE=true
+          if [ "${PUBLIC_VALUE}" != "true" ]; then
+            while IFS= read -r _line; do
+              [ -n "$_line" ] && echo "::add-mask::${_line}"
+            done <<< "${VALUE_PLAIN}"
+          fi
 
           # Klucz wyglądający na sekret nie przyjmuje wartości jawnej: input
           # workflow_dispatch zostaje na stałe w metadanych runa i w pliku
@@ -139,9 +146,11 @@ jobs:
 
           # Maska także dla wartości z sekretu repo (GitHub maskuje sekrety sam,
           # ale nie ich pojedyncze linie po rozbiciu wartości wielolinijkowej).
-          while IFS= read -r _line; do
-            [ -n "$_line" ] && echo "::add-mask::${_line}"
-          done <<< "${VALUE}"
+          if [ "${PUBLIC_VALUE}" != "true" ]; then
+            while IFS= read -r _line; do
+              [ -n "$_line" ] && echo "::add-mask::${_line}"
+            done <<< "${VALUE}"
+          fi
 
           # Wartość w jednym wierszu (19.10.2026): Coolify zapisuje zmienne do
           # `.env` bez cudzysłowów, więc drugi wiersz staje się „nazwą zmiennej”
@@ -215,7 +224,35 @@ jobs:
             return 0
           }
           OLD_VALUE="$(current_value "${KEY}")"
-          mask_list "${OLD_VALUE}"
+          [ "${PUBLIC_VALUE}" = "true" ] || mask_list "${OLD_VALUE}"
+
+          # COMPOSE_PROFILES (28.11.2026): 24.11 wartość `cpro-robot` nadpisała
+          # `observability`, zamiast je uzupełnić. Alloy nie wstał, do Loki nie
+          # doszła żadna linia, a Grafana przez 4 dni alarmowała o modułach,
+          # które działały. Nowa lista musi zawierać obecne profile
+          # i `observability`; profil usuwa się zmianą tej bramki w PR-ze.
+          # Opis: docs/claude/podstawy/observability.md.
+          if [ "${KEY}" = "COMPOSE_PROFILES" ]; then
+            PROFILE_CHECK="$(OLD="${OLD_VALUE}" NEW="${VALUE}" python3 -c '
+          import os
+          def split(text):
+              return list(dict.fromkeys(p.strip() for p in text.split(",") if p.strip()))
+          old, new = split(os.environ["OLD"]), split(os.environ["NEW"])
+          missing = [p for p in dict.fromkeys(old + ["observability"]) if p not in new]
+          print(",".join(old) or "(brak)")
+          print(",".join(new))
+          print(", ".join(missing))
+          ')"
+            OLD_PROFILES="$(sed -n 1p <<< "${PROFILE_CHECK}")"
+            VALUE="$(sed -n 2p <<< "${PROFILE_CHECK}")"
+            MISSING_PROFILES="$(sed -n 3p <<< "${PROFILE_CHECK}")"
+            echo "obecne profile: ${OLD_PROFILES}"
+            echo "nowe profile: ${VALUE:-(brak)}"
+            if [ -n "${MISSING_PROFILES}" ]; then
+              echo "COMPOSE_PROFILES: nowa lista usuwa: ${MISSING_PROFILES}. Dopisz nowy profil do obecnych (np. observability,cpro-robot) — nic nie zapisano. Bez observability Alloy nie wysyła logów do Grafany; inny profil usuwa się zmianą tej bramki w PR-ze." >&2
+              exit 1
+            fi
+          fi
 
           # Zmiana klucza szyfrowania bez zachowania obecnej wartości = dane
           # nie do odczytu (tokeny M365, dane płacowe): sync M365 wyłącza
