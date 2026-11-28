@@ -8,6 +8,7 @@
  * Komunikaty są małą literą (formularz terminala pisze je po `// `); formularz
  * oferty zaczyna je wielką literą.
  */
+import { takeAltchaPayload, warmAltcha } from "@/lib/altcha";
 import { messageFromApiResponse } from "@/lib/api-error";
 import { applyFieldErrors } from "@/lib/apply-form-errors";
 
@@ -42,6 +43,17 @@ export type CareerFieldErrors = Partial<Record<CareerField, string>>;
 export const LINK_GONE = "link wygasł albo rekrutacja jest już zamknięta";
 export const CV_TOO_BIG = "CV jest większe niż 10 MB — zmniejsz plik";
 export const CV_BAD_TYPE = "CV musi być plikiem pdf, doc lub docx";
+export const NO_CONNECTION = "brak połączenia — sprawdź internet i spróbuj ponownie";
+export const SCAN_UNAVAILABLE = "nie możemy teraz sprawdzić pliku — spróbuj ponownie za kilka minut";
+export const NOT_CONFIRMED = "nie udało się potwierdzić wysyłki — odśwież stronę i wyślij ponownie";
+
+/**
+ * Zagadka ALTCHA (`lib/altcha`) zaczyna się liczyć przy pierwszym dotknięciu
+ * formularza, żeby przy „Wyślij” była gotowa. Podgląd (`/preview/*`) nie woła.
+ */
+export function warmCareerSubmit(): void {
+  warmAltcha(browserApiBase());
+}
 
 export type ApplyOutcome =
   | { ok: true; firstName: string; email: string }
@@ -78,6 +90,11 @@ export function careerPayload(
 
 /** Wysyła zgłoszenie i tłumaczy odpowiedź API na błędy pól albo całego formularza. */
 export async function sendCareerApplication(payload: FormData): Promise<ApplyOutcome> {
+  try {
+    payload.set("altcha", await takeAltchaPayload(browserApiBase()));
+  } catch {
+    return { ok: false, fields: {}, form: NO_CONNECTION };
+  }
   let res: Response;
   try {
     res = await fetch(`${browserApiBase()}/api/public/career/apply`, {
@@ -85,7 +102,7 @@ export async function sendCareerApplication(payload: FormData): Promise<ApplyOut
       body: payload,
     });
   } catch {
-    return { ok: false, fields: {}, form: "brak połączenia — sprawdź internet i spróbuj ponownie" };
+    return { ok: false, fields: {}, form: NO_CONNECTION };
   }
   if (res.status === 201 || res.status === 200) {
     const done = (await res.json().catch(() => ({}))) as { first_name?: string; email?: string };
@@ -101,7 +118,14 @@ export async function sendCareerApplication(payload: FormData): Promise<ApplyOut
   if (res.status === 429) {
     return { ok: false, fields: {}, form: "za dużo prób z tego adresu — spróbuj ponownie za kilka minut" };
   }
+  // Skaner antywirusowy chwilowo niedostępny (publiczny formularz nie przyjmuje
+  // pliku bez skanu) — `docs/claude/podstawy/skan-plikow-i-altcha.md`.
+  if (res.status === 503) return { ok: false, fields: {}, form: SCAN_UNAVAILABLE };
   const body: unknown = await res.json().catch(() => ({}));
+  // Zagadka ALTCHA nie przeszła (wygasła, powtórka) — zdanie w stylu formularza.
+  if (res.status === 400 && isAltchaRejection(body)) {
+    return { ok: false, fields: {}, form: NOT_CONFIRMED };
+  }
   const fieldErrors = applyFieldErrors(body);
   if (fieldErrors.length > 0) {
     const fields: CareerFieldErrors = {};
@@ -119,4 +143,9 @@ export async function sendCareerApplication(payload: FormData): Promise<ApplyOut
     fields: {},
     form: messageFromApiResponse(res.status, body) ?? "coś poszło nie tak — spróbuj ponownie",
   };
+}
+
+function isAltchaRejection(body: unknown): boolean {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  return typeof detail === "string" && detail.startsWith("Nie udało się potwierdzić wysyłki");
 }

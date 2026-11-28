@@ -184,6 +184,23 @@
         "Osoba dzwoniąca",
         "Rekruter"
       ]
+    },
+    "zgloszenie-kandydata": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/zgloszenie-kandydata.md",
+      "sciezki": [
+        "frontend/src/components/career/site/**",
+        "frontend/src/app/apply/**",
+        "frontend/src/lib/career/submit.ts",
+        "frontend/src/lib/altcha.ts",
+        "backend/app/api/public_career.py",
+        "backend/app/api/public_share.py",
+        "backend/app/services/file_scan.py",
+        "backend/app/services/altcha.py"
+      ],
+      "role": [
+        "Kandydat",
+        "Rekruter"
+      ]
     }
   }
 }

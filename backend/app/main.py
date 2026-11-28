@@ -3508,6 +3508,16 @@ async def api_health_check():
     except Exception:
         checks["qdrant"] = "unhealthy"
 
+    # ClamAV (28.11.2026, pakiet „Ochrona wejścia”) — informacyjna, nie zmienia
+    # `status`: bez clamd publiczny upload CV odpowiada 503 (fail-closed), reszta
+    # aplikacji działa. → docs/claude/podstawy/skan-plikow-i-altcha.md
+    try:
+        from app.services import file_scan as _file_scan
+
+        checks["clamav"] = await _file_scan.ping(timeout=2.0)
+    except Exception:  # noqa: BLE001 — sonda informacyjna
+        checks["clamav"] = "unhealthy"
+
     # Recruitment Priority Work — informational and feature-flag aware.
     # `off` is the safe default and therefore reported as disabled.  In
     # shadow/enforce a stale persisted heartbeat exposes a dead alert worker;
@@ -4094,6 +4104,7 @@ async def api_health_deep_check(request: Request):
         PreContractWatcher,
     )
     from app.services.care.board_state import CARE_BOARD_STATES
+    from app.services.altcha_schema import ALTCHA_SPENT_CHALLENGES
     from app.models.rate_card import RateCardAdder
     from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
@@ -5310,6 +5321,8 @@ async def api_health_deep_check(request: Request):
         ("security_events", SecurityEvent),
         ("security_routines", SecurityRoutine),
         ("security_source_states", SecuritySourceState),
+        # 0805: zużyte wyzwania ALTCHA (bez modelu ORM, lekkie `table()`).
+        ("altcha_spent_challenges", ALTCHA_SPENT_CHALLENGES),
         # 0450: championi rekrutacji.
         ("job_champions", JobChampion),
         # 0513, 0516, 0518: dopełnianie „Nowych” — pula, powody odrzucenia

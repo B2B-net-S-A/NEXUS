@@ -4,6 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfferPage } from "@/components/career/site/OfferPage";
 import type { CareerJobResponse } from "@/lib/career/api";
 
+// Zagadkę ALTCHA sprawdza `lib/__tests__/altcha.test.ts`; tu wysyłka dostaje gotowe rozwiązanie.
+vi.mock("@/lib/altcha", () => ({
+  warmAltcha: vi.fn(),
+  takeAltchaPayload: vi.fn(async () => "altcha-rozwiazanie"),
+}));
+
 /* jsdom nie przenosi plików z `input.files` do `new FormData(form)` — nakładka na `FormData`. */
 const NativeFormData = globalThis.FormData;
 class BrowserLikeFormData extends NativeFormData {
@@ -105,6 +111,8 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
     expect(body.get("consent_future")).toBeNull();
     expect((body.get("cv") as File).name).toBe("cv-anna.pdf");
     expect(body.get("first_name")).toBeNull();
+    // Rozwiązanie zagadki ALTCHA idzie w tym samym multiparcie.
+    expect(body.get("altcha")).toBe("altcha-rozwiazanie");
     // Ekran „Wysłane” (AplikacjaWyslana) z nazwą pliku i adresem z CV.
     expect(await screen.findByRole("heading", { level: 1, name: "CV jest u Marty." })).toBeTruthy();
     expect(screen.getByText("cv-anna.pdf")).toBeTruthy();
@@ -127,6 +135,40 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
     submit();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Podaj adres e-mail.")).toBeTruthy();
+  });
+
+  it("CV odrzucone przez skaner antywirusowy (422 na `cv`): komunikat przy polu CV", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(422, {
+        detail: [{ loc: ["body", "cv"], msg: "Nie udało się przyjąć pliku. Wyślij CV ponownie w PDF albo DOCX." }],
+      }),
+    );
+    const { container } = renderPage();
+    pickCv(full(container), pdf());
+    consent(full(container));
+    submit();
+    expect(await screen.findByText("Nie udało się przyjąć pliku. Wyślij CV ponownie w PDF albo DOCX.")).toBeTruthy();
+  });
+
+  it("skaner chwilowo niedostępny (503): baner „spróbuj za kilka minut”, dane zostają", async () => {
+    fetchMock.mockResolvedValueOnce(json(503, { detail: "Nie możemy teraz sprawdzić pliku." }));
+    const { container } = renderPage();
+    pickCv(full(container), pdf());
+    consent(full(container));
+    submit();
+    expect(await screen.findByText(/Nie możemy teraz sprawdzić pliku — spróbuj ponownie za kilka minut/)).toBeTruthy();
+    expect((full(container).querySelector('input[name="consent"]') as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("zagadka odrzucona przez serwer (400): prośba o odświeżenie strony", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(400, { detail: "Nie udało się potwierdzić wysyłki formularza. Odśwież stronę i wyślij zgłoszenie ponownie." }),
+    );
+    const { container } = renderPage();
+    pickCv(full(container), pdf());
+    consent(full(container));
+    submit();
+    expect(await screen.findByText(/Nie udało się potwierdzić wysyłki — odśwież stronę/)).toBeTruthy();
   });
 
   it("awaria sieci: baner z powodem, wpisane dane zostają", async () => {

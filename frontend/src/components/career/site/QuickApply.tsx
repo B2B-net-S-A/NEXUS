@@ -4,7 +4,12 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { CONSENT_CURRENT_TEXT, CV_ACCEPT, captureUtm } from "@/lib/career/apply";
 import { capitalize } from "@/lib/career/site";
-import { careerPayload, sendCareerApplication, type CareerFieldErrors } from "@/lib/career/submit";
+import {
+  careerPayload,
+  sendCareerApplication,
+  warmCareerSubmit,
+  type CareerFieldErrors,
+} from "@/lib/career/submit";
 
 import { QUICK_ID } from "./ApplyDock";
 import { validateOfferForm } from "./OfferApply";
@@ -40,6 +45,11 @@ export function QuickApply({ linkSlug, rodoHref, preview }: QuickApplyProps) {
     utm.current = captureUtm(window.location.search);
   }, []);
 
+  // Zagadka ALTCHA liczy się w tle od pierwszego dotknięcia (`lib/altcha`).
+  const warm = () => {
+    if (!preview) warmCareerSubmit();
+  };
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy || preview?.disableSubmit) return;
@@ -70,7 +80,15 @@ export function QuickApply({ linkSlug, rodoHref, preview }: QuickApplyProps) {
   const problems = [errors.cv, errors.email, errors.consent, formError].filter(Boolean) as string[];
 
   return (
-    <form id={QUICK_ID} className={s.quick} onSubmit={onSubmit} noValidate aria-label="Szybka aplikacja: samo CV">
+    <form
+      id={QUICK_ID}
+      className={s.quick}
+      onSubmit={onSubmit}
+      onFocusCapture={warm}
+      onChangeCapture={warm}
+      noValidate
+      aria-label="Szybka aplikacja: samo CV"
+    >
       <p className={s.quickTitle}>
         Szybko: samo CV <span>30 sekund</span>
       </p>

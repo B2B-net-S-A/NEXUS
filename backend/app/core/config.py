@@ -1053,6 +1053,26 @@ class Settings(BaseSettings):
     # sprawdzany przed handlerem (app/core/body_size_limit.py).
     MAX_REQUEST_BODY_MB: int = 30
 
+    # Skan antywirusowy plików z zewnątrz (clamd, INSTREAM po TCP) —
+    # → docs/claude/podstawy/skan-plikow-i-altcha.md. Pusty host = skan
+    # wyłączony (dev/CI bez Dockera); compose ustawia `clamav`.
+    CLAMAV_HOST: str = ""
+    CLAMAV_PORT: int = 3310
+    # Skan 10 MB to ułamek sekundy; zapas na przeładowanie sygnatur
+    # (`ConcurrentDatabaseReload no` wstrzymuje skany na ok. 30 s).
+    CLAMAV_TIMEOUT_SECONDS: float = 45.0
+
+    # ALTCHA (proof-of-work) na anonimowych formularzach zgłoszeń. Pusty klucz =
+    # klucz wyprowadzony z SECRET_KEY (HMAC), więc wdrożenie nie czeka na sekret.
+    # Własny sekret — tylko przez workflow „Coolify set env” (`value_from_secret`).
+    ALTCHA_HMAC_KEY: str = ""
+    # Wyłącznik awaryjny (np. zagadka nie liczy się w jakiejś przeglądarce):
+    # `false` = formularz przyjmuje zgłoszenie bez rozwiązania, jak przed 28.11.
+    ALTCHA_REQUIRED: bool = True
+    # Średnio połowa tej liczby skrótów SHA-256 w przeglądarce (ok. 0,5–2 s).
+    ALTCHA_MAX_NUMBER: int = 100_000
+    ALTCHA_TTL_SECONDS: int = 1800
+
     # ── Phase 13: notification triggers ──────────────────────────────────────
     BUSINESS_TZ: str = "Europe/Warsaw"
     # Alert do DL o braku feedbacku klienta — przed końcem dnia pracy.

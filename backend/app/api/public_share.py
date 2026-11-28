@@ -836,6 +836,8 @@ async def submit_public_apply(
     utm_campaign: Optional[str] = Form(None, max_length=120),
     utm_term: Optional[str] = Form(None, max_length=120),
     utm_content: Optional[str] = Form(None, max_length=120),
+    # Rozwiązanie zagadki ALTCHA (`GET /api/public/career/challenge`).
+    altcha: Optional[str] = Form(None, max_length=2000),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Accept a public application via an invite link.
@@ -856,12 +858,14 @@ async def submit_public_apply(
     Both branches run through ``services/public_apply.submit_application`` —
     the same code as the career page (``/api/public/career/apply``).
     """
-    from app.services import public_apply
+    from app.services import altcha as altcha_gate
+    from app.services import file_scan, public_apply
 
     if website and website.strip():
         return {"ok": True, "status": "received"}
 
     link = await _load_valid_link(token, db)
+    await altcha_gate.verify(db, altcha, form="invite")
     public_apply.require_consent(consent)
     optional = public_apply.parse_optional_fields(
         expected_rate_hourly=expected_rate_hourly,
@@ -876,6 +880,7 @@ async def submit_public_apply(
     # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
     content = await cv.read(_MAX_CV_BYTES + 1)
     _validate_cv_file(cv, content)
+    await file_scan.require_clean_public_upload(content, source="invite_apply")
 
     # Identifies the link in rows that must not carry the raw secret. A v2
     # link's `token` PK is a non-secret revoke key, so the raw-token prefix

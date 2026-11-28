@@ -420,6 +420,21 @@ def _application_screening_off_by_default(monkeypatch):
     monkeypatch.setattr(settings, "APPLICATION_SCREENING_ENABLED", False)
 
 
+# ── ALTCHA na formularzach zgłoszeń (pakiet „Ochrona wejścia”, 28.11.2026) ──
+
+
+@pytest.fixture(autouse=True)
+def _altcha_off_by_default(monkeypatch):
+    """Testy zgłoszeń z linku sprawdzają proces, nie zagadkę przeglądarki.
+
+    Bramkę ALTCHA (i jej ścieżki odmowy) sprawdzają `test_altcha.py`
+    i `test_public_apply_protection.py`, które włączają ją jawnie. Skan
+    clamd jest wyłączony sam (`CLAMAV_HOST` pusty).
+    """
+
+    monkeypatch.setattr(settings, "ALTCHA_REQUIRED", False)
+
+
 # ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────
 
 

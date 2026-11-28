@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from"react";
 import { CheckCircle2, Loader2, Paperclip } from"lucide-react";
 import { z } from"zod";
 
+import { takeAltchaPayload, warmAltcha } from "@/lib/altcha";
 import { messageFromApiResponse } from"@/lib/api-error";
 import { applyFieldErrors } from"@/lib/apply-form-errors";
 import { CONSENT_CURRENT_TEXT, CONSENT_FUTURE_TEXT } from "@/lib/career/apply";
@@ -110,6 +111,9 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  return null;
  };
 
+ // Zagadka ALTCHA (`lib/altcha`) liczy się w tle od pierwszego dotknięcia formularza.
+ const warm = () => warmAltcha(apiBase());
+
  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
  e.preventDefault();
  setErrors({});
@@ -154,6 +158,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
 
  setStatus("submitting");
  try {
+ fd.set("altcha", await takeAltchaPayload(apiBase()));
  // Raw fetch — do NOT reuse the internal axios client. This page must
  // not attach the recruiter's Authorization token to a public endpoint.
  const res = await fetch(`${apiBase()}/api/public/apply/${token}`, {
@@ -182,6 +187,12 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  if (res.status === 429) {
  setSubmitError("Zbyt wiele prób z tego adresu IP. Spróbuj ponownie za kilka minut."
  );
+ setStatus("error");
+ return;
+ }
+ // Skaner antywirusowy chwilowo niedostępny — docs/claude/podstawy/skan-plikow-i-altcha.md.
+ if (res.status === 503) {
+ setSubmitError("Nie możemy teraz sprawdzić pliku. Spróbuj ponownie za kilka minut.");
  setStatus("error");
  return;
  }
@@ -236,7 +247,14 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  const busy = status === "submitting";
 
  return (
- <form ref={formRef} onSubmit={onSubmit} className="space-y-5" noValidate>
+ <form
+ ref={formRef}
+ onSubmit={onSubmit}
+ onFocusCapture={warm}
+ onChangeCapture={warm}
+ className="space-y-5"
+ noValidate
+ >
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <Field label="Imię" name="first_name" error={errors.first_name}>
  <input

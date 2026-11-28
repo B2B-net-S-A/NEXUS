@@ -401,6 +401,8 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/public/b2b-sign/{token}/remote/{session_id}"),
     ("GET", "/api/public/b2b-sign/remote/callback"),
     ("POST", "/api/public/career/apply"),
+    # Zagadka ALTCHA do formularzy zgłoszeń (28.11.2026): bez danych, limit trasy.
+    ("GET", "/api/public/career/challenge"),
     ("GET", "/api/public/career/jobs"),
     ("GET", "/api/public/career/p/{slug}"),
     ("GET", "/api/public/career/r/{slug}"),
