@@ -7,7 +7,7 @@ dopiero przy wysyłce, wpis w ``client_sales_invoices`` z tym samym numerem
 KSeF i powiązaniem ``issued``), odrzucenie (numer zostaje, ponowna wysyłka
 z tym samym numerem), wycofanie odrzuconej (ostatni numer wraca, wcześniejszy
 zostaje jako ślad), równoległe nadanie numeru, korekta, zaliczkowa, EUR
-z kursem NBP. Dane fikcyjne.
+z kursem NBP, logowanie certyfikatem przed tokenem. Dane fikcyjne.
 """
 
 from __future__ import annotations
@@ -42,7 +42,13 @@ from app.services.hr.ksef import numbers
 from app.services.hr.ksef.client import forget_sessions
 from tests._ksef_fake import Clock
 from tests.client_invoicing import helpers as fx
-from tests.client_invoicing.ksef_issue_fake import TOKEN, UPO, FakeKsefIssue, factory
+from tests.client_invoicing.ksef_issue_fake import (
+    TOKEN,
+    UPO,
+    FakeKsefIssue,
+    factory,
+    seal_pem,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -105,6 +111,13 @@ async def seed(monkeypatch):
     monkeypatch.setattr(settings, "KSEF_CONTEXT_NIP", fx.COMPANY_NIP)
     monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_MODE", "test")
     monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", TOKEN)
+    monkeypatch.setattr(settings, "KSEF_TOKEN", "")
+    for name in (
+        "KSEF_CERTIFICATE",
+        "KSEF_CERTIFICATE_KEY",
+        "KSEF_CERTIFICATE_KEY_PASSWORD",
+    ):
+        monkeypatch.setattr(settings, name, "")
     forget_sessions()
     fake = FakeKsefIssue(Clock())
     fake.invoice_codes = [200]
@@ -401,6 +414,9 @@ async def test_accepted_invoice_joins_ksef_sales_and_order(client, seed):
     assert ksef_number.startswith(fx.COMPANY_NIP)
 
     (xml,) = seed.fake.received
+    # Bez certyfikatu po staremu: token.
+    assert seed.fake.count("POST", "/auth/ksef-token") == 1
+    assert seed.fake.count("POST", "/auth/xades-signature") == 0
     root = etree.fromstring(xml)
     assert root.findtext("{*}Fa/{*}P_2") == "1/11/2026"
     assert root.findtext("{*}Podmiot2/{*}DaneIdentyfikacyjne/{*}NIP") == fx.CLIENT_NIP
@@ -453,6 +469,46 @@ async def test_accepted_invoice_joins_ksef_sales_and_order(client, seed):
         f"{BASE}/{invoice_id}", json={"notes": "x"}, headers=_h(seed)
     )
     assert locked.status_code == 409
+
+
+def _certificate(monkeypatch, seed) -> None:
+    certificate, key = seal_pem(seed.fake.clock)
+    monkeypatch.setattr(settings, "KSEF_CERTIFICATE", certificate)
+    monkeypatch.setattr(settings, "KSEF_CERTIFICATE_KEY", key)
+
+
+async def test_certificate_wins_over_token_when_sending(client, seed, monkeypatch):
+    _certificate(monkeypatch, seed)
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    card = await _send(client, seed, invoice_id)
+    assert card["status"] == "accepted", card
+    assert seed.fake.count("POST", "/auth/xades-signature") == 1
+    assert seed.fake.count("POST", "/auth/ksef-token") == 0
+    assert seed.fake.decrypted == []
+
+
+async def test_certificate_alone_sends_without_token(client, seed, monkeypatch):
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", "")
+    _certificate(monkeypatch, seed)
+    await _settings(client, seed)
+    status = (await client.get(f"{BASE}/settings", headers=_h(seed))).json()
+    assert status["ksef"]["enabled"] is True
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    card = await _send(client, seed, invoice_id)
+    assert card["status"] == "accepted", card
+    assert seed.fake.count("POST", "/auth/ksef-token") == 0
+
+
+async def test_send_without_token_and_certificate_names_both(client, seed, monkeypatch):
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", "")
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    refused = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert "KSEF_CERTIFICATE" in detail and "KSEF_SALES_ISSUE_TOKEN" in detail
+    assert seed.fake.calls == []
 
 
 async def test_rejected_invoice_keeps_number_and_resends_with_it(client, seed):

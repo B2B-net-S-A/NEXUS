@@ -4,7 +4,7 @@ Serwer odszyfrowuje klucz AES swoim kluczem ``SymmetricKeyEncryption`` i plik
 faktury, sprawdza skróty i rozmiary. Przypadki: przyjęta (numer KSeF, UPO,
 sesja zamknięta), odrzucona (kod i powód), limit 429 przy otwarciu sesji,
 odmowa pliku, wynik jeszcze w toku, „Sprawdź status” bez numeru faktury
-w sesji, tryb wyłączony. Dane fikcyjne.
+w sesji, tryb wyłączony, logowanie certyfikatem przed tokenem. Dane fikcyjne.
 """
 
 from __future__ import annotations
@@ -14,11 +14,18 @@ from datetime import date
 import httpx
 import pytest
 
+from app.core.config import settings
 from app.services.client_invoicing import fa3_build, ksef_send
-from app.services.hr.ksef import numbers
+from app.services.hr.ksef import numbers, xades
 from app.services.hr.ksef.client import forget_sessions
 from tests._ksef_fake import COMPANY_NIP, Clock
-from tests.client_invoicing.ksef_issue_fake import TOKEN, UPO, FakeKsefIssue, factory
+from tests.client_invoicing.ksef_issue_fake import (
+    TOKEN,
+    UPO,
+    FakeKsefIssue,
+    factory,
+    seal_pem,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -79,6 +86,7 @@ async def test_accepted_invoice_gets_ksef_number_and_upo(fake) -> None:
     )
     # Token zaszyfrowany kluczem KsefTokenEncryption, klucz AES — drugim kluczem MF.
     assert fake.decrypted and fake.decrypted[0].startswith(f"{TOKEN}|")
+    assert fake.count("POST", "/auth/xades-signature") == 0
 
 
 async def test_rejected_invoice_reports_code_and_reason(fake) -> None:
@@ -169,6 +177,23 @@ async def test_check_finds_invoice_reference_in_session(fake) -> None:
         (ksef_send.IssueConfig("test", "1234567890", TOKEN), "invalid_context_nip"),
         (ksef_send.IssueConfig("prod", COMPANY_NIP, ""), "missing_token"),
         (ksef_send.IssueConfig("prod", COMPANY_NIP, TOKEN), None),
+        (
+            ksef_send.IssueConfig(
+                "prod",
+                COMPANY_NIP,
+                "",
+                identity=xades.load_identity(*seal_pem(Clock())),
+            ),
+            None,
+        ),
+        (
+            ksef_send.IssueConfig("prod", COMPANY_NIP, "", certificate_invalid=True),
+            "invalid_certificate",
+        ),
+        (
+            ksef_send.IssueConfig("prod", COMPANY_NIP, TOKEN, certificate_invalid=True),
+            None,
+        ),
     ],
 )
 def test_config_disabled_reasons(config, reason) -> None:
@@ -295,6 +320,95 @@ def test_load_config_defaults_to_off(monkeypatch) -> None:
     assert ksef_send.load_config().mode == "off"
     monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_MODE", "prod")
     assert ksef_send.load_config().api_url == "https://api.ksef.mf.gov.pl/v2"
+
+
+# ── Certyfikat (XAdES) przed tokenem ────────────────────────────────────────
+
+
+def _identity(fake: FakeKsefIssue) -> xades.SigningIdentity:
+    return xades.load_identity(*seal_pem(fake.clock))
+
+
+async def test_certificate_wins_over_token_when_sending(fake) -> None:
+    config = ksef_send.IssueConfig("test", COMPANY_NIP, TOKEN, identity=_identity(fake))
+    result = await ksef_send.transmit(
+        config, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert result.status is not None and result.status.accepted
+    assert fake.count("POST", "/auth/xades-signature") == 1
+    assert fake.count("POST", "/auth/ksef-token") == 0
+    assert fake.decrypted == []
+
+
+async def test_certificate_alone_sends_and_checks(fake) -> None:
+    config = ksef_send.IssueConfig("test", COMPANY_NIP, "", identity=_identity(fake))
+    fake.invoice_codes = [150]
+    sent = await ksef_send.transmit(
+        config, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert sent.error is None and sent.status is not None and sent.status.pending
+    fake.invoice_codes = [200]
+    checked = await ksef_send.check(
+        config,
+        session_ref=sent.session_ref,
+        invoice_ref=sent.invoice_ref,
+        ksef_number=None,
+        client_factory=factory(fake),
+    )
+    assert checked.status is not None and checked.status.accepted
+    assert fake.count("POST", "/auth/ksef-token") == 0
+
+
+async def test_refused_certificate_falls_back_to_token(fake) -> None:
+    fake.auth_codes = [460, 200]
+    config = ksef_send.IssueConfig("test", COMPANY_NIP, TOKEN, identity=_identity(fake))
+    result = await ksef_send.transmit(
+        config, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert result.status is not None and result.status.accepted
+    assert fake.count("POST", "/auth/xades-signature") == 1
+    assert fake.count("POST", "/auth/ksef-token") == 1
+
+
+def _certificate_settings(monkeypatch, *, certificate="", key="", token="") -> None:
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_MODE", "prod")
+    monkeypatch.setattr(settings, "KSEF_CONTEXT_NIP", COMPANY_NIP)
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", token)
+    monkeypatch.setattr(settings, "KSEF_TOKEN", "")
+    monkeypatch.setattr(settings, "KSEF_CERTIFICATE", certificate)
+    monkeypatch.setattr(settings, "KSEF_CERTIFICATE_KEY", key)
+    monkeypatch.setattr(settings, "KSEF_CERTIFICATE_KEY_PASSWORD", "")
+
+
+def test_certificate_alone_enables_issuing(monkeypatch) -> None:
+    certificate, key = seal_pem(Clock())
+    _certificate_settings(monkeypatch, certificate=certificate, key=key)
+
+    config = ksef_send.load_config()
+
+    assert config.disabled_reason is None
+    assert config.identity is not None and config.token == ""
+    assert "PRIVATE" not in repr(config)
+
+
+def test_broken_certificate_with_token_keeps_issuing_on_token(monkeypatch) -> None:
+    _certificate_settings(monkeypatch, certificate="zle", key="zle", token=TOKEN)
+
+    config = ksef_send.load_config()
+
+    assert config.enabled
+    assert config.identity is None and config.certificate_invalid
+
+
+def test_reason_names_what_is_missing(monkeypatch) -> None:
+    _certificate_settings(monkeypatch)
+    nothing = ksef_send.status_payload(ksef_send.load_config())["disabled_reason"]
+    assert "KSEF_SALES_ISSUE_TOKEN" in nothing and "KSEF_CERTIFICATE" in nothing
+
+    _certificate_settings(monkeypatch, certificate="zle", key="zle")
+    broken = ksef_send.status_payload(ksef_send.load_config())["disabled_reason"]
+    assert broken == ksef_send.DISABLED_REASONS["invalid_certificate"]
+    assert "KSEF_CERTIFICATE" in broken and "token" in broken
 
 
 def test_issue_falls_back_to_read_token_with_full_rights(monkeypatch) -> None:

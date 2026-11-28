@@ -98,7 +98,7 @@ def current_mode() -> str:
     return mode if mode in MODES else "off"
 
 
-def _load_identity() -> tuple[Optional[xades.SigningIdentity], bool]:
+def load_company_identity() -> tuple[Optional[xades.SigningIdentity], bool]:
     certificate = str(getattr(settings, "KSEF_CERTIFICATE", "") or "").strip()
     key = str(getattr(settings, "KSEF_CERTIFICATE_KEY", "") or "").strip()
     if not certificate and not key:
@@ -124,7 +124,7 @@ def load_config() -> KsefConfig:
         if ch.isdigit()
     )
     raw_dir = str(getattr(settings, "KSEF_SIMULATE_DIR", "") or "").strip()
-    identity, certificate_invalid = _load_identity()
+    identity, certificate_invalid = load_company_identity()
     return KsefConfig(
         mode=current_mode(),
         context_nip=nip,

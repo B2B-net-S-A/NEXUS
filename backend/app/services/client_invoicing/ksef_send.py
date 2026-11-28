@@ -1,9 +1,11 @@
 """Wysyłka faktury sprzedaży do KSeF 2.0 — sesja interaktywna (E4).
 
 Tryb ``KSEF_SALES_ISSUE_MODE`` (``off`` domyślnie, ``test``, ``prod``), kontekst
-``KSEF_CONTEXT_NIP`` i osobny token ``KSEF_SALES_ISSUE_TOKEN`` z uprawnieniem
-``InvoiceWrite`` (token odczytu ``KSEF_TOKEN`` go nie ma). Uwierzytelnienie,
-odświeżanie tokenu, 429 i 5xx — wspólne z odczytem (``hr/ksef/client.py``).
+``KSEF_CONTEXT_NIP``. Uwierzytelnienie jak w odczycie (``hr/ksef/client.py``):
+certyfikat spółki (``KSEF_CERTIFICATE`` + ``KSEF_CERTIFICATE_KEY``, podpis
+XAdES) idzie pierwszy, token zostaje zapasowy — ``KSEF_SALES_ISSUE_TOKEN``,
+a gdy pusty, ``KSEF_TOKEN``. Token rozporządzenie dopuszcza do 31.12.2026.
+Odświeżanie tokenu dostępu, 429 i 5xx — też wspólne z odczytem.
 
 Przebieg (dokumentacja MF „Sesja interaktywna”):
 
@@ -42,7 +44,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from app.core.config import settings
 from app.services.client_invoicing.fa3_build import SCHEMA_VERSION, SYSTEM_CODE
-from app.services.hr.ksef import crypto, numbers
+from app.services.hr.ksef import crypto, numbers, xades
 from app.services.hr.ksef.client import (
     SERVER_ERRORS,
     KsefApiError,
@@ -51,7 +53,7 @@ from app.services.hr.ksef.client import (
     _json_object,
     parse_instant,
 )
-from app.services.hr.ksef.environment import API_URLS
+from app.services.hr.ksef.environment import API_URLS, load_company_identity
 from app.services.order_client_identity import nip_checksum_valid
 
 logger = logging.getLogger(__name__)
@@ -66,8 +68,12 @@ DISABLED_REASONS = {
     "mode_off": "Wysyłka faktur do KSeF jest wyłączona (KSEF_SALES_ISSUE_MODE=off).",
     "missing_context_nip": "Brak NIP-u spółki (KSEF_CONTEXT_NIP).",
     "invalid_context_nip": "NIP spółki w KSEF_CONTEXT_NIP ma złą sumę kontrolną.",
-    "missing_token": "Brak tokenu KSeF z uprawnieniem do wystawiania faktur "
-    "(KSEF_SALES_ISSUE_TOKEN).",
+    "missing_token": "Brak danych logowania do KSeF: ani certyfikatu spółki "
+    "(KSEF_CERTIFICATE z kluczem KSEF_CERTIFICATE_KEY), ani tokenu z uprawnieniem "
+    "do wystawiania faktur (KSEF_SALES_ISSUE_TOKEN albo KSEF_TOKEN).",
+    "invalid_certificate": "Certyfikat KSeF spółki (KSEF_CERTIFICATE) jest "
+    "nieczytelny albo klucz KSEF_CERTIFICATE_KEY do niego nie pasuje, a tokenu "
+    "zapasowego (KSEF_SALES_ISSUE_TOKEN albo KSEF_TOKEN) brak.",
 }
 #: Odpytywanie statusu faktury w ramach jednej wysyłki (sekundy, łącznie ok. 14 s).
 STATUS_POLL_DELAYS = (1.0, 1.0, 2.0, 2.0, 3.0, 5.0)
@@ -103,6 +109,9 @@ class IssueConfig:
     mode: str
     context_nip: str
     token: str = field(repr=False)
+    #: Certyfikat spółki — gdy jest, wygrywa z tokenem (``KsefClient._authenticate``).
+    identity: Optional[xades.SigningIdentity] = field(default=None, repr=False)
+    certificate_invalid: bool = False
 
     @property
     def disabled_reason(self) -> Optional[str]:
@@ -112,8 +121,10 @@ class IssueConfig:
             return "missing_context_nip"
         if not nip_checksum_valid(self.context_nip):
             return "invalid_context_nip"
-        if not self.token:
-            return "missing_token"
+        if not self.token and self.identity is None:
+            return (
+                "invalid_certificate" if self.certificate_invalid else "missing_token"
+            )
         return None
 
     @property
@@ -134,6 +145,8 @@ def load_config() -> IssueConfig:
         for ch in str(getattr(settings, "KSEF_CONTEXT_NIP", "") or "")
         if ch.isdigit()
     )
+    # Ten sam certyfikat co w odczycie (``hr/ksef/environment.py``).
+    identity, certificate_invalid = load_company_identity()
     return IssueConfig(
         mode=mode if mode in MODES else "off",
         context_nip=nip,
@@ -141,6 +154,8 @@ def load_config() -> IssueConfig:
         # ma pełne prawa (także InvoiceWrite), decyzja Artura.
         token=str(getattr(settings, "KSEF_SALES_ISSUE_TOKEN", "") or "").strip()
         or str(getattr(settings, "KSEF_TOKEN", "") or "").strip(),
+        identity=identity,
+        certificate_invalid=certificate_invalid,
     )
 
 
@@ -430,10 +445,16 @@ Progress = Callable[["TransmitResult"], Awaitable[Any]]
 ClientFactory = Callable[[IssueConfig], KsefIssueClient]
 
 
-def default_client(config: IssueConfig) -> KsefIssueClient:
+def default_client(config: IssueConfig, **options: Any) -> KsefIssueClient:
+    """``options`` (``transport``, ``sleep``, ``now``) podstawiają testy."""
+
     assert config.api_url is not None
     return KsefIssueClient(
-        config.api_url, context_nip=config.context_nip, token=config.token
+        config.api_url,
+        context_nip=config.context_nip,
+        token=config.token,
+        identity=config.identity,
+        **options,
     )
 
 
