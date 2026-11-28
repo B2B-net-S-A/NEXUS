@@ -45,23 +45,9 @@ CVE-2026-86143 exp:2027-01-31
 CVE-2026-86144 exp:2027-01-31
 CVE-2026-97031 exp:2027-01-31
 
-# qdrant/qdrant:v1.19.2 (upstream, krok 2 z 3 podbicia 1.17.1 → 1.20.2, 28.11.2026):
-# Debian 13.7 (apt, pcre2, libzstd, zlib) i paczki Node.js z wbudowanego UI (undici,
-# vite, brace-expansion…). Qdrant bez portu na hoście, tylko sieć compose. Znikają
-# przy kroku 3 (1.20.2: 2 identyfikatory), stąd krótki termin.
-CVE-2026-102276 exp:2026-12-31
-CVE-2026-102278 exp:2026-12-31
-CVE-2026-103111 exp:2026-12-31
-CVE-2026-104848 exp:2026-12-31
-CVE-2026-104849 exp:2026-12-31
-CVE-2026-109383 exp:2026-12-31
-CVE-2026-109518 exp:2026-12-31
-CVE-2026-109869 exp:2026-12-31
-CVE-2026-111755 exp:2026-12-31
-CVE-2026-111756 exp:2026-12-31
-CVE-2026-112942 exp:2026-12-31
-CVE-2026-116689 exp:2026-12-31
-CVE-2026-124851 exp:2026-12-31
-CVE-2026-85091 exp:2026-12-31
-CVE-2026-87018 exp:2026-12-31
-CVE-2026-93749 exp:2026-12-31
+# qdrant/qdrant:v1.20.2 (upstream, po podbiciu 1.17.1 → 1.20.2, 28.11.2026): libzstd1
+# i zlib1g z Debiana 13.7 w obrazie bazowym Qdranta — łatki są w Debianie, czekają na
+# nowy build obrazu upstream. Qdrant bez portu na hoście, tylko sieć compose. Przegląd
+# przy terminie albo nowym wydaniu Qdranta.
+CVE-2026-124851 exp:2027-01-31
+CVE-2026-85091 exp:2027-01-31

@@ -175,6 +175,10 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   na kopii wolumenu stagingu: każda wersja wstaje w kilka sekund, 8 kolekcji
   green, te same liczby punktów i wyniki `query_points`. Postgres sprawdzony
   ponownie: najnowszy `16-alpine` (16.16) ma te same 33.
+  Klient `qdrant-client` szedł razem z serwerem (1.17.1 → 1.19.1 → 1.20.0).
+  Po kroku 3 w `.trivyignore-images` zostają 2 wpisy Qdranta (libzstd1, zlib1g
+  z Debiana obrazu upstream). Staging i E2E od razu na 1.20.2 — skok 1.17.1 →
+  1.20.2 sprawdzony na kopii wolumenu stagingu.
 
 ### DefectDojo
 - Każdy job biegu tygodniowego kończy się krokiem „Import do DefectDojo”

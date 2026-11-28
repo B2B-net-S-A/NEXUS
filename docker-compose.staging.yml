@@ -69,7 +69,10 @@ services:
     logging: *default-logging
 
   qdrant:
-    image: qdrant/qdrant:v1.17.1
+    # Wersja jak w docker-compose.yml. Wolumen stagingu z 1.17.1 przechodzi na
+    # 1.20.2 jednym skokiem — sprawdzone 28.11.2026 na kopii tego wolumenu
+    # (8 kolekcji green, te same liczby punktów); produkcja szła krokami.
+    image: qdrant/qdrant:v1.20.2
     restart: unless-stopped
     mem_limit: 3g
     volumes:
