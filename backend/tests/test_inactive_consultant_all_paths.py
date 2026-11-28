@@ -450,7 +450,9 @@ async def test_batch_is_all_or_nothing(app_client: AsyncClient, app_auth_headers
 # ── Kolejka maila → okno zamówienia → dokument schodzi z kolejki ───────────
 
 
-async def _mail_doc(client_id: int, number: str, tmp_path, monkeypatch) -> int:
+async def _mail_doc(
+    client_id: int, number: str, tmp_path, monkeypatch, rows: list | None = None
+) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.order_mail import OUTCOME_NEEDS_REVIEW, OrderMailDocument
     from app.services import storage_service
@@ -481,7 +483,9 @@ async def _mail_doc(client_id: int, number: str, tmp_path, monkeypatch) -> int:
                 "order_number": number,
                 "is_group_client": True,
                 "blocking": [],
-                "rows": [
+                "rows": rows
+                if rows is not None
+                else [
                     {
                         "row_index": 0,
                         "row_name": "Marian Odchodzący",
@@ -524,6 +528,7 @@ async def test_mail_document_leads_to_the_order_window_and_leaves_the_queue(
         "client_id": ids["client_id"],
         "order_group_id": group["id"],
         "order_type": "cost",
+        "contract_id": None,
         "order_number": group["order_number"],
         "attachment_name": "zlecenie.pdf",
     }
@@ -626,6 +631,76 @@ async def test_mail_document_without_an_open_order_opens_a_new_one(
     )
     assert target.status_code == 200, target.text
     assert target.json()["order_group_id"] is None
+
+
+async def test_periodic_return_on_an_existing_contract_stays_on_that_contract(
+    app_client: AsyncClient, app_auth_headers: dict, tmp_path, monkeypatch
+):
+    """Zgłoszenie 28.11.2026: powrót po przerwie na zamówieniu okresowym.
+
+    Okno zamówienia otwierało się jako MD (``order_type`` spoza MD/kosztowych
+    zamieniany na „md"), a po zmianie na „Okresowe" proponowało nową umowę.
+    Teraz ``order-target`` niesie typ i kontrakt z planu, a kolejne zamówienie
+    zapisane w oknie zdejmuje dokument z kolejki.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    ids = await _seed()
+    number = f"PO-{uuid.uuid4().hex[:6]}"
+    doc_id = await _mail_doc(
+        ids["client_id"],
+        number,
+        tmp_path,
+        monkeypatch,
+        rows=[
+            {
+                "row_index": 0,
+                "row_name": ids["leaving_name"],
+                "action": "reactivate",
+                "order_type": "periodic",
+                "contract_id": ids["leaving_contract"],
+                "reasons": ["Powrót po 1 dniu od zakończenia poprzedniego zamówienia"],
+            }
+        ],
+    )
+    target = await app_client.get(
+        f"/api/order-mail/queue/{doc_id}/order-target", headers=app_auth_headers
+    )
+    assert target.status_code == 200, target.text
+    assert target.json()["order_type"] == "periodic"
+    assert target.json()["contract_id"] == ids["leaving_contract"]
+    assert target.json()["order_group_id"] is None
+
+    async with AsyncSessionLocal() as db:
+        order = ClientOrder(
+            client_id=ids["client_id"],
+            contract_id=ids["leaving_contract"],
+            title=number,
+            status=ClientOrderStatus.active,
+            start_date=business_today(),
+        )
+        db.add(order)
+        await db.commit()
+        order_id = order.id
+
+    both = await app_client.post(
+        f"/api/order-mail/queue/{doc_id}/resolved-in-order",
+        json={"order_id": order_id, "order_group_id": order_id},
+        headers=app_auth_headers,
+    )
+    assert both.status_code == 422, both.text
+    done = await app_client.post(
+        f"/api/order-mail/queue/{doc_id}/resolved-in-order",
+        json={"order_id": order_id},
+        headers=app_auth_headers,
+    )
+    assert done.status_code == 200, done.text
+    resolved = done.json()["proposal"]["resolved_in_order"]
+    assert resolved["order_id"] == order_id
+    assert resolved["order_group_id"] is None
+    assert resolved["order_number"] == number
+    assert done.json()["applied_order_id"] is None
 
 
 # ── Wybór zakończonego kontraktu z listy w oknie ────────────────────────────

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
 import { EmptyState, QueryStateNotice } from "@/components/ds";
+import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
 import { DeleteOrderGroupDialog } from "@/components/orders/DeleteOrderGroupDialog";
@@ -196,6 +197,18 @@ interface Props {
 interface MailSource {
   docId: number;
   file: File;
+  /** Istniejący kontrakt z planu dokumentu (`order-target`): zamówienie
+   *  okresowe z tego dokumentu to KOLEJNE zamówienie na nim, nie nowa umowa
+   *  (zgłoszenie 28.11.2026). */
+  contractId: number | null;
+}
+
+/** Zdanie nad oknem otwartym z dokumentu z kolejki maila. */
+function mailSourceNotice(source: MailSource | null): string | null {
+  return source
+    ? `PDF z kolejki zamówień z maila (dokument #${source.docId}). ` +
+        "Po zapisaniu zamówienia dokument zejdzie z kolejki."
+    : null;
 }
 
 /** Od 09.2026 każdy klient ma wszystkie trzy typy — bez blokady per klient.
@@ -300,6 +313,12 @@ export function MultiConsultantOrdersTab({
     useState<OrderGroupRead | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [mailSource, setMailSource] = useState<MailSource | null>(null);
+  // Kolejne zamówienie okresowe na istniejącym kontrakcie z dokumentu z maila
+  // — to samo okno co „Dodaj przedłużenie" na karcie osoby.
+  const [continuation, setContinuation] = useState<{
+    contract: ContractWithOrdersRead;
+    file: File | null;
+  } | null>(null);
   // „Przypisz do zamówienia" z karty szkicu (CeZ) i „Zastąp kimś innym"
   // z przejęciem pozostałych MD (ticket 09.2026).
   const [assignModal, setAssignModal] = useState<{
@@ -387,10 +406,14 @@ export function MultiConsultantOrdersTab({
   const mailDocHandled = useRef<number | null>(null);
   useEffect(() => {
     if (!orderMailDocId || !query.isSuccess || !canManage) return;
+    // Kontrakt z planu dokumentu szukamy na liście osób — czekamy na nią
+    // (także na błąd: wtedy kontraktu „nie ma na liście" i okno się nie otwiera).
+    if (!contractorQuery.isFetched) return;
     if (mailDocHandled.current === orderMailDocId) return;
     mailDocHandled.current = orderMailDocId;
     const docId = orderMailDocId;
     const knownGroups = query.data?.groups ?? [];
+    const knownContractors = contractorQuery.data?.contractors ?? [];
     void (async () => {
       try {
         const { data: target } = await orderMailApi.orderTarget(docId);
@@ -414,6 +437,19 @@ export function MultiConsultantOrdersTab({
               "rozstrzygnij dokument z maila ręcznie.",
           );
         }
+        const contract =
+          target.contract_id !== null
+            ? (knownContractors.find((item) => item.contract_id === target.contract_id) ??
+              null)
+            : null;
+        if (target.order_type === "periodic" && target.contract_id !== null && !contract) {
+          // Bez karty tej osoby jedynym oknem okresowym byłby „Nowy kontraktor /
+          // zamówienie", czyli DRUGA umowa obok istniejącej.
+          throw new SaveStepError(
+            `Kontrakt #${target.contract_id} z dokumentu z maila nie jest na liście ` +
+              "zamówień tego klienta — rozstrzygnij dokument w kolejce zamówień z maila.",
+          );
+        }
         setFormError(null);
         setCarriedFile(null);
         // Numer przeniesiony przy zmianie typu w porzuconym formularzu nie może
@@ -421,8 +457,27 @@ export function MultiConsultantOrdersTab({
         setCarriedOrderNumber("");
         setCarriedCommon(null);
         setCarriedPeriodicDraft(null);
-        setMailSource({ docId, file });
         setStandardOrderModalOpen(false);
+        if (target.order_type === "periodic") {
+          if (contract) {
+            // Powrót po przerwie / zmiana zamówienia okresowego osoby z umową:
+            // kolejne zamówienie NA TYM kontrakcie (zgłoszenie 28.11.2026).
+            setMailSource({ docId, file, contractId: contract.contract_id });
+            setGroupModal({ open: false, group: null });
+            setContinuation({ contract, file });
+            return;
+          }
+          // Nowa osoba na zamówieniu okresowym: okno nowego kontraktora nie zna
+          // dokumentów z maila — PDF jedzie, dokument zostaje w kolejce.
+          setCarriedFile(file);
+          setCarriedOrderNumber(target.order_number ?? "");
+          setNewOrderType("periodic");
+          setGroupModal({ open: false, group: null });
+          setStandardOrderModalOpen(true);
+          onOrderMailDocDone?.();
+          return;
+        }
+        setMailSource({ docId, file, contractId: target.contract_id });
         setNewOrderType(target.order_type);
         setGroupModal({ open: true, group });
       } catch (err) {
@@ -437,19 +492,29 @@ export function MultiConsultantOrdersTab({
     orderMailDocId,
     query.isSuccess,
     query.data,
+    contractorQuery.isFetched,
+    contractorQuery.data,
     canManage,
     clientId,
     showToast,
     onOrderMailDocDone,
   ]);
 
-  /** Zamówienie z okna zapisane — dokument z maila schodzi z kolejki. */
-  async function settleMailSource(saved: OrderGroupRead) {
+  /** Zamówienie z okna zapisane — dokument z maila schodzi z kolejki.
+   *  `periodicOrderId`: kolejne zamówienie okresowe (nie grupa). */
+  async function settleMailSource(
+    saved: OrderGroupRead | null,
+    periodicOrderId: number | null = null,
+  ) {
     const source = mailSource;
     if (!source) return;
     setMailSource(null);
     try {
-      await orderMailApi.resolvedInOrder(source.docId, saved.id);
+      if (periodicOrderId !== null) {
+        await orderMailApi.resolvedInOrderForOrder(source.docId, periodicOrderId);
+      } else if (saved) {
+        await orderMailApi.resolvedInOrder(source.docId, saved.id);
+      }
       queryClient.invalidateQueries({ queryKey: ["order-mail"] });
       showToast("Dokument z maila zamówień oznaczono jako rozstrzygnięty", "success");
     } catch (err) {
@@ -1596,6 +1661,25 @@ export function MultiConsultantOrdersTab({
               : newOrderType
         }
         onOrderTypeChange={(orderType, file, orderNumber, common) => {
+          if (orderType === "periodic" && mailSource?.contractId != null) {
+            // Dokument z maila wskazuje istniejący kontrakt: „Okresowe" to
+            // kolejne zamówienie na nim, nie „Nowy kontraktor / zamówienie"
+            // z drugą umową (zgłoszenie 28.11.2026).
+            const contract = (contractorQuery.data?.contractors ?? []).find(
+              (item) => item.contract_id === mailSource.contractId,
+            );
+            if (!contract) {
+              showToast(
+                `Kontrakt #${mailSource.contractId} z dokumentu z maila nie jest na ` +
+                  "liście zamówień tego klienta — zamówienie okresowe dodaj z karty tej osoby.",
+                "error",
+              );
+              return;
+            }
+            setGroupModal({ open: false, group: null });
+            setContinuation({ contract, file: file ?? mailSource.file });
+            return;
+          }
           // Okno okresowe nie zna dokumentów z maila — dokument zostaje w kolejce.
           if (orderType === "periodic") releaseMailSource();
           setCarriedCommon(common ?? null);
@@ -1607,12 +1691,7 @@ export function MultiConsultantOrdersTab({
         initialOrderNumber={carriedOrderNumber}
         initialCommon={carriedCommon}
         autoReadFile={mailSource?.file ?? null}
-        sourceNotice={
-          mailSource
-            ? `PDF z kolejki zamówień z maila (dokument #${mailSource.docId}). ` +
-              "Po zapisaniu zamówienia dokument zejdzie z kolejki."
-            : null
-        }
+        sourceNotice={mailSourceNotice(mailSource)}
         submitting={saveGroup.isPending}
         error={formError}
         onSubmit={(values, file) => saveGroup.mutate({ values, file })}
@@ -1624,6 +1703,25 @@ export function MultiConsultantOrdersTab({
           showToast("Plik PDF zamówienia usunięty", "success");
         }}
       />
+
+      {continuation ? (
+        <ExtendOrderDialog
+          clientId={clientId}
+          contract={continuation.contract}
+          canManageFinance={contractorQuery.data?.can_manage_finance ?? false}
+          initialFile={continuation.file}
+          sourceNotice={mailSourceNotice(mailSource)}
+          onClose={() => {
+            setContinuation(null);
+            releaseMailSource();
+          }}
+          onCreated={async (created) => {
+            await invalidate();
+            setContinuation(null);
+            await settleMailSource(null, created.id);
+          }}
+        />
+      ) : null}
 
       {standardOrderModalOpen ? (
         <NewContractorOrderDialog

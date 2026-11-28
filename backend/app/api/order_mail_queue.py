@@ -41,6 +41,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
+from app.models.client_order import ClientOrder
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_SCHEDULED,
@@ -72,7 +73,14 @@ from app.services.order_mail_ingest import (
     start_ingest_task,
     sync_snapshot,
 )
-from app.services.order_mail_planner import DECIDE_PERSON_ORDER_TYPES, titles_collide
+from app.services.order_mail_planner import (
+    ACTION_DECIDE_PERSON,
+    ACTION_NEW_DRAFT,
+    ACTION_SKIP,
+    DECIDE_PERSON_ORDER_TYPES,
+    titles_collide,
+)
+from app.services.order_types import most_common_order_type
 from app.services.order_mail_recheck import failed_retry_pending, read_recheck_state
 from app.services.order_mail_recheck_reasons import recheck_window
 from app.services.order_pdf_parser import polish_gate_reason
@@ -839,13 +847,43 @@ async def apply_queue_item(
     }
 
 
-def _order_type_of(doc: OrderMailDocument) -> str:
-    """Typ zamówienia z planu dokumentu — MD albo kosztowe (okno grup)."""
+#: Wiersze planu, których ``contract_id`` to kontrakt do KONTYNUACJI (kolejne
+#: zamówienie tej osoby). Decyzja o osobie, nowy kontraktor i pominięcie nie są.
+_NOT_A_CONTINUATION = frozenset({ACTION_DECIDE_PERSON, ACTION_NEW_DRAFT, ACTION_SKIP})
 
-    for row in (doc.proposal or {}).get("rows") or []:
+
+def _order_type_of(doc: OrderMailDocument) -> Optional[str]:
+    """Typ zamówienia z planu dokumentu; ``None`` = plan bez wierszy.
+
+    MD/kosztowe wygrywają, gdy są w planie (okno grup). Do 28.11.2026 plan
+    okresowy (np. powrót po przerwie) dawał tu „md", więc okno otwierało się
+    jako zamówienie MD u klienta rozliczanego okresowo.
+    """
+
+    rows = (doc.proposal or {}).get("rows") or []
+    for row in rows:
         if row.get("order_type") in DECIDE_PERSON_ORDER_TYPES:
             return row["order_type"]
-    return "md"
+    if any(row.get("order_type") == "periodic" for row in rows):
+        return "periodic"
+    return None
+
+
+def _existing_contract_of(doc: OrderMailDocument) -> Optional[int]:
+    """Jedyny istniejący kontrakt, na którym plan zapisuje kolejne zamówienie.
+
+    Okno zamówienia otwarte z takiego dokumentu zostaje przy „kolejne
+    zamówienie tej osoby na tym kontrakcie" i nie proponuje nowej umowy.
+    Kilka różnych kontraktów (dokument wieloosobowy) = ``None``.
+    """
+
+    contracts = {
+        row.get("contract_id")
+        for row in (doc.proposal or {}).get("rows") or []
+        if row.get("action") not in _NOT_A_CONTINUATION
+    }
+    contracts.discard(None)
+    return contracts.pop() if len(contracts) == 1 else None
 
 
 @router.get("/queue/{doc_id}/order-target")
@@ -892,17 +930,26 @@ async def queue_order_target(
         group_id = next(
             (gid for gid, gnum in groups if titles_collide(gnum, number)), None
         )
+    order_type = (
+        _order_type_of(doc) or (await most_common_order_type(db, doc.client_id)).value
+    )
     return {
         "client_id": doc.client_id,
         "order_group_id": group_id,
-        "order_type": _order_type_of(doc),
+        "order_type": order_type,
+        "contract_id": _existing_contract_of(doc),
         "order_number": number,
         "attachment_name": doc.attachment_name,
     }
 
 
 class ResolvedInOrderRequest(BaseModel):
-    order_group_id: int = Field(..., gt=0)
+    """Zamówienie z okna: grupa MD/kosztowa albo samodzielne zamówienie okresowe."""
+
+    order_group_id: Optional[int] = Field(default=None, gt=0)
+    #: Kolejne zamówienie okresowe na kontrakcie z planu (od 28.11.2026) —
+    #: okno „Nowe zamówienie / przedłużenie" otwarte z dokumentu z maila.
+    order_id: Optional[int] = Field(default=None, gt=0)
 
 
 @router.post("/queue/{doc_id}/resolved-in-order")
@@ -914,14 +961,20 @@ async def mark_queue_item_resolved_in_order(
 ) -> Dict[str, Any]:
     """Dokument z maila rozstrzygnięty w oknie zamówienia — zdejmij z kolejki.
 
-    Zapis zamówienia zrobiło już okno (``POST /order-groups`` albo
-    ``…/lines/batch``). Tu wyłącznie łączymy dokument z tym zamówieniem, żeby
-    kolejka nie czekała w nieskończoność na „Zastosuj", którego plan
-    z ``decide_person`` i tak by nie wykonał. ``applied_order_id`` zostaje
-    pusty: wskazuje zamówienie zapisane PRZEZ AUTOMAT maila (m.in. aktywacja
-    szkicu po podpisie umowy, ``complete_signed_mail_drafts``), a linii grupy
-    ten mechanizm dotykać nie może.
+    Zapis zamówienia zrobiło już okno (``POST /order-groups``, ``…/lines/batch``
+    albo kolejne zamówienie okresowe ``POST /clients/{id}/orders``). Tu
+    wyłącznie łączymy dokument z tym zamówieniem, żeby kolejka nie czekała
+    w nieskończoność na „Zastosuj", a „Zastosuj" nie założyło go drugi raz.
+    ``applied_order_id`` zostaje pusty: wskazuje zamówienie zapisane PRZEZ
+    AUTOMAT maila (m.in. aktywacja szkicu po podpisie umowy,
+    ``complete_signed_mail_drafts``), a zamówień z okna ten mechanizm dotykać
+    nie może.
     """
+    if (body.order_group_id is None) == (body.order_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="Wskaż jedno zamówienie: order_group_id albo order_id",
+        )
     doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)
     if doc.outcome != OUTCOME_NEEDS_REVIEW:
@@ -929,31 +982,51 @@ async def mark_queue_item_resolved_in_order(
             status_code=409,
             detail=f"Dokument nie czeka na weryfikację (stan: {doc.outcome})",
         )
-    group = await db.scalar(
-        select(ClientOrderGroup).where(
-            ClientOrderGroup.id == body.order_group_id,
-            ClientOrderGroup.client_id == doc.client_id,
+    if body.order_group_id is not None:
+        group = await db.scalar(
+            select(ClientOrderGroup).where(
+                ClientOrderGroup.id == body.order_group_id,
+                ClientOrderGroup.client_id == doc.client_id,
+            )
         )
-    )
-    if group is None:
+        target = (
+            None
+            if group is None
+            else (group.order_number, group.created_at, {"order_group_id": group.id})
+        )
+    else:
+        order = await db.scalar(
+            select(ClientOrder).where(
+                ClientOrder.id == body.order_id,
+                ClientOrder.client_id == doc.client_id,
+                ClientOrder.order_group_id.is_(None),
+            )
+        )
+        target = (
+            None
+            if order is None
+            else (order.title, order.created_at, {"order_id": order.id})
+        )
+    if target is None:
         raise HTTPException(
             status_code=422,
             detail="To zamówienie nie należy do klienta z dokumentu",
         )
-    # Dowolna grupa klienta nie „rozstrzyga" dokumentu (FIN-MAIL-09): tylko
-    # zamówienie o tym numerze albo założone po nadejściu maila (czyli w oknie
-    # otwartym z kolejki). Inaczej dokument znikał z kolejki przypięty do
-    # zamówienia, które go nie dotyczy.
+    target_number, target_created_at, target_ref = target
+    # Dowolne zamówienie klienta nie „rozstrzyga" dokumentu (FIN-MAIL-09):
+    # tylko zamówienie o tym numerze albo założone po nadejściu maila (czyli
+    # w oknie otwartym z kolejki). Inaczej dokument znikał z kolejki przypięty
+    # do zamówienia, które go nie dotyczy.
     number = (doc.proposal or {}).get("order_number") or (doc.extraction or {}).get(
         "title"
     )
     mail_arrived = doc.received_at or doc.created_at
     created_after_mail = (
-        group.created_at is not None
+        target_created_at is not None
         and mail_arrived is not None
-        and group.created_at >= mail_arrived
+        and target_created_at >= mail_arrived
     )
-    if not (titles_collide(group.order_number, number) or created_after_mail):
+    if not (titles_collide(target_number, number) or created_after_mail):
         raise HTTPException(
             status_code=422,
             detail=(
@@ -971,8 +1044,9 @@ async def mark_queue_item_resolved_in_order(
     doc.proposal = {
         **(doc.proposal or {}),
         "resolved_in_order": {
-            "order_group_id": group.id,
-            "order_number": group.order_number,
+            "order_group_id": None,
+            **target_ref,
+            "order_number": target_number,
             "resolved_by_user_id": user.id,
             "resolved_at": now.isoformat(),
         },
@@ -984,7 +1058,7 @@ async def mark_queue_item_resolved_in_order(
             entity_id=doc.client_id,
             action="order_mail_resolved_in_order",
             user_id=user.id,
-            details={"document_id": doc.id, "order_group_id": group.id},
+            details={"document_id": doc.id, **target_ref},
         )
     )
     await db.commit()

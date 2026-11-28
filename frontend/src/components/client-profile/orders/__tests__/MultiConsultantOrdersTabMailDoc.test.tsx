@@ -31,6 +31,18 @@ vi.mock("@/store/auth", () => ({
   canViewClientFinance: () => true,
 }));
 
+// Okno nowego kontraktora (zamówienie okresowe nowej osoby) pyta przy montażu
+// o rekrutacje klienta domyślną instancją `api` — bez mocka poszedłby request.
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  const mocked = {
+    ...actual.api,
+    get: vi.fn().mockResolvedValue({ data: [] }),
+    post: vi.fn(),
+  };
+  return { ...actual, api: mocked, default: mocked };
+});
+
 vi.mock("@/lib/api/orderGroups", () => ({
   orderGroupsApi: {
     list: vi.fn(),
@@ -52,6 +64,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
       data: { contractors: [], total_contractors: 0, can_manage_finance: true },
     }),
     extractOrderPdf: vi.fn(),
+    createOrderExtension: vi.fn(),
   },
 }));
 
@@ -59,6 +72,7 @@ vi.mock("@/lib/api/orderMail", () => ({
   orderMailApi: {
     orderTarget: vi.fn(),
     resolvedInOrder: vi.fn(),
+    resolvedInOrderForOrder: vi.fn(),
     fileUrl: (id: number) => `/api/order-mail/queue/${id}/file`,
   },
 }));
@@ -69,6 +83,7 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
 }));
 
 import { fetchAuthenticatedBlob } from "@/lib/authenticated-files";
+import { dlPortalApi } from "@/lib/api/dlPortal";
 import { orderGroupsApi } from "@/lib/api/orderGroups";
 import { orderMailApi } from "@/lib/api/orderMail";
 
@@ -403,5 +418,216 @@ describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
     expect(await screen.findByText(/dotyczy innego klienta/)).toBeInTheDocument();
     expect(onDone).toHaveBeenCalled();
     expect(fetchAuthenticatedBlob).not.toHaveBeenCalled();
+  });
+});
+
+/** Osoba z kontraktem i zakończonym zamówieniem okresowym (powrót po przerwie). */
+const RETURNING = {
+  contract_id: 135,
+  candidate_id: 205,
+  candidate_name: "Olga Powracająca",
+  contract_status: "active",
+  contract_start_date: "2030-01-01",
+  contract_end_date: null,
+  rate_candidate: 120,
+  rate_client_currency: "PLN",
+  rate_candidate_currency: "PLN",
+  rate_unit: "hour",
+  billing_hours_per_month: 168,
+  initial_job_id: null,
+  initial_job_title: null,
+  latest_order_id: 329,
+  latest_order_end_date: "2031-10-31",
+  latest_order_rate_client: 150,
+  latest_order_monthly_margin: null,
+  days_to_latest_end: null,
+  orders: [
+    {
+      id: 329,
+      client_id: 7,
+      contract_id: 135,
+      job_id: null,
+      framework_contract_id: null,
+      description: null,
+      title: "PO-1000",
+      status: "completed",
+      order_type: null,
+      start_date: "2031-05-01",
+      end_date: "2031-10-31",
+      rate_client: 150,
+      rate_candidate: 120,
+      rate_unit: "hour",
+      rate_client_currency: "PLN",
+      rate_candidate_currency: "PLN",
+      total_value: null,
+      currency: "PLN",
+      project_part: null,
+      filename: null,
+      has_file: false,
+      content_type: null,
+      size_bytes: null,
+      created_by_user_id: null,
+      notes: null,
+      created_at: "2031-05-01T00:00:00Z",
+      updated_at: "2031-05-01T00:00:00Z",
+      candidate_id: 205,
+      candidate_name: "Olga Powracająca",
+      contract_status: "active",
+      job_title: null,
+      monthly_margin: null,
+      days_to_end: null,
+    },
+  ],
+};
+
+function mockContractors(contractors: unknown[]) {
+  vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+    data: {
+      contractors,
+      total_contractors: contractors.length,
+      can_manage_finance: true,
+    },
+  } as never);
+}
+
+/** Okno dokładania zamówienia do ISTNIEJĄCEGO kontraktu („Dodaj przedłużenie"). */
+async function findContinuationDialog() {
+  return screen.findByRole(
+    "dialog",
+    { name: "Dodaj przedłużenie zamówienia" },
+    CARD_TIMEOUT,
+  );
+}
+
+describe("dokument z maila na istniejącym kontrakcie (zgłoszenie 28.11.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fetchAuthenticatedBlob).mockResolvedValue(
+      new Blob(["%PDF-1.7"], { type: "application/pdf" }),
+    );
+    vi.mocked(orderGroupsApi.extractPlan).mockResolvedValue({ data: PLAN } as never);
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: { options: [], total: 0 },
+    } as never);
+    vi.mocked(orderMailApi.resolvedInOrderForOrder).mockResolvedValue({
+      data: {},
+    } as never);
+    mockContractors([RETURNING]);
+  });
+
+  it("powrót po przerwie na zamówieniu okresowym: kolejne zamówienie na tym kontrakcie, nie MD i nie nowa umowa", async () => {
+    vi.mocked(orderMailApi.orderTarget).mockResolvedValue({
+      data: {
+        client_id: 7,
+        order_group_id: null,
+        order_type: "periodic",
+        contract_id: 135,
+        order_number: "PO-1001",
+        attachment_name: "zamowienie.pdf",
+      },
+    } as never);
+    vi.mocked(dlPortalApi.createOrderExtension).mockResolvedValue({
+      data: { ...RETURNING.orders[0], id: 401, title: "PO-1001", status: "active" },
+    } as never);
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const onDone = renderTab();
+
+    const dialog = await findContinuationDialog();
+    expect(within(dialog).getByText(/Contract #135/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/dokument #42/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/zamowienie\.pdf/)).toBeInTheDocument();
+    // Ani okno MD, ani „Nowy kontraktor / zamówienie".
+    expect(screen.queryByRole("button", { name: "Utwórz umowę i zamówienie" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Utwórz zamówienie" })).toBeNull();
+    expect(orderGroupsApi.extractPlan).not.toHaveBeenCalled();
+
+    await user.type(within(dialog).getByPlaceholderText("np. 45767"), "PO-1001");
+    await user.click(within(dialog).getByRole("button", { name: "Zapisz przedłużenie" }));
+
+    await waitFor(() => expect(dlPortalApi.createOrderExtension).toHaveBeenCalled());
+    const form = vi.mocked(dlPortalApi.createOrderExtension).mock.calls[0][1] as FormData;
+    expect(form.get("contract_id")).toBe("135");
+    expect((form.get("file") as File).name).toBe("zamowienie.pdf");
+    await waitFor(() =>
+      expect(orderMailApi.resolvedInOrderForOrder).toHaveBeenCalledWith(42, 401),
+    );
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it("zmiana typu na „Okresowe” w oknie z dokumentu zostaje przy tym kontrakcie", async () => {
+    vi.mocked(orderMailApi.orderTarget).mockResolvedValue({
+      data: {
+        client_id: 7,
+        order_group_id: null,
+        order_type: "cost",
+        contract_id: 135,
+        order_number: "PO-1001",
+        attachment_name: "zamowienie.pdf",
+      },
+    } as never);
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderTab();
+
+    await screen.findByRole(
+      "article",
+      { name: "Konsultant: Marian Odchodzący" },
+      CARD_TIMEOUT,
+    );
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "Typ zamówienia" })).getByRole(
+        "radio",
+        { name: "Okresowe" },
+      ),
+    );
+
+    const dialog = await findContinuationDialog();
+    expect(within(dialog).getByText(/Contract #135/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/zamowienie\.pdf/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Utwórz umowę i zamówienie" })).toBeNull();
+  });
+
+  it("nowa osoba na zamówieniu okresowym: okno okresowe z PDF-em, nie MD", async () => {
+    vi.mocked(orderMailApi.orderTarget).mockResolvedValue({
+      data: {
+        client_id: 7,
+        order_group_id: null,
+        order_type: "periodic",
+        contract_id: null,
+        order_number: "PO-1001",
+        attachment_name: "zamowienie.pdf",
+      },
+    } as never);
+    const onDone = renderTab();
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: "Utwórz umowę i zamówienie" },
+        CARD_TIMEOUT,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("PO-1001")).toBeInTheDocument();
+    expect(orderGroupsApi.extractPlan).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  it("kontraktu z planu nie ma na liście: okno się nie otwiera, dokument zostaje w kolejce", async () => {
+    mockContractors([]);
+    vi.mocked(orderMailApi.orderTarget).mockResolvedValue({
+      data: {
+        client_id: 7,
+        order_group_id: null,
+        order_type: "periodic",
+        contract_id: 135,
+        order_number: "PO-1001",
+        attachment_name: "zamowienie.pdf",
+      },
+    } as never);
+    const onDone = renderTab();
+
+    expect(await screen.findByText(/Kontrakt #135/, undefined, CARD_TIMEOUT)).toBeInTheDocument();
+    expect(onDone).toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Dodaj przedłużenie zamówienia" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Utwórz umowę i zamówienie" })).toBeNull();
   });
 });

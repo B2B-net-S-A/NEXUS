@@ -18,6 +18,7 @@ import { extractErrorMsg } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
+  ClientOrderRead,
   ContractWithOrdersRead,
   OrderRateUnit,
   OrderExtractionResult,
@@ -49,8 +50,13 @@ interface ExtendOrderDialogProps {
   clientId: number;
   contract: ContractWithOrdersRead;
   canManageFinance?: boolean;
+  /** PDF wgrany wcześniej (np. z kolejki zamówień z maila). Jak każde dodanie
+   *  pliku — niczego w polach nie zmienia; odczyt to „Zczytaj dane z dokumentu". */
+  initialFile?: File | null;
+  /** Skąd pochodzi plik (dokument z maila) — zdanie nad formularzem. */
+  sourceNotice?: string | null;
   onClose: () => void;
-  onCreated: () => void | Promise<void>;
+  onCreated: (created: ClientOrderRead) => void | Promise<void>;
 }
 
 /** Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract. */
@@ -58,6 +64,8 @@ export function ExtendOrderDialog({
   clientId,
   contract,
   canManageFinance: serverCanManageFinance,
+  initialFile = null,
+  sourceNotice = null,
   onClose,
   onCreated,
 }: ExtendOrderDialogProps) {
@@ -138,7 +146,7 @@ export function ExtendOrderDialog({
     clientId,
     latest?.executive_contract_id ?? null,
   );
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile);
   const [confirmingFileRemove, setConfirmingFileRemove] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -304,8 +312,8 @@ export function ExtendOrderDialog({
       if (file) fd.append("file", file);
       return dlPortalApi.createOrderExtension(clientId, fd);
     },
-    onSuccess: async () => {
-      await onCreated();
+    onSuccess: async (response) => {
+      await onCreated(response.data);
       showToast("Przedłużenie dodane", "success");
     },
     onError: (err: unknown) => {
@@ -346,6 +354,15 @@ export function ExtendOrderDialog({
               Dla: <strong>{contract.candidate_name}</strong> · Contract #{contract.contract_id}
             </p>
           </div>
+
+          {sourceNotice ? (
+            <p
+              role="status"
+              className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+            >
+              {sourceNotice}
+            </p>
+          ) : null}
 
           {/* Baner „Sprawdź dane!" — nad tytułem zamówienia, gdy odczyt niepewny. */}
           <ExtractedConsultants rows={extractedRows} />
