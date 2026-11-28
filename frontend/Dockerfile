@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Build stage: install deps + produce Next.js standalone output.
-FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS deps
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS deps
 WORKDIR /app
 # BEZ glob-gwiazdki przy lockfile'u: `package-lock.json*` sprawiało, że brak
 # locka NIE wywalał builda — COPY kończył się sukcesem, a `npm install`
@@ -17,7 +17,7 @@ COPY package.json package-lock.json ./
 # `legacy-peer-deps=true` stamtąd tu nie obowiązuje (React 19 + pakiety RC).
 RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 
-FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS builder
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS builder
 WORKDIR /app
 # NEXT_PUBLIC_* vars MUST be present at build time for Next.js to inline them.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -64,7 +64,7 @@ RUN if [ "$NEXT_PUBLIC_PREVIEW_PUBLIC" != "1" ]; then rm -rf src/app/preview; fi
 RUN node scripts/check-sentry-build-env.mjs && node scripts/write-version.mjs && npm run build
 
 # Runtime stage: minimal image with the standalone server.
-FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runner
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -73,8 +73,15 @@ ARG SOURCE_COMMIT
 ENV GIT_SHA=${NEXT_PUBLIC_GIT_SHA:-${SOURCE_COMMIT}}
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# npm, npx, corepack i yarn z obrazu Node nie są potrzebne serwerowi
+# standalone (`node server.js`), a ich własne zależności (tar, undici,
+# brace-expansion…) dawały 13 znalezisk HIGH/CRITICAL w Trivy obrazów produkcji
+# (28.11.2026). Etapy deps/builder mają npm jak dotąd.
 RUN addgroup --system --gid 1001 nodejs \
- && adduser  --system --uid 1001 nextjs
+ && adduser  --system --uid 1001 nextjs \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v*
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public

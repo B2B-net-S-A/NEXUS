@@ -147,7 +147,12 @@ services:
     # wciągnąć breaking change API albo formatu storage wolumenu qdrant_data.
     # Podnoszenie wersji = świadomy PR z lekturą release notes, nie efekt
     # uboczny deployu.
-    image: qdrant/qdrant:v1.17.1
+    # 28.11.2026 (decyzja Artura, Trivy obrazów: 135 znalezisk na 1.17.1, 2 na
+    # 1.20.2): 1.17.1 → 1.18.3 → 1.19.2 → 1.20.2, po jednej wersji minor na
+    # wdrożenie, bo Qdrant gwarantuje zgodność storage tylko o jeden krok.
+    # Próba na kopii wolumenu stagingu: 8 kolekcji green, te same liczby
+    # punktów i wyniki query_points na każdym kroku.
+    image: qdrant/qdrant:v1.18.3
     restart: unless-stopped
     # 370 MiB zmierzone 2026-08-12 (z kolekcją pasaży, INT8 always_ram);
     # 3G daje zapas na wzrost bazy i przyszłe eksperymenty z kolekcjami.

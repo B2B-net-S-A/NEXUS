@@ -163,6 +163,18 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   Postgres i Qdrant mają termin 31.01.2027: Postgres czeka na nowy build
   obrazu tagu, Qdrant na świadome podbicie wersji. Identyfikator wspólny
   dla kilku obrazów stoi raz, przy najkrótszym terminie.
+- 28.11.2026 (decyzja Artura): własne obrazy bez wyjątków. Backend: świeży
+  digest `python:3.15-slim`, `apt-get upgrade` w obrazie (libzstd1) i
+  `pip uninstall pip` po instalacji zależności — urllib3, msgpack i setuptools
+  z raportu to kopie w `pip/_vendor/vendor.txt`, nie nasze zależności. Front:
+  świeży digest `node:24-alpine` i npm/npx/corepack/yarn usunięte z etapu
+  `runner`. Trivy lokalnie: 6 → 0 i 20 → 0. Nowy wpis dla własnego obrazu
+  w `.trivyignore-images` to ostateczność — najpierw te trzy dźwignie.
+- Qdrant 1.17.1 → 1.20.2 po jednej wersji minor na wdrożenie (135 → 99 → 17
+  → 2 znalezisk), bo Qdrant gwarantuje zgodność storage tylko o krok. Próba
+  na kopii wolumenu stagingu: każda wersja wstaje w kilka sekund, 8 kolekcji
+  green, te same liczby punktów i wyniki `query_points`. Postgres sprawdzony
+  ponownie: najnowszy `16-alpine` (16.16) ma te same 33.
 
 ### DefectDojo
 - Każdy job biegu tygodniowego kończy się krokiem „Import do DefectDojo”
@@ -174,7 +186,7 @@ skan obrazów, które się nie zmieniają, i wysyłkę wyników do DefectDojo.
   joby biegną równolegle, a wspólny klucz wypierałby sesje (peer widzi w tunelu tylko DefectDojo,
   `http://10.66.0.1:8080`, nadpisywane zmienną repo `DEFECTDOJO_URL`)
   i zamyka go na końcu. Token `DEFECTDOJO_TOKEN` to konto `ci-import`
-  (Writer tylko na produkcie NEXUS); produkt i engagement zakłada sesja SOC.
+  (dostęp tylko do produktu NEXUS przez jego `authorized_users`; DefectDojo 3.x nie ma ról); produkt i engagement zakłada sesja SOC.
   Sekrety ustawia Artur; bez nich krok kończy się notką. Raport idzie
   wprost z joba, bez artefaktu (artefakty publicznego repo pobierze każdy
   zalogowany), a log ma tylko kod HTTP i liczby, bez wyjścia `wg-quick`.

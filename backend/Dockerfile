@@ -5,7 +5,7 @@
 # 3.14.5 bez cp315 -> 3.14.6. Do 3.16: slowapi woła
 # asyncio.iscoroutinefunction (usunięte w 3.16, DeprecationWarning przy imporcie).
 # Keep this digest in sync with `python-version` in .github/workflows/*.yml.
-FROM python:3.15-slim@sha256:63bb298d2b7b88f176f51b5189f54ce6535c997682ea70885d2132f5d473a8a5
+FROM python:3.15-slim@sha256:08a4c22c92b79ec821a7ad49768480039ee5b7accac3955228e75366e30abc8e
 
 WORKDIR /app
 
@@ -14,7 +14,11 @@ WORKDIR /app
 # `app/services/autenti/pdf_renderer.py` which converts the contract draft
 # HTML to PDF before uploading to Autenti. fonts-dejavu is a fallback for
 # Polish diacritics that liberation-fonts doesn't fully cover.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# `apt-get upgrade`: łatki bezpieczeństwa Debiana, których digest obrazu bazowego
+# jeszcze nie ma (28.11.2026 libzstd1 z deb13u1 — Trivy obrazów produkcji,
+# docs/claude/podstawy/skanery-bezpieczenstwa.md).
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
@@ -47,8 +51,13 @@ RUN fc-cache -f
 # BuildKit cache mount: wheels persist across deploys so subsequent builds
 # reuse them. --no-cache-dir on pip itself keeps the image layer clean.
 COPY requirements.txt .
+# Po instalacji pip wychodzi z obrazu: jego wbudowane kopie urllib3, msgpack
+# i pkg_resources (pip/_vendor/vendor.txt) to 5 znalezisk HIGH w Trivy obrazów
+# produkcji (28.11.2026), a w runtime nikt pipa nie woła. Doraźnie w kontenerze:
+# `python -m ensurepip` (koło pipa zostaje w ensurepip/_bundled).
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install -r requirements.txt \
+    && pip uninstall -y pip
 
 # Build metadata for /api/health endpoint (see ~/.claude/rules/deployment.md).
 # Defaults to "unknown" so local docker build works without explicit args.
