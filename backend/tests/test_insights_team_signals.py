@@ -50,6 +50,16 @@ def test_month_in_progress_compares_with_same_stretch_of_previous_month() -> Non
     assert end == datetime(2026, 8, 25, tzinfo=WARSAW)
 
 
+def test_now_in_utc_counts_days_in_the_company_calendar() -> None:
+    """`/api/supervisory-board` podaje „teraz” w UTC: 23:30 UTC 24.11 to już
+    25.11 w Warszawie, więc porównujemy 1–25 listopada z 1–25 października."""
+    now = datetime(2026, 11, 24, 23, 30, tzinfo=timezone.utc)
+    period = resolve_period("month", offset=0, now=now)
+    start, end = previous_matching_window(period, now)
+    assert start == datetime(2026, 10, 1, tzinfo=WARSAW)
+    assert end == datetime(2026, 10, 26, tzinfo=WARSAW)
+
+
 def test_last_day_of_month_never_spills_into_the_current_month() -> None:
     now = datetime(2026, 3, 31, 12, 0, tzinfo=WARSAW)
     period = resolve_period("month", offset=0, now=now)

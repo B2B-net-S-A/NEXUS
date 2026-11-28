@@ -121,6 +121,7 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
     last = last_synced_at
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
+    # dzień UTC celowo: bieg raz na dobę liczoną jak godzina startu (NOTES_INSIGHTS_SYNC_HOUR_UTC)
     if last.date() >= now.date():
         return False
     return now.hour >= int(settings.NOTES_INSIGHTS_SYNC_HOUR_UTC)
