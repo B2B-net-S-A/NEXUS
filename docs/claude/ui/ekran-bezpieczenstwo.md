@@ -1,5 +1,5 @@
 # Ustawienia → Bezpieczeństwo: znaleziska, zdarzenia, rutyny (27.11.2026)
-<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0802 -->
+<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0802, źródło defender 0807 (Microsoft Graph, incydenty, Secure Score, dzwonek security_defender_incident) -->
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”, „zbuduj wszystko
 z raportu”). Jeden ekran admina zbiera skany CI, zdarzenia z serwera,
@@ -108,11 +108,87 @@ koncie go nie zwalnia.
   zapadki (`skanery-bezpieczenstwa.md`), nie wyjątkiem na ekranie: wyjątek
   na ekranie jest dla realnego problemu, który świadomie czeka.
 
-NEXUS czyta sam tylko GitHub Actions (pętla `security_sync`, co 30 min, na
+- **Microsoft Defender** (0807, zlecenie Artura 28.11.2026): incydent High
+  wisiał tydzień nieprzypisany w portalu, do którego nikt nie zagląda. NEXUS
+  czyta go sam — patrz niżej.
+
+## Źródło „Microsoft Defender” (NEXUS czyta sam)
+
+Pętla `security_defender` (`tasks/security_defender.py`, reguły
+`services/security_defender.py`) co 15 min (`DEFENDER_SYNC_INTERVAL_SECONDS`)
+pyta Microsoft Graph v1.0:
+
+- `GET /security/incidents?$expand=alerts&$top=50` cztery razy: `status eq`
+  `active`, `inProgress`, `awaitingAction` oraz `lastUpdateDateTime ge` (30 dni);
+  wynik łączony po id, strony po `@odata.nextLink` (tylko do
+  `graph.microsoft.com`, najwyżej 20 stron na zapytanie);
+- `GET /security/secureScores?$top=1` — Secure Score w procentach na kafelek.
+  Błąd samego Secure Score zostawia ostatni pomiar, incydenty idą dalej.
+
+Kontrakt jak pozostałe źródła (`source`/`scanner` = `defender`):
+- incydent otwarty (każdy stan poza `resolved` i `redirected`) → znalezisko
+  „czeka na reakcję”, klucz = id incydentu, waga z `severity`
+  (`informational` → informacja, nieznana → średnia), zdarzenie
+  `incident_open` (ref `defender:<id>:open`);
+- `resolved`/`redirected` (scalony) → znalezisko zamknięte jako naprawione,
+  także z wyjątkiem (notatka „Incydent zamknięty w Defenderze”), zdarzenie
+  `incident_resolved`; incydent znów otwarty otwiera znalezisko ponownie;
+- odczyt pełny (bez limitu stron) zamyka też otwarte znaleziska, których
+  Defender już nie zwraca; błąd odczytu niczego nie zamyka;
+- nowy, wznowiony albo podniesiony do High/Critical incydent → dzwonek
+  `security_defender_incident` każdemu aktywnemu adminowi, mail od razu
+  (kategoria awarii), dedup dzienny w `emit`.
+
+Prywatność: tytuł to `displayName` po `scrub` (bez e-maili, więc bez UPN-ów,
+i bez adresów IP). Dowód: kategorie alertów po polsku, liczba alertów, liczba
+zasobów według typu („zasoby: 3 (adres IP 2, konto 1)”) i „przypisany /
+nieprzypisany”. Wartości dowodów (konto, urządzenie, adres, temat maila),
+`description`, `assignedTo` i `incidentWebUrl` (niesie id tenanta) nie są
+zapisywane. Link „Otwórz w Defenderze” w panelu znaleziska i w zdarzeniach
+składamy sami: `https://security.microsoft.com/incidents/<id>`.
+
+Ekran: kafelek „Microsoft Defender” (otwarte incydenty, ile wysokich,
+Secure Score) i wiersz w tabeli źródeł: bez rejestracji „nieskonfigurowane”,
+przed pierwszym odczytem „czeka na pierwszy odczyt”, błąd → „błąd odczytu”
+z kodem (np. `HTTP 403`, `token: invalid_client`), odczyt w ostatniej godzinie
+→ „na żywo”. Na stagingu pętla zatrzymana (`app/core/staging.py`): kopia
+produkcji nie dzwoni adminom incydentami z prawdziwego tenanta.
+
+### Rejestracja aplikacji w Entra (klika Artur)
+
+Osobna aplikacja, bo ta z `Mail.Send` przy wycieku sekretu pozwala wysyłać
+maile; ta pozwala tylko czytać incydenty.
+
+1. entra.microsoft.com → Aplikacje → Rejestracje aplikacji → Nowa
+   rejestracja: nazwa „NEXUS Defender (odczyt)”, konta tylko w tej
+   organizacji, bez adresu przekierowania.
+2. Uprawnienia interfejsu API → Dodaj → Microsoft Graph → **Uprawnienia
+   aplikacji**: `SecurityIncident.Read.All` i `SecurityEvents.Read.All`.
+   Usuń domyślne delegowane `User.Read`. Potem „Udziel zgody administratora”.
+3. Certyfikaty i wpisy tajne → Nowy klucz tajny klienta, ważny 12 miesięcy
+   (wpisz termin w kalendarz rutyn — po wygaśnięciu źródło pokaże
+   `token: invalid_client`). Wartość skopiuj od razu, potem jej nie widać.
+4. GitHub → Settings → Secrets and variables → Actions → New repository
+   secret `DEFENDER_CLIENT_SECRET` z wartością klucza. Sekretu nie wklejaj
+   do pola `value` workflowu — `inputs` widać na stałe w podsumowaniu biegu.
+5. Actions → „Coolify set env” (z gałęzi `main`), `redeploy=false`:
+   - `key=DEFENDER_CLIENT_ID`, `value=<Identyfikator aplikacji (klienta)>`;
+   - `key=DEFENDER_CLIENT_SECRET`, `value_from_secret=DEFENDER_CLIENT_SECRET`;
+   - `DEFENDER_TENANT_ID` tylko wtedy, gdy tenant ma być inny niż
+     `M365_MAIL_TENANT_ID` (domyślnie ten sam tenant co poczta).
+   Na końcu jeden bieg „Deploy” (w dzień roboczy po 18:00).
+6. Po wdrożeniu: Ustawienia → Bezpieczeństwo, w ciągu ok. 20 min od startu
+   wiersz „Microsoft Defender” = „na żywo”, kafelek pokazuje otwarte
+   incydenty i Secure Score. `HTTP 403` = brak zgody administratora albo
+   uprawnienie delegowane zamiast aplikacyjnego.
+
+NEXUS czyta sam GitHub Actions (pętla `security_sync`, co 30 min, na
 stagingu zatrzymana): biegi `SECURITY_GITHUB_WORKFLOW` z `SECURITY_GITHUB_REPO`
 i wyniki jobów ostatniego biegu (token `SECURITY_GITHUB_TOKEN` opcjonalny,
 tylko dla limitu). Env na produkcji ustawia wyłącznie workflow „Coolify set env”.
 
 Pilnują: `tests/test_security_screen_unit.py`, `tests/test_security_screen_api.py`,
+`tests/test_security_defender_unit.py`, `tests/test_security_defender_api.py`
+(przykład Graph: `tests/data/security/defender_*_example.json`),
 wzorce `tests/data/authz_golden/security*.json`,
 `frontend/src/components/settings/security/*.test.ts(x)`.

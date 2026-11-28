@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTiles,
   calendarDays,
+  defenderTile,
   exceptionBounds,
   exceptionError,
   nextCadence,
@@ -49,6 +50,45 @@ describe("buildTiles", () => {
   it("CI bez pierwszego odczytu jest neutralne", () => {
     const tiles = buildTiles({ ...TILES, ci: { ...TILES.ci, configured: false } }, moment);
     expect(tiles[0]).toMatchObject({ value: "—", tone: "neutral" });
+  });
+});
+
+describe("kafelek Microsoft Defender", () => {
+  const live = { configured: true, connected: true, open: 2, urgent: 1, secure_score: 69.45, secure_score_on: "2026-11-28" };
+
+  it("otwarte incydenty i Secure Score jak na makiecie", () => {
+    expect(defenderTile(live)).toEqual({
+      key: "defender",
+      label: "Microsoft Defender",
+      value: "2 otwarte",
+      sub: "1 wysoki · Secure Score 69,45%",
+      tone: "danger",
+    });
+    expect(defenderTile({ ...live, open: 0, urgent: 0 })).toMatchObject({ value: "0 otwartych", tone: "success" });
+    expect(defenderTile({ ...live, urgent: 0, secure_score: null })).toMatchObject({
+      sub: "Secure Score —",
+      tone: "warning",
+    });
+  });
+
+  it("bez rejestracji albo przed pierwszym odczytem jest neutralny, nie zielony", () => {
+    expect(defenderTile({ ...live, configured: false, connected: false })).toMatchObject({
+      value: "—",
+      sub: "czeka na rejestrację aplikacji w Entra",
+      tone: "neutral",
+    });
+    expect(defenderTile({ ...live, connected: false })).toMatchObject({ value: "—", tone: "neutral" });
+  });
+
+  it("piąty kafelek tylko, gdy API go przysłało", () => {
+    expect(buildTiles(TILES, moment)).toHaveLength(4);
+    expect(buildTiles({ ...TILES, defender: live }, moment).map((t) => t.key)).toEqual([
+      "ci",
+      "waiting",
+      "traffic",
+      "logins",
+      "defender",
+    ]);
   });
 });
 

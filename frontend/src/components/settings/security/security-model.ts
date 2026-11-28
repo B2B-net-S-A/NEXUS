@@ -27,6 +27,8 @@ export interface SecurityFinding {
   closed_at: string | null;
   first_seen_at: string;
   last_seen_at: string;
+  /** Incydent w portalu źródła (Defender); inne źródła — brak. */
+  link?: string | null;
 }
 
 export interface SecurityEvent {
@@ -72,6 +74,15 @@ export interface SecurityTiles {
   waiting: { total: number; by_severity: Partial<Record<Severity, number>> };
   traffic: { blocked: number; events: number; configured: boolean };
   logins: { ok: number; denied: number };
+  /** Microsoft Defender (28.11.2026): otwarte incydenty i Secure Score. */
+  defender?: {
+    configured: boolean;
+    connected: boolean;
+    open: number;
+    urgent: number;
+    secure_score: number | null;
+    secure_score_on: string | null;
+  };
 }
 
 export interface SecurityOwner {
@@ -138,6 +149,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   nexus: "NEXUS",
   manual: "Ręcznie",
   grafana: "Grafana",
+  defender: "Defender",
 };
 
 export function sourceLabel(source: string): string {
@@ -170,7 +182,7 @@ export function eventTone(event: SecurityEvent): Tone {
 // ── Kafelki ─────────────────────────────────────────────────────────────────
 
 export interface TileView {
-  key: "ci" | "waiting" | "traffic" | "logins";
+  key: "ci" | "waiting" | "traffic" | "logins" | "defender";
   label: string;
   value: string;
   sub: string;
@@ -191,6 +203,28 @@ function severitySummary(bySeverity: Partial<Record<Severity, number>>): string 
     .filter((s) => (bySeverity[s] ?? 0) > 0)
     .map((s) => `${SEVERITY_LABEL[s]} ${bySeverity[s]}`);
   return parts.length ? parts.join(" · ") : "nic nie czeka";
+}
+
+const SCORE = new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 });
+
+/** Kafelek Defendera: otwarte incydenty i Secure Score; bez rejestracji — neutralny. */
+export function defenderTile(defender: NonNullable<SecurityTiles["defender"]>): TileView {
+  const label = "Microsoft Defender";
+  if (!defender.configured) {
+    return { key: "defender", label, value: "—", sub: "czeka na rejestrację aplikacji w Entra", tone: "neutral" };
+  }
+  if (!defender.connected) {
+    return { key: "defender", label, value: "—", sub: "czeka na pierwszy odczyt z Microsoft Graph", tone: "neutral" };
+  }
+  const score = defender.secure_score === null ? "Secure Score —" : `Secure Score ${SCORE.format(defender.secure_score)}%`;
+  const urgent = defender.urgent > 0 ? `${defender.urgent} ${plural(defender.urgent, "wysoki", "wysokie", "wysokich")} · ` : "";
+  return {
+    key: "defender",
+    label,
+    value: `${defender.open} ${plural(defender.open, "otwarty", "otwarte", "otwartych")}`,
+    sub: `${urgent}${score}`,
+    tone: defender.urgent > 0 ? "danger" : defender.open > 0 ? "warning" : "success",
+  };
 }
 
 export function buildTiles(
@@ -248,6 +282,7 @@ export function buildTiles(
       sub: "udane / odrzucone",
       tone: tiles.logins.denied > 0 ? "warning" : "success",
     },
+    ...(tiles.defender ? [defenderTile(tiles.defender)] : []),
   ];
 }
 
@@ -262,6 +297,7 @@ export function repairBrief(finding: SecurityFinding): string {
     `Waga: ${SEVERITY_LABEL[finding.severity]} · źródło: ${sourceLabel(finding.source)}${finding.scanner ? ` (${finding.scanner})` : ""}`,
   ];
   if (finding.location) lines.push(`Gdzie: ${finding.location}`);
+  if (finding.link) lines.push(`Incydent: ${finding.link}`);
   if (finding.evidence) lines.push(`Dowód: ${finding.evidence}`);
   if (finding.impact) lines.push(`Wpływ: ${finding.impact}`);
   if (finding.steps.length) {

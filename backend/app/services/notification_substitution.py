@@ -234,6 +234,7 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.teams_prep_scope_missing,
         T.security_routine_overdue,
         T.break_glass_password_login,
+        T.security_defender_incident,
         T.trainee_program_decision,
     }
 )

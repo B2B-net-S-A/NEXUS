@@ -25,6 +25,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.security import SecurityEvent, SecurityFinding, SecurityRoutine
 from app.models.user import User, UserRole
+from app.services.security_defender import finding_link
 from app.services.security_screen import (
     MAX_EXCEPTION_DAYS,
     SEVERITY_RANK,
@@ -61,6 +62,8 @@ class SecurityFindingOut(BaseModel):
     closed_at: Optional[datetime]
     first_seen_at: datetime
     last_seen_at: datetime
+    # Źródło z własnym portalem (Defender: incydent w security.microsoft.com).
+    link: Optional[str] = None
 
 
 class SecurityEventOut(BaseModel):
@@ -176,6 +179,7 @@ def _finding_out(row: SecurityFinding, today: date) -> SecurityFindingOut:
         closed_at=row.closed_at,
         first_seen_at=row.first_seen_at,
         last_seen_at=row.last_seen_at,
+        link=finding_link(row.source, row.fingerprint),
     )
 
 

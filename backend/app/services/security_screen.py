@@ -418,6 +418,7 @@ async def build_sources(
             last_at=last,
         )
     )
+    rows.append(defender_source_row(states.get("defender"), now))
 
     last_login = await db.scalar(
         select(func.max(SecurityEvent.occurred_at)).where(
@@ -436,6 +437,59 @@ async def build_sources(
         )
     )
     return rows
+
+
+#: NEXUS czyta Defendera co 15 min — po godzinie ciszy źródło nie jest „na żywo”.
+DEFENDER_LIVE = timedelta(hours=1)
+DEFENDER_PORTAL = "https://security.microsoft.com/incidents"
+
+
+def defender_source_row(
+    state: Optional[SecuritySourceState], now: datetime
+) -> SourceRow:
+    """Bez rejestracji aplikacji „nieskonfigurowane”, nie błąd."""
+    from app.services.m365.defender_auth import credentials_configured  # noqa: PLC0415
+
+    last = state.last_ok_at if state else None
+    error = state.last_error if state else None
+    if not credentials_configured():
+        st, label, detail = "unconfigured", "nieskonfigurowane", None
+    elif error:
+        st, label, detail = "failing", "błąd odczytu", error
+    elif last is None:
+        st, label, detail = "unconfigured", "czeka na pierwszy odczyt", None
+    elif now - last <= DEFENDER_LIVE:
+        st, label, detail = "live", "na żywo", None
+    else:
+        st, label, detail = "quiet", _ago_label(last, now), None
+    return SourceRow(
+        key="defender",
+        name="Microsoft Defender",
+        where="Microsoft Graph, co 15 min",
+        state=st,
+        state_label=label,
+        last_at=last,
+        detail=detail,
+        link=DEFENDER_PORTAL,
+    )
+
+
+def defender_tile(
+    state: Optional[SecuritySourceState], waiting: list[SecurityFinding]
+) -> dict:
+    """Kafelek: otwarte incydenty (te, które czekają na reakcję) i Secure Score."""
+    from app.services.m365.defender_auth import credentials_configured  # noqa: PLC0415
+
+    mine = [f for f in waiting if f.source == "defender"]
+    detail = (state.detail or {}) if state else {}
+    return {
+        "configured": credentials_configured(),
+        "connected": bool(state and state.last_ok_at),
+        "open": len(mine),
+        "urgent": sum(1 for f in mine if f.severity in ("high", "critical")),
+        "secure_score": detail.get("secure_score"),
+        "secure_score_on": detail.get("secure_score_on"),
+    }
 
 
 def workflow_url() -> str:
@@ -537,6 +591,7 @@ async def build_overview(
         )
     )
     sources = await build_sources(db, now, today, routines)
+    defender_state = await db.get(SecuritySourceState, "defender")
     return {
         "today": today,
         "workflow_url": workflow_url(),
@@ -558,6 +613,7 @@ async def build_overview(
                 "ok": int(logins.get(LOGIN_OK, 0)),
                 "denied": int(logins.get(LOGIN_DENIED, 0)),
             },
+            "defender": defender_tile(defender_state, waiting),
         },
         "waiting": waiting,
         "excepted": excepted,

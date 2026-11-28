@@ -125,6 +125,8 @@ FORBIDDEN_FLAGS = frozenset(
         "BOARD_KRS_ENABLED",
         # Ekran Bezpieczeństwo: odczyt biegów z GitHub API (0800).
         "SECURITY_SYNC_ENABLED",
+        # Źródło „Microsoft Defender”: Graph z prawdziwego tenanta i dzwonki do adminów.
+        "DEFENDER_SYNC_ENABLED",
         "AUTENTI_ENABLED",
         "TRAFFIT_SYNC_ENABLED",
         "PORTAL_PRACUJ_ENABLED",

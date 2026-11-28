@@ -134,7 +134,7 @@ async def test_admin_sees_overview_with_seeded_routines(
     response = await app_client.get(f"{API}/overview", headers=app_auth_headers)
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body["tiles"]) == {"ci", "waiting", "traffic", "logins"}
+    assert set(body["tiles"]) == {"ci", "waiting", "traffic", "logins", "defender"}
     assert {s["key"] for s in body["sources"]} >= {
         "ci",
         "crowdsec",

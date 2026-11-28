@@ -1339,6 +1339,18 @@ class Settings(BaseSettings):
     SECURITY_GITHUB_TOKEN: str = ""
     # Webhook `/api/security/ingest*` na klucz konta serwisowego.
     SECURITY_INGEST_RATE_LIMIT: str = "120/minute"
+    # Źródło „Microsoft Defender” ekranu Bezpieczeństwo (zlecenie Artura
+    # 28.11.2026, `tasks/security_defender.py`): co 15 min incydenty z alertami
+    # i Secure Score z Microsoft Graph Security API. Osobna rejestracja aplikacji
+    # w Entra z APPLICATION `SecurityIncident.Read.All` i `SecurityEvents.Read.All`
+    # (tylko odczyt) — nie aplikacja z Mail.Send. Bez ID i sekretu pętla śpi,
+    # a źródło jest „nieskonfigurowane”. Tenant pusty → M365_MAIL_TENANT_ID,
+    # potem M365_TENANT_ID. Env na produkcji: workflow „Coolify set env”.
+    DEFENDER_SYNC_ENABLED: bool = True
+    DEFENDER_SYNC_INTERVAL_SECONDS: int = 900
+    DEFENDER_CLIENT_ID: str = ""
+    DEFENDER_CLIENT_SECRET: str = ""
+    DEFENDER_TENANT_ID: str = ""
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
     M365_MAIL_TENANT_ID: str = ""

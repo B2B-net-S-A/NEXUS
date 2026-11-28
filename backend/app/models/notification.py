@@ -183,6 +183,10 @@ class NotificationType(str, enum.Enum):
     # przy wyłączonym logowaniu hasłem — omija MFA Entra, więc każde takie
     # logowanie widzą wszyscy admini, mail od razu (`services/security_screen.py`).
     break_glass_password_login = "break_glass_password_login"
+    # 0807: nowy albo wznowiony incydent High/Critical z Microsoft Defendera
+    # (źródło ekranu Bezpieczeństwo) — tylko admini, mail od razu
+    # (`services/security_defender.py`).
+    security_defender_incident = "security_defender_incident"
     # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
     # grupą zakresu) — lista do dopisania po uzgadnianiu o 7:00, tylko admini,
     # mail od razu (`services/hr/m365/scope_alerts.py`).

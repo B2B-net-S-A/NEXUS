@@ -134,6 +134,9 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         # GitHub API i DefectDojo (zapora i tak blokuje) oraz dzwonki do adminów;
         # na stagingu krok bazy woła się ręcznie: `app.tasks.security_sync.run_once`.
         "security_sync",
+        # Graph Defendera z prawdziwego tenanta i dzwonki do adminów;
+        # bieg ręczny: `app.tasks.security_defender.run_once`.
+        "security_defender",
         "fx_refresh",
         "cc_centroid_sync",
         "kpi_coach_nudger",

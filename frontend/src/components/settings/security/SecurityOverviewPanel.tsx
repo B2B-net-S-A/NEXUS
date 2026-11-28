@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Przegląd (makieta 1 raportu „Tarcza NEXUSA”, 27.11.2026): cztery kafelki,
+ * Przegląd (makieta 1 raportu „Tarcza NEXUSA”, 27.11.2026): kafelki (od
+ * 28.11.2026 piąty: Microsoft Defender),
  * „Czeka na reakcję” po wadze, zdarzenia na żywo i tabela źródeł. Źródło,
  * którego jeszcze nie ma (CrowdSec, Falco, Wazuh, DefectDojo), ma stan
  * „nieskonfigurowane”, a nie błąd. Dane: `GET /api/security/overview`.
@@ -91,7 +92,7 @@ export function SecurityOverviewPanel({ data }: SecurityOverviewPanelProps) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
         {tiles.map((tile) => (
           <div
             key={tile.key}
