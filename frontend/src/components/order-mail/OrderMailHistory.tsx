@@ -52,6 +52,8 @@ function scheduleSentence(w: OrderMailRecheckWindow | undefined): string {
 
 const ENTRY_STATUS: Record<string, { tone: StatusDotTone; label: string }> = {
   applied: { tone: "success", label: "Zapisane" },
+  // Dokument powtarzał zapisane zamówienie — zamknięty bez zmian (28.11.2026).
+  closed: { tone: "neutral", label: "Zamknięte bez zmian" },
   error: { tone: "danger", label: "Błąd" },
 };
 

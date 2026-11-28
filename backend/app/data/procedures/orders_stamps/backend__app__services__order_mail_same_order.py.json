@@ -1,0 +1,4 @@
+{
+  "sha256": "732db169eb82781e5f101e2c8c0def5fe16836731b0fcf13dd86d3cb04bcad64",
+  "source": "backend/app/services/order_mail_same_order.py"
+}

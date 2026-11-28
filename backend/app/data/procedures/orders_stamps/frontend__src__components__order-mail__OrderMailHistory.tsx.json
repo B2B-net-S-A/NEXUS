@@ -1,4 +1,4 @@
 {
-  "sha256": "edb428714da673f35b2223c679f0359fb9eb98e9bbb4b9924c657dbe785c7ac6",
+  "sha256": "0643b5cb359310f36c468f6039d9f1b68869c17cf26b77773d6dfae58706c0cc",
   "source": "frontend/src/components/order-mail/OrderMailHistory.tsx"
 }

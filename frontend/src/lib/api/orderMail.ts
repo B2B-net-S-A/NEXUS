@@ -189,8 +189,8 @@ export interface OrderMailRecheckEntry {
   client_name: string | null;
   order_number: string | null;
   people: string[];
-  /** `applied` = zapisane automatem, `held` = dalej czeka, `error` = bieg padł. */
-  outcome: "applied" | "held" | "error" | string;
+  /** `applied` = zapisane automatem, `held` = dalej czeka, `closed` = powtarzał zapisane zamówienie, zamknięty bez zmian, `error` = bieg padł. */
+  outcome: "applied" | "held" | "closed" | "error" | string;
   /**
    * `awaiting_contract` = czeka na podpis umowy (bez limitu czasu i bez karty
    * dla DL), `config` = automat wyłączony, `unrecognized` = brak klienta,

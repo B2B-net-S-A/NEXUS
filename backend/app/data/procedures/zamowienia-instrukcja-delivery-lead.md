@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 27.11.2026
+> **Zgodność z systemem sprawdzona:** 28.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1183,6 +1183,20 @@ zostaje puste do uzupełnienia. Przy dopasowaniu osoby
 sprawdza **pełną, aktualną listę konsultantów przypisanych umową do tego
 klienta**, także z dawniej zakończonymi umowami. Nie szuka wśród osób innego
 klienta.
+
+**Dokument, który powtarza zamówienie już zapisane w NEXUSIE, kolejka zamyka
+sama.** Warunek: każda osoba z dokumentu ma dokładnie jedno zamówienie
+(trwające, wstrzymane albo zakończone) z tym samym numerem — przy zamówieniu
+MD liczy się numer całego zamówienia — oraz z tym samym okresem, tą samą stawką
+(także w innej jednostce: 1200 zł/MD to 150 zł/h), walutą i pulą (liczba MD
+i wartość, w granicy grosza; porównywane wtedy, gdy podają je i dokument,
+i zamówienie). Taki dokument znika z „Do weryfikacji” z adnotacją „To samo co
+zamówienie #N”, a w historii sprawdzeń na dole ekranu stoi jako „Zamknięte
+bez zmian”. Zamówienia nic nie zmienia. Dokumenty, które już czekały, zamykają
+się przy najbliższym godzinnym sprawdzeniu. **Każda różnica zostawia dokument
+w kolejce** z punktem „„[osoba]”: odczyt różni się od #N: stawka” (albo okres,
+waluta, pula) — także wtedy, gdy różnica to błąd odczytu PDF-a, a nie zmiana
+zamówienia: sprawdź PDF i odrzuć dokument albo popraw zamówienie.
 
 **Spacje, wielkość liter, polskie znaki i kolejność imienia oraz nazwiska
 nie wymagają ręcznego potwierdzenia**, jeśli pasuje dokładnie jedna osoba

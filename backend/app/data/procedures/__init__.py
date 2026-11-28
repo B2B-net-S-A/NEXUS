@@ -138,6 +138,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # przyczyny („czeka na podpis" vs „po trzech próbach karta do DL").
     "backend/app/services/order_mail_recheck.py",
     "backend/app/services/order_mail_recheck_reasons.py",
+    # Dokument powtarzający zapisane zamówienie: kolejka zamyka go sama,
+    # różnicę dopisuje do powodów (28.11.2026).
+    "backend/app/services/order_mail_same_order.py",
     # Stawki z rekrutacji (D7, 08.10.2026): reguła porównania i źródło —
     # instrukcja opisuje powód „stawka różni się od stawki z rekrutacji”
     # i co zrobić po renegocjacji.

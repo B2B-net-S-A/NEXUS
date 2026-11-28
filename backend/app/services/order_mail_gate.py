@@ -132,6 +132,12 @@ CODE_AI_RETRY_EXHAUSTED = "ai_retry_exhausted"
 CODE_RECHECK_FAILED = "recheck_failed"
 #: Nordea: dokument z tej skrzynki, który nie jest zamówieniem.
 CODE_NON_ORDER = "non_order"
+#: Dokument powtarza zamówienie już zapisane (numer, okres, stawka, pula) —
+#: kolejka zamyka go sama (``order_mail_same_order``, 28.11.2026).
+CODE_SAME_AS_ORDER = "same_as_order"
+#: Ten sam numer co zapisane zamówienie, ale odczyt różni się w polu —
+#: zostaje w kolejce i mówi, w którym (``order_mail_same_order``).
+CODE_DIFFERS_FROM_ORDER = "differs_from_order"
 #: Wpis sprzed wdrożenia kodów albo powód zapisany bez kodu.
 CODE_UNKNOWN = "unknown"
 

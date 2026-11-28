@@ -59,6 +59,7 @@ from app.core.config import settings
 from app.models.order_mail import (
     OUTCOME_APPLIED,
     OUTCOME_AUTO_APPLIED,
+    OUTCOME_DISMISSED,
     OUTCOME_DUPLICATE,
     OUTCOME_FAILED,
     OUTCOME_NEEDS_REVIEW,
@@ -88,6 +89,9 @@ MAX_HISTORY_REASON_CHARS = 400
 OUTCOME_ENTRY_APPLIED = "applied"
 OUTCOME_ENTRY_HELD = "held"
 OUTCOME_ENTRY_ERROR = "error"
+#: Dokument powtarzał zapisane zamówienie i kolejka zamknęła go bez zmian
+#: (``order_mail_same_order``). Nie „zapisane” — nic nie powstało.
+OUTCOME_ENTRY_CLOSED = "closed"
 
 #: Znacznik „Sprawdzone ostatnio" + odcisk poprzedniego wyniku. Wiersz
 #: ``app_settings``, bez migracji — to stan pętli, nie konfiguracja (ten sam
@@ -578,6 +582,11 @@ async def _recheck_one(db: AsyncSession, doc_id: int) -> Optional[dict[str, Any]
         entry = _history_entry(row, outcome=OUTCOME_ENTRY_APPLIED, category=None)
         await db.commit()
         return entry
+    if row.outcome == OUTCOME_DISMISSED:
+        # Karta i ślad prób zniknęły razem z zamknięciem dokumentu.
+        entry = _history_entry(row, outcome=OUTCOME_ENTRY_CLOSED, category=None)
+        await db.commit()
+        return entry
 
     category = classify_hold(
         row.gate_reason_codes, client_known=row.client_id is not None
@@ -816,7 +825,7 @@ async def run_recheck(
         result.checked += 1
         if entry["outcome"] == OUTCOME_ENTRY_APPLIED:
             result.applied += 1
-        else:
+        elif entry["outcome"] != OUTCOME_ENTRY_CLOSED:
             result.held += 1
         if entry.get("alerted"):
             result.alerts += 1

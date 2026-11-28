@@ -85,6 +85,7 @@ from app.services.order_mail_gate import (
     evaluate,
 )
 from app.services.order_mail_planner import ExistingOrder, plan_document
+from app.services.order_mail_same_order import close_when_same_as_existing
 from app.services.order_mail_resolver import (
     MATCH_EXACT,
     MATCH_NONE,
@@ -873,7 +874,10 @@ async def process_pdf_bytes(
 
     # ── Bramka automatu: resolver → planer → werdykt (zawsze zapisany) ──────
     await _plan_and_gate(db, row, extraction, doc, policies, client_id, ident.method)
-    if hold_when_autoapply_disabled(row):
+    if hold_when_autoapply_disabled(row) or row.gate_verdict != GATE_AUTO:
+        # Wstrzymany dokument, który powtarza zapisane zamówienie, nie czeka
+        # na człowieka (``order_mail_same_order``, 28.11.2026).
+        await close_when_same_as_existing(db, row)
         return row
     if row.gate_verdict == GATE_AUTO:
         from app.services.order_mail_apply import apply_document  # cykl importów
@@ -1139,6 +1143,10 @@ async def replan_and_apply(
     if before_apply is not None:
         await before_apply()
     if hold_when_autoapply_disabled(row) or row.gate_verdict != GATE_AUTO:
+        # Tu wracają też dokumenty, które już czekają: godzinowa ponowna
+        # weryfikacja przelicza każdy z nich, więc zamknięcie powtórzonego
+        # zamówienia nie potrzebuje osobnego przejścia ani skryptu.
+        await close_when_same_as_existing(db, row)
         return
     from app.services.order_mail_apply import apply_document  # cykl importów
 

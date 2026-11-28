@@ -1,4 +1,4 @@
 {
-  "sha256": "882c5ac0526454368c111c9903163922fca7811125d13b885f299dd9106a1c02",
+  "sha256": "ff0a95e01308d0c6d9cf8cce616ceb47b624d71d9a682eb48ce21f69538d69cd",
   "source": "backend/app/services/order_mail_recheck.py"
 }

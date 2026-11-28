@@ -270,3 +270,38 @@ nie ma żadnej reguły do utrzymania.
   co zapis, więc bez duplikatów. Do adminów świadomie nie idzie (jak #1394).
 - **Migracja uruchamiana przez `text()` nie może zawierać `:słowo`** (SQLAlchemy
   zrobi z tego parametr) — czas przez `make_timestamptz(...)`, nie literał.
+
+### Dokument powtarzający zapisane zamówienie zamyka się sam (28.11.2026)
+
+- **Po co.** Kolejka trzymała w „Do weryfikacji” PDF-y, których zamówienie
+  ktoś już założył ręcznie: plan `revision` („Zamówienie o tym numerze już
+  istnieje — porównaj”; stawka bywa tylko w innej jednostce, zł/MD w PDF-ie,
+  zł/h w zamówieniu, więc `unchanged` planera jej nie łapał) albo `group`
+  (osoba już jest na linii zamówienia MD z tym numerem). Człowiek zamykał je
+  ręcznie, choć nic nie wnosiły.
+- **Reguła** (`services/order_mail_same_order.py`): KAŻDY wiersz planu ma
+  dokładnie jedno zamówienie tej osoby u tego klienta w stanie
+  `active`/`paused`/`completed` z tym samym numerem (`titles_collide` na
+  tytule zamówienia albo `client_order_groups.order_number`), tym samym
+  okresem, stawką po przeliczeniu jednostki (`convert_order_rate`, granica
+  0,01), walutą i pulą → `outcome = dismissed`, kod `same_as_order`, powód
+  „To samo co zamówienie #N…”, `document_meta.same_as_orders`, stempel
+  `dismissed_from = needs_review` (jak „Odrzuć” — wpis zostaje oryginałem SHA
+  dla ponownie przysłanego PDF-a) i zdjęta karta DL. Zamówienie nie jest
+  dotykane. **Pula** (`md_total`, wartość = `total_value` albo MD × stawka
+  linii) jest porównywana tylko, gdy podają ją OBIE strony — zamówienie
+  założone ręcznie zwykle jej nie ma, a dokument jednoosobowy zawsze.
+  Szkic i anulowane zamówienie się nie liczą; dwa zamówienia o tym numerze
+  też nie (nie ma z czym porównać).
+- **Różnica zostaje w kolejce** z kodem `differs_from_order` i powodem
+  „„[osoba]”: odczyt różni się od #N: stawka” (okres / waluta / pula). Także
+  błąd odczytu (18700 zł/MD zamiast 870) — to nie zmiana zamówienia, ale ma go
+  zobaczyć człowiek. Wiersz bez stawki albo bez jednostki nigdy nie jest „tym
+  samym”.
+- **Gdzie działa:** wyłącznie na dokumencie, który po bramce zostaje
+  w kolejce (`gate_verdict != auto`) — `process_pdf_bytes` i `replan_and_apply`
+  („Przelicz plan”, godzinowa ponowna weryfikacja, udany ponowny odczyt AI).
+  Pewny plan `unchanged` dalej idzie writerem (`auto_applied`). Dokumenty,
+  które już czekają, zamyka zwykły recheck — bez migracji i bez skryptu.
+  Historia biegu pokazuje je jako `closed` („Zamknięte bez zmian”); nie liczą
+  się ani do `applied`, ani do `held`.
