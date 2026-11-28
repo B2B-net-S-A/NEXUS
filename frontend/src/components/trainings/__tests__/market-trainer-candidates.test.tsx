@@ -26,6 +26,16 @@ function application(extra: Partial<MarketTrainerApplication> = {}): MarketTrain
     submissions: 1,
     created_at: "2026-11-28T10:00:00Z",
     updated_at: "2026-11-28T10:00:00Z",
+    panel: {
+      company_name: "",
+      nip: null,
+      regon: "",
+      company_address: "",
+      panel_email: null,
+      panel_open: false,
+      panel_opened_at: null,
+      panel_closed_at: null,
+    },
     ...extra,
   };
 }
@@ -105,6 +115,68 @@ describe("MarketTrainerCandidates", () => {
     await user.click(confirm);
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), "rejected", "");
+  });
+
+  it("trener z bazy bez panelu: „Otwórz panel trenera” pyta o dane firmy", async () => {
+    const user = userEvent.setup();
+    const onOpenPanel = vi.fn().mockResolvedValue(true);
+    render(
+      <MarketTrainerCandidates
+        applications={[application({ status: "accepted" })]}
+        busy={false}
+        onChange={vi.fn()}
+        onOpenPanel={onOpenPanel}
+        onClosePanel={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /W bazie trenerów/ }));
+    await user.click(screen.getByRole("button", { name: "Otwórz panel trenera" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("E-mail do panelu")).toHaveValue("anna@example.com");
+    await user.type(within(dialog).getByLabelText("NIP firmy"), "1234563218");
+    await user.type(within(dialog).getByLabelText("Nazwa firmy"), "Przykładowa Szkoła");
+    await user.type(within(dialog).getByLabelText("Adres siedziby"), "ul. Prosta 1, 00-001 Warszawa");
+    await user.click(within(dialog).getByRole("button", { name: "Otwórz panel i wyślij link" }));
+
+    expect(onOpenPanel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }),
+      expect.objectContaining({ nip: "1234563218", panel_email: "anna@example.com" }),
+    );
+  });
+
+  it("otwarty panel daje „Zamów szkolenie” dla tego trenera", async () => {
+    const user = userEvent.setup();
+    render(
+      <MarketTrainerCandidates
+        applications={[
+          application({
+            status: "accepted",
+            panel: {
+              company_name: "Przykładowa Szkoła",
+              nip: "1234563218",
+              regon: "",
+              company_address: "ul. Prosta 1, 00-001 Warszawa",
+              panel_email: "anna@example.com",
+              panel_open: true,
+              panel_opened_at: "2026-11-28T10:00:00Z",
+              panel_closed_at: null,
+            },
+          }),
+        ]}
+        busy={false}
+        onChange={vi.fn()}
+        onOpenPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /W bazie trenerów/ }));
+    expect(screen.getByRole("link", { name: "Zamów szkolenie" })).toHaveAttribute(
+      "href",
+      "/trainings/new?market=1",
+    );
+    expect(screen.getByText(/Panel otwarty/)).toBeInTheDocument();
   });
 
   it("oznacza konsultanta z kontraktem", () => {

@@ -166,7 +166,8 @@ def test_training_upload_routes_get_the_big_limit():
     middleware = BodySizeLimitMiddleware(
         lambda *a: None, max_bytes=1, pattern_limits=limit.kwargs["pattern_limits"]
     )
-    assert len(patterns) == 2
+    # 0808: trzecia trasa to pliki z Zał. 1 od trenera z rynku (panel trenera).
+    assert len(patterns) == 3
     assert middleware._limit_for("/api/trainings/5/files") > 2 * 1024**3
     assert (
         middleware._limit_for(
@@ -174,4 +175,11 @@ def test_training_upload_routes_get_the_big_limit():
         )
         > 2 * 1024**3
     )
+    assert (
+        middleware._limit_for(
+            "/api/public/trainer-portal/trainings/5/deliverables/audio"
+        )
+        > 2 * 1024**3
+    )
     assert middleware._limit_for("/api/public/consultant-portal/trainings/5/quote") == 1
+    assert middleware._limit_for("/api/public/trainer-portal/trainings/5/invoice") == 1

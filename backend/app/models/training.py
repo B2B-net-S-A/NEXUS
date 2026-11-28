@@ -30,6 +30,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.services import market_trainer_portal_schema as portal_schema
 from app.services import trainings_schema as schema
 
 
@@ -51,6 +52,15 @@ class Training(Base):
         CheckConstraint(schema.CK_STATUS, name="ck_trainings_status"),
         CheckConstraint(schema.CK_TRAINER_KIND, name="ck_trainings_trainer_kind"),
         CheckConstraint(schema.CK_TRAINER, name="ck_trainings_trainer"),
+        # 0808: szkolenie trenera z rynku — obieg trenera B2B bez kontraktu.
+        CheckConstraint(
+            portal_schema.CK_TRAINER_MARKET, name="ck_trainings_trainer_market"
+        ),
+        Index(
+            "ix_trainings_trainer_market",
+            "trainer_market_id",
+            postgresql_where=text("trainer_market_id IS NOT NULL"),
+        ),
         CheckConstraint(schema.CK_JSON_ARRAYS, name="ck_trainings_json"),
         CheckConstraint(schema.CK_PARTNER, name="ck_trainings_partner"),
         CheckConstraint(schema.CK_FEES, name="ck_trainings_fees"),
@@ -83,6 +93,9 @@ class Training(Base):
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
     )
     trainer_user_id: Mapped[Optional[int]] = _user_fk()
+    trainer_market_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("market_trainer_applications.id", ondelete="SET NULL"), nullable=True
+    )
     application_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("cp_trainer_applications.id", ondelete="SET NULL"), nullable=True
     )
@@ -249,6 +262,10 @@ class TrainingFile(Base):
     uploaded_by_user_id: Mapped[Optional[int]] = _user_fk()
     uploaded_by_contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0808: plik od trenera z rynku (bez kontraktu).
+    uploaded_by_market_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("market_trainer_applications.id", ondelete="SET NULL"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

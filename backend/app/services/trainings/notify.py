@@ -25,6 +25,9 @@ SIGN_OFF = "Zaloguj się do panelu konsultanta: {url}"
 
 
 async def _send(db: AsyncSession, training: Training, subject: str, body: str) -> None:
+    if training.trainer_market_id is not None:
+        await _send_market(db, training, subject, body)
+        return
     if training.trainer_contract_id is None:
         return
     email: Optional[str] = await db.scalar(
@@ -110,3 +113,26 @@ async def file_reviewed(
         )
         subject = f"Plik do poprawy: {training.title}"
     await _send(db, training, subject, body)
+
+
+async def _send_market(
+    db: AsyncSession, training: Training, subject: str, body: str
+) -> None:
+    """Trener z rynku (0808): adres logowania z panelu, wyłącznik wejścia trenera."""
+    from app.models.website_intake import MarketTrainerApplication  # noqa: PLC0415
+    from app.services.market_trainer_portal import mail  # noqa: PLC0415
+
+    trainer = await db.get(MarketTrainerApplication, training.trainer_market_id)
+    if trainer is None or not trainer.panel_open:
+        return
+    text = "\n\n".join(
+        [
+            "Dzień dobry,",
+            body,
+            SIGN_OFF.format(url=portal_mail.portal_url("/szkolenia")),
+        ]
+    )
+    try:
+        await mail.send(db, to=trainer.panel_email or "", subject=subject, text=text)
+    except Exception:  # noqa: BLE001 — mail nie cofa zapisanego kroku
+        logger.exception("trainings_notify: send failed training=%s", training.id)

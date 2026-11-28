@@ -141,6 +141,8 @@ export interface TrainingView {
   status_label: string;
   trainer_kind: TrainerKind;
   trainer_contract_id: number | null;
+  /** Trener z rynku (0808): obieg trenera B2B bez kontraktu. */
+  trainer_market_id?: number | null;
   trainer_user_id: number | null;
   trainer_name: string;
   application_id: number | null;
@@ -189,6 +191,7 @@ export interface TrainingRow {
   status_label: string;
   trainer_kind: TrainerKind;
   trainer_contract_id: number | null;
+  trainer_market_id?: number | null;
   trainer_name: string;
   session_date: string | null;
   total: string | null;
@@ -294,6 +297,27 @@ export interface MarketTrainerApplication {
   submissions: number;
   created_at: string;
   updated_at: string;
+  /** 0808: panel trenera z rynku — dane firmy do umowy i stan wejścia. */
+  panel: MarketTrainerPanel;
+}
+
+export interface MarketTrainerPanel {
+  company_name: string;
+  nip: string | null;
+  regon: string;
+  company_address: string;
+  panel_email: string | null;
+  panel_open: boolean;
+  panel_opened_at: string | null;
+  panel_closed_at: string | null;
+}
+
+export interface MarketPanelInput {
+  company_name: string;
+  nip: string;
+  regon: string;
+  company_address: string;
+  panel_email: string;
 }
 
 export interface PendingSignature {
@@ -363,6 +387,7 @@ export interface CreateInput extends OrderInput {
   trainer_contract_id: number | null;
   trainer_user_id: number | null;
   application_id: number | null;
+  trainer_market_id?: number | null;
 }
 
 export interface DirectoryUser {
@@ -383,6 +408,7 @@ export const trainingKeys = {
   people: (id: number) => ["trainings", "people", id] as const,
   applications: ["trainings", "applications"] as const,
   marketApplications: ["trainings", "market-applications"] as const,
+  marketPortal: ["trainings", "market-portal"] as const,
   pending: ["trainings", "signatures", "pending"] as const,
   settings: ["trainings", "settings"] as const,
   users: (q: string) => ["trainings", "users", q] as const,
@@ -626,6 +652,67 @@ export function useMarketTrainerStatus() {
       ).data.application,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: trainingKeys.marketApplications }),
+  });
+}
+
+/** Podpowiedź danych firmy z Białej Listy po NIP (TCM, przy otwarciu panelu). */
+export async function marketCompanyLookup(nip: string): Promise<Omit<MarketPanelInput, "panel_email">> {
+  return (
+    await api.get<Omit<MarketPanelInput, "panel_email">>(`${BASE}/market-applications/company-lookup`, {
+      params: { nip },
+    })
+  ).data;
+}
+
+export function useOpenMarketPanel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: number; body: MarketPanelInput }) =>
+      (
+        await api.post<{
+          application: MarketTrainerApplication;
+          invite: "sent" | "switch_off" | "no_mailer";
+        }>(
+          `${BASE}/market-applications/${input.id}/panel`,
+          input.body,
+        )
+      ).data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: trainingKeys.marketApplications }),
+  });
+}
+
+export function useCloseMarketPanel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (
+        await api.post<{ application: MarketTrainerApplication }>(
+          `${BASE}/market-applications/${id}/panel/close`,
+        )
+      ).data.application,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: trainingKeys.marketApplications }),
+  });
+}
+
+/** Włącznik wejścia trenerów z rynku: odczyt TCM i admin, zmiana tylko admin. */
+export function useMarketPortalSwitch(enabled = true) {
+  return useQuery({
+    queryKey: trainingKeys.marketPortal,
+    queryFn: async () =>
+      (await api.get<{ enabled: boolean }>(`${BASE}/market-portal`)).data.enabled,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSaveMarketPortalSwitch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) =>
+      (await api.put<{ enabled: boolean }>(`${BASE}/market-portal`, { enabled })).data.enabled,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: trainingKeys.marketPortal }),
   });
 }
 

@@ -69,6 +69,8 @@ _RATE_LIMITED_MODULES = (
     "api/public_career.py",
     # Strona B2B Network: aplikacje kandydatów z serwera strony (token Bearer).
     "api/public_website_applications.py",
+    # Panel trenera z rynku (0808): link, sesja i pliki szkoleń bez konta.
+    "api/market_trainer_portal.py",
     # Panel klienta (0639): dane kandydatów pod samym linkiem, bez logowania.
     "api/public_client_panel.py",
     # Zespół dla klienta (0711): skład kilku rekrutacji pod samym linkiem.

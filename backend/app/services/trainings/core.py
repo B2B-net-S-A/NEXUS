@@ -25,7 +25,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Iterable, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -127,20 +127,30 @@ async def get(db: AsyncSession, training_id: int, *, lock: bool = False) -> Trai
     return training
 
 
+def is_trainers(
+    training: Training, contract_ids: Iterable[int], market_id: Optional[int]
+) -> bool:
+    """Szkolenie prowadzi ten trener: konsultant (kontrakty) albo trener z rynku (0808)."""
+    if market_id is not None and training.trainer_market_id == market_id:
+        return True
+    return (
+        training.trainer_contract_id is not None
+        and training.trainer_contract_id in tuple(contract_ids)
+    )
+
+
 async def for_trainer(
     db: AsyncSession,
     training_id: int,
     contract_ids: Iterable[int],
     *,
+    market_id: Optional[int] = None,
     lock: bool = False,
 ) -> Training:
     """Szkolenie tego trenera; cudze i szkic wyglądają jak brak szkolenia."""
 
     training = await get(db, training_id, lock=lock)
-    if (
-        training.trainer_contract_id not in tuple(contract_ids)
-        or training.status == "draft"
-    ):
+    if not is_trainers(training, contract_ids, market_id) or training.status == "draft":
         raise TrainingError(404, NOT_FOUND, "not_found")
     return training
 
@@ -199,6 +209,17 @@ async def trainer_name(db: AsyncSession, training: Training) -> str:
         return str(training.partner["full_name"])
     if training.trainer_contract_id:
         return await contract_person_name(db, training.trainer_contract_id)
+    if training.trainer_market_id:
+        from app.models.website_intake import MarketTrainerApplication  # noqa: PLC0415
+
+        return (
+            await db.scalar(
+                select(MarketTrainerApplication.full_name).where(
+                    MarketTrainerApplication.id == training.trainer_market_id
+                )
+            )
+            or ""
+        )
     return ""
 
 
@@ -365,6 +386,7 @@ async def staff_view(
         "status_label": status_label(training),
         "trainer_kind": training.trainer_kind,
         "trainer_contract_id": training.trainer_contract_id,
+        "trainer_market_id": training.trainer_market_id,
         "trainer_user_id": training.trainer_user_id,
         "trainer_name": await trainer_name(db, training),
         "application_id": training.application_id,
@@ -445,6 +467,7 @@ def list_row(training: Training, *, name: str, show_fees: bool) -> dict[str, Any
         "status_label": status_label(training),
         "trainer_kind": training.trainer_kind,
         "trainer_contract_id": training.trainer_contract_id,
+        "trainer_market_id": training.trainer_market_id,
         "trainer_name": name,
         "session_date": _iso(training.session_date),
         "total": str(fee_total(training))
@@ -587,13 +610,29 @@ async def create(
     trainer_contract_id: Optional[int],
     trainer_user_id: Optional[int],
     application_id: Optional[int],
+    trainer_market_id: Optional[int] = None,
 ) -> Training:
-    if (trainer_contract_id is None) == (trainer_user_id is None):
+    chosen = [
+        x
+        for x in (trainer_contract_id, trainer_user_id, trainer_market_id)
+        if x is not None
+    ]
+    if len(chosen) != 1:
         raise TrainingError(
             422,
-            "Wybierz trenera: konsultanta z umową albo pracownika.",
+            "Wybierz trenera: konsultanta z umową, trenera z rynku albo pracownika.",
             "trainer_required",
         )
+    if trainer_market_id is not None:
+        from app.models.website_intake import MarketTrainerApplication  # noqa: PLC0415
+
+        trainer = await db.get(MarketTrainerApplication, trainer_market_id)
+        if trainer is None or not trainer.panel_open:
+            raise TrainingError(
+                422,
+                "Trener z rynku musi być w bazie trenerów i mieć otwarty panel.",
+                "market_trainer_not_ready",
+            )
     if (
         trainer_contract_id is not None
         and await db.get(Contract, trainer_contract_id) is None
@@ -604,8 +643,10 @@ async def create(
         if user is None or not user.is_active:
             raise TrainingError(422, "Nie ma takiej osoby w NEXUSIE.", "user_not_found")
     training = Training(
-        trainer_kind="consultant" if trainer_contract_id is not None else "employee",
+        # Trener z rynku idzie obiegiem trenera B2B (umowa, zapłata), bez kontraktu.
+        trainer_kind="employee" if trainer_user_id is not None else "consultant",
         trainer_contract_id=trainer_contract_id,
+        trainer_market_id=trainer_market_id,
         trainer_user_id=trainer_user_id,
         application_id=application_id,
         status="draft",
@@ -739,8 +780,11 @@ async def submit_quote(
     data: QuoteInput,
     *,
     now: datetime,
+    market_id: Optional[int] = None,
 ) -> Training:
-    training = await for_trainer(db, training_id, contract_ids, lock=True)
+    training = await for_trainer(
+        db, training_id, contract_ids, market_id=market_id, lock=True
+    )
     if training.status not in ("ordered", "returned"):
         raise _wrong_status()
     training.agenda = normalize_agenda(data.agenda)
@@ -801,11 +845,16 @@ async def _supersede(db: AsyncSession, training_id: int, key: str) -> None:
 
 
 async def check_deliverable(
-    db: AsyncSession, training_id: int, contract_ids: Iterable[int], key: str
+    db: AsyncSession,
+    training_id: int,
+    contract_ids: Iterable[int],
+    key: str,
+    *,
+    market_id: Optional[int] = None,
 ) -> Training:
     """Przed zapisem pliku: czy to szkolenie trenera i czy ta pozycja jest w Zał. 1."""
 
-    training = await for_trainer(db, training_id, contract_ids)
+    training = await for_trainer(db, training_id, contract_ids, market_id=market_id)
     if training.status not in OPEN_FOR_FILES:
         raise TrainingError(
             409, "Pliki przekażesz po podpisaniu umowy przez obie strony.", "not_signed"
@@ -825,8 +874,9 @@ async def add_deliverable(
     key: str,
     stored: Any,
     file_name: str,
-    contract_id: int,
+    contract_id: Optional[int],
     now: datetime,
+    market_id: Optional[int] = None,
 ) -> TrainingFile:
     await _supersede(db, training.id, key)
     item = TrainingFile(
@@ -842,6 +892,7 @@ async def add_deliverable(
         storage_key=stored.storage_key,
         sp_drive_id=stored.sp_drive_id,
         uploaded_by_contract_id=contract_id,
+        uploaded_by_market_id=market_id,
         uploaded_at=now,
         for_participants=key in ("materials", "audio"),
     )
@@ -860,6 +911,7 @@ async def add_file(
     now: datetime,
     user_id: Optional[int] = None,
     contract_id: Optional[int] = None,
+    market_id: Optional[int] = None,
 ) -> TrainingFile:
     item = TrainingFile(
         training_id=training.id,
@@ -875,6 +927,7 @@ async def add_file(
         sp_drive_id=stored.sp_drive_id,
         uploaded_by_user_id=user_id,
         uploaded_by_contract_id=contract_id,
+        uploaded_by_market_id=market_id,
         uploaded_at=now,
         for_participants=kind == "recording",
     )
@@ -1225,15 +1278,18 @@ async def register(
 
 
 async def trainer_trainings(
-    db: AsyncSession, contract_ids: Iterable[int]
+    db: AsyncSession,
+    contract_ids: Iterable[int],
+    *,
+    market_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
+    mine = Training.trainer_contract_id.in_(tuple(contract_ids) or (0,))
+    if market_id is not None:
+        mine = or_(mine, Training.trainer_market_id == market_id)
     rows = (
         await db.scalars(
             select(Training)
-            .where(
-                Training.trainer_contract_id.in_(tuple(contract_ids) or (0,)),
-                Training.status != "draft",
-            )
+            .where(mine, Training.status != "draft")
             .order_by(Training.session_date.desc().nulls_first(), Training.id.desc())
         )
     ).all()

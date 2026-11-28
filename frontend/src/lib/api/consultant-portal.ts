@@ -8,11 +8,19 @@ import { useQuery } from "@tanstack/react-query";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const PREFIX = `${API_BASE}/api/public/consultant-portal`;
+/** Panel trenera z rynku (0808): ten sam ekran, osobne trasy i sesja. */
+const TRAINER_PREFIX = `${API_BASE}/api/public/trainer-portal`;
 const SESSION_KEY = "nexus_consultant_portal_session";
+const KIND_KEY = "nexus_consultant_portal_kind";
+
+/** Kto jest zalogowany: konsultant z kontraktem albo trener z rynku (tylko szkolenia). */
+export type PortalKind = "consultant" | "trainer";
 
 export type PortalTopic = "invoice" | "contract" | "leave" | "access" | "next" | "data";
 
 export interface PortalMe {
+  /** Tylko panel trenera z rynku zwraca `trainer`; konsultant nie ma tego pola. */
+  kind?: PortalKind;
   first_name: string | null;
   client: string | null;
   since: string | null;
@@ -476,21 +484,31 @@ export function portalSession(): string | null {
   return storage()?.getItem(SESSION_KEY) ?? null;
 }
 
-export function savePortalSession(token: string): void {
+export function portalKind(): PortalKind {
+  return storage()?.getItem(KIND_KEY) === "trainer" ? "trainer" : "consultant";
+}
+
+export function savePortalSession(token: string, kind: PortalKind = "consultant"): void {
   storage()?.setItem(SESSION_KEY, token);
+  storage()?.setItem(KIND_KEY, kind);
 }
 
 export function clearPortalSession(): void {
   storage()?.removeItem(SESSION_KEY);
+  storage()?.removeItem(KIND_KEY);
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<Response> {
+async function request(
+  path: string,
+  init: RequestInit = {},
+  prefix: string = portalKind() === "trainer" ? TRAINER_PREFIX : PREFIX,
+): Promise<Response> {
   const headers = new Headers(init.headers);
   const session = portalSession();
   if (session) headers.set("X-Portal-Session", session);
   if (init.body && !(init.body instanceof FormData) && !(init.body instanceof Blob))
     headers.set("Content-Type", "application/json");
-  const response = await fetch(`${PREFIX}${path}`, { ...init, headers, cache: "no-store" });
+  const response = await fetch(`${prefix}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {
     let data: unknown;
     try {
@@ -543,11 +561,41 @@ async function postFile(path: string, file: File): Promise<{ training: PortalTra
   };
 }
 
-export const portalApi = {
-  status: () => getJson<{ open: boolean }>("/status"),
-  requestLink: (email: string) => postJson<{ message: string }>("/link", { email }),
+/** Dane firmy trenera z rynku do umowy (wpisuje TCM, w panelu tylko odczyt). */
+export interface MarketTrainerCompany {
+  company: {
+    company_name: string;
+    nip: string | null;
+    regon: string | null;
+    company_address: string;
+    email: string | null;
+  };
+  application: { topics: string[]; first_training: string };
+}
+
+async function postTo<T>(prefix: string, path: string, body: unknown): Promise<T> {
+  const response = await request(path, { method: "POST", body: JSON.stringify(body) }, prefix);
+  return (await response.json()) as T;
+}
+
+/** Wejście trenera z rynku: zawsze trasy trenera, niezależnie od zapisanej sesji. */
+export const trainerPortalApi = {
+  status: async () =>
+    (await (await request("/status", {}, TRAINER_PREFIX)).json()) as { open: boolean },
+  requestLink: (email: string) =>
+    postTo<{ message: string }>(TRAINER_PREFIX, "/link", { email }),
   openSession: (token: string) =>
-    postJson<{ session_token: string; expires_at: string }>("/session", { token }),
+    postTo<{ session_token: string; expires_at: string }>(TRAINER_PREFIX, "/session", { token }),
+};
+
+export const portalApi = {
+  status: async () =>
+    (await (await request("/status", {}, PREFIX)).json()) as { open: boolean },
+  requestLink: (email: string) => postTo<{ message: string }>(PREFIX, "/link", { email }),
+  openSession: (token: string) =>
+    postTo<{ session_token: string; expires_at: string }>(PREFIX, "/session", { token }),
+  /** Tylko sesja trenera z rynku: dane firmy do umowy. */
+  trainerCompany: () => getJson<MarketTrainerCompany>("/trainer"),
   logout: () => postJson<{ ok: boolean }>("/logout"),
   me: () => getJson<PortalMe>("/me"),
   faq: () => getJson<{ items: PortalFaqItem[] }>("/faq"),
@@ -638,6 +686,7 @@ export const portalKeys = {
   settlement: ["consultant-portal", "settlement"] as const,
   equipment: ["consultant-portal", "equipment"] as const,
   trainer: ["consultant-portal", "trainer"] as const,
+  trainerCompany: ["consultant-portal", "trainer-company"] as const,
   trainings: ["consultant-portal", "trainings"] as const,
   training: (id: number) => ["consultant-portal", "training", id] as const,
   ticket: (fileId: number) => ["consultant-portal", "ticket", fileId] as const,

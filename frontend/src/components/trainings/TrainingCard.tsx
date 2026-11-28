@@ -467,7 +467,8 @@ export function TrainingCard({
             <h1 className="text-xl font-semibold text-foreground">{view.order.title}</h1>
             <p className="text-sm text-muted-foreground">
               {view.trainer_name || "trener bez nazwiska"} ·{" "}
-              {consultant ? "konsultant z umową B2B" : "pracownik"} · {when(view)}
+              {view.trainer_market_id ? "trener z rynku" : consultant ? "konsultant z umową B2B" : "pracownik"} ·{" "}
+              {when(view)}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -529,7 +530,9 @@ export function TrainingCard({
             <dl className="grid grid-cols-2 gap-3">
               <Fact label="Zapisani" value={String(view.registrations)} />
               <Fact label="Obecni (Teams)" value={String(view.attendance)} />
-              {consultant ? (
+              {consultant && view.trainer_market_id ? (
+                <Fact label="Trener" value="z rynku, bez kontraktu" />
+              ) : consultant ? (
                 <Fact label="Kontrakt" value={view.trainer_contract_id ? `#${view.trainer_contract_id}` : null} />
               ) : null}
               {view.fees?.total ? (
