@@ -50,7 +50,8 @@ Z mniejszego dysku na większy można; z powrotem już nie.
     Error → 10, Critical/Alert/Emergency → 12. Odczyty `/etc/shadow`, `sudoers`, `pam.d` przez skany SCA i FIM
     samego agenta → 0, ale tylko gdy `proc.name` to `wazuh-modulesd`/`wazuh-syscheckd` **i** `proc.exepath`
     zaczyna się od `/var/ossec/bin/` (sama nazwa da się podrobić). Bez tego pierwszy wieczór dał 91 fałszywych
-    alertów. Ten sam wąski wyjątek ma od 27.11 Falco na nexus-prod; Microsoft Defender (`wdavdaemon`) nie jest wyciszony.
+    alertów. Ten sam wąski wyjątek ma od 27.11 Falco na nexus-prod, obok analogicznego dla Microsoft Defendera
+    (`wdavdaemon` z `/opt/microsoft/mdatp/`), więc odczyty Defendera nie docierają do Wazuha (sekcja Defender niżej).
     W mailu z alertu Falco nie ma `full_log`, bo pole `output` to linia poleceń procesu (bywają w niej sekrety).
     Pola Falco w regułach Wazuha są zagnieżdżone: `output_fields.proc.name`, nie `output_fields["proc.name"]`.
   - Wdrożenia Coolify budują obrazy na tym samym hoście. „Drop and execute new binary in container” z
@@ -102,6 +103,25 @@ Z mniejszego dysku na większy można; z powrotem już nie.
   usunięty razem z logiem. Przy kolejnym `docker compose up` initializer znów wypisze „Admin password”, ale
   nie zmienia istniejącego konta.
 
+## Microsoft Defender for Endpoint na obu serwerach
+
+Decyzja Artura z 28.11: oba serwery są w Defenderze (subskrypcja „Defender for Business servers”). nexus-prod był
+dołączony wcześniej; nexus-security dołączony 28.11, w portalu `security.microsoft.com/machines` oba „Onboarded / Active”.
+
+- Pakiet `mdatp` z repo `packages.microsoft.com/ubuntu/24.04/prod` (jak na nexus-prod). Plik dołączenia
+  `/etc/opt/microsoft/mdatp/mdatp_onboard.json` jest wspólny dla organizacji: przeniesiony z nexus-prod rurą
+  serwer → serwer, nie leży w repo ani w logach. Ochrona w czasie rzeczywistym przez `fanotify`, EDR przez eBPF.
+- **PUA w trybie blokady na obu serwerach** (28.11): `mdatp threat policy set --type potentially_unwanted_application --action block`,
+  sprawdzenie `mdatp threat policy list --type potentially_unwanted_application`. Ustawienia są lokalne
+  (`managed/mdatp_managed.json` puste): polityka z portalu, jeśli kiedyś powstanie, je nadpisze.
+- Wykluczenia skanowania (`epp`): na nexus-security `/var/lib/docker/{overlay2,volumes,containers,buildkit}`
+  (indeksator Wazuha i Postgres DefectDojo), na nexus-prod to samo plus `/data/coolify`, `/var/lib/coolify`, `/var/lib/postgresql`.
+- Pamięć: `wdavdaemon` zajmuje ok. 0,5 GB na nexus-security; po dołączeniu zostało ok. 3,2 GB dostępnej pamięci.
+- Wpływ na Wazuha i Falco: na nexus-security nie ma Falco ani agenta Wazuha (manager działa w Dockerze), więc
+  nie ma czego wyciszać. Na nexus-prod Falco ma od 27.11 wyjątek `nexus_defender_agent` i od tej pory nie zgłosił
+  żadnego zdarzenia `wdavdaemon`; po włączeniu PUA też nie. W regułach Wazuha wyjątku dla Defendera nie trzeba.
+- Zdrowie: `mdatp health` (`healthy: true`, `definitions_status: up_to_date`), łączność `mdatp connectivity test`.
+
 ## Obsługa
 
 - Klucze kont `wazuh-soc` i `defectdojo-sync` z NEXUSA wpisuje się na serwerze komendą
@@ -111,6 +131,10 @@ Z mniejszego dysku na większy można; z powrotem już nie.
   Podmiana pliku (`install`, `cp` na nowy inode, edytor z zapisem przez rename) zrywa bind mount:
   kontener widzi starą treść aż do `docker compose up -d --force-recreate wazuh.manager`.
 - Rejestracja nowego agenta wymaga hasła z `authd.pass` (`use_password yes`).
+- Indeksator ma jeden węzeł, więc indeksy z repliką świecą na żółto. Indeksy systemowe ISM (`.opendistro-ism-*`,
+  `.opendistro-job-scheduler-lock`) mają od 28.11 `number_of_replicas: 0`, a historia ISM ustawienie klastra
+  `plugins.index_state_management.history.number_of_replicas: 0`. Indeksy systemowe zmienia tylko certyfikat admina
+  (`/usr/share/wazuh-indexer/config/certs/admin.pem` w kontenerze indeksatora); hasło admina dostaje 403.
 - Aktualizacje: Ubuntu sam (unattended-upgrades, restart o 04:30 w razie potrzeby). Wazuh i DefectDojo ręcznie:
   nowy tag w repo upstream, podbicie wersji w `.env`/compose, `docker compose pull && up -d`; Wazuh razem z agentem.
 - Instalacja odtworzeniowa: kopia Hetznera serwera (całe dyski z wolumenami Dockera).
