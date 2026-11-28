@@ -1,5 +1,5 @@
 # Ustawienia → Bezpieczeństwo: znaleziska, zdarzenia, rutyny (27.11.2026)
-<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0803 -->
+<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0802 -->
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”, „zbuduj wszystko
 z raportu”). Jeden ekran admina zbiera skany CI, zdarzenia z serwera,
@@ -67,7 +67,7 @@ koncie go nie zwalnia.
   `customheaders: X-API-Key:…`), waga z `priority`.
 - `POST /api/security/ingest/wazuh` — alert z integracji; waga z `rule.level`
   (≤3 info, 4–6 low, 7–9 medium, 10–12 high, ≥13 critical).
-- `POST /api/security/ingest/grafana` (0803, zlecenie Artura 28.11.2026) —
+- `POST /api/security/ingest/grafana` (0802, zlecenie Artura 28.11.2026) —
   webhook kontaktu Grafany Cloud (unified alerting). W Grafanie: kontakt typu
   Webhook, URL `https://api.nexus.dynaminds.pl/api/security/ingest/grafana`,
   metoda POST, w „Extra headers” nagłówek `X-API-Key` z kluczem konta

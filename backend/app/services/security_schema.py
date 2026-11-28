@@ -31,10 +31,10 @@ SOURCES: tuple[str, ...] = (
     "pentest",
     "nexus",
     "manual",
-    # 0803 (28.11.2026): alerty Grafany Cloud przez webhook kontaktu.
+    # 0802 (28.11.2026): alerty Grafany Cloud przez webhook kontaktu.
     "grafana",
 )
-# Lista z 0800 — downgrade 0803 wraca do niej.
+# Lista z 0800 — downgrade 0802 wraca do niej.
 SOURCES_0800: tuple[str, ...] = tuple(s for s in SOURCES if s != "grafana")
 SEVERITIES: tuple[str, ...] = ("info", "low", "medium", "high", "critical")
 FINDING_STATUSES: tuple[str, ...] = ("open", "excepted", "fixed")
