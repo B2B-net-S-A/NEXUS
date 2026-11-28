@@ -2,7 +2,8 @@
 
 Zaznaczone rekordy kampanii: „Przypisz osobie”, „Przenieś do kampanii”, „Usuń z listy”
 i „Cofnij” po usunięciu. Jedna transakcja na całą paczkę, pod tą samą blokadą co import
-listy, bo przeniesienie i import pytają o to samo: czy firma jest już w kampanii.
+listy, bo oba zapisują rekordy do kampanii. Przeniesienie jest ostrzejsze niż import: zostawia
+na miejscu każdą firmę, która ma już rekord w kampanii docelowej, a nie tylko tę samą osobę.
 
 Czego akcja nie rusza (liczone w ``skipped`` i pokazane przed zapisem):
 
