@@ -962,6 +962,11 @@ class SalesCallRecord(Base, TimestampMixin):
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+    #: „Usuń z listy” (0804): rekord znika z kolejki i Tabeli, bramka importu dalej go widzi.
+    removed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    removed_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
 
 
 class SalesTenderNotice(Base, TimestampMixin):

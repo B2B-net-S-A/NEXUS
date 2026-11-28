@@ -27,6 +27,7 @@ import type {
   CallCampaign,
   CallCard,
   CallQueue,
+  CallRecordTable,
   DayCounts,
   QueueItem,
 } from "../../src/lib/api/sales-calling";
@@ -70,6 +71,15 @@ const CALL_QUEUE: CallQueue = {
   yesterday: "2026-11-25",
   yesterday_counts: ZERO_DAY,
   callers: [],
+};
+
+/** Tabela Dzwonienia (lekcja „kilka rekordów naraz”): ten sam rekord kampanii co w kolejce. */
+const CALL_RECORDS: CallRecordTable = {
+  items: [QUEUE_ITEM],
+  total: 1,
+  counts: { new: 1 },
+  callers: [],
+  repeats: 0,
 };
 
 const CALL_CARD: CallCard = {
@@ -265,6 +275,7 @@ export const SCREENS_SALES: Record<string, unknown> = {
   "/api/sales/pipelines": PIPELINES,
   "/api/sales/calling/queue": CALL_QUEUE,
   "/api/sales/calling/campaigns": CAMPAIGNS,
+  "/api/sales/calling/records": CALL_RECORDS,
   [`/api/sales/calling/records/${QUEUE_ITEM.record_id}`]: CALL_CARD,
   "/api/sales/companies": COMPANIES,
   [`/api/sales/companies/${COMPANY.id}`]: SALES_COMPANY,

@@ -198,8 +198,9 @@ def test_models_match_the_ddl(table: str, model: Any) -> None:
         if f"CREATE TABLE IF NOT EXISTS {table} (" in statement
     )
     declared = set(re.findall(r"^\s+([a-z_0-9]+) [A-Z]", ddl, re.MULTILINE))
-    # Kolumny dołożone później (0690: brief Bota Listy) przez ALTER TABLE.
-    for statement in schema.BOT_LISTS_DDL:
+    # Kolumny dołożone później przez ALTER TABLE (0690: brief Bota Listy,
+    # 0804: „Usuń z listy” w Tabeli).
+    for statement in (*schema.BOT_LISTS_DDL, *schema.CALL_RECORD_REMOVAL_DDL):
         declared |= set(
             re.findall(
                 rf"ALTER TABLE {table}\s+ADD COLUMN IF NOT EXISTS (\w+)", statement

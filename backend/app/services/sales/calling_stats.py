@@ -761,7 +761,14 @@ async def _campaigns(
             func.count(SalesCallRecord.id),
             left,
         )
-        .outerjoin(SalesCallRecord, SalesCallRecord.campaign_id == SalesCallCampaign.id)
+        .outerjoin(
+            SalesCallRecord,
+            and_(
+                SalesCallRecord.campaign_id == SalesCallCampaign.id,
+                # „Usuń z listy” (27.11.2026): nie liczy się do „na liście” ani „zostało”.
+                SalesCallRecord.removed_at.is_(None),
+            ),
+        )
         .where(SalesCallCampaign.archived_at.is_(None))
         .group_by(SalesCallCampaign.id)
         .order_by(func.lower(SalesCallCampaign.name), SalesCallCampaign.id)

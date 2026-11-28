@@ -1167,3 +1167,17 @@ TENDERS_DDL: tuple[str, ...] = (
     "ON sales_tender_notices (source, procedure_id) WHERE procedure_id IS NOT NULL",
 )
 TENDERS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_tender_notices",)
+
+# 0804: „Usuń z listy” z akcji zbiorczych Tabeli (decyzja Artura 27.11.2026, wariant A).
+# Usunięcie jest miękkie: rekord znika z kolejki, Tabeli, Przypomnień i liczników, ale
+# zostaje w bazie, więc „Cofnij” go przywraca, a bramka importu dalej go widzi i ten sam
+# NIP nie wraca z kolejną listą. Historia telefonów (``sales_activities``) się nie zmienia.
+CALL_RECORD_REMOVAL_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_call_records ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE sales_call_records ADD COLUMN IF NOT EXISTS removed_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+)
+CALL_RECORD_REMOVAL_DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_call_records DROP COLUMN IF EXISTS removed_by_user_id",
+    "ALTER TABLE sales_call_records DROP COLUMN IF EXISTS removed_at",
+)

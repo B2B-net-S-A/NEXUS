@@ -4,6 +4,8 @@
 import type { BadgeProps } from "@/components/ui/badge";
 import { CALL_OUTCOME_LABELS } from "@/lib/api/sales";
 import type {
+  BulkAction,
+  BulkSkip,
   CallbackReason,
   CallQueue,
   CorrectableState,
@@ -458,4 +460,39 @@ export function changedFields(before: ContactFields, after: Record<keyof Contact
     if (value !== ((before[key] ?? "").trim() || null)) changed[key] = value;
   }
   return changed;
+}
+
+/**
+ * Akcje zbiorcze Tabeli (decyzja Artura 27.11.2026): zaznaczyć można tylko rekord kampanii.
+ * Pozycja szansy (bez kampanii) idzie za szansą, więc nie przechodzi ani nie znika z listy.
+ */
+export function selectableRecordId(item: QueueItem): number | null {
+  return item.campaign !== null && item.record_id !== null ? item.record_id : null;
+}
+
+export const BULK_TITLES: Record<Exclude<BulkAction, "restore">, string> = {
+  assign: "Przypisz osobie",
+  move: "Przenieś do kampanii",
+  remove: "Usuń z listy",
+};
+
+const BULK_SKIP_LABELS: Record<BulkSkip, string> = {
+  meeting_booked: "umówione spotkanie (ma szansę w lejku)",
+  already_in_campaign: "firma jest już w tej kampanii",
+  not_on_list: "poza listą (już usunięty albo ze sprzeciwem)",
+};
+
+/** Co zostaje bez zmian, z powodem: linia w oknie przed zapisem. */
+export function bulkSkippedLine(skipped: Partial<Record<BulkSkip, number>>): string | null {
+  const parts = (Object.keys(BULK_SKIP_LABELS) as BulkSkip[])
+    .filter((reason) => (skipped[reason] ?? 0) > 0)
+    .map((reason) => `${skipped[reason]} — ${BULK_SKIP_LABELS[reason]}`);
+  return parts.length > 0 ? `Bez zmian: ${parts.join("; ")}.` : null;
+}
+
+/** Ile rekordów akcja zmieni, w zdaniu pasującym do akcji. */
+export function bulkDoneLine(action: Exclude<BulkAction, "restore">, count: number): string {
+  if (action === "assign") return `Dostanie je ta osoba: ${count}.`;
+  if (action === "move") return `Przejdzie do kampanii: ${count}.`;
+  return `Zniknie z listy: ${count}.`;
 }

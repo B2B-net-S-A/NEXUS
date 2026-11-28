@@ -386,6 +386,7 @@ def _own_campaign_records(query: Any, user_id: Optional[int]) -> Any:
             if user_id is not None
             else SalesCallRecord.assigned_user_id.is_not(None),
             or_(SalesCallRecord.state.in_(OPEN_STATES), _not_interested_returning()),
+            SalesCallRecord.removed_at.is_(None),
             SalesCallCampaign.archived_at.is_(None),
             SalesCompany.archived_at.is_(None),
             *_without_objection(),
@@ -716,6 +717,7 @@ async def queue_callers(db: AsyncSession) -> tuple[tuple[int, str], ...]:
             .where(
                 SalesCallRecord.campaign_id.is_not(None),
                 SalesCallRecord.state.in_(OPEN_STATES),
+                SalesCallRecord.removed_at.is_(None),
             )
             .group_by(User.id, User.name)
             .order_by(User.name)
@@ -871,6 +873,8 @@ def _table_records(query: Any, user_id: Optional[int]) -> Any:
         .outerjoin(SalesContact, SalesContact.id == SalesCallRecord.contact_id)
         .where(
             SalesCallRecord.state.in_(TABLE_STATES),
+            # „Usuń z listy” (27.11.2026): znika z Tabeli i Przypomnień, zostaje w bazie.
+            SalesCallRecord.removed_at.is_(None),
             SalesCompany.archived_at.is_(None),
             SalesCallCampaign.archived_at.is_(None),
             *_without_objection(),
@@ -879,6 +883,81 @@ def _table_records(query: Any, user_id: Optional[int]) -> Any:
     if user_id is not None:
         query = query.where(SalesCallRecord.assigned_user_id == user_id)
     return query
+
+
+def _narrowed(
+    query: Any,
+    *,
+    repeats: bool,
+    campaign_id: Optional[int],
+    search: Optional[str],
+    callback_from: Optional[date],
+    callback_to: Optional[date],
+) -> Any:
+    """Filtry Tabeli poza stanem: wspólne dla listy, liczników i „Zaznacz wszystkie”."""
+
+    # Powtórki sprzed bramki z 17.11 (decyzja Artura 23.11.2026): ukryte, chyba że
+    # osoba włączy „Powtórki”; kolejka i tak ich nie podaje.
+    if not repeats:
+        query = query.where(calling_repeats.not_a_repeat())
+    if campaign_id is not None:
+        query = query.where(SalesCallRecord.campaign_id == campaign_id)
+    if callback_from is not None:
+        query = query.where(SalesCallRecord.callback_on >= callback_from)
+    if callback_to is not None:
+        query = query.where(SalesCallRecord.callback_on <= callback_to)
+    if search:
+        pattern = f"%{search.strip()}%"
+        conditions = [
+            SalesCompany.name.ilike(pattern),
+            SalesCallRecord.person_name.ilike(pattern),
+            SalesCallRecord.phone.ilike(pattern),
+        ]
+        # Numer po samych cyfrach (23.11.2026): „+48 500 058 777” po wpisaniu 500058777.
+        digits = "".join(char for char in search if char.isdigit())
+        if len(digits) >= SEARCH_PHONE_DIGITS:
+            conditions.append(
+                phone_digits_sql(SalesCallRecord.phone).like(
+                    f"%{digits[-PHONE_DIGITS:]}%"
+                )
+            )
+        query = query.where(or_(*conditions))
+    return query
+
+
+#: Najwięcej rekordów w jednej akcji zbiorczej (Tabela osoby dzwoniącej ma ok. 2700).
+BULK_LIMIT = 5000
+
+
+async def record_ids(
+    db: AsyncSession,
+    user_id: Optional[int],
+    *,
+    state: Optional[str] = None,
+    campaign_id: Optional[int] = None,
+    search: Optional[str] = None,
+    callback_from: Optional[date] = None,
+    callback_to: Optional[date] = None,
+    repeats: bool = False,
+) -> list[int]:
+    """„Zaznacz wszystkie z filtra”: id rekordów Tabeli z tymi samymi filtrami co lista."""
+
+    query = _narrowed(
+        _table_records(select(SalesCallRecord.id), user_id),
+        repeats=repeats,
+        campaign_id=campaign_id,
+        search=search,
+        callback_from=callback_from,
+        callback_to=callback_to,
+    )
+    if state is not None:
+        query = query.where(SalesCallRecord.state == state)
+    rows = await db.execute(
+        query.order_by(
+            SalesCallRecord.updated_at.desc(), SalesCallRecord.id.desc()
+        ).limit(BULK_LIMIT)
+    )
+    return [int(record_id) for record_id in rows.scalars()]
 
 
 async def list_records(
@@ -904,33 +983,14 @@ async def list_records(
     not_repeat = calling_repeats.not_a_repeat()
 
     def narrowed(query: Any, *, with_repeats: bool = repeats) -> Any:
-        # Powtórki sprzed bramki z 17.11 (decyzja Artura 23.11.2026): ukryte, chyba że
-        # osoba włączy „Powtórki”; kolejka i tak ich nie podaje.
-        if not with_repeats:
-            query = query.where(not_repeat)
-        if campaign_id is not None:
-            query = query.where(SalesCallRecord.campaign_id == campaign_id)
-        if callback_from is not None:
-            query = query.where(SalesCallRecord.callback_on >= callback_from)
-        if callback_to is not None:
-            query = query.where(SalesCallRecord.callback_on <= callback_to)
-        if search:
-            pattern = f"%{search.strip()}%"
-            conditions = [
-                SalesCompany.name.ilike(pattern),
-                SalesCallRecord.person_name.ilike(pattern),
-                SalesCallRecord.phone.ilike(pattern),
-            ]
-            # Numer po samych cyfrach (23.11.2026): „+48 500 058 777” po wpisaniu 500058777.
-            digits = "".join(char for char in search if char.isdigit())
-            if len(digits) >= SEARCH_PHONE_DIGITS:
-                conditions.append(
-                    phone_digits_sql(SalesCallRecord.phone).like(
-                        f"%{digits[-PHONE_DIGITS:]}%"
-                    )
-                )
-            query = query.where(or_(*conditions))
-        return query
+        return _narrowed(
+            query,
+            repeats=with_repeats,
+            campaign_id=campaign_id,
+            search=search,
+            callback_from=callback_from,
+            callback_to=callback_to,
+        )
 
     counted = (
         await db.execute(
@@ -1033,6 +1093,7 @@ async def company_records(db: AsyncSession, company_id: int) -> list[CompanyCall
             .outerjoin(User, User.id == SalesCallRecord.assigned_user_id)
             .where(
                 SalesCallRecord.company_id == company_id,
+                SalesCallRecord.removed_at.is_(None),
                 SalesCallCampaign.archived_at.is_(None),
             )
             .order_by(
@@ -1390,8 +1451,11 @@ async def apply_outcome(
 
 
 async def locked_record(db: AsyncSession, record_id: int) -> SalesCallRecord:
+    # Rekord „usunięty z listy” nie przyjmuje wyniku ani edycji, dopóki ktoś go nie przywróci.
     record = await db.scalar(
-        select(SalesCallRecord).where(SalesCallRecord.id == record_id).with_for_update()
+        select(SalesCallRecord)
+        .where(SalesCallRecord.id == record_id, SalesCallRecord.removed_at.is_(None))
+        .with_for_update()
     )
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=RECORD_NOT_FOUND)
@@ -1481,7 +1545,10 @@ async def list_campaigns(db: AsyncSession) -> list[CampaignRow]:
                 SalesCallRecord.state,
                 func.count(SalesCallRecord.id),
             )
-            .where(SalesCallRecord.campaign_id.is_not(None))
+            .where(
+                SalesCallRecord.campaign_id.is_not(None),
+                SalesCallRecord.removed_at.is_(None),
+            )
             .group_by(SalesCallRecord.campaign_id, SalesCallRecord.state)
         )
     ).all()

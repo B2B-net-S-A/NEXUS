@@ -46,6 +46,7 @@ vi.mock("@/lib/api/sales-calling", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales-calling")>()),
   useCallQueue: (campaignId: number | null, callerId: number | null = null) => queue(campaignId, callerId),
   useChangeState: () => mutation(changeState),
+  useBulkRecords: () => mutation(vi.fn()),
   useEditRecord: () => mutation(editRecord),
   useReportDuplicate: () => mutation(reportDuplicate),
   useCallReminders: (scope: string) => reminders(scope),

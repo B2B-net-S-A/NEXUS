@@ -39,6 +39,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.sales import (
     calling,
+    calling_bulk,
     calling_excel,
     calling_import,
     calling_lookup,
@@ -160,6 +161,17 @@ class RecordTableOut(BaseModel):
     callers: list[Ref] = []
     #: Powtórki pasujące do filtrów: ukryte bez ``repeats=true`` (23.11.2026).
     repeats: int = 0
+
+
+class RecordIdsOut(BaseModel):
+    ids: list[int]
+    #: Filtr pasuje do większej liczby rekordów niż ``BULK_LIMIT``: lista jest ucięta.
+    truncated: bool
+
+
+class BulkOut(BaseModel):
+    done: list[int]
+    skipped: dict[str, int]
 
 
 class DuplicateReportIn(BaseModel):
@@ -510,6 +522,66 @@ async def my_records(
         callers=[Ref(id=id_, name=name) for id_, name in table.callers],
         repeats=table.repeats,
     )
+
+
+@router.get("/record-ids", response_model=RecordIdsOut)
+async def my_record_ids(
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+    scope: Literal["mine", "all"] = Query(default="mine"),
+    caller_id: Optional[int] = Query(default=None, ge=1),
+    state: Optional[str] = Query(default=None, max_length=20),
+    campaign_id: Optional[int] = Query(default=None, ge=1),
+    q: Optional[str] = Query(default=None, max_length=120),
+    callback_from: Optional[date] = Query(default=None),
+    callback_to: Optional[date] = Query(default=None),
+    repeats: bool = Query(default=False),
+) -> RecordIdsOut:
+    """„Zaznacz wszystkie z filtra” w Tabeli: te same filtry co ``GET /records``."""
+
+    if state is not None and state not in calling.TABLE_STATES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=STATE_DETAIL)
+    ids = await calling.record_ids(
+        db,
+        current_user.id if scope == "mine" else caller_id,
+        state=state,
+        campaign_id=campaign_id,
+        search=(q or "").strip() or None,
+        callback_from=callback_from,
+        callback_to=callback_to,
+        repeats=repeats,
+    )
+    return RecordIdsOut(ids=ids, truncated=len(ids) >= calling.BULK_LIMIT)
+
+
+@router.post("/records/bulk", response_model=BulkOut)
+async def bulk_records(
+    payload: calling_bulk.BulkRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> BulkOut:
+    """Akcje zbiorcze Tabeli (decyzja Artura 27.11.2026): przypisz, przenieś, usuń, cofnij.
+
+    ``dry_run`` liczy, co się stanie, bez zapisu: okno pokazuje liczby przed „Zapisz”.
+    """
+
+    assignee_id = (
+        await _assignee(db, current_user, payload.assignee_user_id)
+        if payload.action == "assign" and payload.assignee_user_id is not None
+        else None
+    )
+    result = await calling_bulk.apply_bulk(
+        db,
+        payload,
+        assignee_id=assignee_id,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
+    if payload.dry_run:
+        await db.rollback()
+    else:
+        await db.commit()
+    return BulkOut(done=result.done, skipped=result.skipped)
 
 
 @router.get(

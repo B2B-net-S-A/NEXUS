@@ -35,6 +35,7 @@
   "GET /api/sales/calling/effectiveness": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/queue": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/calling/record-ids": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/records": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/records/{record_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/reminders": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
@@ -47,6 +48,7 @@
   "POST /api/sales/calling/campaigns/{campaign_id}/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns/{campaign_id}/import/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/opportunities/{opportunity_id}/outcome": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/calling/records/bulk": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/records/{record_id}/duplicate": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/records/{record_id}/outcome": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/records/{record_id}/state": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
