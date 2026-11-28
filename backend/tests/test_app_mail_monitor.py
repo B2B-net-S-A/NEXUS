@@ -125,6 +125,76 @@ async def test_monitor_read_failure_is_not_healthy_and_recovers(monkeypatch, cap
     assert "private sql" not in caplog.text
 
 
+class _QueryCanceled(Exception):
+    """Jak asyncpg po `statement_timeout`: SQLSTATE 57014."""
+
+    sqlstate = "57014"
+
+
+def _queue_row():
+    result = Mock()
+    result.mappings.return_value.one.return_value = {
+        k: v
+        for k, v in _queue().items()
+        if k not in ("scope", "ready_candidates_upper_bound")
+    }
+    return result
+
+
+def _monitor_with_session(monkeypatch, execute_side_effect):
+    monkeypatch.setattr(monitor.settings, "M365_APP_MAIL_ENABLED", True)
+    monkeypatch.setattr(monitor.app_mail, "is_configured", lambda: True)
+    monkeypatch.setattr(monitor.mail_circuit, "snapshot", lambda: {})
+    monkeypatch.setattr(monitor, "load_policy", AsyncMock(return_value=_policy()))
+    monkeypatch.setattr(monitor, "STATEMENT_TIMEOUT_RETRY_SECONDS", 0)
+    session = AsyncMock()
+    session.__aenter__.return_value.execute.side_effect = execute_side_effect
+    monkeypatch.setattr(monitor, "AsyncSessionLocal", lambda: session)
+
+
+def _monitor_events(caplog):
+    return [
+        r
+        for r in caplog.records
+        if getattr(r, "event_kind", None) == "app_mail_monitor"
+    ]
+
+
+async def test_single_statement_timeout_after_restart_is_retried_not_alarmed(
+    monkeypatch, caplog
+):
+    """28.11.2026: pierwszy przebieg po wdrożeniu trafił na zimną bazę
+    (Postgres wstał 90 s wcześniej), zapytanie przekroczyło 2 s i monitor dał
+    `alarm=1` — Grafana wysłała mail o awarii maili, które działały."""
+    _monitor_with_session(
+        monkeypatch,
+        [
+            None,  # SET LOCAL statement_timeout
+            _QueryCanceled("private sql"),
+            None,
+            _queue_row(),
+            Mock(scalar_one=Mock(return_value=0)),
+        ],
+    )
+    with caplog.at_level(logging.INFO):
+        await monitor.sample_app_mail()
+    events = _monitor_events(caplog)
+    assert [(e.monitor_status, e.alarm) for e in events] == [("ok", 0)]
+    assert "private sql" not in caplog.text
+
+
+async def test_repeated_statement_timeout_is_still_an_alarm(monkeypatch, caplog):
+    _monitor_with_session(
+        monkeypatch,
+        [None, _QueryCanceled("private sql"), None, _QueryCanceled("private sql")],
+    )
+    with caplog.at_level(logging.INFO):
+        await monitor.sample_app_mail()
+    events = _monitor_events(caplog)
+    assert [(e.monitor_status, e.alarm) for e in events] == [("error", 1)]
+    assert "private sql" not in caplog.text
+
+
 async def test_policy_pause_is_not_reported_as_provider_recovery(monkeypatch, caplog):
     monkeypatch.setattr(monitor.settings, "M365_APP_MAIL_ENABLED", True)
     monkeypatch.setattr(monitor.app_mail, "is_configured", lambda: True)
@@ -221,6 +291,10 @@ async def test_uncertain_alarm_counts_only_recent_rows():
     db.execute.side_effect = [row, Mock(scalar_one=Mock(return_value=0))]
     now = datetime(2026, 9, 22, 13, tzinfo=timezone.utc)
     await monitor.snapshot_queue(db, _policy(), now)
-    sql = str(db.execute.call_args_list[0].args[0].compile(dialect=postgresql.dialect()))
-    assert "coalesce(notifications.email_send_started_at, notifications.created_at)" in sql
+    sql = str(
+        db.execute.call_args_list[0].args[0].compile(dialect=postgresql.dialect())
+    )
+    assert (
+        "coalesce(notifications.email_send_started_at, notifications.created_at)" in sql
+    )
     assert "AS uncertain_recent" in sql

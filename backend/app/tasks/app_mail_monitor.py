@@ -8,6 +8,7 @@ from sqlalchemy import and_, false, func, select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.statement_timeout import is_statement_timeout
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
@@ -22,6 +23,12 @@ INTERVAL_SECONDS = 60
 # trzymała alarm na zawsze po pierwszym incydencie, a nowego nie dało się
 # odróżnić od starego. Łączna liczba zostaje w logu jako `uncertain`.
 UNCERTAIN_ALARM_WINDOW = timedelta(hours=24)
+# 28.11.2026: pierwszy przebieg po wdrożeniu trafia na zimną bazę (Postgres
+# wstaje razem z workerem, a wszystkie pętle ruszają naraz). Odczyt przekroczył
+# `statement_timeout` 2 s i monitor dał `alarm=1`, a Grafana wysłała mail
+# o awarii maili, które działały. Jeden timeout ponawiamy po chwili; drugi z rzędu
+# zostaje alarmem, tak jak każdy inny błąd odczytu.
+STATEMENT_TIMEOUT_RETRY_SECONDS = 5
 
 
 async def snapshot_queue(db, policy: DeliveryPolicy, now: datetime) -> dict:
@@ -103,6 +110,24 @@ def verdict(*, enabled: bool, configured: bool, state: dict, queue: dict) -> int
     )
 
 
+async def _read_policy_and_queue() -> tuple[DeliveryPolicy, dict]:
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("SET LOCAL statement_timeout = '2000ms'"))
+        policy = await load_policy(db)
+        queue = await snapshot_queue(db, policy, datetime.now(timezone.utc))
+    return policy, queue
+
+
+async def _read_with_timeout_retry() -> tuple[DeliveryPolicy, dict]:
+    try:
+        return await _read_policy_and_queue()
+    except Exception as exc:
+        if not is_statement_timeout(exc):
+            raise
+    await asyncio.sleep(STATEMENT_TIMEOUT_RETRY_SECONDS)
+    return await _read_policy_and_queue()
+
+
 async def sample_app_mail() -> None:
     try:
         state = (
@@ -110,10 +135,7 @@ async def sample_app_mail() -> None:
             if settings.M365_APP_MAIL_ENABLED
             else {}
         )
-        async with AsyncSessionLocal() as db:
-            await db.execute(text("SET LOCAL statement_timeout = '2000ms'"))
-            policy = await load_policy(db)
-            queue = await snapshot_queue(db, policy, datetime.now(timezone.utc))
+        policy, queue = await _read_with_timeout_retry()
         configured = app_mail.is_configured()
         enabled = settings.M365_APP_MAIL_ENABLED and policy.effective_enabled
         provider_status = app_mail.app_mail_send_verdict(
