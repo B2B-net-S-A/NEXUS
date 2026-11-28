@@ -5924,6 +5924,7 @@
   },
   {
     "id": "sprzedaz-dzwonienie-akcje-zbiorcze",
+    "pr": 4155,
     "title": "Dzwonienie: kilka rekordów naraz w Tabeli",
     "why": "W Tabeli zaznaczasz rekordy i jednym ruchem przypisujesz je osobie, przenosisz do innej kampanii albo usuwasz z listy. Przed zapisem widać liczby, a usunięcie można cofnąć.",
     "tier": "dot",
