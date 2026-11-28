@@ -882,7 +882,6 @@ async def lifespan(app: FastAPI):
         runtime_metrics_monitor_loop,
     )
     from app.tasks.rejection_email_loop import rejection_email_loop
-    from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.m365_cv_parse import m365_cv_parse_loop
     from app.tasks.cv_parse_batch import cv_parse_batch_loop
     from app.tasks.microsoft365_sync import (
@@ -1078,7 +1077,6 @@ async def lifespan(app: FastAPI):
             "runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop()),
             "app_mail_monitor": asyncio.create_task(app_mail_monitor_loop()),
             "rejection_email": asyncio.create_task(rejection_email_loop()),
-            "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
             "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
             "m365_cv_parse": asyncio.create_task(m365_cv_parse_loop()),
             # 0750: CV z integracji (scrapery) czytane wsadem — Message Batches

@@ -650,7 +650,7 @@ async def _clear_cv_projection(
         and candidate.linkedin
         and not locked("linkedin")
     ):
-        from app.services.proxycurl import normalize_linkedin_url
+        from app.services.linkedin_url import normalize_linkedin_url
 
         # Zapis idzie przez `normalize_linkedin_url`, a odczyt zostaje surowy.
         if candidate.linkedin in (

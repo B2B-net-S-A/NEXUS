@@ -114,7 +114,6 @@ from app.schemas.candidate import (
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
-    CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationDistance,
     CandidateLocationUpdate,
@@ -858,7 +857,7 @@ def _current_company_predicate(values: list[str]):
     """Match candidates whose CURRENT company ILIKE any of values (OR).
 
     Resolves against (OR-combined):
-      1. `linkedin_current_company` (Proxycurl-synced, freshest signal)
+      1. `linkedin_current_company` (dawna synchronizacja Proxycurl, usunięta 28.11.2026)
       2. ANY `experience[*]` entry whose `end` marks a current job AND
          `company` ILIKE pat — the data convention (set by
          `backfill_candidate_experience`): `end IS NULL` is the canonical
@@ -903,7 +902,7 @@ def _current_title_predicate(values: list[str]):
     """Match candidates whose CURRENT role ILIKE any of values (OR).
 
     Same shape as `_current_company_predicate`:
-      1. `linkedin_current_title` (Proxycurl-synced, freshest signal)
+      1. `linkedin_current_title` (dawna synchronizacja Proxycurl, usunięta 28.11.2026)
       2. ANY `experience[*]` entry whose `end` marks a current job (NULL,
          empty or a "present"/"obecnie" word) AND `role` ILIKE pat.
 
@@ -2718,7 +2717,7 @@ async def list_candidates(
         description=(
             "LinkedIn-Recruiter style. Match candidates whose CURRENT employer "
             "ILIKE any of the values. Resolves against `linkedin_current_company` "
-            "(Proxycurl-synced) OR `experience[0].company` (top-of-CV JSONB) — "
+            "(dawna synchronizacja Proxycurl) OR `experience[0].company` (top-of-CV JSONB) — "
             "same priority chain as the UI's `getCurrentCompany` helper, so the "
             "filter matches whatever the recruiter sees on the candidate card. "
             "OR-combined across values."
@@ -2736,7 +2735,7 @@ async def list_candidates(
         description=(
             "LinkedIn-Recruiter style. Match candidates whose CURRENT role "
             "ILIKE any of the values. Resolves against `linkedin_current_title` "
-            "(Proxycurl-synced) OR `experience[0].role` (top-of-CV JSONB) — "
+            "(dawna synchronizacja Proxycurl) OR `experience[0].role` (top-of-CV JSONB) — "
             "same priority chain as the UI's `getCurrentTitle` helper, so the "
             "filter matches whatever the recruiter sees on the candidate card. "
             "OR-combined across values."
@@ -4706,8 +4705,8 @@ def _derive_names_from_preview(
     """Pick name/lastname for the new candidate stub.
 
     Prefers the DOM-scraped preview when present; otherwise falls back to
-    ``("LinkedIn", <slug>)`` so the row is identifiable until Proxycurl
-    enrichment overwrites it within minutes.
+    ``("LinkedIn", <slug>)`` so the row is identifiable until the recruiter
+    fills in the name.
     """
     name: Optional[str] = None
     lastname: Optional[str] = None
@@ -4726,30 +4725,6 @@ def _derive_names_from_preview(
     if not lastname:
         return name, _slug_from_linkedin_url(normalized_url) or "Unknown"
     return name, lastname
-
-
-async def _enrich_linkedin_background(candidate_id: int) -> None:
-    """Background task: open a fresh DB session and run Proxycurl enrichment.
-
-    Wrapped in try/except so any Proxycurl failure (network, 503, rate limit)
-    never propagates — the candidate is already persisted; the scheduled
-    ``linkedin_sync_loop`` will retry on its next tick.
-    """
-    try:
-        from app.core.database import AsyncSessionLocal as _SessionLocal
-        from app.services.proxycurl import sync_candidate_linkedin as _sync
-
-        async with _SessionLocal() as bg_db:
-            candidate = await bg_db.scalar(
-                select(Candidate).where(Candidate.id == candidate_id)
-            )
-            if candidate is None or not candidate.linkedin:
-                return
-            await _sync(bg_db, candidate)
-    except Exception:  # noqa: BLE001 — defensive: BG task must never raise
-        logger.exception(
-            "Background LinkedIn enrichment failed for candidate %s", candidate_id
-        )
 
 
 async def _assign_candidate_to_job(
@@ -10057,63 +10032,3 @@ async def unassign_candidate_cc(
             # prep-kit i embedding dalej widzą zdjętą kategorię.
             candidate.competence_category = None
     await db.commit()
-
-
-@router.post(
-    "/{candidate_id}/sync-linkedin",
-    response_model=CandidateLinkedinSyncResponse,
-)
-async def sync_candidate_linkedin_now(
-    candidate_id: int,
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-):
-    """Force an immediate Proxycurl sync for this candidate.
-
-    The scheduled `linkedin_sync_loop` picks candidates up every
-    `PROXYCURL_CANDIDATE_STALE_DAYS` days; this endpoint lets the recruiter
-    skip the queue. Inline (not background) so the UI gets the fresh
-    `linkedin_sync_status` in the response and can update the badge
-    without polling.
-    """
-
-    if not settings.PROXYCURL_ENABLED or not settings.PROXYCURL_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LinkedIn sync is not configured (PROXYCURL_API_KEY missing)",
-        )
-
-    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-    if not candidate.linkedin:
-        raise HTTPException(
-            status_code=400,
-            detail="Candidate has no LinkedIn URL on file",
-        )
-
-    from app.services.proxycurl import sync_candidate_linkedin
-
-    result = await sync_candidate_linkedin(db, candidate)
-
-    # Map sync result → response status literal the frontend switches on.
-    status_map = {
-        "ok": "ok",
-        "not_found": "not_found",
-        "error": "error",
-        "rate_limited": "error",
-        "disabled": "disabled",
-    }
-    mapped = status_map.get(result.status.value, "error")
-    message: Optional[str] = None
-    if result.error:
-        message = result.error
-    elif result.change_kind:
-        message = result.change_kind.value
-
-    return CandidateLinkedinSyncResponse(
-        status=mapped,
-        candidate_id=candidate_id,
-        message=message,
-    )

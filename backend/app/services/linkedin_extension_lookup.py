@@ -56,7 +56,7 @@ from app.services import client_off_limits
 from app.services.candidate_rate_from import effective_rate
 from app.services.company_names import normalize_company_name
 from app.services.note_kinds import CONTACT_ATTEMPT
-from app.services.proxycurl.client import normalize_linkedin_url
+from app.services.linkedin_url import normalize_linkedin_url
 from app.services.rejection_reason_labels import rejection_reason_label
 
 logger = logging.getLogger(__name__)

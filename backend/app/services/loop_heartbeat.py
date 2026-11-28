@@ -51,7 +51,6 @@ EXEMPT: dict[str, str] = {
     "kpi_coach_nudger": "powiadomienia motywacyjne; nie ścieżka krytyczna",
     "notification_triggers": "reguły powiadomień; do objęcia po tygodniu obserwacji",
     "notification_volume_monitor": "monitor sam jest sygnałem pomocniczym",
-    "linkedin_sync": "integracja opcjonalna, domyślnie wyłączona",
     "m365_cv_parse": "parsowanie CV z poczty; świeżość M365 ma checks.m365",
     "m365_rematch": "dopinanie maili; dodatek do synchronizacji",
     "m365_webhook_renewal": "awaria odnowienia widać jako brak webhooków; polling M365 nadrabia",

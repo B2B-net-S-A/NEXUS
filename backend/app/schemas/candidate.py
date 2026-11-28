@@ -612,14 +612,6 @@ class LinkedinSnapshotSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CandidateLinkedinSyncResponse(BaseModel):
-    """Response of POST /candidates/{id}/sync-linkedin."""
-
-    status: Literal["queued", "ok", "not_found", "error", "disabled"]
-    candidate_id: int
-    message: Optional[str] = None
-
-
 class InviteSourceBrief(BaseModel):
     """Surfaces that a candidate entered through an invite link — so the
     profile view can show a badge and Timeline can render an ownership

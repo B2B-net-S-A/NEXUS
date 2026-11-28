@@ -106,7 +106,7 @@ def _extract_linkedin_from_text(cv_text: str) -> Optional[str]:
 
     Used as a regex backstop when the LLM response lacks a `linkedin_url`
     field. Returns the raw match; the caller normalizes via
-    `app.services.proxycurl.client.normalize_linkedin_url`.
+    `app.services.linkedin_url.normalize_linkedin_url`.
     """
 
     if not cv_text:

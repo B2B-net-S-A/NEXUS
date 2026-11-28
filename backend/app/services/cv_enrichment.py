@@ -526,7 +526,7 @@ def _apply_cv_enrichment(
     # Only backfill LinkedIn URL when the recruiter hasn't set one manually —
     # we never want to clobber a curated value with a noisy regex hit.
     if parsed.get("linkedin_url") and not candidate.linkedin:
-        from app.services.proxycurl import normalize_linkedin_url
+        from app.services.linkedin_url import normalize_linkedin_url
 
         canonical = normalize_linkedin_url(parsed["linkedin_url"])
         if canonical:

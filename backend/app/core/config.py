@@ -1742,26 +1742,6 @@ class Settings(BaseSettings):
     B2B_ESIGN_CSC_SCOPES: str = ""
     B2B_ESIGN_CSC_PROVIDER_LABEL: str = ""
 
-    # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
-    # Kill-switch: when False OR API key empty, sync loop exits immediately
-    # and on-demand sync returns 503. Used for roll-back without redeploy.
-    PROXYCURL_ENABLED: bool = True
-    # API key from https://nubela.co/proxycurl — static, no per-user OAuth.
-    PROXYCURL_API_KEY: str = ""
-    # Loop cadence; clamped to >=60s in the loop itself. 1h tick + 7-day stale
-    # candidate cutoff gives predictable cost at $0.01/lookup with caching.
-    PROXYCURL_SYNC_INTERVAL_SECONDS: int = 3600
-    # Candidate is due for refresh when linkedin_synced_at is NULL or older
-    # than this cutoff. Default 60 days ≈ once per 2 months — sensible for
-    # IT staffing (people rarely change jobs more than once per quarter) and
-    # keeps Proxycurl cost predictable.
-    PROXYCURL_CANDIDATE_STALE_DAYS: int = 60
-    # Max candidates processed per tick (2s stagger × 50 = ~100s per tick).
-    PROXYCURL_BATCH_SIZE: int = 50
-    # Fuzzy company-name match threshold (0..100). >= threshold means "same
-    # company" — guards against rebrand false-positives.
-    PROXYCURL_COMPANY_FUZZ_THRESHOLD: int = 90
-
     # ── Traffit (archiwum) ───────────────────────────────────────────────
     # WYŁĄCZONY NA STAŁE od 14.10.2026 (decyzja Artura, moduł
     # `app/services/traffit_retired.py`), kod importu usunięty 08.11.2026.

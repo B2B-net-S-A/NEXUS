@@ -17,7 +17,7 @@ from app.models.note import Note
 from app.models.user import User, UserRole
 from app.services import candidate_identity_quarantine as quarantine
 from app.services.cv_enrichment import _apply_cv_enrichment, normalize_llm_skills
-from app.services.proxycurl import normalize_linkedin_url
+from app.services.linkedin_url import normalize_linkedin_url
 
 
 def test_identity_match_accepts_transliterated_polish_name() -> None:

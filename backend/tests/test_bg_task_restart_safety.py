@@ -1,15 +1,15 @@
-"""Restart / multi-worker safety for three background loops (audyt P1/P2).
+"""Restart / multi-worker safety for two background loops (audyt P1/P2).
 
-The bug shape shared by all three: dedup / claim state lived only in an
+The bug shape shared by both: dedup / claim state lived only in an
 in-process ``set`` that reset on every restart (Coolify rebuilds on each push)
 and diverged per uvicorn worker. Result: reminders/alerts re-sent on restart and
-duplicated across workers; LinkedIn syncs double-paid across workers.
+duplicated across workers. (Trzecia pętla, synchronizacja LinkedIn przez
+Proxycurl, usunięta 28.11.2026.)
 
 Fixes make the dedup DURABLE (a stamp persisted on the row) and the send ATOMIC
 (``SELECT ... FOR UPDATE SKIP LOCKED``). These tests run against real Postgres
 and assert that a SECOND loop pass — simulating a restart with fresh in-memory
-state — does NOT re-send/re-alert, and that a concurrent claim can't double-pick
-the same LinkedIn candidate.
+state — does NOT re-send/re-alert.
 
 Fixtures follow the `test_rejection_email_integration.py` pattern: ORM for
 candidates/users, raw SQL for jobs/clients (ORM `Job` has newer columns than the
@@ -348,70 +348,3 @@ async def test_slack_sla_alert_failed_post_leaves_unstamped(sla_seed):
     async with AsyncSessionLocal() as db:
         row = await db.get(CandidateStage, ids["stage_id"])
         assert row.sla_alerted_at is None  # un-stamped → retried next tick
-
-
-# ── Finding 3: LinkedIn sync claim (FOR UPDATE SKIP LOCKED) ──────────────────
-
-
-@pytest_asyncio.fixture
-async def linkedin_seed():
-    """A stale, active candidate eligible for a Proxycurl refresh."""
-    suffix = uuid.uuid4().hex[:8]
-    async with AsyncSessionLocal() as db:
-        candidate = Candidate(
-            name="Lin",
-            lastname=f"Sync{suffix}",
-            email=f"li-{suffix}@example.com",
-            status=CandidateStatus.active,
-            linkedin=f"https://www.linkedin.com/in/testuser-{suffix}",
-            linkedin_synced_at=None,  # never synced → stale
-        )
-        db.add(candidate)
-        await db.commit()
-        cid = candidate.id
-
-    yield cid
-
-    async with AsyncSessionLocal() as db:
-        await db.execute(text("DELETE FROM candidates WHERE id = :cid"), {"cid": cid})
-        await db.commit()
-
-
-@pytest.mark.asyncio
-async def test_linkedin_claim_blocks_second_worker(linkedin_seed):
-    """Worker A's FOR UPDATE SKIP LOCKED claim must make worker B skip the same
-    candidate — otherwise both workers pay for the same Proxycurl enrichment."""
-    cid = linkedin_seed
-
-    async with AsyncSessionLocal() as db_a:
-        claimed_a = await db_a.scalar(
-            select(Candidate)
-            .where(Candidate.id == cid)
-            .with_for_update(skip_locked=True)
-        )
-        assert claimed_a is not None  # worker A holds the row lock (uncommitted)
-
-        # Worker B, concurrently, tries to claim the SAME candidate.
-        async with AsyncSessionLocal() as db_b:
-            claimed_b = await db_b.scalar(
-                select(Candidate)
-                .where(Candidate.id == cid)
-                .with_for_update(skip_locked=True)
-            )
-        # B is skipped: the row is locked by A → no double Proxycurl call.
-        assert claimed_b is None
-        # A rolls back on context exit (no real sync in this claim test).
-
-
-@pytest.mark.asyncio
-async def test_linkedin_claim_available_when_unlocked(linkedin_seed):
-    """Sanity: with no competing lock, the claim returns the candidate."""
-    cid = linkedin_seed
-    async with AsyncSessionLocal() as db:
-        claimed = await db.scalar(
-            select(Candidate)
-            .where(Candidate.id == cid)
-            .with_for_update(skip_locked=True)
-        )
-        assert claimed is not None
-        assert claimed.id == cid
