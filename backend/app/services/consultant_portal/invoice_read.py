@@ -30,6 +30,7 @@ from typing import Any, Optional
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.ai_feature import AIFeatureKey
 from app.models.consultant_portal import CpDocument
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
@@ -70,6 +71,26 @@ def cost_net(fields: Any) -> Optional[Decimal]:
     return None
 
 
+def _nip_digits(raw: Any) -> str:
+    value = "".join(ch for ch in str(raw or "").upper() if ch.isalnum())
+    return value[2:] if value.startswith("PL") and value[2:].isdigit() else value
+
+
+def own_company_document(fields: Any) -> bool:
+    """Sprzedawcą jest nasza spółka (``KSEF_CONTEXT_NIP``): to nie faktura konsultanta.
+
+    Produkcja 28.11.2026: zamówienie klienta (Energa, „EITE/Z/UR/…”, 93 000 zł)
+    przyszło na rozliczenia@ i czytnik odczytał je jako fakturę z netto, ze
+    sprzedawcą B2B.NET. Bez kontraktu nikt go nie dostał, ale przypięte do
+    kontraktu osoby (np. przekazane przez konsultanta) liczyłoby się jako jej koszt.
+    """
+
+    company = _nip_digits(getattr(settings, "KSEF_CONTEXT_NIP", ""))
+    if not company or not isinstance(fields, dict):
+        return False
+    return _nip_digits(fields.get("seller_nip")) == company
+
+
 def counts_as_cost(fields: Any) -> bool:
     """Odczyt nadaje się do kontroli miesiąca: faktura z kwotą netto.
 
@@ -77,13 +98,15 @@ def counts_as_cost(fields: Any) -> bool:
     brutto), a koszt w kontroli miesiąca to netto: faktura z netto bez
     odczytanego brutto liczy się (produkcja 28.11.2026: faktura za X z netto
     i bez brutto wypadała z kontroli). Nie liczy się tylko ponawiany odczyt
-    i paragon."""
+    i paragon, a także dokument, w którym sprzedawcą jest nasza spółka
+    (``own_company_document``)."""
 
     return (
         isinstance(fields, dict)
         and fields.get("status") in (READ, FAILED)
         and fields.get("doc_type") != "receipt"
         and cost_net(fields) is not None
+        and not own_company_document(fields)
     )
 
 
