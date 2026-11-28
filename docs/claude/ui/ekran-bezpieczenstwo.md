@@ -1,5 +1,5 @@
 # Ustawienia → Bezpieczeństwo: znaleziska, zdarzenia, rutyny (27.11.2026)
-<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0802, źródło defender 0808 (Microsoft Graph, incydenty, Secure Score, dzwonek security_defender_incident) -->
+<!-- indeks: /settings?item=security, /api/security/*, webhook security:ingest (CrowdSec, Falco, Wazuh, CI, Grafana), DefectDojo, security-weekly z GitHub API, wyjątek z terminem, rutyny i dzwonek security_routine_overdue, migracja 0800, źródło grafana 0802, źródło defender 0807 (Microsoft Graph, incydenty, Secure Score, dzwonek security_defender_incident) -->
 
 Decyzja Artura z 27.11.2026 (research „Tarcza NEXUSA”, „zbuduj wszystko
 z raportu”). Jeden ekran admina zbiera skany CI, zdarzenia z serwera,
@@ -103,7 +103,7 @@ koncie go nie zwalnia.
   (`source: "defectdojo"`, `scanner: "defectdojo"`, `run_id`, paczki po 200).
   Każda paczka, także pusta, odświeża stan źródła (`security_source_states`).
 
-- **Microsoft Defender** (0808, zlecenie Artura 28.11.2026): incydent High
+- **Microsoft Defender** (0807, zlecenie Artura 28.11.2026): incydent High
   wisiał tydzień nieprzypisany w portalu, do którego nikt nie zagląda. NEXUS
   czyta go sam — patrz niżej.
 

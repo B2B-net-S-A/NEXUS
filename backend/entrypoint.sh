@@ -922,7 +922,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'security_routine_overdue'",
     # 0803: logowanie hasłem z listy awaryjnej (tylko admini, mail od razu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'break_glass_password_login'",
-    # 0808: incydent High/Critical z Microsoft Defendera (tylko admini, mail od razu).
+    # 0807: incydent High/Critical z Microsoft Defendera (tylko admini, mail od razu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'security_defender_incident'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
