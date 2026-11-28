@@ -71,11 +71,17 @@ def cost_net(fields: Any) -> Optional[Decimal]:
 
 
 def counts_as_cost(fields: Any) -> bool:
-    """Odczyt nadaje się do kontroli miesiąca: faktura z kwotą netto."""
+    """Odczyt nadaje się do kontroli miesiąca: faktura z kwotą netto.
+
+    Status ``failed`` z czytnika zgód znaczy „bez brutto” (wydatek płaci się
+    brutto), a koszt w kontroli miesiąca to netto: faktura z netto bez
+    odczytanego brutto liczy się (produkcja 28.11.2026: faktura za X z netto
+    i bez brutto wypadała z kontroli). Nie liczy się tylko ponawiany odczyt
+    i paragon."""
 
     return (
         isinstance(fields, dict)
-        and fields.get("status") == READ
+        and fields.get("status") in (READ, FAILED)
         and fields.get("doc_type") != "receipt"
         and cost_net(fields) is not None
     )
