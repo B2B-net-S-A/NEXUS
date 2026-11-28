@@ -217,6 +217,25 @@
         "Rekruter",
         "Finanse"
       ]
+    },
+    "panel-trenera-z-rynku": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/panel-trenera-z-rynku.md",
+      "sciezki": [
+        "backend/app/api/market_trainer_portal.py",
+        "backend/app/services/market_trainer_portal/**",
+        "frontend/src/app/konsultant/**",
+        "frontend/src/components/consultant-portal/LoginForm.tsx",
+        "frontend/src/components/consultant-portal/PanelNav.tsx",
+        "frontend/src/components/consultant-portal/MarketTrainerScreen.tsx",
+        "frontend/src/components/trainings/MarketPanelDialog.tsx",
+        "frontend/src/components/trainings/NewTrainingScreen.tsx"
+      ],
+      "role": [
+        "TCM",
+        "Admin",
+        "Trener z rynku",
+        "Konsultant"
+      ]
     }
   }
 }

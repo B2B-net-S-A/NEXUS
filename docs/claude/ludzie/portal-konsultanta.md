@@ -20,6 +20,9 @@ ponownego potwierdzenia (`portal_settings.load` porównuje go z `cp_activations.
 na niepotwierdzony adres. Mail powitalny wysyła przy aktywacji Opieka, także bez roli opiekuna kontraktu (decyzja
 Artura 05.11.2026); dawna trasa DL/TCM zostaje. Szkic kontraktu nie aktywuje się, bo to umowa przed podpisem.
 
+Trener z rynku (bez kontraktu) loguje się tym samym ekranem, ale osobnym wejściem z własnym
+włącznikiem, tabelami sesji i trasami tylko szkoleń → `panel-trenera-z-rynku.md` (0807).
+
 ## Wyłącznik
 
 `app_settings['consultant_portal']` = `{"state": "off"|"internal"|"pilot"|"all"}`, zmienia admin przez

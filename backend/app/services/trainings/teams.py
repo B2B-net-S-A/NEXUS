@@ -101,7 +101,22 @@ async def trainer_email(db: AsyncSession, training: Training) -> Optional[str]:
         return (email or "").strip() or None
     if training.trainer_contract_id:
         return await consultant_email(db, training.trainer_contract_id)
+    if training.trainer_market_id:
+        return await market_trainer_email(db, training.trainer_market_id)
     return None
+
+
+async def market_trainer_email(db: AsyncSession, market_id: int) -> Optional[str]:
+    """Trener z rynku (0807): adres logowania przy otwartym panelu i włączniku."""
+    from app.models.website_intake import MarketTrainerApplication  # noqa: PLC0415
+    from app.services.market_trainer_portal import switch  # noqa: PLC0415
+
+    if not await switch.is_enabled(db):
+        return None
+    trainer = await db.get(MarketTrainerApplication, market_id)
+    if trainer is None or not trainer.panel_open:
+        return None
+    return (trainer.panel_email or "").strip() or None
 
 
 async def consultant_email(db: AsyncSession, contract_id: int) -> Optional[str]:

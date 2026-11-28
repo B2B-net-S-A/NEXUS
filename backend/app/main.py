@@ -285,6 +285,7 @@ from app.api import back_office as back_office_api
 from app.api import notice_mail as notice_mail_api
 from app.api import consultant_panel as consultant_panel_api
 from app.api import consultant_portal as consultant_portal_api
+from app.api import market_trainer_portal as market_trainer_portal_api
 from app.api import consultant_portal_staff as consultant_portal_staff_api
 from app.api import trainings as trainings_api
 from app.api import trainings_media as trainings_media_api
@@ -1499,6 +1500,11 @@ app.add_middleware(
         (r"/api/trainings/\d+/files", 2_100 * 1024 * 1024),
         (
             r"/api/public/consultant-portal/trainings/\d+/deliverables/[a-z]+",
+            2_100 * 1024 * 1024,
+        ),
+        # 0807: ten sam plik z Zał. 1 od trenera z rynku.
+        (
+            r"/api/public/trainer-portal/trainings/\d+/deliverables/[a-z]+",
             2_100 * 1024 * 1024,
         ),
     ],
@@ -2770,6 +2776,13 @@ app.include_router(
 app.include_router(
     consultant_portal_api.router,
     prefix="/api/public/consultant-portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# 0807: panel trenera z rynku — własny włącznik i sesja, tylko trasy szkoleń.
+app.include_router(
+    market_trainer_portal_api.router,
+    prefix="/api/public/trainer-portal",
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
@@ -4116,7 +4129,12 @@ async def api_health_deep_check(request: Request):
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.services.altcha_schema import ALTCHA_SPENT_CHALLENGES
-    from app.models.website_intake import CandidateReferral, MarketTrainerApplication
+    from app.models.website_intake import (
+        CandidateReferral,
+        MarketTrainerApplication,
+        MtPortalLink,
+        MtPortalSession,
+    )
     from app.models.rate_card import RateCardAdder
     from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
@@ -5338,6 +5356,9 @@ async def api_health_deep_check(request: Request):
         # 0806: trener z rynku i polecenie ze strony WWW.
         ("market_trainer_applications", MarketTrainerApplication),
         ("candidate_referrals", CandidateReferral),
+        # 0807: link i sesja trenera z rynku w panelu.
+        ("mt_portal_links", MtPortalLink),
+        ("mt_portal_sessions", MtPortalSession),
         # 0450: championi rekrutacji.
         ("job_champions", JobChampion),
         # 0513, 0516, 0518: dopełnianie „Nowych” — pula, powody odrzucenia

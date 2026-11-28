@@ -16,8 +16,12 @@ import {
   trainingMediaUrl,
   trainingPaths,
   useCompanySignatureFor,
+  useCloseMarketPanel,
+  useMarketPortalSwitch,
   useMarketTrainerApplications,
   useMarketTrainerStatus,
+  useOpenMarketPanel,
+  useSaveMarketPortalSwitch,
   usePendingSignatures,
   useRateTraining,
   useRegistration,
@@ -207,12 +211,53 @@ function OrganizeTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+/** Włącznik wejścia trenerów z rynku (0807): stan widzi TCM, przełącza admin. */
+function MarketPortalSwitch({ isAdmin }: { isAdmin: boolean }) {
+  const state = useMarketPortalSwitch();
+  const save = useSaveMarketPortalSwitch();
+  const run = useRunAction();
+  if (!state.isSuccess) return null;
+  const enabled = state.data;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
+      <p className="text-muted-foreground">
+        <span className="font-medium text-foreground">
+          Panel trenerów z rynku: {enabled ? "włączony" : "wyłączony"}.
+        </span>{" "}
+        {enabled
+          ? "Otwarcie panelu wysyła trenerowi link."
+          : "Panel możesz otworzyć, ale link wyjdzie dopiero po włączeniu przez administratora."}
+      </p>
+      {isAdmin ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={save.isPending}
+          onClick={() =>
+            void run(
+              () => save.mutateAsync(!enabled),
+              enabled ? "Wyłączono panel trenerów z rynku." : "Włączono panel trenerów z rynku.",
+              "Nie udało się zmienić ustawienia.",
+            )
+          }
+        >
+          {enabled ? "Wyłącz" : "Włącz"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 /** Kandydaci na trenerów spoza B2B ze strony (0806); decyduje TCM. */
-function MarketCandidatesSection() {
+function MarketCandidatesSection({ isAdmin }: { isAdmin: boolean }) {
   const market = useMarketTrainerApplications();
   const status = useMarketTrainerStatus();
+  const openPanel = useOpenMarketPanel();
+  const closePanel = useCloseMarketPanel();
   const run = useRunAction();
   return (
+    <>
+    <MarketPortalSwitch isAdmin={isAdmin} />
     <QueryGate
       query={market}
       isEmpty={(market.data ?? []).length === 0}
@@ -225,7 +270,7 @@ function MarketCandidatesSection() {
     >
       <MarketTrainerCandidates
         applications={market.data ?? []}
-        busy={status.isPending}
+        busy={status.isPending || openPanel.isPending || closePanel.isPending}
         onChange={(application, to, note) => {
           void run(
             () => status.mutateAsync({ id: application.id, status: to, note }),
@@ -233,15 +278,33 @@ function MarketCandidatesSection() {
             "Nie udało się zmienić stanu zgłoszenia.",
           );
         }}
+        onOpenPanel={(application, body) =>
+          run(
+            () => openPanel.mutateAsync({ id: application.id, body }),
+            (result) =>
+              result.invite === "sent"
+                ? `Panel otwarty. Link poszedł na ${body.panel_email}.`
+                : "Panel otwarty. Link wyjdzie po włączeniu panelu trenerów przez administratora.",
+            "Nie udało się otworzyć panelu.",
+          )
+        }
+        onClosePanel={(application) => {
+          void run(
+            () => closePanel.mutateAsync(application.id),
+            `Panel zamknięty: ${application.full_name}.`,
+            "Nie udało się zamknąć panelu.",
+          );
+        }}
       />
     </QueryGate>
+    </>
   );
 }
 
-function ApplicationsTab() {
+function ApplicationsTab({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="space-y-8">
-      <MarketCandidatesSection />
+      <MarketCandidatesSection isAdmin={isAdmin} />
       <section aria-labelledby="panel-trainers-title" className="space-y-3">
         <h2 id="panel-trainers-title" className="text-base font-semibold text-foreground">
           Konsultanci z panelu
@@ -393,7 +456,7 @@ export function TrainingsScreen() {
       {current === "recordings" ? <LibraryTab /> : null}
       {current === "nowosci" ? <NoveltyLessonsTab /> : null}
       {current === "organize" ? <OrganizeTab isAdmin={hasRole(user, "admin")} /> : null}
-      {current === "applications" ? <ApplicationsTab /> : null}
+      {current === "applications" ? <ApplicationsTab isAdmin={hasRole(user, "admin")} /> : null}
       {current === "sign" ? <SignTab /> : null}
     </div>
   );

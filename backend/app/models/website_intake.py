@@ -19,6 +19,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    UniqueConstraint,
     func,
     text,
 )
@@ -26,6 +27,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.services import market_trainer_portal_schema as portal_schema
 from app.services import website_intake_schema as schema
 
 
@@ -102,8 +104,85 @@ class MarketTrainerApplication(Base):
     submissions: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
+    # 0807: panel trenera z rynku — dane firmy do umowy (TCM z Białej Listy),
+    # adres logowania i kto/kiedy otworzył albo zamknął panel.
+    company_name: Mapped[str] = mapped_column(
+        String(portal_schema.COMPANY_MAX), nullable=False, server_default="", default=""
+    )
+    nip: Mapped[Optional[str]] = mapped_column(
+        String(portal_schema.NIP_MAX), nullable=True
+    )
+    regon: Mapped[str] = mapped_column(
+        String(portal_schema.REGON_MAX), nullable=False, server_default="", default=""
+    )
+    company_address: Mapped[str] = mapped_column(
+        String(portal_schema.ADDRESS_MAX), nullable=False, server_default="", default=""
+    )
+    panel_email: Mapped[Optional[str]] = mapped_column(
+        String(schema.EMAIL_MAX), nullable=True
+    )
+    panel_opened_by: Mapped[Optional[int]] = _user_fk()
+    panel_opened_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    panel_closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
+
+    @property
+    def panel_open(self) -> bool:
+        return (
+            self.status == "accepted"
+            and self.panel_opened_at is not None
+            and self.panel_closed_at is None
+            and bool(self.panel_email)
+        )
+
+
+class MtPortalLink(Base):
+    """Jednorazowy link logowania trenera z rynku (hash tokenu, 30 minut)."""
+
+    __tablename__ = portal_schema.LINKS
+    __table_args__ = (
+        UniqueConstraint("token_hash", name=f"uq_{portal_schema.LINKS}_token"),
+        Index(f"ix_{portal_schema.LINKS}_application", "application_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{schema.TRAINERS}.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String(schema.EMAIL_MAX), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _created()
+
+
+class MtPortalSession(Base):
+    """Sesja trenera z rynku (nagłówek ``X-Portal-Session``, hash tokenu)."""
+
+    __tablename__ = portal_schema.SESSIONS
+    __table_args__ = (
+        UniqueConstraint("token_hash", name=f"uq_{portal_schema.SESSIONS}_token"),
+        Index(f"ix_{portal_schema.SESSIONS}_application", "application_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{schema.TRAINERS}.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String(schema.EMAIL_MAX), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _created()
 
 
 class CandidateReferral(Base):

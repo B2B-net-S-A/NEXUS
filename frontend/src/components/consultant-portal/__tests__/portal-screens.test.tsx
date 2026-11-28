@@ -5,7 +5,19 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ConsultantPanelLayout from "@/app/konsultant/(panel)/layout";
-import { PortalApiError, portalApi, savePortalSession, type PortalMe } from "@/lib/api/consultant-portal";
+import {
+  PortalApiError,
+  portalApi,
+  savePortalSession,
+  trainerPortalApi,
+  type PortalMe,
+} from "@/lib/api/consultant-portal";
+
+const nav = vi.hoisted(() => ({ pathname: "/konsultant", replace: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => nav.pathname,
+  useRouter: () => ({ replace: nav.replace, push: vi.fn() }),
+}));
 
 import { DocumentsSection } from "../DocumentsSection";
 import { LoginForm } from "../LoginForm";
@@ -42,6 +54,10 @@ function refuse(status: number, detail?: unknown) {
 describe("strefa konsultanta", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    nav.pathname = "/konsultant";
+    nav.replace.mockReset();
+    // Wejście trenerów z rynku (0807) domyślnie zamknięte, jak na produkcji.
+    vi.spyOn(trainerPortalApi, "status").mockRejectedValue(refuse(404, "Not Found"));
     vi.spyOn(portalApi, "faq").mockResolvedValue({ items: [] });
     vi.spyOn(portalApi, "cases").mockResolvedValue({ items: [] });
     vi.spyOn(portalApi, "meetings").mockResolvedValue({ items: [], note: "Rozmowa jest spisywana." });
@@ -97,6 +113,49 @@ describe("strefa konsultanta", () => {
     wrap(<HelpScreen me={ME} />);
     expect(await screen.findByText("Nie udało się wczytać spraw. Odśwież stronę.", {}, { timeout: 8000 })).toBeTruthy();
     expect(screen.queryByText("Nie masz otwartych spraw.")).toBeNull();
+  });
+
+  it("gdy otwarte jest tylko wejście trenerów, formularz prosi o link trenera", async () => {
+    vi.spyOn(portalApi, "status").mockRejectedValue(refuse(404, "Not Found"));
+    vi.spyOn(trainerPortalApi, "status").mockResolvedValue({ open: true });
+    const consultantLink = vi.spyOn(portalApi, "requestLink");
+    const trainerLink = vi
+      .spyOn(trainerPortalApi, "requestLink")
+      .mockResolvedValue({ message: "Jeśli ten adres ma otwarty panel…" });
+    wrap(<Page />);
+    expect(await screen.findByRole("heading", { name: "Panel trenera" })).toBeTruthy();
+    expect(screen.queryByText("Panel konsultanta nie jest jeszcze dostępny")).toBeNull();
+    await userEvent.type(screen.getByLabelText("Adres e-mail"), "anna@example.com");
+    await userEvent.click(screen.getByRole("button", { name: /Wyślij link/ }));
+    expect(await screen.findByText("Jeśli ten adres ma otwarty panel…")).toBeTruthy();
+    expect(trainerLink).toHaveBeenCalledWith("anna@example.com");
+    expect(consultantLink).not.toHaveBeenCalled();
+  });
+
+  it("trener z rynku widzi tylko szkolenia i dane do umowy", async () => {
+    savePortalSession("token-trenera", "trainer");
+    nav.pathname = "/konsultant/szkolenia";
+    vi.spyOn(trainerPortalApi, "status").mockResolvedValue({ open: true });
+    vi.spyOn(portalApi, "status").mockRejectedValue(refuse(404, "Not Found"));
+    vi.spyOn(portalApi, "me").mockResolvedValue({ ...ME, kind: "trainer", client: null, rate: null });
+    wrap(<Page />);
+    expect(await screen.findByText("Treść ekranu")).toBeTruthy();
+    const menu = screen.getByRole("navigation", { name: "Panel konsultanta" });
+    expect(Array.from(menu.querySelectorAll("a")).map((a) => a.textContent)).toEqual([
+      "Szkolenia",
+      "Dane do umowy",
+    ]);
+  });
+
+  it("trener z rynku na ekranie konsultanta wraca do szkoleń", async () => {
+    savePortalSession("token-trenera", "trainer");
+    nav.pathname = "/konsultant/rozliczenia";
+    vi.spyOn(trainerPortalApi, "status").mockResolvedValue({ open: true });
+    vi.spyOn(portalApi, "status").mockRejectedValue(refuse(404, "Not Found"));
+    vi.spyOn(portalApi, "me").mockResolvedValue({ ...ME, kind: "trainer" });
+    wrap(<Page />);
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/konsultant/szkolenia"));
+    expect(screen.queryByText("Treść ekranu")).toBeNull();
   });
 
   it("po prośbie o link pokazuje zdanie z serwera", async () => {

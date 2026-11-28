@@ -1,14 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
-import type { MarketTrainerApplication, MarketTrainerStatus } from "@/lib/api/trainings";
+import type {
+  MarketPanelInput,
+  MarketTrainerApplication,
+  MarketTrainerStatus,
+} from "@/lib/api/trainings";
 import { formatDateTimePl } from "@/lib/date-pl";
 import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
+import { MarketPanelDialog } from "./MarketPanelDialog";
 import { ToneBadge } from "./TrainingStatus";
 import {
   MARKET_STATUSES,
@@ -48,11 +54,70 @@ interface Props {
   applications: MarketTrainerApplication[];
   busy: boolean;
   onChange: (application: MarketTrainerApplication, to: MarketTrainerStatus, note: string) => void;
+  /** 0807: otwarcie (albo poprawka) panelu z danymi firmy; `true` = zapisane. */
+  onOpenPanel?: (application: MarketTrainerApplication, body: MarketPanelInput) => Promise<boolean>;
+  onClosePanel?: (application: MarketTrainerApplication) => void;
 }
 
-export function MarketTrainerCandidates({ applications, busy, onChange }: Props) {
+/** Panel trenera z bazy: stan wejścia, zamówienie szkolenia, dane firmy (0807). */
+function PanelRow({
+  application,
+  busy,
+  onEdit,
+  onClose,
+}: {
+  application: MarketTrainerApplication;
+  busy: boolean;
+  onEdit: () => void;
+  onClose?: () => void;
+}) {
+  const { panel } = application;
+  if (!panel.panel_open) {
+    return (
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+        <p className="text-xs text-muted-foreground">
+          {panel.panel_closed_at ? "Panel zamknięty." : "Panel trenera nie jest jeszcze otwarty."} Trener dostanie
+          zamówienia, gdy otworzysz panel z danymi firmy do umowy.
+        </p>
+        <Button type="button" size="sm" disabled={busy} onClick={onEdit}>
+          Otwórz panel trenera
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Panel otwarty</span> · {panel.company_name} · NIP{" "}
+        {panel.nip} · logowanie: {panel.panel_email}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button asChild size="sm">
+          <Link href={`/trainings/new?market=${application.id}`}>Zamów szkolenie</Link>
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onEdit}>
+          Zmień dane firmy
+        </Button>
+        {onClose ? (
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onClose}>
+            Zamknij panel
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function MarketTrainerCandidates({
+  applications,
+  busy,
+  onChange,
+  onOpenPanel,
+  onClosePanel,
+}: Props) {
   const [filter, setFilter] = useState<MarketTrainerStatus>("new");
-  const { askReason, confirmDialog } = useConfirmV2();
+  const [editing, setEditing] = useState<MarketTrainerApplication | null>(null);
+  const { askConfirm, askReason, confirmDialog } = useConfirmV2();
   const counts = countByStatus(applications);
   const shown = applications.filter((application) => application.status === filter);
 
@@ -76,6 +141,18 @@ export function MarketTrainerCandidates({ applications, busy, onChange }: Props)
   return (
     <section aria-labelledby="market-trainers-title" className="space-y-3">
       {confirmDialog}
+      {editing && onOpenPanel ? (
+        <MarketPanelDialog
+          application={editing}
+          busy={busy}
+          onClose={() => setEditing(null)}
+          onSubmit={(body) => {
+            void onOpenPanel(editing, body).then((ok) => {
+              if (ok) setEditing(null);
+            });
+          }}
+        />
+      ) : null}
       <div>
         <h2 id="market-trainers-title" className="text-base font-semibold text-foreground">
           Kandydaci na trenerów z rynku
@@ -168,6 +245,26 @@ export function MarketTrainerCandidates({ applications, busy, onChange }: Props)
                   </div>
                 ) : null}
               </dl>
+              {application.status === "accepted" && onOpenPanel ? (
+                <PanelRow
+                  application={application}
+                  busy={busy}
+                  onEdit={() => setEditing(application)}
+                  onClose={
+                    onClosePanel
+                      ? () =>
+                          void askConfirm({
+                            title: "Zamknąć panel trenera?",
+                            description: `${application.full_name} nie zaloguje się, a otwarte sesje się zamkną. Szkolenia i pliki zostają.`,
+                            confirmLabel: "Zamknij panel",
+                            variant: "destructive",
+                          }).then((ok) => {
+                            if (ok) onClosePanel(application);
+                          })
+                      : undefined
+                  }
+                />
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 {actionsFor(application.status).map((action) => (
                   <Button

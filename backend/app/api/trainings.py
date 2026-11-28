@@ -25,6 +25,7 @@ from typing import Annotated, Any, Literal, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -62,6 +63,9 @@ from app.services.trainings import (
 )
 from app.services.trainings.errors import TrainingError
 from app.services import website_trainer_applications as market_trainers
+from app.services.market_trainer_portal import mail as market_mail
+from app.services.market_trainer_portal import panel as market_panel
+from app.services.market_trainer_portal import switch as market_switch
 from app.services.website_intake_schema import NOTE_MAX as MARKET_NOTE_MAX
 from app.services.trainings_schema import (
     DESCRIPTION_MAX,
@@ -211,6 +215,8 @@ class OrderBody(BaseModel):
 class CreateBody(OrderBody):
     trainer_contract_id: Optional[int] = None
     trainer_user_id: Optional[int] = None
+    # 0807: trener z rynku z otwartym panelem (``market_trainer_applications.id``).
+    trainer_market_id: Optional[int] = None
     application_id: Optional[int] = None
 
 
@@ -538,6 +544,150 @@ async def market_application_status(
     return {"application": market_trainers.serialize(row)}
 
 
+# ── Panel trenera z rynku (0807, decyzje Artura 28.11.2026) ─────────────────
+# Otwiera i zamyka TCM (dane firmy do umowy z podpowiedzią z Białej Listy),
+# włącznik całego wejścia przełącza admin.
+
+
+class MarketPanelBody(BaseModel):
+    company_name: str = Field(default="", max_length=300)
+    nip: str = Field(default="", max_length=20)
+    regon: str = Field(default="", max_length=20)
+    company_address: str = Field(default="", max_length=500)
+    panel_email: str = Field(default="", max_length=254)
+
+
+class MarketPortalBody(BaseModel):
+    enabled: bool
+
+
+async def _send_market_invite(email: str, name: str, raw_token: str) -> None:
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        await market_mail.send(
+            db,
+            to=email,
+            subject="Panel trenera B2B.net jest gotowy",
+            text=(
+                f"Dzień dobry {name},\n\n"
+                "jesteś w bazie trenerów B2B.net. W panelu zobaczysz zamówienia "
+                "szkoleń, złożysz wycenę, podpiszesz umowę i przekażesz pliki.\n\n"
+                "Twój link do panelu (działa 30 minut i tylko raz, potem poprosisz "
+                f"o nowy na tej samej stronie):\n{market_mail.login_url(raw_token)}"
+            ),
+        )
+
+
+@router.get("/market-applications/company-lookup")
+async def market_company_lookup(
+    current_user: Manager, nip: str = Query(..., max_length=20)
+) -> dict:
+    """Podpowiedź danych firmy z Białej Listy MF i biznes.gov.pl (jak Generator B2B)."""
+    from app.services.b2b_contract_generator.registry_lookup import (
+        format_registry_address,
+        lookup_company,
+    )
+
+    clean = market_panel.clean_nip(nip)
+    if clean is None:
+        raise HTTPException(422, "Podaj poprawny NIP (10 cyfr).")
+    data = await lookup_company(nip=clean)
+    if not data:
+        raise HTTPException(404, "Nie znaleziono firmy w rejestrze. Wpisz dane ręcznie.")
+    return {
+        "company_name": data.get("name") or "",
+        "nip": clean,
+        "regon": data.get("regon") or "",
+        "company_address": format_registry_address(
+            data.get("address"), has_street=data.get("has_street")
+        )
+        or "",
+    }
+
+
+@router.post("/market-applications/{application_id}/panel")
+async def market_panel_open(
+    application_id: int,
+    body: MarketPanelBody,
+    current_user: Manager,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        data = market_panel.company_data(**body.model_dump())
+        row, raw = await market_panel.open_panel(
+            db, application_id, data, actor_user_id=current_user.id, now=_now()
+        )
+    except market_panel.PanelError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="market_trainer_application",
+        entity_id=row.id,
+        action="market_trainer_panel_opened",
+        details={},
+    )
+    await db.commit()
+    enabled = await market_switch.is_enabled(db)
+    if enabled:
+        background.add_task(
+            _send_market_invite, row.panel_email or "", row.full_name, raw
+        )
+    return {
+        "application": market_trainers.serialize(row),
+        "invite": "sent" if enabled else "switch_off",
+    }
+
+
+@router.post("/market-applications/{application_id}/panel/close")
+async def market_panel_close(
+    application_id: int, current_user: Manager, db: AsyncSession = Depends(get_db)
+) -> dict:
+    try:
+        row = await market_panel.close_panel(db, application_id, now=_now())
+    except market_panel.PanelError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="market_trainer_application",
+        entity_id=row.id,
+        action="market_trainer_panel_closed",
+        details={},
+    )
+    await db.commit()
+    return {"application": market_trainers.serialize(row)}
+
+
+@router.get("/market-portal")
+async def market_portal_state(
+    current_user: Manager, db: AsyncSession = Depends(get_db)
+) -> dict:
+    return {"enabled": await market_switch.is_enabled(db)}
+
+
+@router.put("/market-portal")
+async def market_portal_save(
+    body: MarketPortalBody, current_user: Admin, db: AsyncSession = Depends(get_db)
+) -> dict:
+    enabled = await market_switch.save(db, enabled=body.enabled)
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="trainings",
+        entity_id=0,
+        action="market_trainer_portal_switch",
+        details={"enabled": enabled},
+    )
+    await db.commit()
+    return {"enabled": enabled}
+
+
 # ── Folder SharePointa (admin) ───────────────────────────────────────────────
 
 
@@ -605,6 +755,7 @@ async def create_training(
             trainer_contract_id=body.trainer_contract_id,
             trainer_user_id=body.trainer_user_id,
             application_id=body.application_id,
+            trainer_market_id=body.trainer_market_id,
         )
     except TrainingError as exc:
         raise _translate(exc) from exc
@@ -748,6 +899,19 @@ async def partner(
         training = await core.get(db, training_id)
     except TrainingError as exc:
         raise _translate(exc) from exc
+    if training.trainer_market_id is not None:
+        # 0807: trener z rynku — dane firmy wpisane przez TCM przy otwarciu panelu.
+        from app.models.website_intake import MarketTrainerApplication
+
+        trainer = await db.get(MarketTrainerApplication, training.trainer_market_id)
+        data = training.partner or (
+            market_panel.partner(trainer) if trainer is not None else {}
+        )
+        return {
+            "partner": data,
+            "missing": agreement.missing_partner_fields(data),
+            "company_email": current_user.email,
+        }
     if training.trainer_contract_id is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Szkolenie pracownika nie ma umowy B2B."

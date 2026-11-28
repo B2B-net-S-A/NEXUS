@@ -31,6 +31,7 @@ from app.models.contract import Contract, ContractStatus
 from app.models.website_intake import MarketTrainerApplication
 from app.services import website_forms as forms
 from app.services import website_intake_schema as schema
+from app.services.market_trainer_portal.panel import panel_view
 from app.services.public_apply import field_error
 
 logger = logging.getLogger(__name__)
@@ -238,6 +239,8 @@ def serialize(row: MarketTrainerApplication) -> dict[str, Any]:
         "submissions": row.submissions,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
+        # 0807: panel trenera z rynku (dane firmy i stan wejścia).
+        "panel": panel_view(row),
     }
 
 

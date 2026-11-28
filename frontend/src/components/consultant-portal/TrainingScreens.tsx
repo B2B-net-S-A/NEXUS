@@ -18,6 +18,7 @@ import { safeExternalHref } from "@/lib/safe-href";
 import {
   portalApi,
   portalKeys,
+  portalKind,
   usePortalQuery,
   type LibraryFile,
   type LibraryLive,
@@ -604,25 +605,40 @@ export function TrainingsView({
   today = warsawToday(),
   initialTab,
   initialRecording = null,
+  marketTrainer = false,
 }: {
   data: PortalTrainings;
   today?: string;
   initialTab?: TrainingsTab;
   initialRecording?: number | null;
+  /** Trener z rynku (0807): tylko „Prowadzę”, bez biblioteki i zapisów. */
+  marketTrainer?: boolean;
 }) {
-  const [tab, setTab] = useState<TrainingsTab>(initialTab ?? defaultTab(data, today));
+  const [tab, setTab] = useState<TrainingsTab>(
+    marketTrainer ? "mine" : (initialTab ?? defaultTab(data, today)),
+  );
   const [open, setOpen] = useState<number | null>(initialRecording);
   const recording = data.library.recordings.find((row) => row.id === open) ?? null;
+  const tabs = marketTrainer ? TABS.filter((item) => item.key === "mine") : TABS;
   return (
     <div className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <ScreenTitle title="Szkolenia" lead="Nagrania i materiały ze szkoleń, zapisy na szkolenia na żywo i szkolenia, które prowadzisz." />
+        <ScreenTitle
+          title="Szkolenia"
+          lead={
+            marketTrainer
+              ? "Szkolenia, które dla nas prowadzisz: zamówienie, wycena, umowa, pliki i faktura."
+              : "Nagrania i materiały ze szkoleń, zapisy na szkolenia na żywo i szkolenia, które prowadzisz."
+          }
+        />
         <Button size="sm" variant="ghost" asChild>
-          <Link href="/konsultant/trener">{data.applied ? "Zgłoszenie trenera" : "Zostań trenerem"}</Link>
+          <Link href="/konsultant/trener">
+            {marketTrainer ? "Dane do umowy" : data.applied ? "Zgłoszenie trenera" : "Zostań trenerem"}
+          </Link>
         </Button>
       </div>
       <div role="tablist" aria-label="Szkolenia" className="flex gap-1 border-b">
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -660,5 +676,7 @@ export function TrainingsScreen() {
   const query = usePortalQuery(portalKeys.trainings, portalApi.trainings);
   if (query.isLoading) return <Loading />;
   if (query.isError) return <Failure error={query.error} text="Nie udało się wczytać szkoleń. Odśwież stronę." />;
-  return query.isSuccess ? <TrainingsView data={query.data} /> : null;
+  return query.isSuccess ? (
+    <TrainingsView data={query.data} marketTrainer={portalKind() === "trainer"} />
+  ) : null;
 }

@@ -15,6 +15,7 @@ import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   useCreateTraining,
+  useMarketTrainerApplications,
   useTrainerApplications,
   useTrainerUserOptions,
   useTrainingsMe,
@@ -33,7 +34,7 @@ import {
 } from "./training-model";
 import { useRunAction } from "./use-run-action";
 
-type TrainerSource = "consultant" | "employee";
+type TrainerSource = "consultant" | "market" | "employee";
 
 function EmployeePicker({
   value,
@@ -119,7 +120,12 @@ export function NewTrainingScreen() {
   const create = useCreateTraining();
   const run = useRunAction();
 
-  const [source, setSource] = useState<TrainerSource>("consultant");
+  // 0807: ?market=<id> z listy „Kandydaci na trenerów” — trener z rynku z otwartym panelem.
+  const marketParam = Number(searchParams.get("market")) || null;
+  const markets = useMarketTrainerApplications(canManage);
+  const [source, setSource] = useState<TrainerSource>(marketParam ? "market" : "consultant");
+  const [marketId, setMarketId] = useState<number | null>(marketParam);
+  const openMarkets = (markets.data ?? []).filter((item) => item.panel.panel_open);
   const [applicationId, setApplicationId] = useState<number | null>(
     Number(searchParams.get("application")) || null,
   );
@@ -159,9 +165,13 @@ export function NewTrainingScreen() {
         ? trainerContractId
           ? null
           : "Wybierz zgłoszenie trenera albo wpisz numer kontraktu."
-        : employee
-          ? null
-          : "Wybierz pracownika, który poprowadzi szkolenie.";
+        : source === "market"
+          ? marketId
+            ? null
+            : "Wybierz trenera z rynku z otwartym panelem."
+          : employee
+            ? null
+            : "Wybierz pracownika, który poprowadzi szkolenie.";
     const issue = trainerProblem ?? orderFormProblem(order, source === "employee" ? [] : drafts);
     setProblem(issue);
     if (issue) return;
@@ -174,6 +184,7 @@ export function NewTrainingScreen() {
           trainer_contract_id: trainerContractId,
           trainer_user_id: source === "employee" ? employee?.id ?? null : null,
           application_id: source === "consultant" ? application?.id ?? null : null,
+          trainer_market_id: source === "market" ? marketId : null,
         });
         created.id = training.id;
       },
@@ -199,10 +210,36 @@ export function NewTrainingScreen() {
           onChange={setSource}
           options={[
             { value: "consultant", label: "Konsultant z umową B2B" },
+            { value: "market", label: "Trener z rynku" },
             { value: "employee", label: "Pracownik" },
           ]}
         />
-        {source === "consultant" ? (
+        {source === "market" ? (
+          <FormField
+            label="Trener z rynku"
+            htmlFor="trainer-market"
+            description={
+              markets.isError
+                ? apiErrorMessage(markets.error, "Nie udało się odczytać trenerów z rynku.")
+                : "Z bazy trenerów, z otwartym panelem (Zgłoszenia trenerów → W bazie trenerów)."
+            }
+          >
+            <select
+              id="trainer-market"
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
+              value={marketId ?? ""}
+              onChange={(event) => setMarketId(Number(event.target.value) || null)}
+            >
+              <option value="">— wybierz trenera —</option>
+              {openMarkets.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.full_name}
+                  {item.panel.company_name ? ` · ${item.panel.company_name}` : ""}
+                </option>
+              ))}
+            </select>
+          </FormField>
+        ) : source === "consultant" ? (
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem]">
             <FormField
               label="Zgłoszenie trenera"

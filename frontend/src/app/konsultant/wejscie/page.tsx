@@ -10,7 +10,15 @@ import { useRouter } from "next/navigation";
 
 import { PortalNotice, PortalShell } from "@/components/consultant-portal/PortalShell";
 import { Button } from "@/components/ui/button";
-import { PortalApiError, portalApi, savePortalSession } from "@/lib/api/consultant-portal";
+import {
+  PortalApiError,
+  portalApi,
+  savePortalSession,
+  trainerPortalApi,
+} from "@/lib/api/consultant-portal";
+
+/** Link trenera z rynku (0807) ma we fragmencie `trener=<token>`. */
+const TRAINER_PREFIX = "trener=";
 
 export default function ConsultantPortalEntryPage() {
   const router = useRouter();
@@ -20,17 +28,19 @@ export default function ConsultantPortalEntryPage() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    const token = window.location.hash.replace(/^#/, "");
+    const fragment = window.location.hash.replace(/^#/, "");
     window.history.replaceState(null, "", window.location.pathname);
+    const trainer = fragment.startsWith(TRAINER_PREFIX);
+    const token = trainer ? fragment.slice(TRAINER_PREFIX.length) : fragment;
     if (!token) {
       setState("invalid");
       return;
     }
-    portalApi
+    (trainer ? trainerPortalApi : portalApi)
       .openSession(token)
       .then((opened) => {
-        savePortalSession(opened.session_token);
-        router.replace("/konsultant");
+        savePortalSession(opened.session_token, trainer ? "trainer" : "consultant");
+        router.replace(trainer ? "/konsultant/szkolenia" : "/konsultant");
       })
       .catch((failure: unknown) => {
         const refused = failure instanceof PortalApiError && failure.status < 500 && failure.status !== 429;
