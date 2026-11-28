@@ -445,6 +445,11 @@ async def test_recruiter_sets_bonus_and_finance_marks_paid(
         "Senior QA",
     )
 
+    keep_note = await app_client.patch(
+        item, headers=recruiter, json={"bonus_amount": "2600", "note": ""}
+    )
+    assert keep_note.json()["referral"]["status_note"] == "Senior QA"
+
     recruiter_pays = await app_client.post(f"{item}/paid", headers=recruiter)
     assert recruiter_pays.status_code == 403
     paid = await app_client.post(f"{item}/paid", headers=finance)

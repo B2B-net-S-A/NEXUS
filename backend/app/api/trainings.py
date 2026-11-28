@@ -519,7 +519,8 @@ async def market_application_status(
             db,
             application_id,
             status=body.status,
-            note=body.note.strip() if body.note is not None else None,
+            # Puste pole okna = bez zmiany notatki, nie jej skasowanie.
+            note=(body.note or "").strip() or None,
             actor_user_id=current_user.id,
         )
     except market_trainers.StatusChangeError as exc:

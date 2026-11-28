@@ -119,7 +119,7 @@ export function MarketTrainerCandidates({ applications, busy, onChange }: Props)
                   <p className="break-all text-xs text-muted-foreground">
                     {application.email} · zgłoszenie {formatDateTimePl(application.created_at)}
                     {application.submissions > 1
-                      ? ` · wysłane ${application.submissions} razy, ostatnio ${formatDateTimePl(application.updated_at)}`
+                      ? ` · wysłane ${application.submissions} razy`
                       : ""}
                   </p>
                 </div>

@@ -86,8 +86,9 @@ async def update_candidate_referral(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     changes = body.model_dump(exclude_unset=True)
-    if "note" in changes and changes["note"] is not None:
-        changes["note"] = changes["note"].strip()
+    # Puste pole okna = bez zmiany notatki, nie jej skasowanie.
+    if "note" in changes:
+        changes["note"] = (changes["note"] or "").strip() or None
     try:
         row = await referrals.update_referral(
             db, referral_id, changes=changes, actor_user_id=current_user.id

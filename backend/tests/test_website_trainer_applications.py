@@ -238,10 +238,14 @@ async def test_tcm_moves_application_through_statuses(app_client, token) -> None
     assert talk.json()["application"]["status_note"] == "Rozmowa we wtorek."
 
     base = await app_client.post(
-        f"{STAFF}/{row.id}/status", headers=tcm, json={"status": "accepted"}
+        f"{STAFF}/{row.id}/status",
+        headers=tcm,
+        json={"status": "accepted", "note": "  "},
     )
     assert base.status_code == 200
     assert base.json()["application"]["status"] == "accepted"
+    # Przejście bez notatki (puste pole okna) nie kasuje wcześniejszej notatki.
+    assert base.json()["application"]["status_note"] == "Rozmowa we wtorek."
     saved = await _row(email)
     assert saved is not None and saved.status_changed_by is not None
 
