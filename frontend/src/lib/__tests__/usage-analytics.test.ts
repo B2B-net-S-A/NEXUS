@@ -24,8 +24,8 @@ describe("routePattern — adres bez id kandydata, klienta i tokenów", () => {
 
   it("bez parametrów (404, stary link) id, UUID i tokeny i tak znikają", () => {
     expect(pattern("/candidates/4821")).toBe("/candidates/[id]");
-    expect(pattern("/k/3f2b9c1e-8a4d-4b6f-9e2a-1c5d7e9f0a3b")).toBe("/k/[id]");
-    expect(pattern("/sign/Xy7_kP2qLmN9vR4tWz8sAb")).toBe("/sign/[id]");
+    expect(pattern("/k/00000000-0000-4000-8000-000000000000")).toBe("/k/[id]");
+    expect(pattern("/sign/TokenTestowyBezZnaczenia")).toBe("/sign/[id]");
     expect(pattern("/share/a1b2c3d4e5f6a7b8c9d0")).toBe("/share/[id]");
     expect(pattern("/candidates/Jan.Kowalski%40example.com")).toBe("/candidates/[id]");
   });
