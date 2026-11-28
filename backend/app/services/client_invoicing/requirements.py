@@ -9,6 +9,8 @@ w „Reguły klienta” (``rules_catalog``, wersje od miesiąca), a nie warunkam
 na nazwę klienta w kodzie.
 
 * ``from_rules`` — reguły klienta na miesiąc usługi faktury → ``Requirements``,
+* ``with_contract`` — numer umowy faktury: wpisany w szkicu, z mapy
+  „zamówienie → umowa” reguły ``cl.ksef_contract`` albo domyślny klienta,
 * ``ksef_fields`` / ``Requirements.item_name`` / ``line_problems`` /
   ``Requirements.mail_for`` / ``summary`` — co z tego idzie do szkicu, FA(3)
   i na kartę faktury,
@@ -17,7 +19,7 @@ na nazwę klienta w kodzie.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, Iterable, Optional, Sequence
 
@@ -25,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.client_invoicing.export import month_label
+from app.services.client_settlements import rules_catalog as catalog
 from app.services.client_settlements import signoffs
 
 FIELD_MAX = 256
@@ -51,8 +54,14 @@ class Requirements:
     #: ``cl.collective_invoice``: faktura z KSeF na całe zamówienie, którego numer
     #: ma w NEXUSIE kilka zamówień osób (VeloBank) — numer wiąże wszystkie.
     collective_invoice: bool = False
+    #: ``cl.ksef_contract``: umowa faktury (po ``with_contract`` — tej faktury).
     contract_number: Optional[str] = None
     contract_date: Optional[date] = None
+    #: Mapa ``cl.ksef_contract`` (``by_order``): (klucz numeru zamówienia, umowa, data).
+    #: BNP: dwie grupy MD na innej umowie niż reszta zamówień (28.11.2026).
+    contracts_by_order: tuple[tuple[str, str, Optional[date]], ...] = ()
+    #: Różne umowy zamówień jednej faktury (``with_contract``) — blokuje wysyłkę.
+    contract_conflict: tuple[str, ...] = ()
     #: Pary (klucz, wzór wartości) ``DodatkowyOpis``.
     fields: tuple[tuple[str, str], ...] = ()
     item_template: Optional[str] = None
@@ -67,6 +76,17 @@ class Requirements:
     client_protocol: bool = False
     #: ``cl.contractor_person_id``: kod osoby po „Contractor … ID:” (ostrzega).
     contractor_person_id: bool = False
+
+    def contract_for(
+        self, order_number: Optional[str]
+    ) -> tuple[Optional[str], Optional[date]]:
+        """Umowa zamówienia z mapy ``cl.ksef_contract``, inaczej domyślna klienta."""
+
+        key = order_key(order_number)
+        for mapped, number, when in self.contracts_by_order:
+            if key and mapped == key:
+                return number, when
+        return self.contract_number, self.contract_date
 
     def item_name(
         self,
@@ -127,6 +147,12 @@ class Requirements:
 
 def _clean(text: Any, limit: int = FIELD_MAX) -> str:
     return " ".join(str(text or "").split())[:limit]
+
+
+def order_key(number: Optional[str]) -> str:
+    """Numer zamówienia do porównania z mapą umów: bez wielkości liter i spacji."""
+
+    return "".join(str(number or "").split()).upper()
 
 
 def _on(rules: dict[str, dict[str, Any]], key: str) -> Optional[dict[str, str]]:
@@ -208,6 +234,12 @@ def from_rules(rules: dict[str, dict[str, Any]], period: str) -> Requirements:
         collective_invoice=_on(rules, "cl.collective_invoice") is not None,
         contract_number=_clean(contract.get("number")) or None,
         contract_date=_date(contract.get("date") or "") if contract else None,
+        contracts_by_order=tuple(
+            (order_key(order), _clean(number), when)
+            for order, number, when in catalog.parse_contract_map(
+                contract.get("by_order") or ""
+            )[0]
+        ),
         fields=fields,
         item_template=str(item.get("template") or "").strip() or None,
         must_contain=_clean(must.get("text")) or None,
@@ -218,6 +250,43 @@ def from_rules(rules: dict[str, dict[str, Any]], period: str) -> Requirements:
         bzone_order=_on(rules, "cl.bzone_order") is not None,
         client_protocol=_on(rules, "cl.client_protocol") is not None,
         contractor_person_id=_on(rules, "cl.contractor_person_id") is not None,
+    )
+
+
+def with_contract(
+    found: Requirements,
+    order_numbers: Sequence[str],
+    override: Optional[tuple[str, Optional[date]]] = None,
+) -> Requirements:
+    """Wymagania z umową tej faktury (``NrUmowy``/``DataUmowy``).
+
+    Numer wpisany w szkicu wygrywa. Bez niego każde zamówienie faktury bierze
+    umowę z mapy ``by_order`` albo domyślną klienta; różne umowy na jednej
+    fakturze = bez umowy i ``contract_conflict`` (wysyłka czeka na decyzję).
+    """
+
+    if override is not None:
+        return replace(
+            found,
+            contract_number=override[0],
+            contract_date=override[1],
+            contract_conflict=(),
+        )
+    if not found.contracts_by_order or not order_numbers:
+        return found
+    picked: list[tuple[Optional[str], Optional[date]]] = []
+    for number in order_numbers:
+        contract = found.contract_for(number)
+        if contract not in picked:
+            picked.append(contract)
+    if len(picked) == 1:
+        number, when = picked[0]
+        return replace(found, contract_number=number, contract_date=when)
+    return replace(
+        found,
+        contract_number=None,
+        contract_date=None,
+        contract_conflict=tuple(number or "bez umowy" for number, _ in picked),
     )
 
 
@@ -363,4 +432,5 @@ __all__ = [
     "render_item_name",
     "summary",
     "unsigned_people",
+    "with_contract",
 ]

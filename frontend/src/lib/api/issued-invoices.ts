@@ -154,6 +154,11 @@ export interface IssuedInvoiceCard extends IssuedInvoiceRow {
   checks: string[];
   /** Numery zamówień do KSeF (`NrZamowienia`) — kilka przy fakturze z kilku zamówień. */
   order_numbers: string[];
+  /** Umowa do KSeF (`NrUmowy`) wpisana w szkicu; `null` = umowa z reguł klienta. */
+  contract_number: string | null;
+  contract_date: string | null;
+  /** Umowa z reguł klienta dla zamówień faktury (`cl.ksef_contract`); `null` = brak. */
+  contract_rule: { number: string; date: string | null } | null;
   requirements: InvoiceRequirement[];
   mail: InvoiceMail | null;
   /** Lista nabywców klienta; pusta = nabywcą jest klient z kartoteki. */
@@ -379,6 +384,9 @@ export type InvoicePatch = Partial<{
   due_date: string | null;
   client_order_number: string | null;
   notes: string | null;
+  /** Pusty numer = umowa z reguł klienta. */
+  contract_number: string | null;
+  contract_date: string | null;
   correction_reason: string | null;
   currency: IssueCurrency;
   series_code: "PL" | "UE" | "BEN";
