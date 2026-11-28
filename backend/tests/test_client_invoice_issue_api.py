@@ -1721,6 +1721,129 @@ async def test_signed_protocol_rule_blocks_the_draft(client, seed, rules):
     assert blocked.status_code == 409
 
 
+# ── Dokument klienta z godzinami: KEŚU i akceptacja KCP (28.11.2026) ────────
+
+SIGNED_SHEET_RULES = {
+    "cl.after_signed_document": {"level": "block", "params": {}},
+    # Jak u banku z KEŚU na kopii produkcji: dokument „na podpisującego”.
+    "cl.client_document": {
+        "level": "block",
+        "params": {"kind": "arkusz", "per": "podpisujący", "from": "", "header": ""},
+    },
+}
+KCP_RULES = {
+    "cl.after_signed_document": {"level": "block", "params": {}},
+    "cl.client_acceptance": {
+        "level": "block",
+        "params": {"email": "body@bank-testowy.example", "subject": ""},
+    },
+}
+
+
+async def _settled_order(client_id: int, person: tuple[str, str], meta: dict) -> str:
+    """Zamówienie okresowe z przyjętym rozliczeniem X 2026 i stanem dokumentu w ``meta``."""
+
+    from app.models.client_order import ClientOrder
+    from app.models.client_settlement import ClientSettlement
+
+    async with AsyncSessionLocal() as db:
+        order_id = await fx.periodic_order(
+            db,
+            client_id,
+            f"ZAM/2026/{person[1].upper()}",
+            rate="1000",
+            unit=RateUnit.daily,
+            person=person,
+        )
+        contract_id = (await db.get(ClientOrder, order_id)).contract_id
+        db.add(
+            ClientSettlement(
+                contract_id=contract_id,
+                client_id=client_id,
+                period_month="2026-10",
+                kind="actual",
+                status="accepted",
+                order_id=order_id,
+                md_regular=Decimal("21"),
+                md_charged=Decimal("21"),
+                lines=[],
+                checks=[{"remaining_after": None, **meta}],
+            )
+        )
+        await db.commit()
+    return f"o{order_id}"
+
+
+async def test_unsigned_kesu_blocks_the_draft_and_signed_lets_it_go(
+    client, seed, rules
+):
+    await rules(SIGNED_SHEET_RULES)
+    await _settings(client, seed)
+    waiting = await _settled_order(
+        seed.client_id, ("Ola", "Keśuowa"), {"kesu": {"state": "awaiting_client"}}
+    )
+    signed = await _settled_order(
+        seed.client_id, ("Piotr", "Podpisany"), {"kesu": {"state": "signed"}}
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, waiting)["blocked"] == (
+        "Pozycje czekają na rozliczenie: Ola Keśuowa (czeka na podpisane KEŚU)."
+    )
+    # Podpisane KEŚU to podpisany dokument klienta: arkusza zbiorczego nie ma.
+    assert _row(listing, seed.client_id, signed)["blocked"] is None
+    blocked = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [waiting]}, headers=_h(seed)
+    )
+    assert blocked.status_code == 409
+    assert "czeka na podpisane KEŚU" in blocked.json()["detail"]
+    await _draft(client, seed, signed)
+
+
+async def test_kcp_without_client_acceptance_blocks_the_draft(client, seed, rules):
+    await rules(KCP_RULES)
+    await _settings(client, seed)
+    sent = {"client_acceptance": {"sent_at": "2026-11-03T10:00:00+00:00"}}
+    waiting = await _settled_order(seed.client_id, ("Ewa", "Wysłana"), sent)
+    accepted = await _settled_order(
+        seed.client_id,
+        ("Adam", "Zaakceptowany"),
+        {
+            "client_acceptance": {
+                **sent["client_acceptance"],
+                "accepted_at": "2026-11-04T09:00:00+00:00",
+            }
+        },
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, waiting)["blocked"] == (
+        "Pozycje czekają na rozliczenie: Ewa Wysłana (czeka na akceptację KCP klienta)."
+    )
+    assert _row(listing, seed.client_id, accepted)["blocked"] is None
+    blocked = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [waiting]}, headers=_h(seed)
+    )
+    assert blocked.status_code == 409
+    assert "czeka na akceptację KCP klienta" in blocked.json()["detail"]
+    await _draft(client, seed, accepted)
+
+
+async def test_document_state_without_the_rules_changes_nothing(client, seed, rules):
+    await rules({})
+    await _settings(client, seed)
+    kesu_key = await _settled_order(
+        seed.client_id, ("Ola", "Keśuowa"), {"kesu": {"state": "awaiting_client"}}
+    )
+    kcp_key = await _settled_order(
+        seed.client_id,
+        ("Ewa", "Wysłana"),
+        {"client_acceptance": {"sent_at": "2026-11-03T10:00:00+00:00"}},
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, kesu_key)["blocked"] is None
+    assert _row(listing, seed.client_id, kcp_key)["blocked"] is None
+    await _draft(client, seed, kesu_key)
+
+
 # ── Zlecenie B-ZONE i protokół odbioru od klienta (24.11.2026) ───────────────
 
 BZONE = "K/2026/100001/AB/1001/26TEST"

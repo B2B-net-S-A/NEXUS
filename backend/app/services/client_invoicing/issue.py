@@ -56,6 +56,7 @@ from app.services.client_invoicing import (
     rebate,
     requirements,
     sale_checks,
+    settled_lines,
 )
 from app.services.client_invoicing import sync as sales_sync
 from app.services.client_invoicing.export import month_label
@@ -571,6 +572,10 @@ async def _signature_block(
     missing = await requirements.unsigned_people(
         db, found, contract_ids=by_contract, period=period
     )
+    # Osoba z KEŚU: dokumentem klienta jest KEŚU, a jego podpis sprawdza
+    # ``_row_block`` (``settled_lines.AWAITING``). Arkusza dla niej nie ma, więc
+    # bez tego czekała na zawsze (Alior XI 2026: 10/10 szkiców zablokowanych).
+    missing -= await settled_lines.with_kesu(db, missing, period)
     if not missing and not unknown:
         return None
     kind = "protokołu" if found.signed_document == "protocol" else "arkusza"
