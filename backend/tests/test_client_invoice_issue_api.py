@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api import client_issued_invoices as api
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.client import Client
 from app.models.client_issued_invoice import ClientInvoiceSeries, ClientIssuedInvoice
@@ -344,6 +345,45 @@ async def test_incomplete_draft_is_not_numbered(client, seed):
         assert (
             await db.scalar(select(func.count()).select_from(ClientInvoiceSeries)) == 0
         )
+
+
+async def test_buyer_nip_with_wrong_check_digit_is_not_sent(client, seed):
+    """KSeF przyjmuje NIP z błędną cyfrą kontrolną (test MF 28.11.2026),
+    a na produkcji literówka oznacza korektę — NEXUS zatrzymuje wysyłkę."""
+
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    wrong = await client.put(
+        f"{BASE}/{invoice_id}",
+        json={"buyer": {**BUYER, "number": "1111111112"}},
+        headers=_h(seed),
+    )
+    assert wrong.status_code == 200, wrong.text
+    refused = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert refused.status_code == 422
+    assert "błędną cyfrę kontrolną" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        invoice = await db.get(ClientIssuedInvoice, invoice_id)
+        assert invoice.invoice_number is None
+        assert invoice.status == "draft"
+
+
+async def test_future_issue_date_is_not_numbered(client, seed):
+    """KSeF odrzuca datę wystawienia z przyszłości (450) dopiero po nadaniu numeru."""
+
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    tomorrow = business_today() + timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        invoice = await db.get(ClientIssuedInvoice, invoice_id)
+        invoice.issue_date = tomorrow
+        await db.commit()
+    refused = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert refused.status_code == 422
+    assert "w przyszłości" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        invoice = await db.get(ClientIssuedInvoice, invoice_id)
+        assert invoice.invoice_number is None
 
 
 # ── Wysyłka ─────────────────────────────────────────────────────────────────

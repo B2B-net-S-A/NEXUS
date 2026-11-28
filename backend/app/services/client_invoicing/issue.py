@@ -32,7 +32,7 @@ from typing import Any, Optional, Sequence
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import DEFAULT_TZ, is_business_day
+from app.core.scheduling import DEFAULT_TZ, business_today, is_business_day
 from app.models.client import Client
 from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.models.client_order import ClientOrder
@@ -65,6 +65,7 @@ from app.services.client_invoice_issue_schema import (
     REASON_MAX,
 )
 from app.services.client_sales_invoices_schema import CURRENCIES
+from app.services.order_client_identity import nip_checksum_valid
 from app.services.hr.calendar import month_range
 
 logger = logging.getLogger(__name__)
@@ -1231,6 +1232,22 @@ async def problems(
     buyer = invoice.buyer or {}
     if not buyer.get("name") or not buyer.get("address_l1"):
         out.append("Uzupełnij nazwę i adres nabywcy.")
+    ident = fa3_build.buyer_id(buyer.get("number"))
+    if ident.kind == "nip" and not nip_checksum_valid(ident.nip or ""):
+        # KSeF tego nie sprawdza: na testowym MF (28.11.2026) przyjął fakturę
+        # z NIP-em z błędną cyfrą kontrolną, a na produkcji to korekta faktury.
+        out.append(
+            f"NIP nabywcy {ident.nip} ma błędną cyfrę kontrolną — popraw go "
+            "w nabywcy faktury albo na karcie klienta."
+        )
+    today = business_today()
+    if invoice.issue_date is not None and invoice.issue_date > today:
+        # KSeF odrzuca taką fakturę kodem 450 dopiero po nadaniu numeru.
+        out.append(
+            f"Data wystawienia {invoice.issue_date.strftime('%d.%m.%Y')} jest "
+            f"w przyszłości — wysłać można najwcześniej tego dnia "
+            f"(dziś {today.strftime('%d.%m.%Y')})."
+        )
     if not invoice.lines:
         out.append("Faktura nie ma pozycji.")
     out.extend(line_problems(invoice.lines or []))
