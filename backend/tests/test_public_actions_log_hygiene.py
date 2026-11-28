@@ -393,6 +393,56 @@ def test_set_env_keep_old_value_cannot_copy_a_secret_into_another_variable():
     assert key not in _visible(other)
 
 
+# ── COMPOSE_PROFILES (28.11.2026) ────────────────────────────────────────────
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_compose_profiles_that_drop_a_current_profile():
+    """24.11.2026 `COMPOSE_PROFILES=cpro-robot` nadpisało `observability`
+    zamiast je uzupełnić: Alloy nie wstał, do Loki nie doszła żadna linia
+    i przez 4 dni Grafana słała alarmy o modułach, które działały."""
+    result, writes = _run_set_env_against(
+        [_env_row("COMPOSE_PROFILES", "observability")],
+        "COMPOSE_PROFILES",
+        value="cpro-robot",
+    )
+    assert result.returncode == 1
+    assert writes == []
+    visible = _visible(result)
+    assert "obecne profile: observability" in visible
+    assert "usuwa: observability" in visible
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_compose_profiles_always_keep_observability():
+    """Bez profilu `observability` nie ma logów w Loki, a na nich stoją alarmy
+    Grafany i reguły bezpieczeństwa — także gdy dziś go już nie ma."""
+    for envs in ([], [_env_row("COMPOSE_PROFILES", "cpro-robot")]):
+        result, writes = _run_set_env_against(
+            envs, "COMPOSE_PROFILES", value="cpro-robot"
+        )
+        assert result.returncode == 1, envs
+        assert writes == []
+        assert "observability" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_compose_profiles_added_to_the_current_ones_are_written():
+    result, writes = _run_set_env_against(
+        [_env_row("COMPOSE_PROFILES", "cpro-robot")],
+        "COMPOSE_PROFILES",
+        value="observability, cpro-robot",
+    )
+    assert result.returncode == 0, result.stderr
+    assert [(w["method"], w["body"]["value"]) for w in writes] == [
+        ("PATCH", "observability,cpro-robot")
+    ]
+    # Nazwy profili są jawne (docker-compose.yml) — log ma je pokazać, nie ***.
+    visible = _visible(result)
+    assert "obecne profile: cpro-robot" in visible
+    assert "nowe profile: observability,cpro-robot" in visible
+
+
 def test_set_env_does_not_put_the_plain_value_in_step_env():
     """GitHub wypisuje blok `env:` w nagłówku kroku, zanim zadziała maska."""
     raw = (_WORKFLOWS / "coolify-set-env.yml").read_text(encoding="utf-8")
