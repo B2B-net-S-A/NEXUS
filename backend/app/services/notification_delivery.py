@@ -711,6 +711,7 @@ def _type_kinds() -> dict[str, str]:
         "automation_failing": "system_failure",
         "teams_prep_scope_missing": "system_failure",
         "security_routine_overdue": "system_failure",
+        "break_glass_password_login": "system_failure",
         "hr_m365_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
         "new_person_signed_in": "new_person",

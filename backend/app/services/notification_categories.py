@@ -363,6 +363,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.announcement_important: _C.system,
     _T.teams_prep_scope_missing: _C.system,
     _T.security_routine_overdue: _C.system,
+    _T.break_glass_password_login: _C.system,
     _T.hr_m365_scope_missing: _C.system,
 }
 

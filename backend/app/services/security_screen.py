@@ -22,7 +22,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.models.notification import NotificationType
 from app.models.security import (
     SecurityEvent,
@@ -50,6 +50,9 @@ ROUTINE_ENTITY = "security_routine"
 LIVE_HOURS = 24
 LOGIN_OK = "login_ok"
 LOGIN_DENIED = "login_denied"
+BREAK_GLASS_LOGIN = "break_glass_login"
+SECURITY_LINK = "/settings?area=sys&item=security"
+EVENT_ENTITY = "security_event"
 TRAFFIC_KINDS = ("ban", "appsec_block")
 
 
@@ -214,6 +217,70 @@ async def record_login(db: AsyncSession, ok: bool, reason: str) -> None:
     except Exception:  # noqa: BLE001 — logowanie ma przejść mimo braku śladu
         logger.exception("security: login event not recorded")
         await db.rollback()
+
+
+async def alert_break_glass_login(
+    db: AsyncSession, user: User, ip: Optional[str]
+) -> int:
+    """Logowanie hasłem z listy awaryjnej: zdarzenie na ekranie i dzwonek adminom.
+
+    Decyzja Artura z 27.11.2026: konto awaryjne zostaje (chroni przed awarią
+    Microsoftu), ale omija MFA Entra, więc każde logowanie nim widzą wszyscy
+    aktywni admini — dzwonek i mail od razu, osobny na każde logowanie
+    (encja = zdarzenie, więc dzienny dedup ``emit`` niczego nie skleja).
+    Konto „Automatyzacje” (E2E po każdym wdrożeniu i co noc) zostawia samo
+    zdarzenie: ma podgląd bez kwot i eksportu, a codzienny mail uczyłby
+    ignorować ten alert.
+
+    Zdarzenie bez osoby (``security_events`` nie trzyma danych osobowych);
+    imię, adres i IP są tylko w dzwonku dla adminów. Błąd nie psuje logowania:
+    savepoint cofa ślad, reszta transakcji trasy idzie dalej, wpis w logu.
+    Zwraca liczbę utworzonych dzwonków.
+    """
+    from app.services.notification_triggers import emit  # noqa: PLC0415 — cykl importów
+
+    # Rola „Automatyzacje” nie łączy się z innymi (ck_users_exclusive_finance_viewer_roles).
+    automation = user.has_role(UserRole.automation)
+    try:
+        async with db.begin_nested():
+            event = SecurityEvent(
+                source="nexus",
+                kind=BREAK_GLASS_LOGIN,
+                severity="info" if automation else "high",
+                summary=(
+                    f"Logowanie hasłem awaryjnym: konto {user.id} ({user.role.value})"
+                )[:300],
+                occurred_at=datetime.now(timezone.utc),
+            )
+            db.add(event)
+            await db.flush()
+            if automation:
+                return 0
+            title = f"Logowanie hasłem awaryjnym: {user.name or user.email}"[:255]
+            message = (
+                f"{user.email} zalogował(a) się hasłem z listy awaryjnej "
+                f"{local_now():%d.%m.%Y %H:%M}"
+                f"{f' z adresu {ip}' if ip else ''} — bez MFA Microsoftu. "
+                "Jeśli nikt z Was się nie logował: zablokuj konto (Ustawienia → "
+                "Użytkownicy), zmień hasło i działaj według runbooka incydentu."
+            )
+            sent = 0
+            for admin_id in await _admin_ids(db):
+                created = await emit(
+                    db,
+                    user_id=admin_id,
+                    title=title,
+                    message=message,
+                    ntype=NotificationType.break_glass_password_login,
+                    related_entity_type=EVENT_ENTITY,
+                    related_entity_id=event.id,
+                    link=SECURITY_LINK,
+                )
+                sent += int(created is not None)
+            return sent
+    except Exception:  # noqa: BLE001 — logowanie ma przejść mimo braku alertu
+        logger.exception("security: break-glass login alert failed user_id=%s", user.id)
+        return 0
 
 
 # ── Przegląd ─────────────────────────────────────────────────────────────────
