@@ -4,7 +4,7 @@
  * Cel: wiedzieć, których ekranów i przycisków nikt nie używa (do usunięcia) i czy
  * nowe funkcje są używane. To pomiar pracy zespołu, więc zbieramy tylko tyle:
  * - **ekran** jako wzorzec trasy (`/candidates/[id]`), nigdy adres z id ani query string,
- * - **przycisk** jako `data-track` albo krótka nazwa dostępności, bez treści wpisów,
+ * - **kliknięcie** jako `data-track` z kodu albo wzorzec celu linku; nigdy tekst przycisku,
  * - **osoba** jako `user-<id>` i rola, bez maila i nazwiska.
  *
  * Włącza backend (`USAGE_ANALYTICS_ENABLED` + `POSTHOG_PROJECT_KEY`), a front dostaje
@@ -22,13 +22,11 @@ const ALLOWED_EVENTS = new Set(["$pageview", "ui_click"]);
 
 type RouteParams = Readonly<Record<string, string | string[] | undefined>>;
 
-// Człony statyczne tras mają małe litery, myślniki i najwyżej kilka cyfr
-// (`microsoft365`, `pipeline-v4`). Identyfikator, token i slug spoza parametrów
-// trasy tego nie spełniają albo pasują do parametru z `useParams()`.
-const STATIC_SEGMENT = /^[a-z][a-z0-9-]{0,39}$/;
-const MAX_STATIC_DIGITS = 3;
-// Statyczne trasy z samych cyfr (`app/403`).
-const NUMERIC_ROUTES = new Set(["403"]);
+// Statyczne człony tras z `src/app`, policzone przy buildzie (`appRouteSegments`
+// w `next.config.ts`). Bez listy wszystko spoza parametrów wychodzi jako `[id]`.
+const APP_ROUTE_SEGMENTS: ReadonlySet<string> = new Set(
+  (process.env.NEXUS_ROUTE_SEGMENTS ?? "").split(",").filter(Boolean),
+);
 
 function decoded(segment: string): string {
   try {
@@ -38,17 +36,16 @@ function decoded(segment: string): string {
   }
 }
 
-function isStaticSegment(segment: string): boolean {
-  if (NUMERIC_ROUTES.has(segment)) return true;
-  const digits = segment.match(/\d/g)?.length ?? 0;
-  return STATIC_SEGMENT.test(segment) && digits <= MAX_STATIC_DIGITS;
-}
-
 /**
- * Wzorzec trasy: wartości parametrów z `useParams()` zamienione na `[nazwa]`,
- * a każdy inny człon, który nie wygląda na statyczny, na `[id]` (404, stary link).
+ * Wzorzec trasy: wartości parametrów z `useParams()` zamienione na `[nazwa]`, człon
+ * z katalogów `src/app` bez zmian, każdy inny na `[id]`. Wygląd członu nie decyduje:
+ * ręcznie wpisany `/candidates/jan-kowalski` (404, bez parametrów) to `/candidates/[id]`.
  */
-export function routePattern(pathname: string, params: RouteParams = {}): string {
+export function routePattern(
+  pathname: string,
+  params: RouteParams = {},
+  statics: ReadonlySet<string> = APP_ROUTE_SEGMENTS,
+): string {
   const byValue = new Map<string, string>();
   for (const [name, value] of Object.entries(params)) {
     const values = Array.isArray(value) ? value : value === undefined ? [] : [value];
@@ -58,35 +55,15 @@ export function routePattern(pathname: string, params: RouteParams = {}): string
   const path = pathname.split(/[?#]/, 1)[0];
   const segments = path.split("/").filter(Boolean).map(segment => {
     const value = decoded(segment);
-    return byValue.get(value) ?? (isStaticSegment(value) ? value : "[id]");
+    return byValue.get(value) ?? (statics.has(value) ? value : "[id]");
   });
   return `/${segments.join("/")}`;
 }
 
-// Nazwa przycisku idzie do PostHog tylko, gdy wygląda na etykietę z interfejsu,
-// a nie na dane: krótka, bez cyfr (liczniki, kwoty, daty, id), bez znaków adresów
-// i maili, a po pierwszym słowie bez wyrazów z wielkiej litery (imiona, nazwiska,
-// firmy). Skróty do czterech wielkich liter (CV, PDF, DL, B2B) przechodzą.
-const MAX_LABEL_LENGTH = 60;
-const MAX_LABEL_WORDS = 6;
-const SHORT_ACRONYM = /^(?:[A-ZĄĆĘŁŃÓŚŹŻ]{2,4}|B2B)$/;
-const UPPERCASE_START = /^[A-ZĄĆĘŁŃÓŚŹŻ]/;
-const DATA_CHARS = /[@/\\:#%=?&<>{}[\]|+_]/;
+// Nazwa kliknięcia nigdy nie pochodzi z tekstu, `aria-label` ani `title`: po samym
+// tekście nie da się odróżnić „Zapisz” od „Nordea” czy „Anna” (przegląd bezpieczeństwa
+// 28.11.2026, decyzja Artura: tylko `data-track` i cel linku).
 const TRACK_ID = /^[a-z][a-z0-9._-]{0,63}$/;
-
-/** Etykieta przycisku albo `null`, gdy mogłaby nieść dane osoby lub rekordu. */
-export function safeLabel(raw: string | null | undefined): string | null {
-  const text = (raw ?? "").replace(/\s+/g, " ").trim();
-  if (!text || text.length > MAX_LABEL_LENGTH || DATA_CHARS.test(text)) return null;
-  const words = text.split(" ");
-  if (words.length > MAX_LABEL_WORDS) return null;
-  for (const [index, word] of words.entries()) {
-    if (SHORT_ACRONYM.test(word)) continue;
-    if (/\d/.test(word)) return null;
-    if (index > 0 && UPPERCASE_START.test(word)) return null;
-  }
-  return text;
-}
 
 const CLICKABLE = [
   "button",
@@ -102,22 +79,29 @@ const CLICKABLE = [
   '[role="menuitemradio"]',
   '[role="switch"]',
 ].join(", ");
-// Wiersze tabel i listy to dane (kandydat, klient, kwota): tekst przycisku stamtąd
-// nie idzie, tylko etykieta wpisana przez programistę (`aria-label`, `title`).
-const DATA_CONTEXT = 'tr, li, [role="row"], [role="gridcell"], [role="listitem"], [role="option"]';
 
 export interface ClickTarget {
   target: string | null;
-  source: "data-track" | "nazwa" | "brak";
+  source: "data-track" | "link" | "brak";
   element: string;
 }
 
-function developerLabel(element: Element): string | null {
-  return element.getAttribute("aria-label") ?? element.getAttribute("title");
+/** Wzorzec trasy linku wewnętrznego (`/clients/[id]`); link na zewnątrz i nie-HTTP to `null`. */
+function linkTarget(element: Element, statics: ReadonlySet<string>): string | null {
+  if (!(element instanceof HTMLAnchorElement)) return null;
+  try {
+    const url = new URL(element.href, window.location.href);
+    return url.origin === window.location.origin ? routePattern(url.pathname, {}, statics) : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Co kliknięto, bez treści: `data-track`, krótka nazwa dostępności albo nic. */
-export function describeClick(origin: EventTarget | null): ClickTarget | null {
+/** Co kliknięto, bez treści: `data-track`, wzorzec celu linku albo sam rodzaj elementu. */
+export function describeClick(
+  origin: EventTarget | null,
+  statics: ReadonlySet<string> = APP_ROUTE_SEGMENTS,
+): ClickTarget | null {
   if (!(origin instanceof Element)) return null;
   const tracked = origin.closest("[data-track]");
   const clickable = origin.closest(CLICKABLE) ?? tracked;
@@ -125,11 +109,8 @@ export function describeClick(origin: EventTarget | null): ClickTarget | null {
   const element = clickable.getAttribute("role") ?? clickable.tagName.toLowerCase();
   const trackId = tracked?.getAttribute("data-track")?.trim() ?? "";
   if (tracked && TRACK_ID.test(trackId)) return { target: trackId, source: "data-track", element };
-  const fromDeveloper = developerLabel(clickable);
-  const visible = clickable instanceof HTMLInputElement ? clickable.value : clickable.textContent;
-  const raw = fromDeveloper ?? (clickable.closest(DATA_CONTEXT) ? null : visible);
-  const target = safeLabel(raw);
-  return { target, source: target ? "nazwa" : "brak", element };
+  const link = linkTarget(clickable, statics);
+  return link ? { target: link, source: "link", element } : { target: null, source: "brak", element };
 }
 
 // Wszystko, co może nieść adres, tytuł strony (bywa w nim nazwisko), źródło wejścia

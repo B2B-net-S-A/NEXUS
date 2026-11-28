@@ -1,5 +1,5 @@
 # Analityka użycia ekranów i przycisków — PostHog Cloud EU, domyślnie wyłączona
-<!-- indeks: USAGE_ANALYTICS_ENABLED, POSTHOG_PROJECT_KEY, phc_, /api/health/live usageAnalytics, lib/usage-analytics.ts, UsageAnalytics.tsx, routePattern, data-track, ui_click, $pageview, eu.i.posthog.com, CSP connect-src, notatka do zespołu -->
+<!-- indeks: USAGE_ANALYTICS_ENABLED, POSTHOG_PROJECT_KEY, phc_, /api/health/live usageAnalytics, lib/usage-analytics.ts, UsageAnalytics.tsx, routePattern, NEXUS_ROUTE_SEGMENTS, appRouteSegments, data-track, ui_click, $pageview, eu.i.posthog.com, CSP connect-src, notatka do zespołu -->
 
 Decyzja Artura z 28.11.2026: PostHog Cloud EU (Frankfurt, darmowe 1 mln zdarzeń
 na miesiąc) zamiast Umami na własnym serwerze. Cel: usuwać ekrany i przyciski, których
@@ -45,10 +45,14 @@ w przeglądarce, więc pomiar kończy się przy następnym wczytaniu strony.
 Tylko dwa zdarzenia, resztę odrzuca `before_send` (`scrubEvent`):
 
 - `$pageview` przy zmianie **wzorca** trasy (`routePattern`): wartości z `useParams()`
-  zamienione na `[nazwa]`, inny człon niewyglądający na statyczny na `[id]`; bez query
-  stringa i hasha. Każdy statyczny katalog z `src/app/` przechodzi bez zmian (test).
-- `ui_click` z `target` (`data-track` albo nazwa dostępności), `source`
-  (`data-track` / `nazwa` / `brak`) i `element` (tag albo rola).
+  zamienione na `[nazwa]`, człon z katalogów `src/app` bez zmian, każdy inny na `[id]`;
+  bez query stringa i hasha. Listę statycznych członów liczy `appRouteSegments`
+  w `next.config.ts` przy buildzie (`env.NEXUS_ROUTE_SEGMENTS`), więc nowy katalog trasy
+  niczego nie wymaga. O tym, czy człon jest statyczny, nie decyduje jego wygląd: ręcznie
+  wpisany `/candidates/jan-kowalski` (404, bez parametrów) to `/candidates/[id]`.
+- `ui_click` z `target`, `source` i `element` (tag albo rola). `target` to `data-track`
+  z kodu (`source=data-track`) albo wzorzec celu linku wewnętrznego, np. `/clients/[id]`
+  (`source=link`). Poza tym `target: null` (`source=brak`).
 - Osoba: `user-<id>` (bootstrap, bez `$identify`) i rola jako właściwość zdarzeń.
   Bez maila, nazwiska i właściwości osoby.
 
@@ -56,11 +60,9 @@ Tylko dwa zdarzenia, resztę odrzuca `before_send` (`scrubEvent`):
 nazwisko), źródłem wejścia (`utm_*`, referrer), `$set_once` i każdą wartość, która jest
 obiektem albo adresem. `$current_url` i `$pathname` są nadpisane wzorcem.
 
-Nazwa przycisku idzie tylko, gdy wygląda na etykietę interfejsu (`safeLabel`): do 60
-znaków i 6 słów, bez cyfr i znaków adresów, bez wielkiej litery po pierwszym słowie
-(imiona, nazwiska, firmy; skróty do 4 liter jak CV, DL, B2B przechodzą). W wierszach
-tabel i list (`tr`, `li`, `role=row|gridcell|listitem|option`) widoczny tekst nie idzie
-wcale, tylko `aria-label` / `title` wpisane w kodzie.
+Tekst przycisku, `aria-label` ani `title` nie wychodzą nigdy. Po samym tekście nie da się
+odróżnić etykiety („Zapisz”) od danych („Nordea”, „Anna”), co pokazał przegląd
+bezpieczeństwa 28.11.2026. Decyzja Artura z tego dnia: tylko `data-track` i cel linku.
 
 **Nowy przycisk, który chcemy mierzyć:** `data-track="obszar.akcja"` (małe litery,
 kropki, myślniki, do 64 znaków), np. `data-track="cv.download"`. Nazwa jest stała
@@ -93,8 +95,8 @@ wydania, czy nie zmieniły się domyślne wartości opcji z `initOptions`.
 
 ## Testy
 
-- `frontend/src/lib/__tests__/usage-analytics.test.ts` — wzorce tras, etykiety,
-  kliknięcia w wierszach, `before_send`.
+- `frontend/src/lib/__tests__/usage-analytics.test.ts` — wzorce tras (lista z
+  `appRouteSegments`, slug bez parametru), kliknięcia bez tekstu, `before_send`.
 - `frontend/src/components/__tests__/UsageAnalytics.test.tsx` — brak inicjalizacji bez
   flagi, przy starszym API, kluczu `phx_`, „Podglądzie jako”, na stagingu i `/preview`;
   opcje `init` przy włączonej fladze.
@@ -105,7 +107,7 @@ wydania, czy nie zmieniły się domyślne wartości opcji z `initOptions`.
 
 Ekran z zerem odsłon w 4 tygodnie to kandydat do rozmowy, nie do usunięcia od razu:
 sprawdź, czy to ekran rzadkiej czynności (koniec miesiąca, roczny przegląd) i czy
-wejście nie idzie inną drogą (Jarvis, link w mailu). Przycisk `source=brak` to
-kliknięcie bez bezpiecznej nazwy: gdy jest ważny, dostaje `data-track`.
+wejście nie idzie inną drogą (Jarvis, link w mailu). Kliknięcie `source=brak` to
+przycisk bez `data-track`: gdy jest ważny, dostaje `data-track` w kodzie.
 Uzupełnia licznik obszarów do przeglądu dostępów
 (`uprawnienia/licznik-uzycia-obszarow.md`), który liczy wejścia osoby w obszar.

@@ -1,70 +1,56 @@
-import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CaptureResult } from "posthog-js";
-import { describeClick, routePattern, safeLabel, scrubEvent } from "../usage-analytics";
+import { appRouteSegments } from "../../../next.config";
+import { describeClick, routePattern, scrubEvent } from "../usage-analytics";
+
+// Ta sama lista, którą `next.config.ts` wstrzykuje do builda.
+const STATICS = new Set(appRouteSegments(join(__dirname, "../../app")));
+const pattern = (path: string, params = {}) => routePattern(path, params, STATICS);
 
 describe("routePattern — adres bez id kandydata, klienta i tokenów", () => {
   it("zamienia parametry trasy na ich nazwy", () => {
-    expect(routePattern("/candidates/4821", { id: "4821" })).toBe("/candidates/[id]");
-    expect(routePattern("/clients/17/contracts/903", { id: "17", contractId: "903" })).toBe(
+    expect(pattern("/candidates/4821", { id: "4821" })).toBe("/candidates/[id]");
+    expect(pattern("/clients/17/contracts/903", { id: "17", contractId: "903" })).toBe(
       "/clients/[id]/contracts/[contractId]",
     );
-    expect(routePattern("/kariera/r/senior-java-dev", { slug: "senior-java-dev" })).toBe("/kariera/r/[slug]");
-    expect(routePattern("/help/a/b", { rest: ["a", "b"] })).toBe("/help/[...rest]/[...rest]");
+    expect(pattern("/kariera/r/senior-java-dev", { slug: "senior-java-dev" })).toBe("/kariera/r/[slug]");
+    expect(pattern("/help/a/b", { rest: ["a", "b"] })).toBe("/help/[...rest]/[...rest]");
   });
 
   it("parametr z polskimi znakami porównuje po zdekodowaniu", () => {
-    expect(routePattern("/talents/%C5%81ukasz", { slug: "Łukasz" })).toBe("/talents/[slug]");
+    expect(pattern("/talents/%C5%81ukasz", { slug: "Łukasz" })).toBe("/talents/[slug]");
   });
 
   it("bez parametrów (404, stary link) id, UUID i tokeny i tak znikają", () => {
-    expect(routePattern("/candidates/4821")).toBe("/candidates/[id]");
-    expect(routePattern("/k/3f2b9c1e-8a4d-4b6f-9e2a-1c5d7e9f0a3b")).toBe("/k/[id]");
-    expect(routePattern("/sign/Xy7_kP2qLmN9vR4tWz8sAb")).toBe("/sign/[id]");
-    expect(routePattern("/share/a1b2c3d4e5f6a7b8c9d0")).toBe("/share/[id]");
-    expect(routePattern("/candidates/Jan.Kowalski%40example.com")).toBe("/candidates/[id]");
+    expect(pattern("/candidates/4821")).toBe("/candidates/[id]");
+    expect(pattern("/k/3f2b9c1e-8a4d-4b6f-9e2a-1c5d7e9f0a3b")).toBe("/k/[id]");
+    expect(pattern("/sign/Xy7_kP2qLmN9vR4tWz8sAb")).toBe("/sign/[id]");
+    expect(pattern("/share/a1b2c3d4e5f6a7b8c9d0")).toBe("/share/[id]");
+    expect(pattern("/candidates/Jan.Kowalski%40example.com")).toBe("/candidates/[id]");
   });
 
   it("query string i hash nie wchodzą do wzorca", () => {
-    expect(routePattern("/candidates?q=Kowalski&email=jan%40example.com")).toBe("/candidates");
-    expect(routePattern("/jobs#kandydat-4821")).toBe("/jobs");
+    expect(pattern("/candidates?q=Kowalski&email=jan%40example.com")).toBe("/candidates");
+    expect(pattern("/jobs#kandydat-4821")).toBe("/jobs");
   });
 
   it("każdy statyczny człon tras z app/ zostaje sobą", () => {
-    const appDir = join(__dirname, "../../app");
-    const statics = new Set<string>();
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.name === "__tests__") continue;
-        if (!/^[[(_@]/.test(entry.name)) statics.add(entry.name);
-        walk(join(dir, entry.name));
-      }
-    };
-    walk(appDir);
-    expect(statics.size).toBeGreaterThan(50);
-    for (const segment of statics) expect(routePattern(`/${segment}`)).toBe(`/${segment}`);
+    expect(STATICS.size).toBeGreaterThan(50);
+    expect(STATICS).toContain("candidates");
+    expect(STATICS).not.toContain("[id]");
+    for (const segment of STATICS) expect(pattern(`/${segment}`)).toBe(`/${segment}`);
   });
-});
 
-describe("safeLabel — nazwa przycisku tylko, gdy to etykieta z interfejsu", () => {
-  it.each(["Zapisz", "Dodaj kandydata", "Pobierz CV", "Wyślij do DL", "Generator umów B2B", "Przekaż do searchu"])(
-    "przepuszcza %s",
-    label => expect(safeLabel(label)).toBe(label),
-  );
+  it("slug z małych liter bez parametru (404, wpisany ręcznie) nie przechodzi", () => {
+    // Przegląd bezpieczeństwa 28.11.2026: wcześniej decydował wygląd członu.
+    expect(pattern("/candidates/jan-kowalski")).toBe("/candidates/[id]");
+    expect(pattern("/clients/nordea/contracts")).toBe("/clients/[id]/contracts");
+  });
 
-  it.each([
-    ["imię i nazwisko", "Jan Kowalski"],
-    ["nazwisko w etykiecie", "Otwórz profil Kowalski"],
-    ["firma", "Klient Orlen"],
-    ["mail", "jan@example.com"],
-    ["licznik", "Kandydaci 12"],
-    ["kwota", "Stawka 180 zł"],
-    ["data", "Rozmowa 2026-11-28"],
-    ["adres", "https://example.com/cv"],
-    ["długi tekst", "To jest bardzo długi tekst przycisku, który jest raczej treścią niż etykietą"],
-    ["pusty", "   "],
-  ])("odrzuca: %s", (_case, label) => expect(safeLabel(label)).toBeNull());
+  it("bez listy z buildu wszystko spoza parametrów to [id]", () => {
+    expect(routePattern("/candidates/4821", { id: "4821" }, new Set())).toBe("/[id]/[id]");
+  });
 });
 
 describe("describeClick — co kliknięto, bez treści", () => {
@@ -72,33 +58,47 @@ describe("describeClick — co kliknięto, bez treści", () => {
     document.body.innerHTML = html;
     return document.body;
   };
+  const click = (element: Element | null) => describeClick(element, STATICS);
 
   it("data-track wygrywa z tekstem", () => {
     const body = render('<button data-track="candidate.save"><span>Zapisz Jan Kowalski</span></button>');
-    expect(describeClick(body.querySelector("span"))).toEqual({
+    expect(click(body.querySelector("span"))).toEqual({
       target: "candidate.save",
       source: "data-track",
       element: "button",
     });
   });
 
-  it("nazwa dostępności z aria-label albo tekstu", () => {
-    const body = render('<button aria-label="Zamknij panel">×</button><a href="/jobs">Rekrutacje</a>');
-    expect(describeClick(body.querySelector("button"))?.target).toBe("Zamknij panel");
-    expect(describeClick(body.querySelector("a"))).toEqual({ target: "Rekrutacje", source: "nazwa", element: "a" });
+  it("link wewnętrzny to wzorzec celu, nie tekst", () => {
+    const body = render('<div><a href="/clients/12">Nordea</a><a href="/jobs?q=Kowalski">Rekrutacje</a></div>');
+    const [client, jobs] = body.querySelectorAll("a");
+    expect(click(client)).toEqual({ target: "/clients/[id]", source: "link", element: "a" });
+    expect(click(jobs)).toEqual({ target: "/jobs", source: "link", element: "a" });
   });
 
-  it("tekst z wiersza tabeli nie idzie, nawet jeśli wygląda niewinnie", () => {
-    const body = render('<table><tr><td><button>Przegląd</button><button aria-label="Usuń">x</button></td></tr></table>');
-    const [text, labelled] = body.querySelectorAll("button");
-    expect(describeClick(text)).toEqual({ target: null, source: "brak", element: "button" });
-    expect(describeClick(labelled)?.target).toBe("Usuń");
+  it.each([
+    ["jedno słowo z wielkiej litery", '<button>Nordea</button>'],
+    ["imię w aria-label", '<button aria-label="Kowalski">x</button>'],
+    ["imię w title", '<button title="Anna">A</button>'],
+    ["link na zewnątrz", '<a href="https://example.com/profil/jan">Profil</a>'],
+    ["link mailto", '<a href="mailto:jan@example.com">jan@example.com</a>'],
+  ])("bez nazwy: %s", (_case, html) => {
+    const body = render(html);
+    const result = click(body.firstElementChild);
+    expect(result?.target).toBeNull();
+    expect(result?.source).toBe("brak");
+    expect(JSON.stringify(result)).not.toMatch(/Nordea|Kowalski|Anna|jan/);
+  });
+
+  it("zły data-track nie przechodzi jako nazwa", () => {
+    const body = render('<button data-track="Jan Kowalski">x</button>');
+    expect(click(body.querySelector("button"))).toEqual({ target: null, source: "brak", element: "button" });
   });
 
   it("kliknięcie poza przyciskiem nic nie daje", () => {
     const body = render("<p>Jan Kowalski, 180 zł</p><input value='tajne' />");
-    expect(describeClick(body.querySelector("p"))).toBeNull();
-    expect(describeClick(body.querySelector("input"))).toBeNull();
+    expect(click(body.querySelector("p"))).toBeNull();
+    expect(click(body.querySelector("input"))).toBeNull();
   });
 });
 
@@ -141,7 +141,7 @@ describe("scrubEvent — before_send", () => {
   });
 
   it("przepuszcza tylko odsłonę i kliknięcie", () => {
-    expect(scrubEvent(event("ui_click", { target: "Zapisz" }), state)?.event).toBe("ui_click");
+    expect(scrubEvent(event("ui_click", { target: "cv.download" }), state)?.event).toBe("ui_click");
     for (const name of ["$autocapture", "$identify", "$pageleave", "$exception", "$rageclick", "$web_vitals", "$set"]) {
       expect(scrubEvent(event(name), state)).toBeNull();
     }

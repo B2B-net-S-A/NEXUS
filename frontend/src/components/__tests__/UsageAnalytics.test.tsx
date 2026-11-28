@@ -51,6 +51,7 @@ beforeEach(() => {
     useParams: () => ({ id: "4821" }),
   }));
   vi.stubEnv("NEXT_PUBLIC_API_URL", API);
+  vi.stubEnv("NEXUS_ROUTE_SEGMENTS", "candidates,jobs,preview,board");
   pathname = "/candidates/4821";
 });
 
@@ -111,7 +112,7 @@ it("z kluczem: region UE, bez autocapture i nagrań, osoba jako id i rola", asyn
   expect(sent.properties.$current_url).toBe(`${window.location.origin}/candidates/[id]`);
 });
 
-it("kliknięcie przycisku wysyła nazwę, nie treść", async () => {
+it("kliknięcie przycisku wysyła data-track, nie treść", async () => {
   await mount({ body: { usageAnalytics: KEY } });
   document.body.innerHTML = '<button data-track="cv.download">Pobierz CV Jan Kowalski</button>';
   document.querySelector("button")?.click();

@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 
 // audyt 22.09 r2 (SEC-01b): Content-Security-Policy.
 //
@@ -58,8 +60,32 @@ export function buildSecurityHeaders(
   ];
 }
 
+/**
+ * Statyczne człony tras z `src/app` (bez `[param]`, `(grupa)`, `_prywatne`, `@slot`)
+ * dla analityki użycia (`src/lib/usage-analytics.ts`): człon spoza tej listy, który
+ * nie jest wartością parametru trasy, wychodzi jako `[id]`. Liczone przy buildzie,
+ * żeby nowy katalog trasy nie wymagał dopisywania listy w osobnym pliku.
+ */
+export function appRouteSegments(appDir = join(process.cwd(), "src", "app")): string[] {
+  const found = new Set<string>();
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === "__tests__") continue;
+      if (!/^[[(_@]/.test(entry.name)) found.add(entry.name);
+      walk(join(dir, entry.name));
+    }
+  };
+  try {
+    walk(appDir);
+  } catch {
+    // Bez listy każdy człon spoza parametrów wychodzi jako `[id]` — bezpiecznie.
+  }
+  return [...found].sort();
+}
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: { NEXUS_ROUTE_SEGMENTS: appRouteSegments().join(",") },
   // Grafiki OG strony kariery czytają TTF z src/app/fonts przez fs — obraz
   // standalone kopiuje tylko pliki, które widzi tracing, więc je dopisujemy.
   outputFileTracingIncludes: {
