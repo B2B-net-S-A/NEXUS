@@ -522,6 +522,13 @@ def client_payment_days(data: dict[str, Any], client_id: int) -> int:
     return value if value is not None else data["payment_days"]
 
 
+def client_payment_days_override(data: dict[str, Any], client_id: int) -> Optional[int]:
+    """Termin ustawiony przy kliencie; ``None`` = brak nadpisania."""
+
+    value: Optional[int] = data["clients"].get(str(client_id), {}).get("payment_days")
+    return value
+
+
 __all__ = [
     "DEFAULT_SERIES",
     "SERIES_LABELS",
@@ -532,6 +539,7 @@ __all__ = [
     "buyer_for_contract",
     "client_buyers",
     "client_payment_days",
+    "client_payment_days_override",
     "client_rebate",
     "client_vat",
     "keep_stored_mapping",

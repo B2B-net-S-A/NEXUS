@@ -20,6 +20,16 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   stawka VAT domyślna, nadpisanie stawki i terminu przy kliencie, podstawa zwolnienia (dla „zw.”).
   Bez nazwy, NIP-u i adresu sprzedawcy oraz rachunku w walucie faktury wysyłka czeka z komunikatem.
 - NIP sprzedawcy musi być równy `KSEF_CONTEXT_NIP` — inaczej KSeF odrzuciłby fakturę.
+- **Adres i termin z historii klienta** (decyzja Artura 28.11.2026, `client_invoicing/client_defaults.py`).
+  Pomiar na kopii produkcji 28.11: 24 z 28 klientów z kontraktem nie miało adresu na karcie, więc XML
+  FA(3) ich szkiców nie powstawał („Uzupełnij nazwę i adres nabywcy”). Termin 14 dni różnił się od faktur
+  Finansów za X u 19 z 27 klientów (21, 30, 35, 60). Szkic z karty klienta bierze więc:
+  - adres: karta klienta → kartoteka kontrahentów eBI24 (`finance_counterparties`) → adres nabywcy
+    z ostatniej faktury w KSeF pod NIP-em klienta;
+  - termin: nadpisanie przy kliencie w ustawieniach → najczęstszy termin z jego faktur w KSeF
+    z 12 miesięcy (bez korekt, remis = nowsza) → `payment_days`.
+  Tylko pod NIP-em klienta: drugi nabywca (Bosch GmbH, Nordea per kontrakt) ma własny adres i termin
+  z listy nabywców. Szkice VII–IX na kopii: z tym adresem XML zgodny ze schematem MF w 710/718.
 - Nabywca z UE (VAT UE w `clients.nip`, np. `FI12345678`) dostaje serię UE i stawkę `np II` (odwrotne
   obciążenie, `P_13_9`, `P_18`=1), chyba że klient ma nadpisanie.
 

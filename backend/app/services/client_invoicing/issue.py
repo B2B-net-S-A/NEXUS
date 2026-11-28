@@ -44,6 +44,7 @@ from app.models.client_sales_invoice import (
 from app.services import fx_service
 from app.services.client_invoicing import (
     billing,
+    client_defaults,
     clients,
     fa3_build,
     fa_sales,
@@ -261,15 +262,22 @@ async def _refresh_fx(db: AsyncSession, invoice: ClientIssuedInvoice) -> None:
 # ── Nabywca ─────────────────────────────────────────────────────────────────
 
 
-def _buyer_snapshot(client: Client) -> dict[str, Any]:
+def _buyer_snapshot(
+    client: Client, history: Optional[client_defaults.ClientDefaults] = None
+) -> dict[str, Any]:
     number = client.nip or ""
     ident = fa3_build.buyer_id(number)
     country = "PL" if ident.kind in ("nip", "none") else (ident.country or "PL")
+    address_l1, address_l2 = (client.address or ""), ""
+    if not address_l1.strip() and history is not None and history.address_l1:
+        # Karta bez adresu: adres z kartoteki eBI24 albo z faktur klienta w KSeF
+        # (``client_defaults``), bo bez niego XML FA(3) nie powstaje.
+        address_l1, address_l2 = history.address_l1, history.address_l2
     return {
         "name": (client.legal_name or client.name or "")[:255],
         "number": number[:32],
-        "address_l1": (client.address or "")[:255],
-        "address_l2": "",
+        "address_l1": address_l1[:255],
+        "address_l2": address_l2[:255],
         "country": "EL" if country == "GR" else country,
     }
 
@@ -663,13 +671,20 @@ def _defaults(
     settings: dict[str, Any],
     today: date,
     buyer: Optional[dict[str, Any]] = None,
+    history: Optional[client_defaults.ClientDefaults] = None,
 ) -> DraftDefaults:
-    snapshot = configured_buyer(buyer) if buyer else _buyer_snapshot(client)
+    snapshot = configured_buyer(buyer) if buyer else _buyer_snapshot(client, history)
     eu = _buyer_kind(snapshot) == "eu"
+    days = issue_settings.client_payment_days_override(settings, client.id)
+    if days is None and not buyer and history is not None:
+        # Termin z faktur klienta w KSeF tylko dla nabywcy z karty klienta:
+        # nabywca z listy (Nordea per kontrakt, Bosch DE) ma własne warunki.
+        days = history.payment_days
+    if days is None:
+        days = settings["payment_days"]
     return DraftDefaults(
         issue_date=today,
-        due_date=today
-        + timedelta(days=issue_settings.client_payment_days(settings, client.id)),
+        due_date=today + timedelta(days=days),
         vat_rate=issue_settings.client_vat(settings, client.id, eu_buyer=eu),
         series="UE" if eu else "PL",
         buyer=snapshot,
@@ -810,6 +825,7 @@ async def create_drafts(
     first, last = month_range(year, month)
     created: list[ClientIssuedInvoice] = []
     rebate_cache: dict[tuple[int, int], Optional[rebate.YearRebate]] = {}
+    histories: dict[int, client_defaults.ClientDefaults] = {}
     for unit in _units(
         wanted,
         rows,
@@ -822,7 +838,11 @@ async def create_drafts(
         client = await db.get(Client, unit.client_id)
         if client is None:
             raise IssueError("Nie ma klienta zamówienia.", 404)
-        defaults = _defaults(client, settings, today, unit.buyer)
+        if client.id not in histories:
+            histories[client.id] = await client_defaults.for_client(
+                db, client, today=today
+            )
+        defaults = _defaults(client, settings, today, unit.buyer, histories[client.id])
         unit_rows = unit.rows
         single = unit_rows[0] if len(unit_rows) == 1 else None
         if single is not None:
@@ -1173,7 +1193,12 @@ async def create_advance(
     if currency not in CURRENCIES:
         raise IssueError("Waluta spoza PLN, EUR i USD.", 422)
     settings = await issue_settings.load(db)
-    defaults = _defaults(client, settings, today)
+    defaults = _defaults(
+        client,
+        settings,
+        today,
+        history=await client_defaults.for_client(db, client, today=today),
+    )
     invoice = ClientIssuedInvoice(
         client_id=client_id,
         invoice_type="ZAL",
