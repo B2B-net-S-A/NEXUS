@@ -553,6 +553,7 @@ class Harness:
         self.reembedded = False
         self.cv_error: Exception | None = None
         self.cv_copied_on: list[str] = []
+        self.pghero_on: list[str] = []
 
         def fake_cv_copy(command, **kwargs):
             assert command[-1] == "/staging/sync_cv_files.sh"
@@ -566,6 +567,9 @@ class Harness:
 
         def fake_align(report):
             self.reembedded = True
+
+        def fake_pghero(cfg, postgres, database, sha):
+            self.pghero_on.append(database)
 
         def fake_dump(cfg, database, output_root):
             manifest = output_root / "manifest.json"
@@ -585,6 +589,7 @@ class Harness:
             "start_staging": fake_start,
             "wait_healthy": lambda postgres, database, sha: None,
             "align_qdrant": fake_align,
+            "refresh_pghero": fake_pghero,
             "run_parity": lambda: self.parity.pop(0),
             "run_cmd": fake_cv_copy,
         }.items():
@@ -804,6 +809,60 @@ def test_qdrant_failure_after_switch_stays_on_new_copy_and_reports(
     assert harness.database == NEW_DB
     assert (harness.cfg.root / DATE / sync.OK_MARKER).exists()
     assert "powód" in harness.report.waiting[0]
+
+
+def test_pghero_follows_new_copy_after_switch(harness):
+    harness.parity.pop(0)
+    assert harness.run() == sync.EXIT_OK
+    assert harness.pghero_on == [NEW_DB]
+    assert any("PgHero na" in line for line in harness.report.done)
+
+
+def test_pghero_failure_keeps_new_copy_and_reaches_report(harness, monkeypatch):
+    harness.parity.pop(0)
+    monkeypatch.setattr(sync, "refresh_pghero", _fail)
+    assert harness.run() == sync.EXIT_OK
+    assert harness.database == NEW_DB
+    assert [line for line in harness.report.waiting if "PgHero" in line]
+
+
+def test_rolled_back_night_leaves_pghero_alone(harness, monkeypatch):
+    monkeypatch.setattr(sync, "wait_healthy", lambda postgres, database, sha: "x")
+    assert harness.run() == sync.EXIT_ROLLED_BACK
+    assert harness.pghero_on == []
+
+
+def test_pghero_resets_only_stats_of_new_copy_then_restarts(monkeypatch):
+    """Statystyki są wspólne dla serwera: backendy gałęzi na innych bazach zostają."""
+    calls = []
+    monkeypatch.setattr(
+        sync, "psql", lambda postgres, database, sql: calls.append((database, sql))
+    )
+    monkeypatch.setattr(
+        sync, "run_cmd", lambda command, **kwargs: calls.append(command[-4:])
+    )
+    cfg = sync.Config.__new__(sync.Config)
+    cfg.code = Path("/code")
+    cfg.env_file = Path("/env")
+    cfg.flags_file = Path("/flags")
+    sync.refresh_pghero(cfg, "pg", NEW_DB, "a" * 40)
+    (database, sql), command = calls
+    assert database == NEW_DB
+    assert "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" in sql
+    assert "pg_stat_statements_reset(0, oid, 0)" in sql
+    assert "current_database()" in sql
+    assert command == ["up", "-d", "--no-deps", "pghero"]
+
+
+def test_compose_pghero_reads_active_copy_only_from_localhost():
+    pghero = yaml.safe_load((ROOT / "docker-compose.staging.yml").read_text())[
+        "services"
+    ]["pghero"]
+    assert re.fullmatch(r"ankane/pghero:v\d+\.\d+\.\d+", pghero["image"])
+    assert pghero["ports"] == ["127.0.0.1:8280:8080"]
+    assert pghero["environment"]["DATABASE_URL"].endswith(
+        "@postgres:5432/${STAGING_DATABASE_NAME:-nexus}"
+    )
 
 
 def test_ranking_mismatch_is_reported(harness):

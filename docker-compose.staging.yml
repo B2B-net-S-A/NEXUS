@@ -18,6 +18,7 @@
 #   scripts/staging/restore_from_backup.sh     # kopia produkcji → wolumeny
 #   docker compose -f docker-compose.staging.yml --env-file .env.staging.local up -d --build
 #   front http://localhost:3100 · API http://localhost:8100 · poczta http://localhost:8125
+#   PgHero (wolne zapytania, indeksy) http://localhost:8280
 name: nexus-staging
 
 x-logging: &default-logging
@@ -109,6 +110,27 @@ services:
     mem_limit: 256m
     ports:
       - "127.0.0.1:8125:8025"
+    logging: *default-logging
+
+  # PgHero: wolne zapytania z pg_stat_statements, brakujące i nieużywane indeksy,
+  # rozmiary tabel, blokady. Czyta bazę z `STAGING_DATABASE_NAME`, więc nocna kopia
+  # odtwarza go po przełączeniu i zeruje statystyki nowej bazy (`refresh_pghero`
+  # w `scripts/staging/nightly_sync.py`). Port 8280 leży poza 8101–8199, bo tamte
+  # bierze `free_ports.py` dla backendów gałęzi.
+  # → docs/claude/podstawy/pghero-na-stagingu.md
+  pghero:
+    image: ankane/pghero:v4.0.1
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${STAGING_DATABASE_NAME:-nexus}
+      # Bez PGHERO_FILTER_DATA: w 4.0.1 strona „Queries” daje z nim 500 (kodowanie
+      # w pg_query przy polskich znakach, 28.11.2026).
+    ports:
+      - "127.0.0.1:8280:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     logging: *default-logging
 
   backend:

@@ -8,7 +8,8 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
 
 - `docker-compose.staging.yml` (projekt `nexus-staging`): Dockerfile'e z produkcji,
   trwałe wolumeny, Mailpit, lokalny S3 (versitygw), porty tylko na `127.0.0.1`.
-  Front `http://localhost:3100`, API `http://localhost:8100`, poczta `http://localhost:8125`.
+  Front `http://localhost:3100`, API `http://localhost:8100`, poczta `http://localhost:8125`,
+  PgHero (wolne zapytania, indeksy, blokady) `http://localhost:8280` → `pghero-na-stagingu.md`.
 - `backend/app/core/staging.py` — przy `NEXUS_ENV=staging`:
   - pętle z rejestru `app.state.background_tasks` stoją, oprócz
     `STAGING_ALLOWED_TASKS` (porządki i przeliczenia na bazie). Anulowane są
@@ -124,7 +125,10 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
 4. Wyrównuje Qdrant (`--target candidates --resume`, `--target jobs --only-missing`)
    i uruchamia strażnika. Powyżej 5 000 różnic nie liczy, tylko pyta w raporcie,
    bo to zwykle zmiana tekstu albo modelu.
-5. Porządki: zostają 2 ostatnie dobre kopie nocne i ich zrzuty, bo zawierają dane
+5. Zeruje `pg_stat_statements` nowej bazy i przepina PgHero na nową kopię
+   (`refresh_pghero`, `pghero-na-stagingu.md`). Musi być przed porządkami, bo
+   PgHero na starej kopii trzyma połączenie i porządki by jej nie usunęły.
+6. Porządki: zostają 2 ostatnie dobre kopie nocne i ich zrzuty, bo zawierają dane
    osobowe. Usuwa wyłącznie nazwy z tego wzorca, nigdy kopii aktywnej, i bez
    `FORCE`, więc baza z połączeniem w `pg_stat_activity` zostaje.
 
