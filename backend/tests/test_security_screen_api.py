@@ -5,8 +5,10 @@ Dane fikcyjne: adresy z puli dokumentacyjnej, e-maile z ``example.com``.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
@@ -25,6 +27,13 @@ from app.models.security import (
 from app.models.user import User, UserRole
 from app.services.security_screen import expire_exceptions, notify_overdue_routines
 from tests.test_service_accounts import _account_with_key
+
+GRAFANA_EXAMPLE = (
+    Path(__file__).resolve().parent
+    / "data"
+    / "security"
+    / "grafana_webhook_example.json"
+)
 
 API = "/api/security"
 
@@ -473,3 +482,151 @@ async def test_source_belongs_to_the_account_that_wrote_it_first(
     assert (
         await app_client.post(f"{API}/ingest", json=body, headers=dojo)
     ).status_code == 202
+
+
+# ── Grafana ──────────────────────────────────────────────────────────────────
+
+
+def _grafana(status: str, fingerprint: str, **alert) -> dict:
+    return {
+        "receiver": "nexus-security",
+        "status": status,
+        "alerts": [
+            {
+                "status": status,
+                "labels": {
+                    "alertname": "Wolne odpowiedzi API",
+                    "grafana_folder": "NEXUS",
+                    "severity": "critical",
+                    "instance": "203.0.113.9:8000",
+                },
+                "annotations": {"summary": "p95 powyżej 2 s"},
+                "startsAt": "2026-11-28T09:00:00Z",
+                "endsAt": "0001-01-01T00:00:00Z",
+                "fingerprint": fingerprint,
+                **alert,
+            }
+        ],
+    }
+
+
+async def _grafana_findings(fingerprint: str) -> list[SecurityFinding]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            await db.scalars(
+                select(SecurityFinding).where(
+                    SecurityFinding.source == "grafana",
+                    SecurityFinding.fingerprint == fingerprint,
+                )
+            )
+        )
+
+
+async def test_grafana_firing_once_repeat_does_not_duplicate_resolved_closes(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    key = await _key(app_client, app_auth_headers, ["security:ingest"])
+    fp = uuid.uuid4().hex[:16]
+    url = f"{API}/ingest/grafana"
+
+    first = await app_client.post(url, json=_grafana("firing", fp), headers=key)
+    assert first.status_code == 202, first.text
+    assert first.json()["findings_new"] == 1
+    # Grafana powtarza ten sam alert co kilka minut.
+    again = await app_client.post(url, json=_grafana("firing", fp), headers=key)
+    assert again.json() == {
+        "accepted_events": 0,
+        "skipped_duplicates": 1,
+        "findings_new": 0,
+        "findings_updated": 1,
+        "findings_closed": 0,
+    }
+    rows = await _grafana_findings(fp)
+    assert len(rows) == 1
+    assert rows[0].status == "open" and rows[0].severity == "high"
+    assert rows[0].title == "Wolne odpowiedzi API"
+    assert "203.0.113" not in (rows[0].location or "") + (rows[0].evidence or "")
+
+    overview = (
+        await app_client.get(f"{API}/overview", headers=app_auth_headers)
+    ).json()
+    assert any(f["id"] == rows[0].id for f in overview["waiting"])
+    grafana = next(s for s in overview["sources"] if s["key"] == "grafana")
+    assert grafana["state"] == "live"
+
+    done = await app_client.post(
+        url,
+        json=_grafana("resolved", fp, endsAt="2026-11-28T09:20:00Z"),
+        headers=key,
+    )
+    assert done.status_code == 202, done.text
+    assert done.json()["findings_closed"] == 1
+    rows = await _grafana_findings(fp)
+    assert rows[0].status == "fixed" and rows[0].closed_at is not None
+    async with AsyncSessionLocal() as db:
+        kinds = list(
+            await db.scalars(
+                select(SecurityEvent.kind).where(
+                    SecurityEvent.source == "grafana",
+                    SecurityEvent.ref.like(f"grafana:{fp}:%"),
+                )
+            )
+        )
+    assert sorted(kinds) == ["alert_firing", "alert_resolved"]
+
+    # Alert wraca → to samo znalezisko otwiera się ponownie, bez nowego wiersza.
+    back = _grafana("firing", fp, startsAt="2026-11-28T11:00:00Z")
+    assert (await app_client.post(url, json=back, headers=key)).status_code == 202
+    rows = await _grafana_findings(fp)
+    assert len(rows) == 1 and rows[0].status == "open"
+
+
+async def test_grafana_needs_ingest_key_and_own_source(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    url = f"{API}/ingest/grafana"
+    body = _grafana("firing", uuid.uuid4().hex[:16])
+    assert (await app_client.post(url, json=body)).status_code == 401
+    assert (
+        await app_client.post(url, json=body, headers={"X-API-Key": "nx_zly_klucz"})
+    ).status_code == 401
+    assert (
+        await app_client.post(url, json=body, headers=app_auth_headers)
+    ).status_code == 401
+    other_scope = await _key(app_client, app_auth_headers, ["traffit:read"])
+    assert (
+        await app_client.post(url, json=body, headers=other_scope)
+    ).status_code == 403
+
+    grafana = await _key(app_client, app_auth_headers, ["security:ingest"])
+    falco = await _key(app_client, app_auth_headers, ["security:ingest"])
+    assert (await app_client.post(url, json=body, headers=grafana)).status_code == 202
+    # Klucz innego źródła nie pisze w imieniu Grafany.
+    stolen = await app_client.post(url, json=body, headers=falco)
+    assert stolen.status_code == 403
+    assert stolen.json()["detail"]["error"] == "source_owned_by_other_account"
+
+
+async def test_grafana_documentation_example_is_accepted(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    key = await _key(app_client, app_auth_headers, ["security:ingest"])
+    payload = json.loads(GRAFANA_EXAMPLE.read_text())
+    resp = await app_client.post(f"{API}/ingest/grafana", json=payload, headers=key)
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["findings_new"] + resp.json()["findings_updated"] == 1
+    rows = await _grafana_findings("c6eadffa33fcdf37")
+    assert rows[0].evidence == "Pamięć powyżej 90% na [adres IP]"
+    assert rows[0].severity == "medium"
+
+
+async def test_grafana_rejects_body_that_is_not_a_grafana_webhook(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    key = await _key(app_client, app_auth_headers, ["security:ingest"])
+    bad = await app_client.post(
+        f"{API}/ingest/grafana",
+        json={"status": "firing", "alerts": [{"status": "pending"}]},
+        headers=key,
+    )
+    assert bad.status_code == 422

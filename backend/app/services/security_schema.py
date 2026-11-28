@@ -31,7 +31,11 @@ SOURCES: tuple[str, ...] = (
     "pentest",
     "nexus",
     "manual",
+    # 0802 (28.11.2026): alerty Grafany Cloud przez webhook kontaktu.
+    "grafana",
 )
+# Lista z 0800 — downgrade 0802 wraca do niej.
+SOURCES_0800: tuple[str, ...] = tuple(s for s in SOURCES if s != "grafana")
 SEVERITIES: tuple[str, ...] = ("info", "low", "medium", "high", "critical")
 FINDING_STATUSES: tuple[str, ...] = ("open", "excepted", "fixed")
 CADENCES: tuple[str, ...] = ("week", "month", "quarter")
@@ -130,6 +134,20 @@ TABLE_DDL: list[str] = [
        )""",
     "ALTER TABLE security_source_states ADD COLUMN IF NOT EXISTS owner_service_account_id INTEGER NULL",
 ]
+
+
+def source_check_ddl(sources: tuple[str, ...]) -> list[str]:
+    """CHECK źródła w obu tabelach na nowo — ``CREATE TABLE IF NOT EXISTS`` nie
+    poszerzy go w bazie, w której tabela już stoi. Tabele są małe, więc
+    przebudowa przy każdym starcie (lustro w entrypoint) kosztuje ułamek sekundy."""
+    return [
+        f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS ck_{table}_source, "
+        f"ADD CONSTRAINT ck_{table}_source CHECK (source IN ({_in(sources)}))"
+        for table in ("security_findings", "security_events")
+    ]
+
+
+TABLE_DDL += source_check_ddl(SOURCES)
 
 # Rytm z raportu „Tarcza NEXUSA” (27.11.2026). Zasiew raz: ON CONFLICT
 # zostawia wiersz, który admin już odhaczył. Terminy pierwszego przebiegu

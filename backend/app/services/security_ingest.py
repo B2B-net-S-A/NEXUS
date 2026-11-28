@@ -6,7 +6,9 @@ Kontrakt dla źródeł (CrowdSec, Falco, Wazuh, CI) jest w
 * format ogólny (``IngestBatch``) — CrowdSec przez szablon pluginu HTTP,
   krok w workflow CI, skrypt integracji Wazuha;
 * natywne zdarzenie Falco z Falcosidekicka (``falco_to_event``);
-* natywny alert Wazuha (``wazuh_to_event``).
+* natywny alert Wazuha (``wazuh_to_event``);
+* webhook Grafany (unified alerting, ``grafana_to_batch``): alert „firing”
+  to znalezisko, „resolved” je zamyka.
 
 Prywatność: repo i logi Actions są publiczne, a zdarzenia z serwera niosą
 adresy atakujących i czasem loginy. ``scrub`` zamienia w każdym tekście
@@ -31,7 +33,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.security import SecurityEvent, SecurityFinding, SecuritySourceState
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
-IngestSource = Literal["crowdsec", "falco", "wazuh", "ci", "defectdojo", "pentest"]
+IngestSource = Literal[
+    "crowdsec", "falco", "wazuh", "ci", "defectdojo", "pentest", "grafana"
+]
 
 MAX_EVENTS = 500
 MAX_FINDINGS = 200
@@ -272,6 +276,116 @@ def wazuh_to_event(alert: WazuhAlert) -> IngestEvent:
     )
 
 
+class GrafanaAlert(BaseModel):
+    """Jeden alert z webhooka Grafany. Wartości ``labels`` poza nazwą reguły,
+    folderem i wagą nie są czytane — bywa w nich instancja, adres albo login."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    status: Literal["firing", "resolved"]
+    labels: dict[str, str] = Field(default_factory=dict)
+    annotations: dict[str, str] = Field(default_factory=dict)
+    startsAt: datetime
+    endsAt: Optional[datetime] = None
+    # Grafana liczy odcisk z etykiet (16 znaków szesnastkowych) — ten sam alert
+    # w powtórce co kilka minut ma ten sam odcisk.
+    fingerprint: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+class GrafanaWebhook(BaseModel):
+    """Ciało webhooka kontaktu Grafany. Reszta pól (``receiver``,
+    ``commonLabels``, ``message``…) jest ignorowana."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    status: Literal["firing", "resolved"]
+    alerts: list[GrafanaAlert] = Field(default_factory=list, max_length=MAX_FINDINGS)
+
+
+_GRAFANA_SEVERITY: dict[str, Severity] = {
+    "critical": "high",
+    "high": "high",
+    "warning": "medium",
+}
+
+
+def grafana_severity(labels: dict[str, str]) -> Severity:
+    return _GRAFANA_SEVERITY.get(labels.get("severity", "").strip().lower(), "low")
+
+
+def _grafana_where(alert: GrafanaAlert) -> Optional[str]:
+    """Folder reguły; źródło „Grafana” ekran pokazuje osobnym chipem."""
+    folder = alert.labels.get("grafana_folder", "").strip()
+    return f"folder {folder}" if folder else None
+
+
+@dataclass(frozen=True)
+class GrafanaIngest:
+    batch: IngestBatch
+    resolved: list[str]
+
+
+def grafana_to_batch(payload: GrafanaWebhook) -> GrafanaIngest:
+    """Firing → znalezisko o kluczu z ``fingerprint`` i zdarzenie; resolved →
+    zdarzenie i odcisk do zamknięcia. Ref zdarzenia z odcisku, początku alertu
+    i stanu, więc powtórka webhooka nie dubluje strumienia."""
+    events: list[IngestEvent] = []
+    findings: list[IngestFinding] = []
+    resolved: list[str] = []
+    for alert in payload.alerts:
+        rule = (alert.labels.get("alertname") or "").strip() or "Alert Grafany"
+        where = _grafana_where(alert)
+        summary = (alert.annotations.get("summary") or "").strip() or None
+        severity = grafana_severity(alert.labels)
+        started = (
+            alert.startsAt
+            if alert.startsAt.tzinfo
+            else alert.startsAt.replace(tzinfo=timezone.utc)
+        )
+        firing = alert.status == "firing"
+        ended = alert.endsAt if alert.endsAt and alert.endsAt.year > 1 else None
+        if ended is not None and ended.tzinfo is None:
+            ended = ended.replace(tzinfo=timezone.utc)
+        events.append(
+            IngestEvent(
+                occurred_at=started if firing else (ended or started),
+                kind="alert_firing" if firing else "alert_resolved",
+                severity=severity if firing else "info",
+                summary=(f"{rule} · {where}" + ("" if firing else " — ustąpił"))[:300],
+                ref=(
+                    f"grafana:{alert.fingerprint}:{int(started.timestamp())}:"
+                    f"{alert.status}"
+                ),
+            )
+        )
+        if firing:
+            findings.append(
+                IngestFinding(
+                    fingerprint=alert.fingerprint,
+                    severity=severity,
+                    title=rule[:200],
+                    location=where[:300] if where else None,
+                    evidence=summary[:2000] if summary else None,
+                    steps=[
+                        "Otwórz regułę w Grafanie i sprawdź przyczynę",
+                        "Gdy alert ustąpi, znalezisko zamknie się samo",
+                    ],
+                    detected_at=started,
+                )
+            )
+        else:
+            resolved.append(alert.fingerprint)
+    # Ten sam odcisk jako firing i resolved w jednej paczce: wygrywa resolved.
+    gone = set(resolved)
+    findings = [f for f in findings if f.fingerprint not in gone]
+    return GrafanaIngest(
+        IngestBatch(
+            source="grafana", scanner="grafana", events=events, findings=findings
+        ),
+        resolved,
+    )
+
+
 # ── Zapis ────────────────────────────────────────────────────────────────────
 
 
@@ -415,6 +529,36 @@ async def upsert_findings(
     return new, updated, closed
 
 
+async def resolve_findings(
+    db: AsyncSession,
+    source: str,
+    fingerprints: list[str],
+    *,
+    note: str,
+    now: Optional[datetime] = None,
+) -> int:
+    """Źródło mówi, że problem ustąpił — zamyka znalezisko, także z wyjątkiem."""
+    if not fingerprints:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    result = await db.execute(
+        update(SecurityFinding)
+        .where(
+            SecurityFinding.source == source,
+            SecurityFinding.fingerprint.in_(fingerprints),
+            SecurityFinding.status != "fixed",
+        )
+        .values(
+            status="fixed",
+            closed_at=now,
+            closed_note=note,
+            last_seen_at=now,
+            updated_at=func.now(),
+        )
+    )
+    return result.rowcount or 0
+
+
 class SourceOwnedByOtherAccount(Exception):
     """Źródło jest przypięte do innego, aktywnego konta serwisowego."""
 
@@ -463,7 +607,11 @@ async def mark_source_seen(db: AsyncSession, source: str) -> None:
 
 
 async def ingest_batch(
-    db: AsyncSession, batch: IngestBatch, *, service_account_id: Optional[int] = None
+    db: AsyncSession,
+    batch: IngestBatch,
+    *,
+    service_account_id: Optional[int] = None,
+    resolved: Optional[list[str]] = None,
 ) -> IngestResult:
     if service_account_id is not None:
         await claim_source(db, batch.source, service_account_id)
@@ -477,6 +625,9 @@ async def ingest_batch(
         scanner=batch.scanner,
         complete=batch.complete,
         run_id=batch.run_id,
+    )
+    closed += await resolve_findings(
+        db, batch.source, resolved or [], note="Źródło zgłosiło, że problem ustąpił"
     )
     await mark_source_seen(db, batch.source)
     await db.commit()

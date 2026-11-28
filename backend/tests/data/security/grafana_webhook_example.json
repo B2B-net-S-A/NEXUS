@@ -1,0 +1,59 @@
+{
+  "receiver": "nexus-security",
+  "status": "firing",
+  "orgId": 1,
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "High memory usage",
+        "grafana_folder": "Serwer",
+        "severity": "warning",
+        "team": "blue",
+        "instance": "198.51.100.23:9100"
+      },
+      "annotations": {
+        "description": "Opis z wartością dla admin@example.com",
+        "runbook_url": "https://example.com/runbook/1234",
+        "summary": "Pamięć powyżej 90% na 198.51.100.23"
+      },
+      "startsAt": "2026-11-28T09:51:03.157076+01:00",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://example.grafana.net/alerting/grafana/abc123/view",
+      "fingerprint": "c6eadffa33fcdf37",
+      "silenceURL": "https://example.grafana.net/alerting/silence/new",
+      "dashboardURL": "",
+      "panelURL": "",
+      "values": {"B": 91.2, "C": 1},
+      "valueString": "[ var='B' labels={instance=198.51.100.23:9100} value=91.2 ]"
+    },
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "Disk almost full",
+        "grafana_folder": "Serwer",
+        "severity": "critical"
+      },
+      "annotations": {"summary": "Dysk / powyżej 95%"},
+      "startsAt": "2026-11-28T08:00:00+01:00",
+      "endsAt": "2026-11-28T09:40:00+01:00",
+      "generatorURL": "https://example.grafana.net/alerting/grafana/def456/view",
+      "fingerprint": "b1d3a8e0f2c4d6e8",
+      "silenceURL": "",
+      "dashboardURL": "",
+      "panelURL": "",
+      "values": {"B": 80.0},
+      "valueString": ""
+    }
+  ],
+  "groupLabels": {"alertname": "High memory usage"},
+  "commonLabels": {"grafana_folder": "Serwer"},
+  "commonAnnotations": {},
+  "externalURL": "https://example.grafana.net/",
+  "version": "1",
+  "groupKey": "{}:{alertname=\"High memory usage\"}",
+  "truncatedAlerts": 0,
+  "title": "[FIRING:1] High memory usage (Serwer)",
+  "state": "alerting",
+  "message": "**Firing**\n\nValue: B=91.2\nLabels:\n - instance = 198.51.100.23:9100\n"
+}

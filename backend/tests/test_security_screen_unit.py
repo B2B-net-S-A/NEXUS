@@ -17,9 +17,12 @@ from pydantic import ValidationError
 from app.services import security_schema as schema
 from app.services.security_ingest import (
     FalcoEvent,
+    GrafanaWebhook,
     IngestBatch,
     WazuhAlert,
     falco_to_event,
+    grafana_severity,
+    grafana_to_batch,
     scrub,
     wazuh_severity,
     wazuh_to_event,
@@ -195,6 +198,96 @@ def test_wazuh_alert_drops_full_log_and_maps_kind() -> None:
     assert mapped.kind == "fim_change"
     assert mapped.summary == "Integrity checksum changed. · nexus-prod"
     assert "203.0.113" not in mapped.model_dump_json()
+
+
+GRAFANA_EXAMPLE = ROOT / "tests" / "data" / "security" / "grafana_webhook_example.json"
+
+
+def _grafana_example() -> GrafanaWebhook:
+    return GrafanaWebhook.model_validate_json(GRAFANA_EXAMPLE.read_text())
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("critical", "high"),
+        ("High", "high"),
+        ("warning", "medium"),
+        ("info", "low"),
+        ("", "low"),
+    ],
+)
+def test_grafana_severity_from_label(label: str, expected: str) -> None:
+    assert grafana_severity({"severity": label} if label else {}) == expected
+
+
+def test_grafana_example_firing_is_finding_resolved_is_closed() -> None:
+    parsed = grafana_to_batch(_grafana_example())
+    batch = parsed.batch
+    assert batch.source == "grafana"
+    assert [f.fingerprint for f in batch.findings] == ["c6eadffa33fcdf37"]
+    finding = batch.findings[0]
+    assert finding.title == "High memory usage"
+    assert finding.location == "folder Serwer"
+    assert finding.severity == "medium"
+    assert parsed.resolved == ["b1d3a8e0f2c4d6e8"]
+    kinds = [(e.kind, e.ref) for e in batch.events]
+    assert kinds == [
+        ("alert_firing", "grafana:c6eadffa33fcdf37:1795855863:firing"),
+        ("alert_resolved", "grafana:b1d3a8e0f2c4d6e8:1795849200:resolved"),
+    ]
+    assert batch.events[1].summary == "Disk almost full · folder Serwer — ustąpił"
+    # Z etykiet tylko nazwa reguły, folder i waga; opis, wartości i reszta etykiet — nie.
+    dumped = batch.model_dump_json()
+    for leak in ("blue", "admin@example.com", "runbook", "9100", "91.2"):
+        assert leak not in dumped
+
+
+def test_grafana_same_fingerprint_firing_and_resolved_resolves() -> None:
+    alert = {
+        "labels": {"alertname": "X"},
+        "startsAt": "2026-11-28T08:00:00Z",
+        "fingerprint": "aaaa",
+    }
+    payload = GrafanaWebhook.model_validate(
+        {
+            "status": "resolved",
+            "alerts": [
+                {**alert, "status": "firing"},
+                {**alert, "status": "resolved", "endsAt": "2026-11-28T08:05:00Z"},
+            ],
+        }
+    )
+    parsed = grafana_to_batch(payload)
+    assert parsed.batch.findings == []
+    assert parsed.resolved == ["aaaa"]
+
+
+def test_grafana_rejects_odd_fingerprint() -> None:
+    with pytest.raises(ValidationError):
+        GrafanaWebhook.model_validate(
+            {
+                "status": "firing",
+                "alerts": [
+                    {
+                        "status": "firing",
+                        "startsAt": "2026-11-28T08:00:00Z",
+                        "fingerprint": "a b",
+                    }
+                ],
+            }
+        )
+
+
+def test_grafana_source_check_is_widened_on_existing_tables() -> None:
+    assert "grafana" in schema.SOURCES
+    assert "grafana" not in schema.SOURCES_0800
+    checks = [
+        s
+        for s in schema.TABLE_DDL
+        if "ck_security_findings_source" in s and s.startswith("ALTER")
+    ]
+    assert len(checks) == 1 and "'grafana'" in checks[0]
 
 
 # ── Wyjątek po terminie, rutyny ──────────────────────────────────────────────
