@@ -23,6 +23,7 @@ import {
   type RecordState,
 } from "@/lib/api/sales-calling";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
+import { formatPhone } from "@/lib/phone-format";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -551,7 +552,7 @@ function RecordTable({
             {showCaller && (
               <td className="max-w-28 truncate px-2 py-1.5 text-foreground">{item.assignee?.name ?? "—"}</td>
             )}
-            <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-muted-foreground">{item.phone ?? "brak"}</td>
+            <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-muted-foreground">{item.phone ? formatPhone(item.phone) : "brak"}</td>
             <td className="px-2 py-1.5">
               <StatusCell item={item} today={today} canEdit={canEdit} />
             </td>

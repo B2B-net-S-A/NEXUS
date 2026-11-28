@@ -5923,6 +5923,29 @@
     ]
   },
   {
+    "id": "sprzedaz-dzwonienie-grupy-kolejki",
+    "pr": 4148,
+    "title": "Dzwonienie: grupy kolejki i numer z plusem",
+    "why": "Nad kolejką wybierasz grupę, np. Nieodebrane albo Nowe rekordy; po zapisie następna osoba jest z tej samej grupy. „Kopiuj numer” kopiuje numer z +48, więc telefon od razu go wybiera.",
+    "tier": "dot",
+    "shipped_on": "2026-11-28",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Kolejka",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.group.new",
+    "steps": [
+      {
+        "anchor": "sales.calling.group.new",
+        "text": "Nad kolejką kliknij „Nowe rekordy”.",
+        "hint": "Lista pokaże tylko nowe rekordy kampanii. „Wszystko” wraca do całej kolejki."
+      }
+    ]
+  },
+  {
     "id": "sprzedaz-dzwonienie-akcje-zbiorcze",
     "pr": 4155,
     "title": "Dzwonienie: kilka rekordów naraz w Tabeli",

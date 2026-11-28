@@ -154,6 +154,19 @@
         "Admin",
         "Rekruter"
       ]
+    },
+    "dzwonienie": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/dzwonienie.md",
+      "sciezki": [
+        "frontend/src/components/sales/calling/**",
+        "frontend/src/app/sales/calling/**",
+        "backend/app/api/sales_calling.py",
+        "backend/app/services/sales/calling*.py"
+      ],
+      "role": [
+        "Osoba dzwoniąca",
+        "Rekruter"
+      ]
     }
   }
 }

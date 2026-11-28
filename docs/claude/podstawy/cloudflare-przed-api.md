@@ -20,6 +20,14 @@ skopiowany z ogólnego standardu (#111, 08.05.2026) i dla API nigdy nie był pra
 decyzji „API poza Cloudflare”; host od początku był „DNS only”, a 19.10.2026 cała
 aplikacja przeszła na `b2bnetwork.pl`, którego strefa jest w home.pl, poza Cloudflare.
 
+## Decyzja Artura z 27.11.2026
+
+Zostajemy przy `slowapi` i CrowdSec przed Traefikiem, bez zmian DNS i zapory. Odrzucone
+warianty: przeniesienie strefy `b2bnetwork.pl` do Cloudflare (ryzyko dla poczty M365 i
+strony firmy) i powrót na `*.dynaminds.pl` (cofa decyzję o marce z 19.10). Plan niżej
+zostaje na wypadek powrotu do tematu; nie proponuj go ponownie bez nowego faktu
+(np. atak wolumetryczny, wymóg klienta).
+
 ## Czego nie ruszać „przy okazji”
 
 - `client_ip_key` bierze prawy wpis `X-Forwarded-For` (dopisany przez Traefika), a gdy ten
@@ -83,3 +91,53 @@ aplikacja przeszła na `b2bnetwork.pl`, którego strefa jest w home.pl, poza Clo
    `curl --resolve api.nexus.b2bnetwork.pl:443:91.99.199.112 …` z sieci spoza Cloudflare →
    timeout; logowanie SSO; Jarvis (SSE), dzwonki (WS); bieg „Coolify Ops / list” zielony;
    w `http_outcome` różne klucze IP, nie adresy edge'a.
+
+## CAA (rekordy ustalone 28.11.2026, wpisuje Artur)
+
+Do 28.11.2026 żadna strefa nie miała CAA, więc certyfikat dla dowolnej naszej nazwy mógł
+wystawić każdy urząd. Rekord na szczycie strefy obejmuje wszystkie subdomeny, a dla
+subdomeny z CNAME-em liczy się CAA celu, gdy cel go ma (dziś `e-kursb2bnetwork.elms.pl` nie ma).
+Dlatego lista wynika z wystawców każdej nazwy z ostatnich 13 miesięcy (crt.sh, indeks do
+początku 10.2026) i z `openssl s_client` na każdym żywym hoście 28.11:
+
+| Wystawca | Nazwy | Strefa |
+|---|---|---|
+| Let's Encrypt | `api.nexus.*`, `nexus.b2bnetwork.pl`, `kariera`, `coolify-nexus`, `coolify-staging`, strona firmy `b2bnetwork.pl` (+`www`, `webmail`, `admin`), `gitlab`/`qualrix`/`s3`, `vpn`, origin `elevate*` i `reports` za proxy, część `ekurs` | obie |
+| Google Trust Services (`pki.goog`) | Universal SSL Cloudflare: `dynaminds.pl`, `www`, `nexus`, `elevate*`, `reports`, `nexus-staging`; `ekurs`/`www.ekurs` (CNAME do platformy na Cloudflare for SaaS) | obie |
+| SSL.com | dziś brak certyfikatu, ale Cloudflare wystawia nim Universal SSL i SaaS zamiennie z LE i GTS | obie |
+| Sectigo | certyfikaty zapasowe Cloudflare (`*.dynaminds.pl`, 05.2026) | `dynaminds.pl` |
+
+Pominięte, bo nieużywane: GoDaddy (`dynaminds.pl` do 03.2026, strona przed Cloudflare),
+cPanel i nazwa.pl (do 2023), home.pl/Certum (`b2bnetwork.pl`, 2022), DigiCert (2019).
+`hosting.b2bnetwork.pl` (MX) podaje certyfikat `*.home.pl`, nie naszej nazwy.
+`autodiscover` to CNAME do `autodiscover.outlook.com` (certyfikat Microsoftu dla jego nazwy).
+Bez `issuewild`: wildcard idzie tą samą listą `issue` (Universal SSL `*.dynaminds.pl`).
+Cloudflare przy Universal SSL i tak sam dokłada niewidoczne w panelu rekordy swoich
+urzędów (widać je w `dig`), więc wpisy `pki.goog`/`ssl.com`/`sectigo.com` w `dynaminds.pl`
+są jawną kopią tego, co i tak obowiązuje.
+
+`dynaminds.pl` — Cloudflare → DNS → Add record → CAA, nazwa `@`:
+
+```
+0 issue "letsencrypt.org"
+0 issue "pki.goog; cansignhttpexchanges=yes"
+0 issue "ssl.com"
+0 issue "sectigo.com"
+0 iodef "mailto:postmaster@b2bnetwork.pl"
+```
+
+`b2bnetwork.pl` — panel home.pl → DNS strefy → CAA, host `@`:
+
+```
+0 issue "letsencrypt.org"
+0 issue "pki.goog; cansignhttpexchanges=yes"
+0 issue "ssl.com"
+0 iodef "mailto:postmaster@b2bnetwork.pl"
+```
+
+Adres iodef to adres roli, który już odbiera raporty DMARC (decyzja Artura 28.11.2026).
+Sprawdzenie po wpisie: `dig +short CAA dynaminds.pl` i `dig +short CAA b2bnetwork.pl`
+pokazują powyższe wiersze (w `dynaminds.pl` także dopiski Cloudflare z `issuewild`).
+Nowy dostawca, który wystawia certyfikat dla naszej nazwy (hosting strony, platforma
+z CNAME-em, inny urząd w Coolify), wymaga dopisania jego urzędu tutaj i w strefie,
+inaczej odnowienie certyfikatu się nie uda.
