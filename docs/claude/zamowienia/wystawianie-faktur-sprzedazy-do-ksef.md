@@ -42,6 +42,12 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   `uq_client_issued_invoices_number` to druga zapora. Numer i XML są zapisane (commit) przed rozmową z KSeF.
 - „Następny numer” per seria i miesiąc ustawiają Finanse w ustawieniach — przejście z eBI24 w połowie miesiąca
   kontynuuje numerację. Nie da się go ustawić na numer już wydany (409).
+- **Numer wydany w eBI24 też jest wydany** (28.11.2026, `numbering._highest_outside`): nadanie numeru,
+  „następny numer” i widok serii biorą najwyższy numer tej serii w miesiącu także z faktur sprzedaży
+  w KSeF (wzór serii → wyrażenie, `numbering.number_regex`). Test na KSeF testowym MF 28.11: NEXUS
+  nadawał 1/11/2026 obok 160 faktur eBI24 z listopada (najwyższa 323/11/2026). Na produkcji KSeF
+  odpowiedziałby 440 „Duplikat faktury”, a `ksef_send._resolve_duplicate` przypiąłby fakturze NEXUSA
+  numer KSeF faktury z eBI24 (szuka po samym numerze).
 - **Odrzucenie przez KSeF (decyzja Artura z 13.11.2026):** faktura odrzucona (`rejected`) albo
   na pewno niewysłana (`failed`) nie istnieje w obrocie, ale **zatrzymuje swój numer** — po poprawce idzie
   ponownie z tym samym numerem, więc w zwykłym przebiegu dziury nie ma. Data wystawienia może się zmienić tylko w tym

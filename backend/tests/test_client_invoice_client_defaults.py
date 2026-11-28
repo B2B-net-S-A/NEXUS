@@ -8,20 +8,29 @@ faktur Finansów u 19 z 27. Firmy, NIP-y i adresy zmyślone.
 from __future__ import annotations
 
 import random
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
+from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.finance_ledger import FinanceCounterparty
-from app.services.client_invoicing import client_defaults, issue, issue_settings
+from app.services.client_invoicing import (
+    client_defaults,
+    issue,
+    issue_settings,
+    numbering,
+)
 
 TODAY = date(2026, 12, 3)
 SETTINGS = issue_settings.normalize({})
+SERIES_PATTERNS = dict(SETTINGS["series"])
 
 
 def _client(address: str = "") -> Client:
@@ -184,4 +193,55 @@ async def test_for_client_without_nip_returns_nothing():
         assert await client_defaults.for_client(db, client, today=TODAY) == (
             client_defaults.ClientDefaults()
         )
+        await db.rollback()
+
+
+def test_number_regex_matches_only_this_series_and_month():
+    rx = numbering.number_regex("{n}/{m}/{yyyy}", 2031, 11)
+    assert re.match(rx, "323/11/2031").group(1) == "323"
+    assert re.match(rx, "12/11/2031/UE") is None
+    assert re.match(rx, "5/10/2031") is None
+    ue = numbering.number_regex("{n}/{mm}/{yyyy}/UE", 2031, 1)
+    assert re.match(ue, "7/01/2031/UE").group(1) == "7"
+
+
+@pytest.mark.asyncio
+async def test_numbering_continues_after_ebi24_numbers_in_ksef():
+    """Równolegle z eBI24: pierwsza faktura z NEXUSA nie może dostać numeru,
+    który eBI24 już wydał (KSeF 440 i przypięcie cudzego numeru KSeF)."""
+
+    pattern = "{n}/{m}/{yyyy}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Bank Testowy {uuid.uuid4().hex[:6]}", nip=_nip())
+        db.add(client)
+        await db.flush()
+        db.add(_sale(client.id, client.nip, date(2031, 11, 3), 30))
+        await db.flush()
+        ebi = (
+            await db.scalars(
+                select(ClientSalesInvoice).where(
+                    ClientSalesInvoice.client_id == client.id
+                )
+            )
+        ).one()
+        ebi.invoice_number = "323/11/2031"
+        db.add(_sale(client.id, client.nip, date(2031, 11, 4), 30))
+        await db.flush()
+
+        view = await numbering.series_view(
+            db, year=2031, month=11, patterns={**SERIES_PATTERNS, "PL": pattern}
+        )
+        assert next(row for row in view if row["code"] == "PL")["next_number"] == 324
+        with pytest.raises(numbering.NumberingError):
+            await numbering.set_next(
+                db,
+                code="PL",
+                year=2031,
+                month=11,
+                next_number=300,
+                actor_id=1,
+                pattern=pattern,
+            )
+        invoice = ClientIssuedInvoice(series_code="PL", issue_date=date(2031, 11, 5))
+        assert await numbering.assign(db, invoice, pattern=pattern) == "324/11/2031"
         await db.rollback()
