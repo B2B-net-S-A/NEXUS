@@ -59,7 +59,11 @@ export function TrainingRegister({ rows }: { rows: TrainingRow[] }) {
               <td className="px-3 py-2">
                 {row.trainer_name || "—"}
                 <span className="block text-xs text-muted-foreground">
-                  {row.trainer_kind === "consultant" ? "konsultant B2B" : "pracownik"}
+                  {row.trainer_market_id
+                    ? "trener z rynku"
+                    : row.trainer_kind === "consultant"
+                      ? "konsultant B2B"
+                      : "pracownik"}
                 </span>
               </td>
               <td className="px-3 py-2">

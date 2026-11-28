@@ -284,7 +284,9 @@ function MarketCandidatesSection({ isAdmin }: { isAdmin: boolean }) {
             (result) =>
               result.invite === "sent"
                 ? `Panel otwarty. Link poszedł na ${body.panel_email}.`
-                : "Panel otwarty. Link wyjdzie po włączeniu panelu trenerów przez administratora.",
+                : result.invite === "no_mailer"
+                  ? "Panel otwarty, ale wysyłka maili nie jest skonfigurowana: link nie wyszedł."
+                  : "Panel otwarty. Link wyjdzie po włączeniu panelu trenerów przez administratora.",
             "Nie udało się otworzyć panelu.",
           )
         }

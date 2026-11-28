@@ -417,3 +417,18 @@ async def test_company_lookup_fills_company_data(app_client, monkeypatch):
         params={"nip": "1234567890"},
     )
     assert bad.status_code == 422
+
+
+async def test_open_without_mail_sender_says_so(app_client, monkeypatch, market_switch):
+    """Bez nadawcy maili TCM nie dostaje „link poszedł” (staging, zła konfiguracja)."""
+    from app.services.consultant_portal import portal_mail
+
+    monkeypatch.setattr(portal_mail, "default_mailer", lambda: None)
+    await market_switch(True)
+    tcm = headers(await make_user(UserRole.talent_community_manager))
+    email = f"rynek-{uuid.uuid4().hex[:8]}@example.com"
+
+    opened = await _open(app_client, tcm, await _trainer(email=email), email)
+
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["invite"] == "no_mailer"

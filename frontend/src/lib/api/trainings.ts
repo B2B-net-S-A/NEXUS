@@ -669,7 +669,10 @@ export function useOpenMarketPanel() {
   return useMutation({
     mutationFn: async (input: { id: number; body: MarketPanelInput }) =>
       (
-        await api.post<{ application: MarketTrainerApplication; invite: "sent" | "switch_off" }>(
+        await api.post<{
+          application: MarketTrainerApplication;
+          invite: "sent" | "switch_off" | "no_mailer";
+        }>(
           `${BASE}/market-applications/${input.id}/panel`,
           input.body,
         )

@@ -633,15 +633,20 @@ async def market_panel_open(
         details={},
     )
     await db.commit()
-    enabled = await market_switch.is_enabled(db)
-    if enabled:
+    from app.services.consultant_portal import portal_mail
+
+    # Zaproszenie wychodzi tylko przy włączniku i skonfigurowanym nadawcy; inaczej
+    # TCM ma wiedzieć, że link nie poszedł (trener poprosi o niego na /konsultant).
+    if not await market_switch.is_enabled(db):
+        invite = "switch_off"
+    elif portal_mail.default_mailer() is None:
+        invite = "no_mailer"
+    else:
+        invite = "sent"
         background.add_task(
             _send_market_invite, row.panel_email or "", row.full_name, raw
         )
-    return {
-        "application": market_trainers.serialize(row),
-        "invite": "sent" if enabled else "switch_off",
-    }
+    return {"application": market_trainers.serialize(row), "invite": invite}
 
 
 @router.post("/market-applications/{application_id}/panel/close")
