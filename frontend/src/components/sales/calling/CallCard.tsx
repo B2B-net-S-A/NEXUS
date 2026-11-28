@@ -36,6 +36,7 @@ import {
   type QueueOutcome,
 } from "@/lib/api/sales-calling";
 import { formatDayMonthPl } from "@/lib/date-pl";
+import { dialablePhone, formatPhone } from "@/lib/phone-format";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -434,16 +435,18 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
 function PhoneNumber({ phone }: { phone: string }) {
   const { showError, showSuccess } = useToast();
   const copy = () => {
+    const dialable = dialablePhone(phone);
     void navigator.clipboard
-      ?.writeText(phone)
-      .then(() => showSuccess(`Skopiowano numer ${phone}.`))
+      ?.writeText(dialable)
+      .then(() => showSuccess(`Skopiowano numer ${dialable}.`))
       .catch(() => showError("Nie udało się skopiować numeru. Zaznacz go i skopiuj ręcznie."));
   };
   return (
-    <div className="flex flex-1 items-center gap-2">
-      <span className="flex select-all items-center gap-1.5 text-lg font-semibold tabular-nums tracking-wide text-foreground">
+    <div className="flex basis-full flex-wrap items-center gap-2">
+      {/* Numer w trójkach ma spacje: bez `nowrap` łamał się w kolumnę obok przycisku LinkedIn. */}
+      <span className="flex select-all items-center gap-1.5 whitespace-nowrap text-lg font-semibold tabular-nums tracking-wide text-foreground">
         <Phone className="h-4 w-4 text-muted-foreground" aria-hidden />
-        {phone}
+        {formatPhone(phone)}
       </span>
       <Button size="sm" variant="outline" className="h-8" onClick={copy}>
         <Copy className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Kopiuj numer
@@ -762,7 +765,7 @@ export function CallCard(props: CallCardProps) {
         ) : callable && item.phone ? (
           <PhoneNumber phone={item.phone} />
         ) : (
-          <span className="text-xs tabular-nums text-muted-foreground">{item.phone ?? "Brak numeru telefonu"}</span>
+          <span className="text-xs tabular-nums text-muted-foreground">{item.phone ? formatPhone(item.phone) : "Brak numeru telefonu"}</span>
         )}
         {card?.linkedin_url && (
           <Button size="sm" variant="outline" className="h-8" asChild>

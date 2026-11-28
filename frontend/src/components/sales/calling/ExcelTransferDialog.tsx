@@ -234,7 +234,7 @@ export function ExcelTransferDialog({ open, onOpenChange }: ExcelTransferDialogP
               id="excel-transfer-source"
               value={source}
               maxLength={255}
-              placeholder="np. Lista BE Leady (Excel dzwoniących)"
+              placeholder="np. Lista Elevate (Excel dzwoniących)"
               onChange={(event) => setSource(event.target.value)}
             />
           </div>

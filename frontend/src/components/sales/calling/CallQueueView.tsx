@@ -11,6 +11,7 @@ import { usePipelines } from "@/lib/api/sales";
 import { useCallQueue, type CallQueue, type QueueItem, type QueueSection } from "@/lib/api/sales-calling";
 import { hasPermission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { resolveUrlTab, urlWithTab } from "@/lib/url-tab";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
@@ -29,13 +30,19 @@ import {
   dayLine,
   isQueueEmpty,
   itemReason,
+  groupCount,
+  groupItems,
+  groupSections,
   nextKey,
-  queueItems,
+  otherGroupsLine,
+  QUEUE_GROUP_LABELS,
+  QUEUE_GROUP_PARAM,
+  QUEUE_GROUPS,
   queueLine,
-  resolveSelection,
   REMINDERS_VIEW,
-  SECTION_ORDER,
+  resolveSelection,
   SECTION_TITLES,
+  type QueueGroup,
 } from "./calling";
 
 const SALES_PIPELINE_KEY = "sales";
@@ -125,11 +132,50 @@ interface QueueBoardProps {
   meetingStage: MeetingStage | null;
 }
 
+function GroupSwitch({
+  queue,
+  value,
+  onChange,
+}: {
+  queue: CallQueue;
+  value: QueueGroup;
+  onChange: (value: QueueGroup) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Grupa kolejki">
+      {QUEUE_GROUPS.map((group) => (
+        <Button
+          key={group}
+          data-tour={group === "new" ? "sales.calling.group.new" : undefined}
+          size="sm"
+          variant={value === group ? "primary" : "outline"}
+          className="h-7 px-2"
+          aria-pressed={value === group}
+          onClick={() => onChange(group)}
+        >
+          {QUEUE_GROUP_LABELS[group]}{" "}
+          <span className={cn("ml-1 tabular-nums", value === group ? "opacity-80" : "text-muted-foreground")}>
+            {groupCount(queue, group)}
+          </span>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+/** Grupa z adresu (`?group=`); nieznana albo brak = „Wszystko”. */
+function initialGroup(): QueueGroup {
+  if (typeof window === "undefined") return "all";
+  const raw = new URLSearchParams(window.location.search).get(QUEUE_GROUP_PARAM);
+  return resolveUrlTab(raw, QUEUE_GROUPS) ?? "all";
+}
+
 /** Lista i karta. Wybór pozycji jest przypięty: odświeżenie kolejki go nie podmienia. */
 function QueueBoard({ queue, canEdit, meetingStage }: QueueBoardProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [group, setGroup] = useState<QueueGroup>(initialGroup);
   const previousOrder = useRef<string[]>([]);
-  const items = queueItems(queue);
+  const items = groupItems(queue, group);
   const selected = resolveSelection(items, selectedKey, previousOrder.current);
   const selectedIndex = selected ? items.indexOf(selected) : -1;
   const upcomingKey = selected ? nextKey(items, selected.key) : null;
@@ -142,51 +188,66 @@ function QueueBoard({ queue, canEdit, meetingStage }: QueueBoardProps) {
     if (resolvedKey !== selectedKey) setSelectedKey(resolvedKey);
   }, [order, resolvedKey, selectedKey]);
 
+  const chooseGroup = (next: QueueGroup) => {
+    // Nowa grupa zaczyna od swojej pierwszej pozycji, nie od tej z poprzedniej grupy.
+    previousOrder.current = [];
+    setSelectedKey(null);
+    setGroup(next);
+    window.history.replaceState(window.history.state, "", urlWithTab(window.location.href, next, "all", QUEUE_GROUP_PARAM));
+  };
+
   return (
-    <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
-      <div data-tour="sales.calling.queue" className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
-        {SECTION_ORDER.filter((section) => queue[section].length > 0).map((section) => (
-          <section key={section} aria-label={SECTION_TITLES[section]}>
-            <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {SECTION_TITLES[section]}
-              </h2>
-              {sectionHint(queue, section) && (
-                <span className="text-xs text-muted-foreground">{sectionHint(queue, section)}</span>
-              )}
-            </header>
-            <ul className="divide-y divide-border border-b border-border">
-              {queue[section].map((item) => (
-                <QueueRow
-                  key={item.key}
-                  item={item}
-                  today={queue.today}
-                  active={selected?.key === item.key}
-                  onSelect={() => setSelectedKey(item.key)}
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
-        <p className="px-3 py-1.5 text-xs text-muted-foreground">
-          „Oddzwonić” i oferta z ponownym kontaktem wracają tu same w wybranym
-          dniu.
-        </p>
-      </div>
-      {selected && (
-        <div className="lg:sticky lg:top-2 lg:max-h-[calc(100dvh-1rem)] lg:overflow-y-auto">
-          <CallCard
-            key={selected.key}
-            item={selected}
-            position={`${selectedIndex + 1} z ${items.length}`}
-            today={queue.today}
-            nextCompany={upcoming?.company.name ?? null}
-            canEdit={canEdit}
-            meetingStage={meetingStage}
-            onSaved={() => setSelectedKey(upcomingKey)}
-          />
+    <div className="space-y-2">
+      {/* Nad listą i kartą: w kolumnie listy przy 1280 px przełącznik łamał się na dwa wiersze. */}
+      <GroupSwitch queue={queue} value={group} onChange={chooseGroup} />
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
+        <div data-tour="sales.calling.queue" className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+          {items.length === 0 && (
+            <p className="border-b border-border px-3 py-4 text-sm text-muted-foreground">{otherGroupsLine(queue, group)}</p>
+          )}
+          {groupSections(group).filter((section) => queue[section].length > 0).map((section) => (
+            <section key={section} aria-label={SECTION_TITLES[section]}>
+              <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1">
+                <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {SECTION_TITLES[section]}
+                </h2>
+                {sectionHint(queue, section) && (
+                  <span className="text-xs text-muted-foreground">{sectionHint(queue, section)}</span>
+                )}
+              </header>
+              <ul className="divide-y divide-border border-b border-border">
+                {queue[section].map((item) => (
+                  <QueueRow
+                    key={item.key}
+                    item={item}
+                    today={queue.today}
+                    active={selected?.key === item.key}
+                    onSelect={() => setSelectedKey(item.key)}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
+          <p className="px-3 py-1.5 text-xs text-muted-foreground">
+            „Oddzwonić” i oferta z ponownym kontaktem wracają tu same w wybranym
+            dniu.
+          </p>
         </div>
-      )}
+        {selected && (
+          <div className="lg:sticky lg:top-2 lg:max-h-[calc(100dvh-1rem)] lg:overflow-y-auto">
+            <CallCard
+              key={selected.key}
+              item={selected}
+              position={`${selectedIndex + 1} z ${items.length}`}
+              today={queue.today}
+              nextCompany={upcoming?.company.name ?? null}
+              canEdit={canEdit}
+              meetingStage={meetingStage}
+              onSaved={() => setSelectedKey(upcomingKey)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

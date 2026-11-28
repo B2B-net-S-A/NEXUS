@@ -129,6 +129,47 @@ export function queueItems(queue: CallQueue): QueueItem[] {
   return SECTION_ORDER.flatMap((section) => queue[section]);
 }
 
+/**
+ * Grupa kolejki z przełącznika nad listą (lista dzwoniących 27.11.2026): żeby zacząć
+ * od nowych rekordów, nie trzeba przewijać kilkuset oddzwonień i nieodebranych.
+ * „Następna osoba” po zapisie zostaje w wybranej grupie.
+ */
+export type QueueGroup = "all" | QueueSection;
+
+export const QUEUE_GROUPS: readonly QueueGroup[] = ["all", "callbacks", "no_answer", "new", "meetings"];
+
+export const QUEUE_GROUP_LABELS: Record<QueueGroup, string> = {
+  all: "Wszystko",
+  callbacks: "Oddzwonienie na dziś",
+  no_answer: "Nieodebrane",
+  new: "Nowe rekordy",
+  meetings: "Spotkania bez terminu",
+};
+
+/** Parametr adresu z grupą: link z „Mojego dnia” może otworzyć od razu „Nieodebrane”. */
+export const QUEUE_GROUP_PARAM = "group";
+
+export function groupSections(group: QueueGroup): QueueSection[] {
+  return group === "all" ? SECTION_ORDER : [group];
+}
+
+export function groupItems(queue: CallQueue, group: QueueGroup): QueueItem[] {
+  return groupSections(group).flatMap((section) => queue[section]);
+}
+
+/** Licznik przy grupie: wszystkie pozycje z serwera, nie tylko te, które przyszły na listę. */
+export function groupCount(queue: CallQueue, group: QueueGroup): number {
+  return groupSections(group).reduce((sum, section) => sum + queue.counts[section], 0);
+}
+
+/** Pusta grupa: co czeka w pozostałych, żeby było wiadomo, gdzie kliknąć. */
+export function otherGroupsLine(queue: CallQueue, group: QueueGroup): string {
+  const others = QUEUE_GROUPS.filter((other) => other !== "all" && other !== group && groupCount(queue, other) > 0);
+  if (others.length === 0) return "W tej grupie nic dziś nie ma.";
+  const listed = others.map((other) => `${QUEUE_GROUP_LABELS[other]}: ${groupCount(queue, other)}`).join(" · ");
+  return `W tej grupie nic dziś nie ma. ${listed}.`;
+}
+
 /** Następna pozycja po zapisanej; z końca listy wraca na początek. */
 export function nextKey(items: readonly QueueItem[], currentKey: string): string | null {
   const index = items.findIndex((item) => item.key === currentKey);

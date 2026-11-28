@@ -3299,5 +3299,40 @@
         "explain": "Profil pokazuje wiersze Mieszka i Biuro ze źródłem „z odrzucenia”, a system bierze je pod uwagę przy kolejnych rekrutacjach."
       }
     ]
+  },
+  {
+    "id": "lekcja-sprzedaz-dzwonienie-grupy-kolejki",
+    "title": "Dzwonienie: grupy kolejki i numer z plusem",
+    "novelties": [
+      "sprzedaz-dzwonienie-grupy-kolejki"
+    ],
+    "task": "W Dzwonieniu pokaż same nowe rekordy kampanii, bez oddzwonień i nieodebranych.",
+    "solo_href": "/sales/calling",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.calling.group.new"
+    },
+    "questions": [
+      {
+        "q": "Zapisujesz wynik rozmowy w grupie „Nieodebrane”. Kto pojawi się na karcie jako następny?",
+        "options": [
+          "Następna osoba z „Nieodebranych”",
+          "Pierwsza osoba z „Oddzwonienia na dziś”",
+          "Nikt, następną trzeba wybrać ręcznie"
+        ],
+        "answer": 0,
+        "explain": "Wybrana grupa zostaje: po zapisie karta przechodzi do następnej osoby z tej samej grupy. „Wszystko” wraca do całej kolejki."
+      },
+      {
+        "q": "Klikasz „Kopiuj numer” i wklejasz go w telefonie. Jak wygląda numer?",
+        "options": [
+          "Bez kierunkowego, samo 9 cyfr",
+          "Z +48 na początku, telefon od razu go wybierze",
+          "Ze spacjami, tak jak na ekranie"
+        ],
+        "answer": 1,
+        "explain": "Na ekranie numer stoi w trójkach, a do schowka idzie z +48 i bez spacji. Numer zapisany na liście jako 48… bez plusa telefon wybierałby jak krajowy."
+      }
+    ]
   }
 ]

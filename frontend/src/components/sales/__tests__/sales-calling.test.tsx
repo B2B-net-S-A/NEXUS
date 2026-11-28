@@ -264,6 +264,7 @@ const fresh = item();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState(null, "", "/sales/calling");
   canEdit = true;
   previewData = undefined;
   queue.mockReturnValue(ok(callQueue({ callbacks: [callback], meetings: [meeting], new: [fresh] })));
@@ -475,6 +476,32 @@ describe("kolejka", () => {
     expect(screen.getByText(/1 nieodebrany/)).toBeInTheDocument();
   });
 
+  it("przełącznik grup: liczniki, lista tylko z grupy i „następna” w tej samej grupie (27.11.2026)", async () => {
+    const missed = item({ key: "r:4", record_id: 4, section: "no_answer", state: "no_answer", company: { id: 14, name: "Cisza S.A." } });
+    const missed2 = item({ key: "r:6", record_id: 6, section: "no_answer", state: "no_answer", company: { id: 16, name: "Druga Cisza" } });
+    queue.mockReturnValue(
+      ok(callQueue({ callbacks: [callback], no_answer: [missed, missed2], new: [fresh], counts: { callbacks: 1, no_answer: 475, meetings: 0, new: 1, later: 0 } })),
+    );
+    render(<CallQueueView />);
+    const groups = screen.getByRole("group", { name: "Grupa kolejki" });
+    expect(within(groups).getByRole("button", { name: "Wszystko 477" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(groups).getByRole("button", { name: "Nieodebrane 475" }));
+    expect(window.location.search).toBe("?group=no_answer");
+    expect(screen.queryByText("Oddzwonienie Sp. z o.o.")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("button", { current: true })).getByText("Cisza S.A.")).toBeInTheDocument();
+    expect(screen.getByText("1 z 2")).toBeInTheDocument();
+    expect(screen.getByText("Po zapisie od razu następna: Druga Cisza.")).toBeInTheDocument();
+    fireEvent.click(within(groups).getByRole("button", { name: "Wszystko 477" }));
+    expect(window.location.search).toBe("");
+  });
+
+  it("grupa z adresu otwiera się od razu, a pusta mówi, co jest w pozostałych", () => {
+    window.history.replaceState(null, "", "/sales/calling?group=no_answer");
+    render(<CallQueueView />);
+    expect(screen.getByRole("button", { name: "Nieodebrane 0" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("W tej grupie nic dziś nie ma. Oddzwonienie na dziś: 1 · Nowe rekordy: 1 · Spotkania bez terminu: 1.")).toBeInTheDocument();
+  });
+
   it("wybór osoby nad kolejką pokazuje kolejkę innej osoby (13.11.2026)", () => {
     queue.mockReturnValue(
       ok(callQueue({ new: [fresh], callers: [{ id: 5, name: "Ja" }, { id: 9, name: "Marcel Testowy" }] })),
@@ -627,15 +654,19 @@ describe("kolejka", () => {
     expect(screen.getByRole("button", { name: "Nie odebrał" })).toBeDisabled();
   });
 
-  it("„Kopiuj numer” kopiuje numer do schowka, a wiersz listy nie udaje przycisku „Zadzwoń”", async () => {
+  it("„Kopiuj numer” kopiuje numer z +48, a karta pokazuje go w trójkach (27.11.2026)", async () => {
+    // 83% numerów list jest zapisanych jako „48XXXXXXXXX”: bez plusa telefon nie wybiera połączenia.
+    queue.mockReturnValue(ok(callQueue({ callbacks: [item({ key: "r:5", section: "callbacks", record_id: 5, phone: "48514641516" })] })));
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     render(<CallQueueView />);
     expect(screen.queryByText("Zadzwoń")).not.toBeInTheDocument();
     expect(screen.queryByText("W rozmowie")).not.toBeInTheDocument();
+    // Spacje w numerze nie mogą łamać go w kolumnę obok przycisku LinkedIn (ścieżka 28.11.2026).
+    expect(screen.getByText("+48 514 641 516")).toHaveClass("whitespace-nowrap");
     fireEvent.click(screen.getByRole("button", { name: /Kopiuj numer/ }));
-    expect(writeText).toHaveBeenCalledWith("+48 600 100 200");
-    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Skopiowano numer +48 600 100 200."));
+    expect(writeText).toHaveBeenCalledWith("+48514641516");
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Skopiowano numer +48514641516."));
   });
 
   it("kampanie i import w nagłówku widzi tylko osoba z prawem edycji", () => {
