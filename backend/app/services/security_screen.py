@@ -239,7 +239,8 @@ async def alert_break_glass_login(
     """
     from app.services.notification_triggers import emit  # noqa: PLC0415 — cykl importów
 
-    automation = user.role == UserRole.automation
+    # Rola „Automatyzacje” nie łączy się z innymi (ck_users_exclusive_finance_viewer_roles).
+    automation = user.has_role(UserRole.automation)
     try:
         async with db.begin_nested():
             event = SecurityEvent(
