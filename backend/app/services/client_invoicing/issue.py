@@ -324,6 +324,60 @@ def configured_buyer(entry: dict[str, Any]) -> dict[str, Any]:
     return clean_buyer(dict(entry), {})
 
 
+# ── Numer umowy wpisany w szkicu (``NrUmowy``, 28.11.2026) ──────────────────
+
+#: Umowa wpisana w szkicu leży w JSON-ie ``buyer`` (umowa z nabywcą faktury),
+#: bo faktura nie ma na nią kolumny (bez migracji). ``clean_buyer`` jej nie
+#: przepuszcza — szablony i nabywca z listy jej nie przenoszą; zachowuje ją
+#: ``keep_contract`` przy edycji nabywcy szkicu.
+CONTRACT_KEYS = ("contract_number", "contract_date")
+
+
+def contract_override(
+    invoice: ClientIssuedInvoice,
+) -> Optional[tuple[str, Optional[date]]]:
+    """(numer, data) umowy wpisanej w szkicu; ``None`` = umowa z reguł klienta."""
+
+    buyer = invoice.buyer or {}
+    number = " ".join(str(buyer.get("contract_number") or "").split())
+    if not number:
+        return None
+    raw = str(buyer.get("contract_date") or "")
+    try:
+        when = date.fromisoformat(raw[:10]) if raw else None
+    except ValueError:
+        when = None
+    return number, when
+
+
+def keep_contract(buyer: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Nowa migawka nabywcy z umową wpisaną wcześniej w szkicu."""
+
+    kept = {key: current[key] for key in CONTRACT_KEYS if current.get(key)}
+    return {**buyer, **kept}
+
+
+def set_contract(invoice: ClientIssuedInvoice, number: Any, when: Any) -> None:
+    """Umowa wpisana w szkicu; pusty numer = wraca umowa z reguł klienta."""
+
+    value = " ".join(str(number or "").split())[: requirements.FIELD_MAX]
+    day = _date(when, "Data umowy")
+    if not value and day is not None:
+        raise IssueError(
+            "Data umowy bez numeru umowy — wpisz numer albo usuń datę.", 422
+        )
+    buyer = {
+        key: item
+        for key, item in (invoice.buyer or {}).items()
+        if key not in CONTRACT_KEYS
+    }
+    if value:
+        buyer["contract_number"] = value
+        if day is not None:
+            buyer["contract_date"] = day.isoformat()
+    invoice.buyer = buyer
+
+
 # ── „Wystaw za miesiąc” ─────────────────────────────────────────────────────
 
 
@@ -730,11 +784,12 @@ def _units(
     Domyślnie faktura na zamówienie (albo na osobę). Nabywca per kontrakt
     (lista nabywców klienta w ustawieniach) dzieli zamówienie na faktury
     nabywców; ``cl.orders_together`` łączy zamówienia klienta w tej samej
-    walucie i z tym samym nabywcą w jedną fakturę.
+    walucie, z tym samym nabywcą i na tej samej umowie (``cl.ksef_contract``)
+    w jedną fakturę.
     """
 
     units: list[_Unit] = []
-    together: dict[tuple[int, str, Optional[str]], _Unit] = {}
+    together: dict[tuple[Any, ...], _Unit] = {}
     for key in wanted:
         row = rows[key]
         currency = row.currency if row.currency in CURRENCIES else "PLN"
@@ -752,8 +807,14 @@ def _units(
                 by_buyer.setdefault(code, []).append(line)
                 buyers[code] = buyer
             for code, part in by_buyer.items():
-                merge = split != "person" and reqs[row.client_id].orders_together
-                slot = (row.client_id, currency, code)
+                found = reqs[row.client_id]
+                merge = split != "person" and found.orders_together
+                slot = (
+                    row.client_id,
+                    currency,
+                    code,
+                    found.contract_for(row.order_number),
+                )
                 if merge and slot in together:
                     together[slot].parts.append((row, part))
                     continue
@@ -997,7 +1058,15 @@ async def update(
             raise IssueError("Faktura ma już numer z tej serii.", 422)
         invoice.series_code = code
     if isinstance(payload.get("buyer"), dict):
-        invoice.buyer = clean_buyer(payload["buyer"], invoice.buyer or {})
+        current = invoice.buyer or {}
+        invoice.buyer = keep_contract(clean_buyer(payload["buyer"], current), current)
+    if "contract_number" in payload or "contract_date" in payload:
+        override = contract_override(invoice)
+        set_contract(
+            invoice,
+            payload.get("contract_number", override[0] if override else None),
+            payload.get("contract_date", override[1] if override else None),
+        )
     if payload.get("buyer_code"):
         await _choose_buyer(db, invoice, str(payload["buyer_code"]), actor_id=actor_id)
     if "lines" in payload:
@@ -1051,7 +1120,7 @@ async def _choose_buyer(
     )
     if buyer is None:
         raise IssueError("Nie ma takiego nabywcy na liście klienta.", 422)
-    invoice.buyer = configured_buyer(buyer)
+    invoice.buyer = keep_contract(configured_buyer(buyer), invoice.buyer or {})
     if invoice.invoice_type == "VAT" and invoice.number_seq is None:
         eu = _buyer_kind(invoice.buyer) == "eu"
         invoice.series_code = "UE" if eu else "PL"
@@ -1312,6 +1381,12 @@ async def problems(
     found = await invoice_requirements(db, invoice)
     blocking, _ = requirements.line_problems(found, invoice.lines or [])
     out.extend(blocking)
+    if found.contract_conflict:
+        out.append(
+            "Zamówienia faktury są na różnych umowach ("
+            + ", ".join(found.contract_conflict)
+            + ") — podziel fakturę albo wpisz numer umowy w szkicu."
+        )
     if found.bzone_order and invoice.invoice_type == "VAT" and invoice.client_id:
         bzone = await _bzone_problem(
             db,
@@ -1417,11 +1492,47 @@ async def protocol_warnings(
 async def invoice_requirements(
     db: AsyncSession, invoice: ClientIssuedInvoice
 ) -> requirements.Requirements:
-    """Wymagania klienta na miesiąc usługi faktury (reguły ``cl.*``)."""
+    """Wymagania klienta na miesiąc usługi faktury (reguły ``cl.*``) z umową tej faktury."""
 
+    return resolve_contract(await _client_requirements(db, invoice), invoice)
+
+
+async def _client_requirements(
+    db: AsyncSession, invoice: ClientIssuedInvoice
+) -> requirements.Requirements:
     if invoice.client_id is None:
         return requirements.Requirements()
     return await requirements.load(db, invoice.client_id, invoice_period(invoice))
+
+
+def contract_order_numbers(invoice: ClientIssuedInvoice) -> list[str]:
+    """Numery zamówień do mapy umów: z pozycji z „Do faktury”, inaczej z pola faktury.
+
+    Pozycje niosą numer zamówienia albo grupy z „Do faktury”, więc poprawka
+    „Numeru zamówienia klienta” w szkicu nie zmienia umowy grupy.
+    """
+
+    numbers: list[str] = []
+    for line in invoice.lines or []:
+        number = line.get("order_number")
+        if line.get("order_key") and number and number not in numbers:
+            numbers.append(number)
+    return numbers or order_numbers(invoice)
+
+
+def resolve_contract(
+    found: requirements.Requirements,
+    invoice: ClientIssuedInvoice,
+    *,
+    override: bool = True,
+) -> requirements.Requirements:
+    """Umowa faktury: wpisana w szkicu (``override``), z mapy reguły albo domyślna."""
+
+    return requirements.with_contract(
+        found,
+        contract_order_numbers(invoice),
+        contract_override(invoice) if override else None,
+    )
 
 
 def invoice_period(invoice: ClientIssuedInvoice) -> str:
@@ -1878,7 +1989,10 @@ async def payload(
     blocking = (
         await problems(db, invoice, settings, config) if editable(invoice) else []
     )
-    found = await invoice_requirements(db, invoice)
+    rules = await _client_requirements(db, invoice)
+    found = resolve_contract(rules, invoice)
+    by_rules = resolve_contract(rules, invoice, override=False)
+    override = contract_override(invoice)
     numbers = order_numbers(invoice)
     _, warnings = requirements.line_problems(found, invoice.lines or [])
     checks: list[str] = []
@@ -1927,6 +2041,15 @@ async def payload(
             # Uwagi kontroli formalnej: wysyłka tylko z powodem (``checks_reason``).
             "checks": checks,
             "order_numbers": numbers,
+            # Umowa wpisana w szkicu (puste = z reguł) i umowa z reguł klienta.
+            "contract_number": override[0] if override else None,
+            "contract_date": _iso(override[1]) if override else None,
+            "contract_rule": {
+                "number": by_rules.contract_number,
+                "date": _iso(by_rules.contract_date),
+            }
+            if by_rules.contract_number
+            else None,
             "requirements": requirements.summary(found, numbers),
             "mail": found.mail_for(
                 series=invoice.series_code,

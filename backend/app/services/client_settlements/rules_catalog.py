@@ -13,10 +13,13 @@ reguła z późniejszego etapu daje się ustawić, ale silnik E1 jej nie sprawdz
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from datetime import date
+from typing import Any, Mapping, Optional
 
 LEVELS: tuple[str, ...] = ("block", "warn", "off")
 PARAM_MAX = 200
+#: Format mapy ``cl.ksef_contract.by_order`` — w komunikacie błędu zapisu.
+CONTRACT_MAP_EXAMPLE = "ZAM_1=UM/2015/1; ZAM_2=UM/2015/1 z 2015-06-01"
 
 
 @dataclass(frozen=True)
@@ -504,12 +507,21 @@ SECTIONS: tuple[Section, ...] = (
                 "Numer umowy w KSeF (NrUmowy)",
                 "off",
                 "F2",
-                {"number": "", "date": ""},
+                {"number": "", "date": "", "by_order": ""},
                 (
                     ParamField("number", "numer umowy"),
                     ParamField("date", "z dnia", "RRRR-MM-DD, można pominąć"),
+                    ParamField(
+                        "by_order",
+                        "inna umowa dla zamówień",
+                        "np. ZAM_1=UM/2015/1; …",
+                    ),
                 ),
-                "Trafia do warunków transakcji każdej faktury z NEXUSA.",
+                "Trafia do warunków transakcji każdej faktury z NEXUSA. Zamówienie "
+                "albo grupa MD z numerem z listy „inna umowa” dostaje swoją umowę "
+                "(„z RRRR-MM-DD” po numerze = data umowy), reszta — numer wyżej. "
+                "Zamówienia różnych umów nie łączą się w jedną fakturę. Numer "
+                "umowy można też poprawić w szkicu faktury.",
                 switch=True,
             ),
             Rule(
@@ -685,8 +697,48 @@ def clean_for_save(items: list[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
             if len(value) > PARAM_MAX:
                 raise RulesError(f"Za długa wartość w regule „{rule.name}”.")
             params[name] = value
+        if rule.key == "cl.ksef_contract":
+            _, bad = parse_contract_map(params["by_order"])
+            if bad:
+                raise RulesError(
+                    f"„{rule.name}”: nie rozumiem wpisu „{bad[0]}” — wpisz "
+                    f"zamówienie=umowa, np. {CONTRACT_MAP_EXAMPLE}."
+                )
         out[rule.key] = {"level": level, "params": params}
     return out
+
+
+def parse_contract_map(
+    raw: str,
+) -> tuple[tuple[tuple[str, str, Optional[date]], ...], list[str]]:
+    """``cl.ksef_contract.by_order`` → ((zamówienie, umowa, data), …), nieczytelne wpisy.
+
+    Wpisy rozdziela średnik albo nowa linia: ``zamówienie=umowa`` albo
+    ``zamówienie=umowa z RRRR-MM-DD``. Zamówienie zostaje tak, jak je wpisano
+    (porównanie bez wielkości liter robi ``requirements.order_key``).
+    """
+
+    entries: list[tuple[str, str, Optional[date]]] = []
+    bad: list[str] = []
+    for chunk in str(raw or "").replace("\n", ";").split(";"):
+        text = " ".join(chunk.split())
+        if not text:
+            continue
+        order, sep, contract = (part.strip() for part in text.partition("="))
+        when: Optional[date] = None
+        head, z_sep, tail = contract.rpartition(" z ")
+        if z_sep:
+            try:
+                when = date.fromisoformat(tail.strip())
+            except ValueError:
+                bad.append(text)
+                continue
+            contract = head.strip()
+        if not sep or not order or not contract:
+            bad.append(text)
+            continue
+        entries.append((order, contract, when))
+    return tuple(entries), bad
 
 
 def as_screen(rules: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:

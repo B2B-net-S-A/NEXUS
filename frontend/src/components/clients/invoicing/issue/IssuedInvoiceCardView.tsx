@@ -38,7 +38,7 @@ import {
   type IssuedInvoiceCard,
   type InvoicePatch,
 } from "@/lib/api/issued-invoices";
-import { formatDayMonthPl } from "@/lib/date-pl";
+import { formatDayMonthPl, formatIsoDatePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
@@ -76,6 +76,8 @@ interface FormState {
   due_date: string;
   client_order_number: string;
   notes: string;
+  contract_number: string;
+  contract_date: string;
   correction_reason: string;
   currency: IssuedInvoiceCard["currency"];
   series_code: "PL" | "UE" | "BEN";
@@ -92,6 +94,8 @@ function formFrom(card: IssuedInvoiceCard): FormState {
     due_date: card.due_date ?? "",
     client_order_number: card.client_order_number ?? "",
     notes: card.notes ?? "",
+    contract_number: card.contract_number ?? "",
+    contract_date: card.contract_date ?? "",
     correction_reason: card.correction_reason ?? "",
     currency: card.currency,
     series_code:
@@ -118,6 +122,9 @@ function patchFrom(card: IssuedInvoiceCard, form: FormState): InvoicePatch {
     due_date: form.due_date || null,
     client_order_number: form.client_order_number || null,
     notes: form.notes || null,
+    // Pusty numer = umowa z reguł klienta; data bez numeru nie ma znaczenia.
+    contract_number: form.contract_number.trim() || null,
+    contract_date: form.contract_number.trim() ? form.contract_date || null : null,
     buyer: form.buyer,
     lines: form.lines.map((line) => ({
       ...line,
@@ -131,6 +138,23 @@ function patchFrom(card: IssuedInvoiceCard, form: FormState): InvoicePatch {
   else patch.currency = form.currency;
   if (card.invoice_type === "VAT") patch.series_code = form.series_code;
   return patch;
+}
+
+/** Skąd jest numer umowy faktury: z reguł klienta (`cl.ksef_contract`) albo wpisany w szkicu. */
+export function contractHint(
+  rule: IssuedInvoiceCard["contract_rule"] | undefined,
+  typed: string,
+): string {
+  const ruleText = rule
+    ? `${rule.number}${rule.date ? ` z ${formatIsoDatePl(rule.date)}` : ""}`
+    : null;
+  if (!typed.trim())
+    return ruleText
+      ? `Z reguł klienta: ${ruleText}. Wpisz inny numer, żeby go zastąpić.`
+      : "Klient nie ma umowy w regułach — faktura pójdzie bez numeru umowy.";
+  return ruleText
+    ? `Zastępuje umowę z reguł klienta (${ruleText}). Puste pole przywraca ją.`
+    : "Wpisany w szkicu. Puste pole = faktura bez numeru umowy.";
 }
 
 /**
@@ -591,6 +615,32 @@ function CardBody({
                 </select>
               </FormField>
             ) : null}
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <FormField
+              label="Numer umowy (KSeF)"
+              htmlFor="inv-contract"
+              className="md:col-span-2"
+              description={contractHint(card.contract_rule, form.contract_number)}
+            >
+              <Input
+                id="inv-contract"
+                maxLength={256}
+                disabled={!editable}
+                placeholder={card.contract_rule?.number ?? "bez numeru umowy"}
+                value={form.contract_number}
+                onChange={(e) => change({ contract_number: e.target.value })}
+              />
+            </FormField>
+            <FormField label="Umowa z dnia" htmlFor="inv-contract-date">
+              <Input
+                id="inv-contract-date"
+                type="date"
+                disabled={!editable || !form.contract_number.trim()}
+                value={form.contract_date}
+                onChange={(e) => change({ contract_date: e.target.value })}
+              />
+            </FormField>
           </div>
           {card.invoice_type === "KOR" ? (
             <FormField label="Przyczyna korekty" htmlFor="inv-reason">

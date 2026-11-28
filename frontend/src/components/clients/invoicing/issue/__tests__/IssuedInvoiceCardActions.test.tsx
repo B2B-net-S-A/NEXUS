@@ -259,6 +259,40 @@ describe("Karta faktury — szkic", () => {
     expect(mocks.put.mock.calls[0][1].lines).toEqual([]);
   });
 
+  it("numer umowy: podpowiedź z reguł klienta, wpisany numer z datą idzie w zapisie", async () => {
+    route(card({ contract_number: null, contract_date: null, contract_rule: { number: "UR/2020/77", date: "2020-03-02" } }));
+    mocks.put.mockResolvedValue({ data: card() });
+    const user = userEvent.setup();
+    wrap(<IssuedInvoiceCardView invoiceId={5} />);
+    const number = await screen.findByLabelText("Numer umowy (KSeF)");
+    expect(number).toHaveValue("");
+    expect(number).toHaveAttribute("placeholder", "UR/2020/77");
+    expect(screen.getByText("Z reguł klienta: UR/2020/77 z 02.03.2020. Wpisz inny numer, żeby go zastąpić.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Umowa z dnia")).toBeDisabled();
+    await user.type(number, "UR/2015/5");
+    expect(screen.getByText("Zastępuje umowę z reguł klienta (UR/2020/77 z 02.03.2020). Puste pole przywraca ją.")).toBeInTheDocument();
+    const day = screen.getByLabelText("Umowa z dnia");
+    expect(day).toBeEnabled();
+    await user.type(day, "2015-06-01");
+    await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    expect(mocks.put.mock.calls[0][1]).toMatchObject({ contract_number: "UR/2015/5", contract_date: "2015-06-01" });
+  });
+
+  it("numer umowy: wyczyszczony numer wraca do reguł i nie wysyła daty", async () => {
+    route(card({ contract_number: "UR/2015/5", contract_date: "2015-06-01", contract_rule: null }));
+    mocks.put.mockResolvedValue({ data: card() });
+    const user = userEvent.setup();
+    wrap(<IssuedInvoiceCardView invoiceId={5} />);
+    const number = await screen.findByLabelText("Numer umowy (KSeF)");
+    expect(number).toHaveValue("UR/2015/5");
+    await user.clear(number);
+    expect(screen.getByText("Klient nie ma umowy w regułach — faktura pójdzie bez numeru umowy.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    expect(mocks.put.mock.calls[0][1]).toMatchObject({ contract_number: null, contract_date: null });
+  });
+
   it("kilka zamówień na pozycjach: pole numeru zamówienia zablokowane z listą numerów", async () => {
     route(card({ order_numbers: ["ZAM/1", "ZAM/2"] }));
     wrap(<IssuedInvoiceCardView invoiceId={5} />);

@@ -1,5 +1,10 @@
 [
  {
+  "poprawka": "8ed47bf5a4 (claude/invoice-contract-number-per-group)",
+  "tytul": "numer umowy (NrUmowy) per zamówienie albo grupa i poprawka w szkicu faktury",
+  "poza_czytnikiem": "nowy parametr reguły cl.ksef_contract (mapa zamówienie=umowa) i jego walidacja przy zapisie reguł — faktura sprzedaży do KSeF, nie odczyt poczty rozliczeń"
+ },
+ {
   "poprawka": "75b087dcb #4028",
   "tytul": "akceptacja NN przekazana dalej z wierszem tabeli w jednej linii",
   "poza_czytnikiem": "MD z treści maila NN (mail_nn) w rozliczeniu, nie pole odczytu poczty"

@@ -189,14 +189,16 @@ function RuleRow({ rule, level, params, disabled, onLevel, onParam }: RuleRowPro
         {rule.param_fields.length > 0 || rule.hint ? (
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             {rule.param_fields.map((f) => (
-              <label key={f.key} className="inline-flex items-center gap-1">
+              // Długa wartość (np. mapa „zamówienie=umowa”) zawija się w kolumnie
+              // zamiast wchodzić na przełącznik reguły.
+              <label key={f.key} className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
                 {f.label}
                 <Input
                   value={params[f.key] ?? ""}
                   disabled={disabled}
                   onChange={(e) => onParam(f.key, e.target.value)}
                   size={Math.max(4, (params[f.key] ?? "").length + 1)}
-                  className="h-6 w-auto px-1.5 text-xs"
+                  className="h-6 w-auto max-w-full px-1.5 text-xs"
                 />
                 {f.suffix ?? null}
               </label>
