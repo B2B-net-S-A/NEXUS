@@ -76,8 +76,15 @@ def test_net_falls_back_to_gross_only_with_explicit_zero_vat():
 def test_only_read_invoices_with_amount_count():
     read = {"status": "read", "doc_type": "invoice", "net_amount": "1.00"}
     assert invoice_read.counts_as_cost(read)
-    assert not invoice_read.counts_as_cost({**read, "status": "failed"})
+    assert not invoice_read.counts_as_cost({**read, "status": "retry"})
     assert not invoice_read.counts_as_cost({**read, "doc_type": "receipt"})
+    # Czytnik zgód: netto bez brutto to „failed”, ale koszt liczymy netto.
+    assert invoice_read.counts_as_cost(
+        {**read, "status": "failed", "net_amount": "93000.00", "gross_amount": None}
+    )
+    assert not invoice_read.counts_as_cost(
+        {"status": "failed", "doc_type": "invoice", "net_amount": None}
+    )
     assert not invoice_read.counts_as_cost(
         {**read, "net_amount": None, "gross_amount": None}
     )

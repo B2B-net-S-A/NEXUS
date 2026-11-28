@@ -69,6 +69,10 @@ przesunięcie o miesiąc (dwa miesiące razem się zgadzają), nie jest sprawą.
   sprzedawcy. NIP z faktury należący do kogoś innego niż osoba z kontraktu =
   nie liczy się nikomu (`pdf_other_nip`). Kwota to netto z faktury, a brutto
   tylko przy VAT jawnie zerowym: nieodczytany VAT to nie zwolnienie.
+  Czytnik zgód daje `failed`, gdy brak brutto, ale faktura z netto liczy się
+  mimo to (`counts_as_cost`; 28.11.2026 na produkcji faktura za X z netto i bez
+  brutto wypadała z kontroli). Aneksy umów i inne pliki z poczty oznaczone jako
+  faktura nie mają kwoty i nie liczą się same z siebie.
   Odpowiedź modelu bez kwoty = `failed` na stałe, a awaria modelu (429, 529)
   albo chwilowy brak pliku = `retry`, najwyżej 3 próby
   (`invoice_read.MAX_ATTEMPTS`), bo jedna awaria oznaczałaby prawdziwe
