@@ -140,3 +140,15 @@ it("harness /preview/* nie startuje pomiaru", async () => {
   expect(fetchMock).not.toHaveBeenCalled();
   expect(posthog.init).not.toHaveBeenCalled();
 });
+
+it("po udanej sondzie nie pyta API drugi raz", async () => {
+  const fetchMock = await mount({ body: { usageAnalytics: KEY } });
+  const { useAuthStore } = await import("@/store/auth");
+  await act(async () => {
+    useAuthStore.setState({ user: { id: 8, role: "delivery_lead" } as never });
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(posthog.identify).toHaveBeenCalledWith("user-8");
+  expect(posthog.register).toHaveBeenLastCalledWith({ role: "delivery_lead" });
+});

@@ -4,7 +4,11 @@ import { useEffect } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { IS_STAGING } from "@/components/StagingBadge";
 import { useAuthStore } from "@/store/auth";
-import { apiUsageAnalyticsKey, probeTelemetryCapability } from "@/lib/telemetry-capability";
+import {
+  apiSupportsCorrelation,
+  apiUsageAnalyticsKey,
+  probeTelemetryCapability,
+} from "@/lib/telemetry-capability";
 import {
   routePattern,
   setUsageScreen,
@@ -36,7 +40,9 @@ export function UsageAnalytics() {
       return;
     }
     let cancelled = false;
-    void probeTelemetryCapability().then(() => {
+    // Po udanej sondzie klucz już jest; nowa sonda byłaby zbędnym żądaniem do API.
+    const probed = apiSupportsCorrelation() ? Promise.resolve() : probeTelemetryCapability();
+    void probed.then(() => {
       const key = apiUsageAnalyticsKey();
       if (!cancelled && key) void startUsageAnalytics({ key, userId, role });
     });
