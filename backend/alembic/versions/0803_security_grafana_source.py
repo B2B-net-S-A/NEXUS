@@ -1,7 +1,7 @@
 """Ekran Bezpieczeństwo: źródło ``grafana`` (alerty Grafany Cloud).
 
-Revision ID: 0802_security_grafana_source
-Revises: 0801_b2b_krz_check
+Revision ID: 0803_security_grafana_source
+Revises: 0802_break_glass_login_alert
 
 Zlecenie Artura z 28.11.2026: alerty z Grafany Cloud trafiają do ekranu
 Bezpieczeństwo przez ``POST /api/security/ingest/grafana``. Jedyna zmiana
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import security_schema as schema
 
-revision = "0802_security_grafana_source"
-down_revision = "0801_b2b_krz_check"
+revision = "0803_security_grafana_source"
+down_revision = "0802_break_glass_login_alert"
 branch_labels = None
 depends_on = None
 
@@ -23,7 +23,7 @@ REFUSE_WITH_GRAFANA_ROWS = """DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM security_findings WHERE source = 'grafana')
        OR EXISTS (SELECT 1 FROM security_events WHERE source = 'grafana') THEN
-        RAISE EXCEPTION 'Downgrade 0802 odmawia: są wiersze źródła grafana, których CHECK sprzed tej rewizji nie przepuści.';
+        RAISE EXCEPTION 'Downgrade 0803 odmawia: są wiersze źródła grafana, których CHECK sprzed tej rewizji nie przepuści.';
     END IF;
 END $$"""
 
