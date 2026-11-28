@@ -10,12 +10,19 @@
   ślad niewykorzystanego numeru.
 * ``set_next`` — „następny numer” z ekranu ustawień (np. kontynuacja numeracji
   z eBI24 w połowie miesiąca). Nie może zejść do numeru już wydanego.
+* Numer wydany poza NEXUSEM też jest wydany (``_highest_outside``): dopóki
+  eBI24 działa równolegle, faktury z jego numerami tej serii są w KSeF
+  (``client_sales_invoices``). Bez tego pierwsza faktura z NEXUSA dostałaby
+  1/11/2026 obok 323 faktur eBI24 z listopada, KSeF odpowiedziałby 440
+  („Duplikat faktury”), a ``ksef_send._resolve_duplicate`` przypiąłby do niej
+  numer KSeF cudzej faktury (test na KSeF testowym MF 28.11.2026).
 
 Miesiąc numeracji = miesiąc daty wystawienia (``P_1``).
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from sqlalchemy import func, select
@@ -23,6 +30,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_issued_invoice import ClientInvoiceSeries, ClientIssuedInvoice
+from app.models.client_sales_invoice import ClientSalesInvoice
 from app.services.client_invoice_issue_schema import NUMBER_MAX, SERIES
 
 
@@ -77,6 +85,52 @@ async def _highest_issued(db: AsyncSession, code: str, year: int, month: int) ->
     return int(value or 0)
 
 
+def number_regex(pattern: str, year: int, month: int) -> str:
+    """Wyrażenie numeru serii w danym miesiącu; ``{n}`` to grupa z numerem."""
+
+    out = re.escape(pattern)
+    for token, value in (
+        # Najwyżej tyle cyfr, ile ma NUMBER_MAX: obcy numer w rodzaju
+        # „20261101/11/2026” nie może „wyczerpać” serii.
+        (re.escape("{n}"), f"([0-9]{{1,{len(str(NUMBER_MAX))}}})"),
+        (re.escape("{mm}"), f"{month:02d}"),
+        (re.escape("{m}"), str(month)),
+        (re.escape("{yyyy}"), f"{year:04d}"),
+    ):
+        out = out.replace(token, value)
+    return f"^{out}$"
+
+
+async def _highest_outside(
+    db: AsyncSession, pattern: Optional[str], year: int, month: int
+) -> int:
+    """Najwyższy numer serii z faktur sprzedaży w KSeF (eBI24 i NEXUS)."""
+
+    if not pattern or "{n}" not in pattern:
+        return 0
+    regex = number_regex(pattern, year, month)
+    compiled = re.compile(regex)
+    best = 0
+    for number in await db.scalars(
+        select(ClientSalesInvoice.invoice_number).where(
+            ClientSalesInvoice.invoice_number.op("~")(regex)
+        )
+    ):
+        found = compiled.match(number or "")
+        if found:
+            best = max(best, int(found.group(1)))
+    return best
+
+
+async def _highest(
+    db: AsyncSession, code: str, year: int, month: int, pattern: Optional[str]
+) -> int:
+    return max(
+        await _highest_issued(db, code, year, month),
+        await _highest_outside(db, pattern, year, month),
+    )
+
+
 async def assign(
     db: AsyncSession, invoice: ClientIssuedInvoice, *, pattern: str
 ) -> str:
@@ -87,9 +141,10 @@ async def assign(
     year, month = invoice.issue_date.year, invoice.issue_date.month
     series = await _locked_series(db, invoice.series_code, year, month)
     number = series.next_number
-    # Ręcznie wpisany „następny numer” mógł zostać za numerami już wydanymi.
+    # Ręcznie wpisany „następny numer” mógł zostać za numerami już wydanymi,
+    # także w eBI24 (numery tej serii w KSeF).
     number = max(
-        number, await _highest_issued(db, invoice.series_code, year, month) + 1
+        number, await _highest(db, invoice.series_code, year, month, pattern) + 1
     )
     if number > NUMBER_MAX:
         raise NumberingError("Seria wyczerpała numery w tym miesiącu.")
@@ -125,13 +180,14 @@ async def set_next(
     month: int,
     next_number: int,
     actor_id: int,
+    pattern: Optional[str] = None,
 ) -> ClientInvoiceSeries:
     if code not in SERIES:
         raise NumberingError("Nie ma takiej serii.", 422)
     if not 1 <= next_number <= NUMBER_MAX:
         raise NumberingError("Następny numer musi być od 1 do 999999.", 422)
     series = await _locked_series(db, code, year, month)
-    highest = await _highest_issued(db, code, year, month)
+    highest = await _highest(db, code, year, month, pattern)
     if next_number <= highest:
         raise NumberingError(
             f"W tym miesiącu wydano już numer {highest} — następny musi być większy."
@@ -157,7 +213,7 @@ async def series_view(
     out = []
     for code in SERIES:
         row: Optional[ClientInvoiceSeries] = rows.get(code)
-        highest = await _highest_issued(db, code, year, month)
+        highest = await _highest(db, code, year, month, patterns.get(code))
         next_number = max(row.next_number if row else 1, highest + 1)
         out.append(
             {
@@ -175,6 +231,7 @@ __all__ = [
     "NumberingError",
     "assign",
     "format_number",
+    "number_regex",
     "release",
     "series_view",
     "set_next",

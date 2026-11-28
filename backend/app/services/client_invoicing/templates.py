@@ -43,7 +43,12 @@ from app.services.client_invoice_templates_schema import (
     NAME_MAX,
     TEMPLATE_SERIES,
 )
-from app.services.client_invoicing import fa3_build, issue, issue_settings
+from app.services.client_invoicing import (
+    client_defaults,
+    fa3_build,
+    issue,
+    issue_settings,
+)
 from app.services.client_invoicing.export import MONTHS_PL
 from app.services.client_invoicing.issue import IssueError
 from app.services.client_sales_invoices_schema import CURRENCIES
@@ -217,7 +222,12 @@ async def create_manual(
         client = await db.get(Client, client_id)
         if client is None or client.deleted_at is not None:
             raise IssueError("Nie ma takiego klienta.", 404)
-        defaults = issue._defaults(client, settings, today)  # noqa: SLF001
+        defaults = issue._defaults(  # noqa: SLF001
+            client,
+            settings,
+            today,
+            history=await client_defaults.for_client(db, client, today=today),
+        )
         snapshot, series, vat = defaults.buyer, defaults.series, defaults.vat_rate
         due = defaults.due_date
     else:

@@ -221,6 +221,7 @@ async def put_series(
     await _module_open(db, current_user)
     if code not in SERIES:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiej serii.")
+    data = await issue_settings.load(db)
     with _http_errors():
         await numbering.set_next(
             db,
@@ -229,9 +230,9 @@ async def put_series(
             month=body.month,
             next_number=body.next_number,
             actor_id=current_user.id,
+            pattern=data["series"].get(code),
         )
     await db.commit()
-    data = await issue_settings.load(db)
     return {
         "series": await numbering.series_view(
             db, year=body.year, month=body.month, patterns=data["series"]
