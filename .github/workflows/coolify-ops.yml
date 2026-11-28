@@ -1191,7 +1191,7 @@ jobs:
           INDEX_FINGERPRINT: ${{ inputs.index_fingerprint }}
         run: python3 .github/scripts/candidate-index-audit-ops.py
       - name: Preserve aggregate coverage report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.action }}-${{ github.run_id }}
           path: ${{ runner.temp }}/candidate-index-*/report.json
@@ -1246,7 +1246,7 @@ jobs:
       # tworzy go z zamkniętej allowlisty; nie zawiera nazw ani kwot.
       - name: Zachowaj zredagowany raport
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: contract-merge-${{ inputs.action }}-${{ github.run_id }}
           path: ${{ runner.temp }}/contract-merge/
@@ -1289,7 +1289,7 @@ jobs:
 
       - name: Zachowaj zredagowany raport korekty
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nexus-data-correction-${{ inputs.action }}-${{ github.run_id }}
           path: ${{ runner.temp }}/nexus-data-correction/
@@ -1588,7 +1588,7 @@ jobs:
         run: python3 .github/scripts/cv-quality-cleanup.py
       - name: Preserve metrics and task cleanup receipt
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cv-quality-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cv-quality/

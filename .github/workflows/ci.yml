@@ -299,7 +299,7 @@ jobs:
       # artefakt jest pusty, a job scalający nie ma czego scalić.
       - name: Upload coverage data (shard artifact)
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-coverage-shard-${{ matrix.shard }}
           path: backend/.coverage.shard-${{ strategy.job-index }}
@@ -399,7 +399,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY"
       - name: Upload combined coverage.xml
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-coverage-combined
           path: backend/coverage.xml
@@ -1155,7 +1155,7 @@ jobs:
       # niesie tokenów ani danych osób.
       - name: Poligon NEXUSA — zrzuty i trace porażki
         if: failure() && steps.poligon.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: poligon-walk-failure
           path: frontend/test-results/
@@ -1257,7 +1257,7 @@ jobs:
       # artefakt nie niesie tokenów ani danych osób.
       - name: Harnessy /preview/* — zrzuty i trace porażki
         if: failure() && steps.preview.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: preview-harness-failure
           path: frontend/test-results/
@@ -1302,7 +1302,7 @@ jobs:
         run: npm run test:coverage
       - name: Upload frontend coverage (artifact)
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: frontend-coverage
           path: frontend/coverage/lcov.info
@@ -1495,7 +1495,7 @@ jobs:
           fi
       - name: Upload Trivy report
         if: ${{ !cancelled() && steps.scope.outputs.run == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trivy-report
           path: trivy-report.txt

@@ -239,7 +239,7 @@ jobs:
         run: .qa/venv/bin/python qa/summarize.py
       - name: Publish QA evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nexus-qa-toolkit
           # Never upload .qa/: it contains session tokens and private fixtures.
@@ -252,7 +252,7 @@ jobs:
         run: docker compose -f docker-compose.e2e.yml logs --tail 400 backend frontend > frontend/stack-logs.txt 2>&1 || true
       - name: Upload report on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-stack-report
           path: |
