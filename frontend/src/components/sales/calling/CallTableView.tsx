@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { useToast } from "@/components/Toast";
@@ -15,6 +16,7 @@ import {
   TABLE_PAGE_SIZE,
   useCallRecords,
   useChangeState,
+  type CallRecordFilters,
   type CallRecordScope,
   type CorrectableState,
   type QueueItem,
@@ -25,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { SalesSelect } from "../SalesSelect";
+import { CallBulkBar } from "./CallBulkBar";
 import { CallCard, type MeetingStage } from "./CallCard";
 import { DuplicatesHelp } from "./DuplicatesHelp";
 import {
@@ -32,6 +35,7 @@ import {
   CORRECTABLE_STATES,
   modifiedLabel,
   nextKey,
+  selectableRecordId,
   STATE_TONES,
   stateLabel,
   TABLE_STATES,
@@ -65,7 +69,9 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
   const [showRepeats, setShowRepeats] = useState(false);
   const deferredSearch = useDeferredValue(search);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const query = useCallRecords({
+  // Akcje zbiorcze (decyzja Artura 27.11.2026): zaznaczenie przeżywa zmianę strony, nie filtra.
+  const [checked, setChecked] = useState<readonly number[]>([]);
+  const filters: CallRecordFilters = {
     state,
     campaignId,
     search: deferredSearch,
@@ -73,18 +79,19 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
     callerId,
     callbackFrom,
     callbackTo,
-    page,
     ...(showRepeats ? { repeats: true } : {}),
-  });
+  };
+  const query = useCallRecords({ ...filters, page });
   const everyone = scope === "all";
   const items = query.data?.items ?? [];
   const selected = items.find((item) => item.key === selectedKey) ?? null;
   const upcomingKey = selected ? nextKey(items, selected.key) : null;
   const upcoming = items.find((item) => item.key === upcomingKey) ?? null;
 
-  // Każda zmiana filtra wraca na pierwszą stronę.
+  // Każda zmiana filtra wraca na pierwszą stronę i czyści zaznaczenie.
   useEffect(() => {
     setPage(0);
+    setChecked([]);
   }, [
     state,
     campaignId,
@@ -224,6 +231,15 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
           />
         </label>
       </div>
+      {canEdit && (
+        <CallBulkBar
+          selected={checked}
+          total={query.data?.total ?? 0}
+          filters={filters}
+          onSelect={setChecked}
+          onClear={() => setChecked([])}
+        />
+      )}
       {viewState === "loading" ? (
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie listy…</p>
       ) : viewState === "empty" ? (
@@ -260,6 +276,8 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
               canEdit={canEdit}
               selectedKey={selected?.key ?? null}
               onSelect={setSelectedKey}
+              checked={checked}
+              onCheck={setChecked}
             />
             {query.data && query.data.total > TABLE_PAGE_SIZE && (
               <Pager
@@ -437,6 +455,8 @@ function RecordTable({
   canEdit,
   selectedKey,
   onSelect,
+  checked,
+  onCheck,
 }: {
   items: QueueItem[];
   today: string;
@@ -444,7 +464,20 @@ function RecordTable({
   canEdit: boolean;
   selectedKey: string | null;
   onSelect: (key: string) => void;
+  checked: readonly number[];
+  onCheck: (ids: readonly number[]) => void;
 }) {
+  const marked = new Set(checked);
+  const pageIds = items.map(selectableRecordId).filter((id): id is number => id !== null);
+  const pageMarked = pageIds.filter((id) => marked.has(id)).length;
+  const togglePage = () =>
+    onCheck(
+      pageMarked === pageIds.length
+        ? checked.filter((id) => !pageIds.includes(id))
+        : [...checked, ...pageIds.filter((id) => !marked.has(id))],
+    );
+  const toggle = (id: number) =>
+    onCheck(marked.has(id) ? checked.filter((other) => other !== id) : [...checked, id]);
   // Lista dzwoniących 13.11.2026: „Wynik” → „Status”, „Powrót” → „Ostatnia modyfikacja”.
   const headers = showCaller
     ? [
@@ -460,6 +493,18 @@ function RecordTable({
     <table className="w-full text-xs">
       <thead className="border-b border-border bg-muted/40 text-muted-foreground">
         <tr>
+          {canEdit && (
+            <th scope="col" className="w-8 px-2 py-1.5">
+              <Checkbox
+                aria-label="Zaznacz rekordy na tej stronie"
+                disabled={pageIds.length === 0}
+                checked={
+                  pageMarked === 0 ? false : pageMarked === pageIds.length ? true : "indeterminate"
+                }
+                onCheckedChange={togglePage}
+              />
+            </th>
+          )}
           {headers.map((header) => (
             <th key={header} scope="col" className="whitespace-nowrap px-2 py-1.5 text-left font-medium">
               {header}
@@ -475,6 +520,17 @@ function RecordTable({
             className={cn("cursor-pointer hover:bg-muted/50", selectedKey === item.key && "bg-primary/5")}
             onClick={() => onSelect(item.key)}
           >
+            {canEdit && (
+              <td className="w-8 px-2 py-1.5" onClick={(event) => event.stopPropagation()}>
+                {selectableRecordId(item) !== null && (
+                  <Checkbox
+                    aria-label={`Zaznacz: ${item.company.name}`}
+                    checked={marked.has(selectableRecordId(item) as number)}
+                    onCheckedChange={() => toggle(selectableRecordId(item) as number)}
+                  />
+                )}
+              </td>
+            )}
             <td className="max-w-36 px-2 py-1.5">
               <button
                 type="button"
