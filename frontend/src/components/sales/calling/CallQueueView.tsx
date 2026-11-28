@@ -146,6 +146,7 @@ function GroupSwitch({
       {QUEUE_GROUPS.map((group) => (
         <Button
           key={group}
+          data-tour={group === "new" ? "sales.calling.group.new" : undefined}
           size="sm"
           variant={value === group ? "primary" : "outline"}
           className="h-7 px-2"
