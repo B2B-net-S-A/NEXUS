@@ -944,6 +944,31 @@ def start_staging(cfg: Config, sha: str) -> None:
     )
 
 
+# Tylko wiersze tej bazy: pg_stat_statements jest wspólne dla serwera, a backendy
+# gałęzi na innych bazach zbierają swoje statystyki dalej. Rozszerzenie przychodzi
+# ze zrzutem produkcji; bez niego w bazie PgHero nie pokaże zapytań.
+RESET_QUERY_STATS = (
+    "CREATE EXTENSION IF NOT EXISTS pg_stat_statements; "
+    "SELECT pg_stat_statements_reset(0, oid, 0) FROM pg_database "
+    "WHERE datname = current_database()"
+)
+
+
+def refresh_pghero(cfg: Config, postgres: str, database: str, sha: str) -> None:
+    """PgHero na nowej kopii, ze statystykami bez odtworzenia, migracji i wyrównania.
+
+    Musi być przed porządkami: PgHero podłączony do starej kopii chroni ją przed
+    usunięciem (połączenie w `pg_stat_activity`).
+    """
+    psql(postgres, database, RESET_QUERY_STATS)
+    run_cmd(
+        [*compose(cfg), "up", "-d", "--no-deps", "pghero"],
+        timeout=300,
+        env=compose_env(sha),
+        what="Start PgHero",
+    )
+
+
 def wait_healthy(
     postgres: str, database: str, sha: str, *, attempts: int = HEALTH_ATTEMPTS
 ) -> str | None:
@@ -1265,6 +1290,19 @@ def sync(cfg: Config, report: Report, now_utc: datetime, date: str) -> tuple[int
         report.waiting.append(
             f"Nowa kopia działa, ale wyrównanie rankingu padło: {error}. "
             "Warianty: 1) uruchomić wyrównanie ręcznie (rekomendowane), 2) poczekać na następną noc."
+        )
+    try:
+        refresh_pghero(cfg, postgres, database, sha)
+        report.done.append(
+            f"PgHero na {database}, statystyki zapytań tej bazy wyzerowane."
+        )
+    except (SyncError, OSError) as error:
+        report.waiting.append(
+            f"PgHero nie przeszedł na {database}: {error}. Staging działa, a PgHero "
+            "pokazuje starą kopię i chroni ją przed porządkami. Warianty: 1) "
+            "`docker compose -p nexus-staging -f docker-compose.staging.yml --env-file "
+            ".env.staging.local up -d --no-deps pghero` w ~/.nexus-staging/code "
+            "(rekomendowane), 2) poczekać na następną noc."
         )
     try:
         report_setting_differences(cfg, prod_settings, allowed, report)
