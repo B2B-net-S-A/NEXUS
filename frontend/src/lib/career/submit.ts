@@ -48,7 +48,7 @@ export const SCAN_UNAVAILABLE = "nie możemy teraz sprawdzić pliku — spróbuj
 export const NOT_CONFIRMED = "nie udało się potwierdzić wysyłki — odśwież stronę i wyślij ponownie";
 
 /**
- * Zagadka ALTCHA (`lib/altcha`) zaczyna się liczyć przy pierwszym dotknięciu
+ * Zagadka ALTCHA (`lib/altcha`) zaczyna się liczyć przy pierwszej zmianie pola
  * formularza, żeby przy „Wyślij” była gotowa. Podgląd (`/preview/*`) nie woła.
  */
 export function warmCareerSubmit(): void {

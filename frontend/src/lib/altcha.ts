@@ -6,7 +6,7 @@
  * Przeglądarka pobiera wyzwanie z `GET /api/public/career/challenge` i liczy
  * SHA-256(salt + liczba), aż trafi skrót z wyzwania. Bez ciasteczek, bez
  * zewnętrznego skryptu, bez danych osoby. Kandydat niczego nie klika: liczenie
- * rusza przy pierwszym dotknięciu formularza (`warmAltcha`), a wysyłka bierze
+ * rusza przy pierwszej zmianie pola formularza (`warmAltcha`), a wysyłka bierze
  * gotowe rozwiązanie (`takeAltchaPayload`). Jedno rozwiązanie = jedna wysyłka
  * (serwer odrzuca powtórkę), więc po wzięciu następne liczy się od nowa.
  *
@@ -102,7 +102,7 @@ async function prepare(apiBase: string): Promise<Prepared> {
 
 let pending: Promise<Prepared> | null = null;
 
-/** Zacznij liczyć w tle (idempotentne). Wołać przy pierwszym dotknięciu formularza. */
+/** Zacznij liczyć w tle (idempotentne). Wołać przy pierwszej zmianie pola formularza. */
 export function warmAltcha(apiBase: string): void {
   if (pending) return;
   const job = prepare(apiBase);

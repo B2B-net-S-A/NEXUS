@@ -34,11 +34,12 @@ from typing import Any, Optional
 from urllib.parse import parse_qs
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import delete, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.services.altcha_schema import TABLE_NAME
+from app.services.altcha_schema import ALTCHA_SPENT_CHALLENGES as SPENT
 
 logger = logging.getLogger(__name__)
 
@@ -147,17 +148,15 @@ def check_solution(payload: str, *, now: Optional[float] = None) -> tuple[str, i
 
 async def _spend(db: AsyncSession, challenge: str, expires: int) -> bool:
     """``True`` = pierwsze użycie. Przy okazji kasuje wygasłe wpisy."""
-    await db.execute(text(f"DELETE FROM {TABLE_NAME} WHERE expires_at < now()"))
+    await db.execute(delete(SPENT).where(SPENT.c.expires_at < func.now()))
     row = await db.execute(
-        text(
-            f"INSERT INTO {TABLE_NAME} (challenge, expires_at) "
-            "VALUES (:challenge, :expires_at) "
-            "ON CONFLICT (challenge) DO NOTHING RETURNING challenge"
-        ),
-        {
-            "challenge": challenge,
-            "expires_at": datetime.fromtimestamp(expires, tz=timezone.utc),
-        },
+        pg_insert(SPENT)
+        .values(
+            challenge=challenge,
+            expires_at=datetime.fromtimestamp(expires, tz=timezone.utc),
+        )
+        .on_conflict_do_nothing(index_elements=["challenge"])
+        .returning(SPENT.c.challenge)
     )
     return row.first() is not None
 

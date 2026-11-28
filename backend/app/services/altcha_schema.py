@@ -10,15 +10,15 @@ Wygasłe wiersze kasuje każde kolejne przyjęcie (``services/altcha.py``).
 
 from __future__ import annotations
 
-from sqlalchemy import column, table
+from sqlalchemy import DateTime, String, column, table
 
 TABLE_NAME = "altcha_spent_challenges"
 
 # Lekkie `table()` dla sondy `/api/health/deep` i zapytań serwisu.
 ALTCHA_SPENT_CHALLENGES = table(
     TABLE_NAME,
-    column("challenge"),
-    column("expires_at"),
+    column("challenge", String),
+    column("expires_at", DateTime(timezone=True)),
 )
 
 TABLE_DDL: list[str] = [

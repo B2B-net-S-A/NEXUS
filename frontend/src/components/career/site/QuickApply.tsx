@@ -45,7 +45,7 @@ export function QuickApply({ linkSlug, rodoHref, preview }: QuickApplyProps) {
     utm.current = captureUtm(window.location.search);
   }, []);
 
-  // Zagadka ALTCHA liczy się w tle od pierwszego dotknięcia (`lib/altcha`).
+  // Zagadka ALTCHA liczy się w tle od pierwszej zmiany pola (sam fokus i klik nie, bo harness `/preview/*` nie może wysyłać zapytań) (`lib/altcha`).
   const warm = () => {
     if (!preview) warmCareerSubmit();
   };
@@ -84,7 +84,6 @@ export function QuickApply({ linkSlug, rodoHref, preview }: QuickApplyProps) {
       id={QUICK_ID}
       className={s.quick}
       onSubmit={onSubmit}
-      onFocusCapture={warm}
       onChangeCapture={warm}
       noValidate
       aria-label="Szybka aplikacja: samo CV"

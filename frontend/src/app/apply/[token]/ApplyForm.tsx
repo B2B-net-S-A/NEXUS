@@ -111,7 +111,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  return null;
  };
 
- // Zagadka ALTCHA (`lib/altcha`) liczy się w tle od pierwszego dotknięcia formularza.
+ // Zagadka ALTCHA (`lib/altcha`) liczy się w tle od pierwszej zmiany pola (sam fokus i klik nie, bo harness `/preview/*` nie może wysyłać zapytań) formularza.
  const warm = () => warmAltcha(apiBase());
 
  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -250,7 +250,6 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  <form
  ref={formRef}
  onSubmit={onSubmit}
- onFocusCapture={warm}
  onChangeCapture={warm}
  className="space-y-5"
  noValidate

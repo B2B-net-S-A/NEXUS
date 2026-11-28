@@ -180,7 +180,7 @@ export function OfferApply({
     });
   };
 
-  // Zagadka ALTCHA liczy się w tle od pierwszego dotknięcia (`lib/altcha`).
+  // Zagadka ALTCHA liczy się w tle od pierwszej zmiany pola (sam fokus i klik nie, bo harness `/preview/*` nie może wysyłać zapytań) (`lib/altcha`).
   const warm = () => {
     if (!preview) warmCareerSubmit();
   };
@@ -299,7 +299,6 @@ export function OfferApply({
           noValidate
           onSubmit={onSubmit}
           onChange={() => revalidate()}
-          onFocusCapture={warm}
           onChangeCapture={warm}
           aria-label="Formularz zgłoszenia"
         >
