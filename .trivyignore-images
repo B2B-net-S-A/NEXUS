@@ -45,16 +45,10 @@ CVE-2026-86143 exp:2027-01-31
 CVE-2026-86144 exp:2027-01-31
 CVE-2026-97031 exp:2027-01-31
 
-# qdrant/qdrant:v1.18.3 (upstream, krok 1 z 3 podbicia 1.17.1 → 1.20.2, 28.11.2026):
-# Debian 13.6 (openssl, perl-base, util-linux, pcre2, sqlite…), paczki Node.js z
-# wbudowanego UI (axios, tar, undici, vite…) i pyo3/quinn-proto z Rusta. Qdrant bez
-# portu na hoście, tylko sieć compose. Znikają przy kolejnych krokach (1.19.2: 16
-# identyfikatorów, 1.20.2: 2), stąd krótki termin.
-CVE-2026-101898 exp:2026-12-31
-CVE-2026-101901 exp:2026-12-31
-CVE-2026-101905 exp:2026-12-31
-CVE-2026-101906 exp:2026-12-31
-CVE-2026-101909 exp:2026-12-31
+# qdrant/qdrant:v1.19.2 (upstream, krok 2 z 3 podbicia 1.17.1 → 1.20.2, 28.11.2026):
+# Debian 13.7 (apt, pcre2, libzstd, zlib) i paczki Node.js z wbudowanego UI (undici,
+# vite, brace-expansion…). Qdrant bez portu na hoście, tylko sieć compose. Znikają
+# przy kroku 3 (1.20.2: 2 identyfikatory), stąd krótki termin.
 CVE-2026-102276 exp:2026-12-31
 CVE-2026-102278 exp:2026-12-31
 CVE-2026-103111 exp:2026-12-31
@@ -67,45 +61,7 @@ CVE-2026-111755 exp:2026-12-31
 CVE-2026-111756 exp:2026-12-31
 CVE-2026-112942 exp:2026-12-31
 CVE-2026-116689 exp:2026-12-31
-CVE-2026-11822 exp:2026-12-31
-CVE-2026-11824 exp:2026-12-31
 CVE-2026-124851 exp:2026-12-31
-CVE-2026-13149 exp:2026-12-31
-CVE-2026-13221 exp:2026-12-31
-CVE-2026-14257 exp:2026-12-31
-CVE-2026-14456 exp:2026-12-31
-CVE-2026-19534 exp:2026-12-31
-CVE-2026-41992 exp:2026-12-31
-CVE-2026-42496 exp:2026-12-31
-CVE-2026-42497 exp:2026-12-31
-CVE-2026-48962 exp:2026-12-31
-CVE-2026-53612 exp:2026-12-31
-CVE-2026-53613 exp:2026-12-31
-CVE-2026-53614 exp:2026-12-31
-CVE-2026-53615 exp:2026-12-31
-CVE-2026-57432 exp:2026-12-31
-CVE-2026-57433 exp:2026-12-31
-CVE-2026-59869 exp:2026-12-31
-CVE-2026-59873 exp:2026-12-31
-CVE-2026-59874 exp:2026-12-31
-CVE-2026-67213 exp:2026-12-31
-CVE-2026-67214 exp:2026-12-31
-CVE-2026-67320 exp:2026-12-31
-CVE-2026-69152 exp:2026-12-31
-CVE-2026-73086 exp:2026-12-31
-CVE-2026-73088 exp:2026-12-31
-CVE-2026-73089 exp:2026-12-31
-CVE-2026-73566 exp:2026-12-31
-CVE-2026-73646 exp:2026-12-31
-CVE-2026-8376 exp:2026-12-31
-CVE-2026-84375 exp:2026-12-31
-CVE-2026-84782 exp:2026-12-31
 CVE-2026-85091 exp:2026-12-31
-CVE-2026-86145 exp:2026-12-31
 CVE-2026-87018 exp:2026-12-31
-CVE-2026-89157 exp:2026-12-31
-CVE-2026-89161 exp:2026-12-31
 CVE-2026-93749 exp:2026-12-31
-GHSA-36hh-v3qg-5jq4 exp:2026-12-31
-GHSA-4w2j-m93h-cj5j exp:2026-12-31
-GHSA-5p4m-2wfm-xmqj exp:2026-12-31

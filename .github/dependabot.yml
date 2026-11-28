@@ -22,7 +22,7 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     ignore:
-      # Wersja klienta = wersja serwera Qdranta (v1.17.1 w docker-compose.yml,
+      # Wersja klienta = wersja serwera Qdranta (image w docker-compose.yml,
       # #1136); różnica najwyżej o jeden minor. Kod woła już tylko
       # query_points (14.11.2026), ale bump klienta idzie razem z obrazem
       # serwera w jednym PR-ze, nie jako propozycja dependabota.

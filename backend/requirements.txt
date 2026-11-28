@@ -22,8 +22,8 @@ email-validator==2.4.0
 PyJWT[crypto]==2.15.1
 bcrypt==5.0.0
 httpx==0.28.1
-# Wersja klienta = wersja serwera Qdranta z docker-compose.yml (v1.17.1, pin
-# z odczytu produkcji 12.08.2026). Klient i serwer mogą się różnić najwyżej
+# Wersja klienta = wersja serwera Qdranta z docker-compose.yml (od 28.11.2026
+# podbijane krokami 1.17 → 1.20). Klient i serwer mogą się różnić najwyżej
 # o jedną wersję minor, więc podbicie klienta idzie razem z obrazem serwera.
 # Historia: 28.07.2026 podbicie 1.12.1 → 1.18.0 (#961) usunęło
 # `QdrantClient.search()`, a wyjątek był połykany do pustej listy —
@@ -33,7 +33,7 @@ httpx==0.28.1
 # klienta zapala health na czerwono. Nowe wywołanie Qdranta: tylko
 # `query_points()`; `tests/test_qdrant_query_points_only.py` pilnuje, żeby
 # `search()` nie wróciło.
-qdrant-client==1.17.1
+qdrant-client==1.19.1
 # Adapter wektora zapytania (`services/query_adapter.py`). Wersja = ta, którą
 # qdrant-client i tak instaluje w obrazie (2.5.3 na produkcji 07.10.2026);
 # jawny pin, bo kod aplikacji importuje numpy wprost.
