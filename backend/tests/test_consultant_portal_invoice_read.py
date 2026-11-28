@@ -189,3 +189,21 @@ async def test_read_pending_reads_retries_and_gives_up(monkeypatch, tmp_path):
         assert all(
             row.invoice_fields["status"] != "retry" for row in rows if row is not sheet
         )
+
+
+def test_own_company_document_is_not_a_consultant_cost(monkeypatch):
+    """Zamówienie klienta wystawione na nas (sprzedawca = nasza spółka) przyszło
+    na rozliczenia@ i czytało się jak faktura z netto (produkcja 28.11.2026)."""
+
+    monkeypatch.setattr(invoice_read.settings, "KSEF_CONTEXT_NIP", "9876543210")
+    read = {"status": "read", "doc_type": "invoice", "net_amount": "93000.00"}
+    for nip in ("9876543210", "PL 987-654-32-10", "pl9876543210"):
+        assert not invoice_read.counts_as_cost({**read, "seller_nip": nip})
+    assert invoice_read.counts_as_cost({**read, "seller_nip": "1111111111"})
+    assert invoice_read.counts_as_cost({**read, "seller_nip": None})
+
+
+def test_without_company_nip_nothing_is_excluded(monkeypatch):
+    monkeypatch.setattr(invoice_read.settings, "KSEF_CONTEXT_NIP", "")
+    read = {"status": "read", "doc_type": "invoice", "net_amount": "1.00"}
+    assert invoice_read.counts_as_cost({**read, "seller_nip": "9876543210"})
