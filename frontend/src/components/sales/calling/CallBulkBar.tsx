@@ -100,6 +100,7 @@ export function CallBulkBar({ selected, total, filters, onSelect, onClear }: Cal
             {(Object.keys(BULK_TITLES) as DialogAction[]).map((action) => (
               <Button
                 key={action}
+                data-tour={action === "move" ? "sales.calling.bulk.move" : undefined}
                 size="sm"
                 variant={action === "remove" ? "quiet" : "outline"}
                 className="h-7 px-2"

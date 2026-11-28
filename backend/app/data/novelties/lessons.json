@@ -3299,5 +3299,50 @@
         "explain": "Profil pokazuje wiersze Mieszka i Biuro ze źródłem „z odrzucenia”, a system bierze je pod uwagę przy kolejnych rekrutacjach."
       }
     ]
+  },
+  {
+    "id": "lekcja-sprzedaz-dzwonienie-akcje-zbiorcze",
+    "title": "Dzwonienie: kilka rekordów naraz",
+    "novelties": [
+      "sprzedaz-dzwonienie-akcje-zbiorcze"
+    ],
+    "task": "W Tabeli zaznacz rekordy z tej strony i otwórz przeniesienie do innej kampanii. Niczego nie zapisuj.",
+    "solo_href": "/sales/calling",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.calling.bulk.move"
+    },
+    "questions": [
+      {
+        "q": "Usunąłeś z listy 40 firm i widzisz, że był zły filtr. Co robisz?",
+        "options": [
+          "Klikam „Cofnij” w dymku po usunięciu",
+          "Importuję tę listę jeszcze raz",
+          "Proszę administratora o kopię bazy"
+        ],
+        "answer": 0,
+        "explain": "Usunięcie chowa rekordy, ale zostają w bazie. „Cofnij” w dymku od razu je przywraca, a ponowny import tych firm nie doda."
+      },
+      {
+        "q": "Przenosisz rekordy do kampanii, w której część firm już jest. Co się z nimi stanie?",
+        "options": [
+          "Będą w tej kampanii dwa razy",
+          "Zostaną w swojej kampanii, a okno pokaże ich liczbę przed zapisem",
+          "Cała paczka się nie przeniesie"
+        ],
+        "answer": 1,
+        "explain": "Firma, która ma już rekord w kampanii docelowej, zostaje na miejscu. Okno pokazuje to przed zapisem jako „Bez zmian: … firma jest już w tej kampanii”."
+      },
+      {
+        "q": "Wśród zaznaczonych jest firma z „Umówionym spotkaniem”. Co zrobi „Usuń z listy”?",
+        "options": [
+          "Usunie ją razem z szansą",
+          "Usunie ją jak każdy rekord",
+          "Zostawi ją, bo spotkanie ma szansę w lejku"
+        ],
+        "answer": 2,
+        "explain": "Rekord z umówionym spotkaniem nie znika z listy ani nie przechodzi do innej kampanii. Przypisać go innej osobie można."
+      }
+    ]
   }
 ]

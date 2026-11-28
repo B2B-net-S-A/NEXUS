@@ -496,6 +496,7 @@ function RecordTable({
           {canEdit && (
             <th scope="col" className="w-8 px-2 py-1.5">
               <Checkbox
+                data-tour="sales.calling.bulk.select"
                 aria-label="Zaznacz rekordy na tej stronie"
                 disabled={pageIds.length === 0}
                 checked={

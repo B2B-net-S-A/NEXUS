@@ -5921,5 +5921,37 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "sprzedaz-dzwonienie-akcje-zbiorcze",
+    "title": "Dzwonienie: kilka rekordów naraz w Tabeli",
+    "why": "W Tabeli zaznaczasz rekordy i jednym ruchem przypisujesz je osobie, przenosisz do innej kampanii albo usuwasz z listy. Przed zapisem widać liczby, a usunięcie można cofnąć.",
+    "tier": "dot",
+    "shipped_on": "2026-11-28",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Tabela",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.bulk.move",
+    "steps": [
+      {
+        "anchor": "sales.calling.view",
+        "text": "Nad listą kliknij „Tabela”.",
+        "hint": "Tabela pokazuje wszystkie Twoje rekordy z filtrami statusu i dat."
+      },
+      {
+        "anchor": "sales.calling.bulk.select",
+        "text": "Zaznacz pole w nagłówku tabeli.",
+        "hint": "Zaznaczysz rekordy z tej strony. Pasek nad tabelą pozwala wziąć wszystkie z filtra."
+      },
+      {
+        "anchor": "sales.calling.bulk.move",
+        "text": "Kliknij „Przenieś do kampanii”.",
+        "hint": "Okno najpierw liczy, co przejdzie, a co zostanie. Na Poligonie nic się nie zapisze."
+      }
+    ]
   }
 ]
