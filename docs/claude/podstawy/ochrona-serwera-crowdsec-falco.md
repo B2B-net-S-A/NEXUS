@@ -73,7 +73,16 @@ Scenariusze `nexus/*` (`serwer-ochrona/crowdsec/config/scenarios/nexus-alerts.ya
 - `nexus/large-export` — odpowiedź eksportu CSV/XLSX z API ponad 20 MB.
 Na ekran Ustawienia → Bezpieczeństwo trafiają przez plugin powiadomień `http_nexus`
 (`serwer-ochrona/crowdsec/config/notifications/`): bany jako `ban`, AppSec jako `appsec_block`, scenariusze
-`nexus/*` jako `alert`. Szablon czeka na klucz konta `crowdsec-nexus` (jedno konto = jedno źródło).
+`nexus/*` jako `alert`. Włączone 28.11.2026: konto serwisowe `crowdsec-nexus` (tylko `security:ingest`),
+klucz w `/opt/crowdsec/nexus_ingest.key` (600, wpisał go Artur). Skrypt wstawia go tylko w nagłówek
+`X-API-Key` pliku `/opt/crowdsec/config/notifications/http_nexus.yaml` (600). Klucz nie trafia do repo,
+logów ani env kontenera. Każdy z trzech profili w `profiles.yaml` wysyła do `http_nexus`
+(kopia poprzedniego: `backups/crowdsec-profiles.yaml.20261128T124004Z`). Bany w symulacji mają w opisie
+„(symulacja)”. `ref` to skrót sha256 ze scenariusza, czasów i wartości, bo ID alertu
+przed zapisem bywa 0, a NEXUS pomija powtórzony `ref`. Sprawdzenie: `cscli notifications test http_nexus`
+i `cscli notifications reinject <id alertu>`; na ekranie CrowdSec ma wtedy „na żywo” (stan „na żywo”
+trzyma się 24 h od ostatniego zdarzenia). Cofnięcie: przywróć kopię `profiles.yaml`, usuń `http_nexus.yaml`,
+`docker restart crowdsec` (nigdy `coolify-proxy`).
 Te same progi są regułami Loki w `alloy/loki-rules-bezpieczenstwo.yaml`. Alloy czyta log Traefika
 (kody i tokeny w adresach maskowane przed wysyłką), ale ruszy dopiero, gdy Artur da token Grafana Cloud
 i `COMPOSE_PROFILES` z `observability` przez workflow „Coolify set env” (27.11 zmienne `GRAFANA_LOKI_*`
