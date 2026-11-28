@@ -141,7 +141,6 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "notification_volume_monitor",
         "app_mail_monitor",
         "rejection_email",
-        "linkedin_sync",
         "microsoft365_sync",
         "m365_cv_parse",
         # Kopia produkcji z CV scraperów w kolejce: płatne odczyty drugi raz.

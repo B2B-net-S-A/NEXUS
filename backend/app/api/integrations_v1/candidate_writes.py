@@ -85,7 +85,7 @@ from app.services.candidate_name_rules import (
 )
 from app.services.dedup_service import find_candidate_by_email
 from app.services.integration_actor import VIA_PREFIX
-from app.services.proxycurl.client import normalize_linkedin_url
+from app.services.linkedin_url import normalize_linkedin_url
 from app.services.write_author import WriteAuthor
 
 router = APIRouter(route_class=IntegrationRoute)

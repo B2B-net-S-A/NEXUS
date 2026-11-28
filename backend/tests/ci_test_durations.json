@@ -1593,8 +1593,6 @@
 "tests/test_proposals.py": 10.3,
 "tests/test_proposals_bulk.py": 0.1,
 "tests/test_proposals_read_scope.py": 2.5,
-"tests/test_proxycurl_client.py": 0.0,
-"tests/test_proxycurl_diff.py": 0.0,
 "tests/test_public_actions_log_hygiene.py": 0.7,
 "tests/test_public_apply_cv_filename.py": 0.2,
 "tests/test_public_profile_lint.py": 1.4,

@@ -5,8 +5,9 @@ transport without a real uvicorn. Covers:
 
 - `GET /api/candidates?recently_changed_jobs={1,2,3}` filter window
 - `GET /api/candidates/{id}` returns linkedin_* fields + snapshots
-- `POST /api/candidates/{id}/sync-linkedin` — 503 without PROXYCURL_API_KEY,
-  400 without a LinkedIn URL on the candidate.
+
+`POST /api/candidates/{id}/sync-linkedin` usunięty 28.11.2026 razem
+z integracją Proxycurl (serwis zamknięty 4.07.2025).
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate, CandidateStatus
@@ -185,52 +185,5 @@ async def test_list_response_does_not_expose_snapshots(
         candidates = resp.json()["items"]
         for item in candidates:
             assert item.get("linkedin_snapshots") is None
-    finally:
-        await _cleanup_candidate(cid)
-
-
-@pytest.mark.asyncio
-async def test_sync_endpoint_returns_503_without_api_key(
-    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
-) -> None:
-    """When Proxycurl is not configured the endpoint refuses cleanly."""
-    monkeypatch.setenv("PROXYCURL_API_KEY", "")
-    # Force settings reload by patching the in-memory value (avoid restart).
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "PROXYCURL_API_KEY", "")
-    monkeypatch.setattr(settings, "PROXYCURL_ENABLED", True)
-
-    cid = await _seed_candidate(
-        name="SyncGuard",
-        linkedin="https://linkedin.com/in/sync-guard",
-    )
-    try:
-        resp = await app_client.post(
-            f"/api/candidates/{cid}/sync-linkedin", headers=app_auth_headers
-        )
-        assert resp.status_code == 503
-        assert "LinkedIn sync" in resp.json()["detail"]
-    finally:
-        await _cleanup_candidate(cid)
-
-
-@pytest.mark.asyncio
-async def test_sync_endpoint_returns_400_without_linkedin_url(
-    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
-) -> None:
-    """Even when Proxycurl is configured, the candidate must have a URL."""
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "PROXYCURL_API_KEY", "fake-test-key")
-    monkeypatch.setattr(settings, "PROXYCURL_ENABLED", True)
-
-    cid = await _seed_candidate(name="NoUrl")  # linkedin intentionally None
-    try:
-        resp = await app_client.post(
-            f"/api/candidates/{cid}/sync-linkedin", headers=app_auth_headers
-        )
-        assert resp.status_code == 400
-        assert "LinkedIn" in resp.json()["detail"]
     finally:
         await _cleanup_candidate(cid)

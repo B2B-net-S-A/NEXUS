@@ -100,7 +100,7 @@ cryptography==50.0.2
 bleach==6.4.0
 # CSSSanitizer bleacha — style w stopce maila z Outlooka (m365/html_sanitize.py).
 tinycss2==1.5.1
-# Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
+# Dopasowanie rozmyte nazw (screening_note_sync.py).
 rapidfuzz==3.14.6
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. PyJWT already pinned above (used by JWT auth + webhook

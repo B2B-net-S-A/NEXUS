@@ -126,7 +126,6 @@ FORBIDDEN_FLAGS = frozenset(
         # Ekran Bezpieczeństwo: odczyt biegów z GitHub API (0800).
         "SECURITY_SYNC_ENABLED",
         "AUTENTI_ENABLED",
-        "PROXYCURL_ENABLED",
         "TRAFFIT_SYNC_ENABLED",
         "PORTAL_PRACUJ_ENABLED",
         "PORTAL_JJIT_ENABLED",

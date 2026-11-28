@@ -100,7 +100,7 @@ def _linkedin_slug(url: Optional[str]) -> Optional[str]:
     osoby — na produkcji 34 obce osoby z „linkedin.com” w polu wychodziły jako
     „podobni kandydaci” (1 579 z 27 583 wartości nie było adresem profilu).
     """
-    from app.services.proxycurl import normalize_linkedin_url
+    from app.services.linkedin_url import normalize_linkedin_url
 
     canonical = normalize_linkedin_url(url)
     if not canonical:
