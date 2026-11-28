@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 27.11.2026
+> **Zgodność z systemem sprawdzona:** 28.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1210,6 +1210,14 @@ już jest, inaczej jako **Nowe zamówienie**. Tam decydujesz o osobie (zostaw ja
 historię / wznów / zastąp / usuń) i zapisujesz. **Po zapisie dokument sam schodzi
 z kolejki** (zakładka „Zapisane ręcznie", z numerem zamówienia). Zamknięcie okna
 bez zapisu zostawia dokument w kolejce.
+
+Gdy dokument z maila dotyczy osoby, która **ma już umowę u klienta** (np. powrót
+po przerwie na zamówieniu okresowym), okno zamówienia otwarte z tego dokumentu
+zostaje przy **tej umowie**: zamówienie okresowe otwiera się jako **Dodaj
+przedłużenie** dla tej osoby z PDF-em z maila (dane wczytasz przyciskiem
+„Zczytaj dane z dokumentu”), także po przełączeniu typu na „Okresowe”. Okno nie
+proponuje wtedy „Utwórz umowę i zamówienie”, bo założyłoby drugą umowę obok
+istniejącej. Po zapisie dokument schodzi z kolejki.
 
 **Na zamówieniu okresowym brak osoby u klienta przygotowuje nowy draft
 z numerem, okresem i stawką przychodową z maila — ale go NIE zapisuje.**

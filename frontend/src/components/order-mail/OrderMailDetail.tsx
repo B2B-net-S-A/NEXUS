@@ -460,7 +460,8 @@ export function OrderMailDetail({ doc, onApply, onDismiss, onRefreshPlan, busy, 
         {doc.proposal?.resolved_in_order ? (
           <p className="text-[13px] text-foreground">
             Rozstrzygnięte w oknie zamówienia — zamówienie nr{" "}
-            {doc.proposal.resolved_in_order.order_number ?? `#${doc.proposal.resolved_in_order.order_group_id}`}
+            {doc.proposal.resolved_in_order.order_number ??
+              `#${doc.proposal.resolved_in_order.order_group_id ?? doc.proposal.resolved_in_order.order_id}`}
             {doc.proposal.resolved_in_order.resolved_at
               ? ` (${formatDateTimePl(doc.proposal.resolved_in_order.resolved_at)})`
               : ""}

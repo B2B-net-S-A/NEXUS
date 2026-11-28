@@ -88,7 +88,10 @@ export interface OrderMailProposalRow {
 
 /** Dokument rozstrzygnięty w oknie zamówienia klienta (osoba nieaktywna/nieznaleziona). */
 export interface OrderMailResolvedInOrder {
-  order_group_id: number;
+  /** Zamówienie MD/kosztowe z okna; `null` przy kolejnym zamówieniu okresowym. */
+  order_group_id: number | null;
+  /** Kolejne zamówienie okresowe na kontrakcie z planu (od 28.11.2026). */
+  order_id?: number | null;
   order_number: string | null;
   resolved_by_user_id: number | null;
   resolved_at: string | null;
@@ -99,7 +102,12 @@ export interface OrderMailOrderTarget {
   client_id: number;
   /** Otwarte zamówienie o tym numerze — okno „Uzupełnij zamówienie"; `null` = „Nowe zamówienie". */
   order_group_id: number | null;
-  order_type: "md" | "cost";
+  /** Typ z planu dokumentu; bez wierszy planu — najczęstszy typ u klienta. */
+  order_type: "md" | "cost" | "periodic";
+  /** Istniejący kontrakt, na którym plan zapisuje kolejne zamówienie — okno
+   *  zostaje przy nim i nie proponuje nowej umowy. `null` = brak (nowa osoba,
+   *  decyzja o osobie, kilka osób). */
+  contract_id: number | null;
   order_number: string | null;
   attachment_name: string | null;
 }
@@ -281,6 +289,11 @@ export const orderMailApi = {
   resolvedInOrder: (id: number, orderGroupId: number) =>
     api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/resolved-in-order`, {
       order_group_id: orderGroupId,
+    }),
+  /** Kolejne zamówienie okresowe zapisane w oknie — dokument schodzi z kolejki. */
+  resolvedInOrderForOrder: (id: number, orderId: number) =>
+    api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/resolved-in-order`, {
+      order_id: orderId,
     }),
   syncStatus: () => api.get<OrderMailSyncStatus>("/api/order-mail/sync/status"),
   /** Bieg startuje w tle — wynik czyta się z `syncStatus` (patrz `lib/order-mail-sync.ts`). */

@@ -1,4 +1,4 @@
 {
-  "sha256": "6050bbe22d654d9e43f321601725634c294a800a48181f1897e576fa464ab436",
+  "sha256": "a4c1d3bbf05c110b40152882ec9e9b210d853ffec482375fef8d049a28c42a84",
   "source": "frontend/src/lib/api/orderMail.ts"
 }

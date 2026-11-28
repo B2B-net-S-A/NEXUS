@@ -3,7 +3,7 @@
   "guide": "contracts.order_mail",
   "sources": {
     "backend/app/services/order_mail_gate.py": "bb0cd0690da330b66d74b46557696529b200139820e56c0f08210a248f5a3666",
-    "frontend/src/components/order-mail/OrderMailDetail.tsx": "62304d1c770eb45bd28ef3d48df8516cb016aead42949d24b2f76b70ee56c80f",
+    "frontend/src/components/order-mail/OrderMailDetail.tsx": "7a6430fc1aa27a5715d754c9a4b53d2e810e4c01d7568d554b84de40ae3a7204",
     "frontend/src/components/order-mail/OrderMailQueue.tsx": "a88639b6f46ac07cc1de1a737ede64f2e675ffbfc9e2b2096c4712dab14d9170"
   }
 }
