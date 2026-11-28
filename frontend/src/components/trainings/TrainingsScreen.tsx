@@ -16,6 +16,8 @@ import {
   trainingMediaUrl,
   trainingPaths,
   useCompanySignatureFor,
+  useMarketTrainerApplications,
+  useMarketTrainerStatus,
   usePendingSignatures,
   useRateTraining,
   useRegistration,
@@ -32,6 +34,8 @@ import { useUrlTab } from "@/lib/url-tab";
 import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
+import { MarketTrainerCandidates } from "./MarketTrainerCandidates";
+import { MARKET_STATUS_LABEL } from "./market-trainer-model";
 import { NoveltyLessonsTab } from "./NoveltyLessonsTab";
 import { TrainingCalendar } from "./TrainingCalendar";
 import { TrainingLibrary } from "./TrainingLibrary";
@@ -203,7 +207,52 @@ function OrganizeTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+/** Kandydaci na trenerów spoza B2B ze strony (0806); decyduje TCM. */
+function MarketCandidatesSection() {
+  const market = useMarketTrainerApplications();
+  const status = useMarketTrainerStatus();
+  const run = useRunAction();
+  return (
+    <QueryGate
+      query={market}
+      isEmpty={(market.data ?? []).length === 0}
+      empty={
+        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+          Nie ma zgłoszeń ze strony. Trenerzy spoza B2B zgłaszają się na b2bnetwork.pl w „Zostań
+          trenerem”.
+        </p>
+      }
+    >
+      <MarketTrainerCandidates
+        applications={market.data ?? []}
+        busy={status.isPending}
+        onChange={(application, to, note) => {
+          void run(
+            () => status.mutateAsync({ id: application.id, status: to, note }),
+            `${application.full_name}: ${MARKET_STATUS_LABEL[to].toLowerCase()}.`,
+            "Nie udało się zmienić stanu zgłoszenia.",
+          );
+        }}
+      />
+    </QueryGate>
+  );
+}
+
 function ApplicationsTab() {
+  return (
+    <div className="space-y-8">
+      <MarketCandidatesSection />
+      <section aria-labelledby="panel-trainers-title" className="space-y-3">
+        <h2 id="panel-trainers-title" className="text-base font-semibold text-foreground">
+          Konsultanci z panelu
+        </h2>
+        <PanelApplications />
+      </section>
+    </div>
+  );
+}
+
+function PanelApplications() {
   const applications = useTrainerApplications();
   const run = useRunAction();
   return (
@@ -267,7 +316,11 @@ function SignTab() {
   );
 }
 
-function tabsFor(me: TrainingsMe | undefined, pendingCount: number): TabbedNavItem[] {
+function tabsFor(
+  me: TrainingsMe | undefined,
+  pendingCount: number,
+  newMarketCount: number,
+): TabbedNavItem[] {
   const tabs: TabbedNavItem[] = [
     { value: "calendar", label: "Kalendarz" },
     // Krok lekcji „Szkolenia w NEXUSIE” (novelties.json): z Kalendarza do nagrań.
@@ -276,7 +329,13 @@ function tabsFor(me: TrainingsMe | undefined, pendingCount: number): TabbedNavIt
     { value: "nowosci", label: "Nowości w NEXUSIE" },
   ];
   if (me?.can_read) tabs.push({ value: "organize", label: "Organizuję" });
-  if (me?.can_manage) tabs.push({ value: "applications", label: "Zgłoszenia trenerów" });
+  if (me?.can_manage) {
+    tabs.push({
+      value: "applications",
+      label: "Zgłoszenia trenerów",
+      ...(newMarketCount > 0 ? { count: newMarketCount } : {}),
+    });
+  }
   if (me?.is_company_signer && pendingCount > 0) {
     tabs.push({ value: "sign", label: "Do podpisu", count: pendingCount });
   }
@@ -294,7 +353,10 @@ export function TrainingsScreen() {
     validTabs: TABS,
     defaultTab: "calendar",
   });
-  const tabs = tabsFor(me.data, pending.data?.length ?? 0);
+  // Licznik nowych zgłoszeń ze strony na zakładce: TCM nie ma dzwonka o zgłoszeniu.
+  const market = useMarketTrainerApplications(me.data?.can_manage === true);
+  const newMarket = (market.data ?? []).filter((item) => item.status === "new").length;
+  const tabs = tabsFor(me.data, pending.data?.length ?? 0, newMarket);
   const asked: Tab = requested === "library" ? "recordings" : requested;
   const current: Tab = tabs.some((tab) => tab.value === asked) ? asked : "calendar";
 

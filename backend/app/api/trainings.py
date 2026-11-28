@@ -61,6 +61,8 @@ from app.services.trainings import (
     teams,
 )
 from app.services.trainings.errors import TrainingError
+from app.services import website_trainer_applications as market_trainers
+from app.services.website_intake_schema import NOTE_MAX as MARKET_NOTE_MAX
 from app.services.trainings_schema import (
     DESCRIPTION_MAX,
     NOTE_MAX,
@@ -478,6 +480,61 @@ async def application_sample(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+# ── Kandydaci na trenerów z rynku (0806, decyzja Artura 28.11.2026) ─────────
+# Zgłoszenia ze strony B2B Network od osób bez kontraktu
+# (``services/website_trainer_applications``). Decyduje TCM.
+
+MarketTrainerStatus = Literal["new", "interview", "accepted", "rejected"]
+
+
+class MarketTrainerStatusBody(BaseModel):
+    status: MarketTrainerStatus
+    note: Optional[str] = Field(default=None, max_length=MARKET_NOTE_MAX)
+
+
+@router.get("/market-applications")
+async def market_applications(
+    current_user: Manager,
+    db: AsyncSession = Depends(get_db),
+    status_filter: Optional[MarketTrainerStatus] = Query(default=None, alias="status"),
+) -> dict:
+    return {
+        "applications": await market_trainers.list_applications(
+            db, status=status_filter
+        )
+    }
+
+
+@router.post("/market-applications/{application_id}/status")
+async def market_application_status(
+    application_id: int,
+    body: MarketTrainerStatusBody,
+    current_user: Manager,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await market_trainers.set_status(
+            db,
+            application_id,
+            status=body.status,
+            note=body.note.strip() if body.note is not None else None,
+            actor_user_id=current_user.id,
+        )
+    except market_trainers.StatusChangeError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="market_trainer_application",
+        entity_id=row.id,
+        action="market_trainer_status",
+        details={"status": row.status},
+    )
+    await db.commit()
+    return {"application": market_trainers.serialize(row)}
 
 
 # ── Folder SharePointa (admin) ───────────────────────────────────────────────

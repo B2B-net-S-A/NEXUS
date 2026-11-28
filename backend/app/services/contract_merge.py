@@ -159,6 +159,12 @@ _KNOWN_CONTRACT_FKS = {
     # zachowanym; unikat „jedna żywa pozycja na osobę” nie zależy od kontraktu.
     ("b2b_mass_send_items", "contract_id"),
     ("calls", "contract_id"),
+    # Polecenie ze strony (0806): kontrakt polecającego konsultanta mówi, że
+    # premię dopisze do faktury — idzie za kontraktem zachowanym, bez unikatu.
+    ("candidate_referrals", "referrer_contract_id"),
+    # Kandydat na trenera z rynku (0806), który ma działający kontrakt — ta sama
+    # osoba, wiersz idzie za kontraktem zachowanym; unikat jest po e-mailu.
+    ("market_trainer_applications", "contract_id"),
     # Odbiorcy komunikatu do konsultantów (etap 3) — ślad wysyłki, unikat
     # (komunikat, kandydat) nie zależy od kontraktu.
     ("care_announcement_recipients", "contract_id"),

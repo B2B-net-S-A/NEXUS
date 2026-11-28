@@ -924,6 +924,7 @@ from app.models import client_settlement as _client_settlement_models  # noqa: F
 from app.models import client_time_report as _client_time_report_models  # noqa: F401,E402
 from app.models import client_report as _client_report_models  # noqa: F401,E402
 from app.models import training as _training_models  # noqa: F401,E402  (0694 szkolenia)
+from app.models import website_intake as _website_intake_models  # noqa: F401,E402  (0806 trener i polecenie ze strony)
 from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E402  (0695 księgowość)
 from app.models import finance_payments as _finance_payments_models  # noqa: F401,E402  (0699 przelewy kosztów)
 from app.models import contractor_payment_blocks as _contractor_payment_blocks_models  # noqa: F401,E402  (0765 zajęcia i spory)

@@ -123,6 +123,15 @@ Analiza i makiety: https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz. Kod:
   reprezentant o umowie, Finanse o fakturze, zapisani pracownicy przypomnienie dzień
   wcześniej od 9:00 i 15 min przed oraz o nagraniu. Bez kwot w treści.
 
+## Trener z rynku (0806, decyzje Artura 28.11.2026)
+
+Trenerem może zgłosić się każdy, także bez kontraktu: tylko z firmą, rozliczenie fakturą,
+umowa szkoleniowa bez zmian. Zgłoszenie przychodzi ze strony do `market_trainer_applications`,
+a TCM prowadzi je w zakładce „Zgłoszenia trenerów” (nowe → rozmowa → w bazie trenerów /
+odrzucone). Wejście trenera z bazy do panelu jest osobnym krokiem: osobne wejście trenera
+z danymi firmy, bez kontraktu w rejestrze. Kontrakt strony i reguły →
+`integracje/strona-www-trener-i-polecenie.md`.
+
 ## Poza zakresem (13.11.2026)
 
 Stan zapłaty z eBI24 zamiast przycisku Finansów, postęp oglądania, test wiedzy
