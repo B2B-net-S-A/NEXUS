@@ -73,6 +73,7 @@ jobs:
           for attempt in 1 2 3; do
             if semgrep scan --metrics=off --disable-version-check \
                 --config p/python --config p/fastapi --config p/typescript --config p/react \
+                --config .semgrep/nexus-sql.yml \
                 --json --output semgrep.json backend frontend; then
               exit 0
             fi

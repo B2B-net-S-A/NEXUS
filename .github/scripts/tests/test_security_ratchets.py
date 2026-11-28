@@ -217,6 +217,27 @@ class RepoBaselineTest(unittest.TestCase):
             self.assertTrue(entries, path)
             self.assertEqual({e["status"] for e in entries}, {"zweryfikowane"}, path)
 
+    def test_every_semgrep_scan_uses_the_repo_rules_from_baseline(self):
+        """Własna reguła `.semgrep/nexus-sql.yml` łapie `text()` z SQL-em
+        zbudowanym w innej funkcji (28.11.2026). Skan bez niej uznałby wpisy
+        tej reguły w baseline za nieaktualne, a nowe takie miejsca przeszłyby
+        bez przeglądu. Identyfikator reguły zależy od ścieżki pliku, więc
+        ścieżka jest wszędzie ta sama, względna."""
+        baseline = json.loads((ROOT.parent / ".semgrep-baseline.json").read_text("utf-8"))
+        self.assertIn(".semgrep/nexus-sql.yml", baseline["configs"])
+        for workflow in ("ci.yml", "security-weekly.yml"):
+            lines = (ROOT / "workflows" / workflow).read_text(encoding="utf-8").splitlines()
+            text = "\n".join(line for line in lines if "semgrep --test" not in line) + "\n"
+            scans = text.count("semgrep scan ")
+            self.assertGreater(scans, 0, workflow)
+            for config in baseline["configs"]:
+                self.assertEqual(text.count(f"--config {config} "), scans, f"{workflow}: {config}")
+        rules = (ROOT.parent / ".semgrep/nexus-sql.yml").read_text(encoding="utf-8")
+        self.assertIn("id: nexus-sqlalchemy-text-built-elsewhere", rules)
+        self.assertTrue(any(
+            e["rule"] == "semgrep.nexus-sqlalchemy-text-built-elsewhere" for e in baseline["findings"]
+        ))
+
     def test_repo_dependency_baseline_entries_have_reason_and_date(self):
         baseline = json.loads(
             (ROOT / "dependency-audit-baseline.json").read_text(encoding="utf-8")

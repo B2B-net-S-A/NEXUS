@@ -5,7 +5,8 @@
     "p/python",
     "p/fastapi",
     "p/typescript",
-    "p/react"
+    "p/react",
+    ".semgrep/nexus-sql.yml"
   ],
   "findings": [
     {
@@ -17,6 +18,22 @@
       "reason": "Fragment milestone_scope to stały literał z placeholderem :scoped_user_ids (albo pusty); id osób, :start i :end przez bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/admin_candidate_pii_orphans.py",
+      "line": 153,
+      "fingerprint": "397effe9994927cd",
+      "status": "zweryfikowane",
+      "reason": "`sql` z pętli po `_CHECKS` — krotki literałów w module; bez parametrów z żądania."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/admin_engagement_inventory.py",
+      "line": 510,
+      "fingerprint": "4a3c015f2afa3b28",
+      "status": "zweryfikowane",
+      "reason": "`sql` z pętli po `_CHECKS` — lista krotek literałów w module; bez parametrów z żądania."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/admin_engagement_inventory.py",
       "line": 564,
@@ -25,12 +42,28 @@
       "reason": "_TOTALS_SQL to stała modułu; jedyna interpolacja {_LIVE} to literał \"('active', 'ending')\". Brak wartości z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/admin_pipeline_inventory.py",
+      "line": 427,
+      "fingerprint": "7fdc498657b99ad4",
+      "status": "zweryfikowane",
+      "reason": "`sql` z pętli po `_CHECKS` — lista krotek literałów w module; bez parametrów z żądania."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/admin_pipeline_inventory.py",
       "line": 474,
       "fingerprint": "3675fdff96809ef0",
       "status": "zweryfikowane",
       "reason": "_TOTALS_SQL to stała modułu; {_LATEST_CTE} i {_TERMINAL_ROW} to literały SQL zdefiniowane w tym samym pliku. Brak parametrów."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/admin_process_adoption.py",
+      "line": 230,
+      "fingerprint": "2ac125ba795f354f",
+      "status": "zweryfikowane",
+      "reason": "`sql` to stałe modułu (`_STAGE_ORIGIN_MONTHLY_SQL`, `_SUPPORTING_SQL`…) z `_WARSAW_MONTH.format(col=<literał>)`; okno i daty przez bind."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -49,6 +82,14 @@
       "reason": "_CURRENT_EXPERIENCE_SQL z literałów frozenset CURRENT_END_MARKERS (sprawdzane regexem [a-z]+), nazwa parametru z indeksu enumerate; tekst firmy przez bind (:cur_co_i)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/candidates.py",
+      "line": 880,
+      "fingerprint": "e58ef7c8cdf9dfb8",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/candidates.py",
       "line": 915,
@@ -57,12 +98,28 @@
       "reason": "_CURRENT_EXPERIENCE_SQL z literałów CURRENT_END_MARKERS, nazwa parametru z indeksu enumerate; tytuł stanowiska przez bind (:cur_title_i)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/candidates.py",
+      "line": 919,
+      "fingerprint": "8d2897facc40b00b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/candidates.py",
       "line": 963,
       "fingerprint": "78a0ba79bf669ba9",
       "status": "zweryfikowane",
       "reason": "_PAST_EXPERIENCE_SQL z literałów CURRENT_END_WORDS (regex [a-z]+), nazwa parametru z indeksu enumerate; nazwa firmy przez bind (:past_co_i)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/candidates.py",
+      "line": 967,
+      "fingerprint": "0d229803c3c75237",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -161,6 +218,14 @@
       "reason": "DL_PAIR_AUTHOR_SQL to stały literał z client_rate_notes; id autora przez bind (:id)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/notes.py",
+      "line": 108,
+      "fingerprint": "60b6d6b13b714930",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/reports.py",
       "line": 286,
@@ -175,6 +240,14 @@
       "fingerprint": "3df26c0f18683f5a",
       "status": "zweryfikowane",
       "reason": "Sklejenie stałej CREDITED_FROM_SNAPSHOT_CTE z literałem; data okresu i tablice migawki przez bind (:period_start, credited_bind)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/api/reports.py",
+      "line": 761,
+      "fingerprint": "6aa151d7b7858fd6",
+      "status": "zweryfikowane",
+      "reason": "`_DL_HEADS_SQL` to stała modułu (literał); bez wklejania wartości."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -217,6 +290,14 @@
       "reason": "schema.quoted(TASK_KINDS) skleja krotkę stałych ('task','call') z sales_schema; DDL indeksu częściowego, bez wejścia z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/advanced_candidate_search.py",
+      "line": 380,
+      "fingerprint": "04e699f467586de0",
+      "status": "zweryfikowane",
+      "reason": "`keyword_corpus.screening_skill_rows_sql()` bez argumentów — domyślny warunek \"TRUE\" i stałe fragmenty."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/allocation_schema_bootstrap.py",
       "line": 87,
@@ -233,6 +314,14 @@
       "reason": "Fałszywy alarm: słowo „token” w treści logu; logowane są id, kody błędów albo typ wyjątku, nie sam sekret."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/back_office/sources.py",
+      "line": 96,
+      "fingerprint": "72ad14bbbde902f7",
+      "status": "zweryfikowane",
+      "reason": "`_rows(db, sql)` dostaje f-stringi z tego pliku: wklejane są tylko stałe `_CLIENT`, `_PERSON`, `_CONTRACT_JOIN`; rok, miesiąc i id przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/board_placement_alerts.py",
       "line": 155,
@@ -241,12 +330,36 @@
       "reason": "Sklejenie stałej VERIFIER_ANCHORED_CTE z literałem; kandydat i rekrutacja przez bind (:cand, :job)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_ai_assessment.py",
+      "line": 267,
+      "fingerprint": "72d3a7758cfa3b0c",
+      "status": "zweryfikowane",
+      "reason": "`note_kinds.ai_readable_sql(\"notes\")` — alias literałem, rodzaje z `AI_EXCLUDED_KINDS` (frozenset stałych)."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_cc_assignment.py",
       "line": 221,
       "fingerprint": "3b6e4f9c2ce6ffbe",
       "status": "zweryfikowane",
       "reason": "where z literałów warunków z placeholderami, limit_clause literał 'LIMIT :limit'; slugi, kursor i limit przez bind (:only_slugs, :start_after_id, :limit)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_cv_retention.py",
+      "line": 120,
+      "fingerprint": "485637a8b95f77bb",
+      "status": "zweryfikowane",
+      "reason": "`sql` z pętli po `_BYTE_SOURCES`/`_PATH_SOURCES` — krotki literałów; id kandydata przez `:cid`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_cv_retention.py",
+      "line": 187,
+      "fingerprint": "485637a8b95f77bb",
+      "status": "zweryfikowane",
+      "reason": "`sql` z pętli po `_BYTE_SOURCES`/`_PATH_SOURCES` — krotki literałów; id kandydata przez `:cid`."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -265,6 +378,14 @@
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 577,
+      "fingerprint": "2982109815a75070",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_merge.py",
       "line": 950,
@@ -281,12 +402,28 @@
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 977,
+      "fingerprint": "c803c33e9ffb234e",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_merge.py",
       "line": 1027,
       "fingerprint": "a47021ebc7438a93",
       "status": "zweryfikowane",
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1027,
+      "fingerprint": "1476fc5f9159f0d3",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -297,12 +434,28 @@
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1049,
+      "fingerprint": "04dfaf61b6f52be1",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_merge.py",
       "line": 1068,
       "fingerprint": "efebf05c71349b94",
       "status": "zweryfikowane",
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1068,
+      "fingerprint": "5a7bc9e4d3f7856d",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -313,12 +466,28 @@
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1108,
+      "fingerprint": "b22a001de30efca5",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_merge.py",
       "line": 1132,
       "fingerprint": "41731c9dd5c83339",
       "status": "zweryfikowane",
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1132,
+      "fingerprint": "3d67307408e32272",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -345,6 +514,14 @@
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1203,
+      "fingerprint": "6dd062cc7a674e55",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_merge.py",
       "line": 1230,
@@ -353,12 +530,28 @@
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1230,
+      "fingerprint": "373a0fd38af11ae7",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_merge.py",
       "line": 1351,
       "fingerprint": "cf966e7c9d942d2e",
       "status": "zweryfikowane",
       "reason": "Nazwy tabel, kolumn i kluczy z information_schema i stałych modułu (katalog bazy, nie wejście użytkownika); wartości przez parametry bind (:survivor, :dup)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_merge.py",
+      "line": 1351,
+      "fingerprint": "5366acb32d7ff504",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -409,6 +602,14 @@
       "reason": "DL_PAIR_AUTHOR_SQL to stały literał z client_rate_notes; ids, kinds i pattern przez bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/candidate_rate_observations.py",
+      "line": 252,
+      "fingerprint": "9ee0a0734dd56713",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_search_predicates.py",
       "line": 1227,
@@ -431,6 +632,14 @@
       "fingerprint": "5228f7fcc59e929f",
       "status": "zweryfikowane",
       "reason": "Fałszywy alarm: słowo „token” w treści logu; logowane są id, kody błędów albo typ wyjątku, nie sam sekret."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/care/records.py",
+      "line": 494,
+      "fingerprint": "8f62786d440330f7",
+      "status": "zweryfikowane",
+      "reason": "`REDEPLOY_ACTIVE_WHERE` to stała literał importowana z modelu opieki; wartości przez bind."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -465,12 +674,28 @@
       "reason": "Lista tabel to stałe 'clients', 'client_aliases' i opcjonalnie 'candidates' (bool); brak wartości z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/client_portfolio_import.py",
+      "line": 139,
+      "fingerprint": "294bc8d6c7bdb620",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 883,
       "fingerprint": "22be159d6d3c92cd",
       "status": "zweryfikowane",
       "reason": "Nazwy tabel i kolumn z information_schema przez _validate_identifier (regex); id klienta przez bind (:source_id)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/client_portfolio_import.py",
+      "line": 916,
+      "fingerprint": "ac1d453ce8905eda",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -489,12 +714,36 @@
       "reason": "Tabela, kolumna i kolumny PK z information_schema przez _validate_identifier; id klienta przez bind (:source_id)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/client_portfolio_import.py",
+      "line": 1721,
+      "fingerprint": "ac1d453ce8905eda",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 1737,
       "fingerprint": "bd75dabf27d3b8e5",
       "status": "zweryfikowane",
       "reason": "Tabela i kolumna z information_schema przez _validate_identifier; id źródła i celu przez bind (:source_id, :target_id)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/client_portfolio_import.py",
+      "line": 1743,
+      "fingerprint": "bd92bffb237dd6ed",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/client_portfolio_import.py",
+      "line": 1770,
+      "fingerprint": "403d918437409537",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -535,6 +784,30 @@
       "fingerprint": "399ae18b3dd18d67",
       "status": "zweryfikowane",
       "reason": "Wstawki _LISTED_CLIENT_SQL i _CLIENT_SCOPE_SQL to stałe literały modułu; data okna i id klientów przez bind (:window_from, :client_ids)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/competence_category_four.py",
+      "line": 316,
+      "fingerprint": "3ce05cae6ad3b22c",
+      "status": "zweryfikowane",
+      "reason": "`sql` zbudowane z `_PLAIN_FKS` (krotki tabela/kolumna w module) i stałych `_NEW`/`_OLD`; bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/competence_category_four.py",
+      "line": 346,
+      "fingerprint": "3ce05cae6ad3b22c",
+      "status": "zweryfikowane",
+      "reason": "`sql` zbudowane z `_PLAIN_FKS` (krotki tabela/kolumna w module) i stałych `_NEW`/`_OLD`; bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/competence_category_four.py",
+      "line": 348,
+      "fingerprint": "3ce05cae6ad3b22c",
+      "status": "zweryfikowane",
+      "reason": "`sql` zbudowane z `_PLAIN_FKS` (krotki tabela/kolumna w module) i stałych `_NEW`/`_OLD`; bez wejścia z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -585,6 +858,22 @@
       "reason": "_HOF_ROLE_PREDICATE to stały literał z :roles; hof_limit_sql to \"LIMIT :limit\" albo pusty napis; role i limit przez bind (:roles, :limit)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_duplicate_merge_repair.py",
+      "line": 188,
+      "fingerprint": "6866133293a6d0fa",
+      "status": "zweryfikowane",
+      "reason": "`sql` z krotek literałów w tym pliku; id kontraktów przez `:c`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_duplicate_merge_repair.py",
+      "line": 311,
+      "fingerprint": "6866133293a6d0fa",
+      "status": "zweryfikowane",
+      "reason": "`sql` z krotek literałów w tym pliku; id kontraktów przez `:c`."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1401,
@@ -617,6 +906,14 @@
       "reason": "Nazwy tabel, kolumn i PK z katalogu pg_constraint, każda sprawdzona _IDENT_RE; id kontraktów przez bind (:ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 1575,
+      "fingerprint": "933984be7dd077dd",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1580,
@@ -625,12 +922,44 @@
       "reason": "Tabela i kolumna z katalogu tylko gdy są w stałym _KNOWN_CONTRACT_FKS, PK przez _IDENT_RE; id przez bind (:ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 1616,
+      "fingerprint": "caa594d9987bf713",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1643,
       "fingerprint": "64d721f0bf498fda",
       "status": "zweryfikowane",
       "reason": "Tabela i kolumny ze stałej krotki w pętli (activities/notifications); id przez bind (:ids)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 1657,
+      "fingerprint": "77d6e759cfe617b0",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 1720,
+      "fingerprint": "934f7edc86252cdb",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 1858,
+      "fingerprint": "9e73443a0faa1895",
+      "status": "zweryfikowane",
+      "reason": "`sql` z krotek literałów (`queries` w `_evidence`, wywołania `_child_rows` z literałami); id przez `:ids`."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -649,12 +978,36 @@
       "reason": "Tabela i fragment SET to stałe literały podane przez oba wywołania w _resolve_child_duplicates; id przez bind (:ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 3170,
+      "fingerprint": "9e73443a0faa1895",
+      "status": "zweryfikowane",
+      "reason": "`sql` z krotek literałów (`queries` w `_evidence`, wywołania `_child_rows` z literałami); id przez `:ids`."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3175,
       "fingerprint": "701d0d2970e8eb18",
       "status": "zweryfikowane",
       "reason": "Tabela to stały literał od wołających (equipment_tasks, hr_bonuses); klucz i id przez bind (:key, :id)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 3241,
+      "fingerprint": "86ab413ab12822f5",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 3252,
+      "fingerprint": "c369f0c071a10ca8",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -689,12 +1042,36 @@
       "reason": "Tabela ze stałej krotki trzech tabel stawek w pętli; id przez bind (:ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 4084,
+      "fingerprint": "190e02544b0a23df",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 4185,
+      "fingerprint": "dc2a865900ee1154",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 4464,
       "fingerprint": "5fd41f6b4cc81cb8",
       "status": "zweryfikowane",
       "reason": "Klucze financial_values to stałe pola (rate_candidate, rate_client, framework_rate, _FINANCIAL_METADATA_FIELDS, waluty); plan liczony z bazy w apply; wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/contract_merge.py",
+      "line": 4679,
+      "fingerprint": "43a6e31455d89124",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -711,6 +1088,14 @@
       "fingerprint": "3fc5f815d6225672",
       "status": "zweryfikowane",
       "reason": "Wstawka note_kinds.ai_readable_sql() składa stałe SYSTEM_SOURCE i frozenset AI_EXCLUDED_KINDS (literały); id i typy notatek przez bind (:ids, :types)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/critical_skills.py",
+      "line": 525,
+      "fingerprint": "5d208d62ea4da7f2",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -753,12 +1138,28 @@
       "reason": "upper to stały literał z :until_id albo pusty, _scope() ze stałych modułu; kursor, rozmiar i źródło przez bind (:after_id, :until_id, :size, :current_source)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/cv_reparse_batch.py",
+      "line": 110,
+      "fingerprint": "98a0228297f3619f",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/cv_reparse_batch.py",
       "line": 135,
       "fingerprint": "afe7396a0d565033",
       "status": "zweryfikowane",
       "reason": "upper to stały literał z :until_id albo pusty, _scope() ze stałych modułu; kursor, rozmiar i źródło przez bind (:after_id, :until_id, :size, :current_source)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/cv_reparse_batch.py",
+      "line": 135,
+      "fingerprint": "98a0228297f3619f",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -801,6 +1202,14 @@
       "reason": "expr to same placeholdery :p{i} z range(len), POOL_SIZE to stała 150; wzorce (od modelu) wyłącznie przez bind (:p0, :p1, …)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/duty_search.py",
+      "line": 474,
+      "fingerprint": "6086f73a961b7221",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
       "path": "backend/app/services/email_verification.py",
       "line": 90,
@@ -825,12 +1234,36 @@
       "reason": "Fałszywy alarm: słowo „token” w treści logu; logowane są id, kody błędów albo typ wyjątku, nie sam sekret."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/equipment/registry.py",
+      "line": 266,
+      "fingerprint": "902fdc0161837675",
+      "status": "zweryfikowane",
+      "reason": "`schema.LINK_CONTRACT_*_SQL` to stałe literały modułu `equipment.schema`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/equipment/registry.py",
+      "line": 267,
+      "fingerprint": "02a4f1657d9c24be",
+      "status": "zweryfikowane",
+      "reason": "`schema.LINK_CONTRACT_*_SQL` to stałe literały modułu `equipment.schema`."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/experience_backfill.py",
       "line": 73,
       "fingerprint": "9f7703f1694325ce",
       "status": "zweryfikowane",
       "reason": "_CURRENT_WORDS_SQL to literały ze stałego frozensetu CURRENT_END_WORDS, pilnowanego regexem [a-z]+ przy imporcie; brak parametrów z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/experience_backfill.py",
+      "line": 73,
+      "fingerprint": "40fdf4980a832562",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -841,6 +1274,38 @@
       "reason": "NO_RESULT_KEY to stały literał modułu (\"_experience_dates_no_result_at\"); brak danych z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_ledger/costs.py",
+      "line": 289,
+      "fingerprint": "7e5e56c8f221413f",
+      "status": "zweryfikowane",
+      "reason": "`statement` z pętli po stałych SQL modułu i `LINK_COUNTERPARTIES` (literał); wyszukiwanie `q` idzie przez ORM `ilike` z bindem."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_ledger/costs.py",
+      "line": 296,
+      "fingerprint": "7e5e56c8f221413f",
+      "status": "zweryfikowane",
+      "reason": "`statement` z pętli po stałych SQL modułu i `LINK_COUNTERPARTIES` (literał); wyszukiwanie `q` idzie przez ORM `ilike` z bindem."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_ledger/costs.py",
+      "line": 297,
+      "fingerprint": "feb75347416e911d",
+      "status": "zweryfikowane",
+      "reason": "`statement` z pętli po stałych SQL modułu i `LINK_COUNTERPARTIES` (literał); wyszukiwanie `q` idzie przez ORM `ilike` z bindem."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_ledger/counterparties.py",
+      "line": 362,
+      "fingerprint": "44d775094eae17dd",
+      "status": "zweryfikowane",
+      "reason": "`LINK_COUNTERPARTIES` to stała literał z `finance_ledger.costs`."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/finance_ledger/journals.py",
       "line": 167,
@@ -849,12 +1314,36 @@
       "reason": "_FROM_HISTORY i _FROM_EBI24 to stałe modułu sklejone tylko ze stałych słowników kategorii i folderów eBI24 (CATEGORY_JOURNAL, EBI24_FOLDER_CATEGORY); bez parametrów i bez wartości z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_ledger/journals.py",
+      "line": 167,
+      "fingerprint": "e051064d729aa6ac",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/finance_ledger/journals.py",
       "line": 168,
       "fingerprint": "23758f905f3ede91",
       "status": "zweryfikowane",
       "reason": "_FROM_HISTORY i _FROM_EBI24 to stałe modułu sklejone tylko ze stałych słowników kategorii i folderów eBI24 (CATEGORY_JOURNAL, EBI24_FOLDER_CATEGORY); bez parametrów i bez wartości z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_ledger/journals.py",
+      "line": 168,
+      "fingerprint": "a1874f6edef44200",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/finance_role_cleanup.py",
+      "line": 78,
+      "fingerprint": "12a15a2dcd0a3770",
+      "status": "zweryfikowane",
+      "reason": "`statement` ze słownika literałów w funkcji; id osoby przez `:uid`."
     },
     {
       "rule": "python.django.security.injection.raw-html-format.raw-html-format",
@@ -913,12 +1402,28 @@
       "reason": "Schemat, tabela i kolumna z pg_constraint/pg_namespace albo metadanych ORM, każda przez _quoted (regex identyfikatora + cudzysłów); id przez bind (:ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/inactive_client_cleanup.py",
+      "line": 371,
+      "fingerprint": "74b10dcb7ded12fc",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/inactive_client_cleanup_signals.py",
       "line": 271,
       "fingerprint": "afd37b227314982c",
       "status": "zweryfikowane",
       "reason": "Tabela, kolumna i where ze stałej krotki NAME_REFERENCES w module, identyfikatory przez _quoted; brak danych z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/inactive_client_cleanup_signals.py",
+      "line": 271,
+      "fingerprint": "9bfaa6817f42236b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1017,6 +1522,14 @@
       "reason": "_PLACEMENTS_SQL to konkatenacja literałów: CREDITED_FROM_SNAPSHOT_CTE (unnest bindów) + stały SELECT; :as_of i tablice migawki przez bind (credited_bind)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/insights_seniority.py",
+      "line": 529,
+      "fingerprint": "e99a8e0c48b847f6",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_sources.py",
       "line": 222,
@@ -1055,6 +1568,14 @@
       "fingerprint": "856caa820f0ed249",
       "status": "zweryfikowane",
       "reason": "key_column/join/label z dwóch stałych gałęzi if source == SOURCE_LINK_GENERAL (literały); _LINK_FLAGS, _COUNTS stałe; source i okno przez bind (:source)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/insights_sources.py",
+      "line": 424,
+      "fingerprint": "42f529dd8c202fea",
+      "status": "zweryfikowane",
+      "reason": "SQL z `_portal_people_sql`/`_link_people_sql`: `where` ze słownika `_METRIC_WHERE` (KeyError poza listą, trasa ma `METRIC_PATTERN`), źródło, oferta, osoba i rekrutacja przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1103,6 +1624,14 @@
       "fingerprint": "a2ea019a133247a2",
       "status": "zweryfikowane",
       "reason": "sql składany tylko z _window(literał kolumny, bounded: bool) — nazwy kolumn to literały w kodzie; since, until, limit przez bind (:since, :until, :limit)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/insights_team_activity.py",
+      "line": 188,
+      "fingerprint": "c2020a3f8917c4c7",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1185,6 +1714,46 @@
       "reason": "SQL z qualifying_sql: stałe _BASE_SQL/_STATIC_DISQUALIFIERS/_SCOPE_SQL i predykaty FK z pg_constraint (quote_ident, kolumna cytowana z podwojeniem \"); job_ids i process_id przez bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/job_board_cards_to_proposals.py",
+      "line": 565,
+      "fingerprint": "20fdd240e21f67b1",
+      "status": "zweryfikowane",
+      "reason": "`qualifying_sql`/`blocked_counts_sql`: predykaty z `_STATIC_DISQUALIFIERS` i z `pg_constraint` (nazwy cytowane `quote_ident`/`\"…\"`); bez wejścia z żądania."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/job_board_cards_to_proposals.py",
+      "line": 575,
+      "fingerprint": "eb8ab6583a978043",
+      "status": "zweryfikowane",
+      "reason": "`qualifying_sql`/`blocked_counts_sql`: predykaty z `_STATIC_DISQUALIFIERS` i z `pg_constraint` (nazwy cytowane `quote_ident`/`\"…\"`); bez wejścia z żądania."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/job_board_cards_to_proposals.py",
+      "line": 654,
+      "fingerprint": "4984ecedbb74e495",
+      "status": "zweryfikowane",
+      "reason": "`qualifying_sql`/`blocked_counts_sql`: predykaty z `_STATIC_DISQUALIFIERS` i z `pg_constraint` (nazwy cytowane `quote_ident`/`\"…\"`); bez wejścia z żądania."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/job_board_cards_to_proposals.py",
+      "line": 817,
+      "fingerprint": "4984ecedbb74e495",
+      "status": "zweryfikowane",
+      "reason": "`qualifying_sql`/`blocked_counts_sql`: predykaty z `_STATIC_DISQUALIFIERS` i z `pg_constraint` (nazwy cytowane `quote_ident`/`\"…\"`); bez wejścia z żądania."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/job_board_cards_to_proposals.py",
+      "line": 926,
+      "fingerprint": "20fdd240e21f67b1",
+      "status": "zweryfikowane",
+      "reason": "`qualifying_sql`/`blocked_counts_sql`: predykaty z `_STATIC_DISQUALIFIERS` i z `pg_constraint` (nazwy cytowane `quote_ident`/`\"…\"`); bez wejścia z żądania."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_delivery_lead_fill.py",
       "line": 52,
@@ -1215,6 +1784,14 @@
       "fingerprint": "a8e5e49ed7d823c0",
       "status": "zweryfikowane",
       "reason": "Stała _CLEAR_STALE + literał warunku; id klientów przez bind (:client_ids)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/job_fill.py",
+      "line": 65,
+      "fingerprint": "d758e6dcc58b6ce6",
+      "status": "zweryfikowane",
+      "reason": "`filled_in_opening_sql` dostaje literał podzapytania z `:job_ids`; reszta to stałe helpery z literałowym aliasem."
     },
     {
       "rule": "python.jwt.security.unverified-jwt-decode.unverified-jwt-decode",
@@ -1305,6 +1882,14 @@
       "reason": "BOOT_LOCK_TIMEOUT to stała modułu '10s'; brak danych z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/m365/mail_delivery_schema.py",
+      "line": 63,
+      "fingerprint": "5b0b6af9204d9c77",
+      "status": "zweryfikowane",
+      "reason": "`statement` z pętli po stałych DDL modułu (z `BOOT_LOCK_TIMEOUT` literałem); start aplikacji, bez wejścia."
+    },
+    {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
       "path": "backend/app/services/m365/sharepoint_docs.py",
       "line": 88,
@@ -1337,12 +1922,28 @@
       "reason": "market_rates: w SQL wklejane są tylko stałe z kodu (aliasy miast z _CITIES, wiersze ról z placeholderami :rkN/:rpN/:rxN, nazwy kolumn z indeksów kroków, warunki grup z placeholderami :loN/:hiN/:cityN); rola, lata, miasto i lista umiejętności idą wyłącznie przez bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/market_rates.py",
+      "line": 396,
+      "fingerprint": "17440a058e87ea69",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/market_rates.py",
       "line": 459,
       "fingerprint": "4c1cf7f04e896d20",
       "status": "zweryfikowane",
       "reason": "market_rates: w SQL wklejane są tylko stałe z kodu (aliasy miast z _CITIES, wiersze ról z placeholderami :rkN/:rpN/:rxN, nazwy kolumn z indeksów kroków, warunki grup z placeholderami :loN/:hiN/:cityN); rola, lata, miasto i lista umiejętności idą wyłącznie przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/market_rates.py",
+      "line": 459,
+      "fingerprint": "17440a058e87ea69",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1353,12 +1954,28 @@
       "reason": "Wklejony warunek note_kinds.ai_readable_sql() ze stałych rodzajów notatek i stały fragment `when`; ids, types, before przez bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/must_text_evidence.py",
+      "line": 854,
+      "fingerprint": "02d808ecde55fd70",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/must_text_evidence.py",
       "line": 874,
       "fingerprint": "569a41cfc13f21bf",
       "status": "zweryfikowane",
       "reason": "Ten sam warunek ai_readable_sql() ze stałych i stały `when`; ids, types, before przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/must_text_evidence.py",
+      "line": 874,
+      "fingerprint": "6863eb46e9174cbd",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1369,12 +1986,28 @@
       "reason": "Warunek ai_readable_sql() ze stałych i stały `when`; ids, types, pattern (regex) i before przez bind (:pattern)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/must_text_evidence.py",
+      "line": 885,
+      "fingerprint": "2b75189452ff2cc5",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 256,
       "fingerprint": "59b45652be88e6d9",
       "status": "zweryfikowane",
       "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/my_people.py",
+      "line": 256,
+      "fingerprint": "20c896be8e424a3b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1385,12 +2018,28 @@
       "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/my_people.py",
+      "line": 334,
+      "fingerprint": "20c896be8e424a3b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 349,
       "fingerprint": "59b45652be88e6d9",
       "status": "zweryfikowane",
       "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/my_people.py",
+      "line": 349,
+      "fingerprint": "20c896be8e424a3b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1401,6 +2050,14 @@
       "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/my_people.py",
+      "line": 392,
+      "fingerprint": "20c896be8e424a3b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 506,
@@ -1409,12 +2066,28 @@
       "reason": "_owned_pairs_cte(single_user=True) + literał; uid i ids przez bind (:uid, :ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/named_permissions_bootstrap.py",
+      "line": 30,
+      "fingerprint": "e6ee480e6f16fba3",
+      "status": "zweryfikowane",
+      "reason": "`statement`/`READY_SQL` to stałe DDL modułu; start aplikacji, bez wejścia."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/named_permissions_bootstrap.py",
       "line": 45,
       "fingerprint": "904aedbb55a2e0d3",
       "status": "zweryfikowane",
       "reason": "BOOT_LOCK_TIMEOUT to stała modułu '10s'; brak danych z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/named_permissions_bootstrap.py",
+      "line": 55,
+      "fingerprint": "b2130cb4582c0ed0",
+      "status": "zweryfikowane",
+      "reason": "`statement`/`READY_SQL` to stałe DDL modułu; start aplikacji, bez wejścia."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1465,6 +2138,14 @@
       "reason": "Identyfikatory przez _qualified_identifier (regex + cytowanie, fail-closed), pola UPDATE tylko z kluczy słownika casts, sufiks FOR UPDATE ze stałej; wartości przez parametry bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/nexus_data_correction.py",
+      "line": 816,
+      "fingerprint": "0be13c3fc24efcd6",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/nexus_data_correction.py",
       "line": 1173,
@@ -1481,6 +2162,14 @@
       "reason": "Identyfikatory przez _qualified_identifier (regex + cytowanie, fail-closed), pola UPDATE tylko z kluczy słownika casts, sufiks FOR UPDATE ze stałej; wartości przez parametry bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/nexus_data_correction.py",
+      "line": 1212,
+      "fingerprint": "ef4214d849edcf65",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/nexus_data_correction.py",
       "line": 1263,
@@ -1489,12 +2178,28 @@
       "reason": "Identyfikatory przez _qualified_identifier (regex + cytowanie, fail-closed), pola UPDATE tylko z kluczy słownika casts, sufiks FOR UPDATE ze stałej; wartości przez parametry bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/nexus_data_correction.py",
+      "line": 1263,
+      "fingerprint": "53452cc0fa85e719",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/nexus_data_correction.py",
       "line": 1408,
       "fingerprint": "240927c19694eadb",
       "status": "zweryfikowane",
       "reason": "Identyfikatory przez _qualified_identifier (regex + cytowanie, fail-closed), pola UPDATE tylko z kluczy słownika casts, sufiks FOR UPDATE ze stałej; wartości przez parametry bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/nexus_data_correction.py",
+      "line": 1408,
+      "fingerprint": "a57a75de0e9f7b20",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1529,6 +2234,14 @@
       "reason": "Wklejona stała DL_PAIR_AUTHOR_SQL; rodzaj i wzorzec przez bind (:human, :pattern)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/note_kind_backfill.py",
+      "line": 155,
+      "fingerprint": "0a0ce537817f1b19",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/notes_insights_extractor.py",
       "line": 177,
@@ -1545,12 +2258,28 @@
       "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/notes_insights_extractor.py",
+      "line": 187,
+      "fingerprint": "4269055dcf7b0978",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/notes_insights_extractor.py",
       "line": 223,
       "fingerprint": "eb62eb6c6815ea77",
       "status": "zweryfikowane",
       "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/notes_insights_extractor.py",
+      "line": 239,
+      "fingerprint": "25dbe2b684f96e21",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1561,6 +2290,14 @@
       "reason": "Tabela i kolumna z information_schema (FK do clients.id) przepuszczone przez _validate_identifier (^[a-z_][a-z0-9_]*$) i cytowane; id przez bind (:target_ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/order_mail_cleanup.py",
+      "line": 96,
+      "fingerprint": "c00492877f174a77",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_cleanup.py",
       "line": 152,
@@ -1569,12 +2306,28 @@
       "reason": "Tabela i kolumna z information_schema.columns po _validate_identifier (^[a-z_][a-z0-9_]*$), cytowane; id przez bind (:target_ids)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/order_mail_cleanup.py",
+      "line": 152,
+      "fingerprint": "50c4b32dbc60a518",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_cleanup.py",
       "line": 179,
       "fingerprint": "6a458f842ecf2354",
       "status": "zweryfikowane",
       "reason": "Tabela i kolumny *_id/*_type z information_schema.columns po _validate_identifier; wartości typu to literały, id przez bind (:target_ids)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/order_mail_cleanup.py",
+      "line": 179,
+      "fingerprint": "c0809bb3d2984a1b",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1591,6 +2344,14 @@
       "fingerprint": "6e53196800246ea4",
       "status": "zweryfikowane",
       "reason": "Nazwy kolumn to klucze kwargs _write_state — wszyscy wołający podają stałe nazwy (last_status, stats...); wartości przez bind (:{k})."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/order_mail_ingest.py",
+      "line": 2213,
+      "fingerprint": "19d08a2ca158d3be",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1625,6 +2386,14 @@
       "reason": "SQL z modułowych stałych: _SERIES_CTE (SERIES_TZ), _INSERT_TAIL.format(where=...) z dniami z krotki HISTORICAL_SERIES_DAYS; próg, powód, wersja i lista id przez bind (:threshold, :reason, :rule_version, :only)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/placement_exclusions.py",
+      "line": 360,
+      "fingerprint": "d20a1fd14bb4e830",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/placement_exclusions.py",
       "line": 363,
@@ -1633,12 +2402,28 @@
       "reason": "Ta sama stała RULE_SQL (literał where); only_candidate_ids idzie przez bind CAST(:only AS integer[]), nie do tekstu SQL."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/placement_exclusions.py",
+      "line": 363,
+      "fingerprint": "89bb8ee0e6ad7e70",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/placement_exclusions.py",
       "line": 380,
       "fingerprint": "42a397205a434d1c",
       "status": "zweryfikowane",
       "reason": "Ta sama stała RULE_SQL (literał where); only_candidate_ids idzie przez bind CAST(:only AS integer[]), nie do tekstu SQL."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/placement_exclusions.py",
+      "line": 380,
+      "fingerprint": "89bb8ee0e6ad7e70",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1655,6 +2440,30 @@
       "fingerprint": "14bea0fd861ad742",
       "status": "zweryfikowane",
       "reason": "Interpolowane tylko stałe int FAILED_RETRY_HOURS i STALE_CLAIM_MINUTES; slug, nazwa, reguły i umiejętności przez bind (:slug, :name, :rules, :skills)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/plain_knowledge/seed.py",
+      "line": 123,
+      "fingerprint": "ad6805f93ba7fa98",
+      "status": "zweryfikowane",
+      "reason": "`TERM_SQL_NAMED`/`ROLE_SQL_NAMED` budowane przy imporcie przez `_upsert_sql` ze stałych krotek kolumn; wartości przez `:nazwa`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/plain_knowledge/seed.py",
+      "line": 125,
+      "fingerprint": "b9ef82093c3f9bae",
+      "status": "zweryfikowane",
+      "reason": "`TERM_SQL_NAMED`/`ROLE_SQL_NAMED` budowane przy imporcie przez `_upsert_sql` ze stałych krotek kolumn; wartości przez `:nazwa`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/poligon_luki.py",
+      "line": 283,
+      "fingerprint": "b8c94a703d99e5d0",
+      "status": "zweryfikowane",
+      "reason": "`usage_sql()` skleja `FEATURES` — stałe (klucz, literał SQL) w module; id osób i data przez bind."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1681,12 +2490,28 @@
       "reason": "_ELIGIBLE_JOBS.format z dwoma literałami wybieranymi przez bool/None (closed, only); job_id i limit przez bind (:job_id, :limit)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/ranking_lab.py",
+      "line": 288,
+      "fingerprint": "d1c801604cc81b09",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/ranking_lab.py",
       "line": 315,
       "fingerprint": "af97bec126fd0ed8",
       "status": "zweryfikowane",
       "reason": "Wstawiane tylko placeholdery generowane w kodzie: to_tsquery('simple', :q{i}) i cast(:v{i} as tsquery), i = indeks int z enumerate; tsquery i warianty przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/ranking_lab.py",
+      "line": 315,
+      "fingerprint": "a7e6348a2d44c870",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1753,12 +2578,28 @@
       "reason": "Konkatenacja stałej CREDITED_FROM_SNAPSHOT_CTE (literał) z literałem SELECT; okno i migawka przez bind (:from_ts, :to_ts, :credited_*)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/request_allocation_schema.py",
+      "line": 89,
+      "fingerprint": "08b6ec06f6b49327",
+      "status": "zweryfikowane",
+      "reason": "`statement` z pętli po stałych DDL modułu; start aplikacji, bez wejścia."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/requirement_evidence.py",
       "line": 236,
       "fingerprint": "b77f6d0faf1af397",
       "status": "zweryfikowane",
       "reason": "Wstawiony tylko note_kinds.ai_readable_sql() — warunek ze stałych rodzajów (AI_EXCLUDED_KINDS, SYSTEM_SOURCE); wzorzec regex z etykiet idzie przez bind (:pattern), też :cid, :types, :lim; dopisana kolumna n.author_id bez wejścia użytkownika."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/requirement_evidence.py",
+      "line": 236,
+      "fingerprint": "cf01b08f8c731b35",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1769,12 +2610,28 @@
       "reason": "Wstawiony tylko note_kinds.ai_readable_sql('n') ze stałych rodzajów i literału aliasu; zapytanie bez wartości z zewnątrz."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/screening_note_backfill.py",
+      "line": 72,
+      "fingerprint": "0577b82cea39d050",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/screening_reassign.py",
       "line": 399,
       "fingerprint": "92dc99f6d3c86b17",
       "status": "zweryfikowane",
       "reason": "Fragment SQL wklejany f-stringiem pochodzi wyłącznie ze stałych modułu note_kinds (facts_readable_sql/ai_readable_sql, AI_PRIORITY_KINDS) — bez danych użytkownika; wartości idą jako :parametry. Ten sam wzorzec był w baseline przed zmianą linii (audyt r3, notatka z wysyłki)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/screening_reassign.py",
+      "line": 399,
+      "fingerprint": "90600f0549466985",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1793,12 +2650,84 @@
       "reason": "_CV_SENT_SQL to stała modułu: CREDITED_FROM_SNAPSHOT_CTE (literał) + literał SELECT; id osób, granice i migawka przez bind (:ids, :start, :end)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/services/work_rhythm.py",
+      "line": 875,
+      "fingerprint": "d9eb3d706d2b0a79",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/tasks/keyword_corpus_backfill.py",
+      "line": 53,
+      "fingerprint": "c0beb54da7506fd0",
+      "status": "zweryfikowane",
+      "reason": "`sql` to stałe `keyword_corpus.*_SQL` przekazane w tym pliku; partia i kursor przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/tasks/keyword_corpus_backfill.py",
+      "line": 67,
+      "fingerprint": "6a57b54c7792fb2e",
+      "status": "zweryfikowane",
+      "reason": "`sql` to stałe `keyword_corpus.*_SQL` przekazane w tym pliku; partia i kursor przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/tasks/keyword_corpus_backfill.py",
+      "line": 80,
+      "fingerprint": "c0beb54da7506fd0",
+      "status": "zweryfikowane",
+      "reason": "`sql` to stałe `keyword_corpus.*_SQL` przekazane w tym pliku; partia i kursor przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/app/tasks/keyword_corpus_backfill.py",
+      "line": 91,
+      "fingerprint": "c0beb54da7506fd0",
+      "status": "zweryfikowane",
+      "reason": "`sql` to stałe `keyword_corpus.*_SQL` przekazane w tym pliku; partia i kursor przez bind."
+    },
+    {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
       "path": "backend/scripts/backfill_cv_passages.py",
       "line": 174,
       "fingerprint": "0dd4509b30c83fb8",
       "status": "zweryfikowane",
       "reason": "Fałszywy alarm: liczba tokenów modelu w raporcie skryptu, nie sekret."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/compare_keyword_fold_fts.py",
+      "line": 157,
+      "fingerprint": "9c722733253d12a9",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `keyword_corpus.*_PENDING_EXISTS_SQL` to stałe literały."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/compare_keyword_fold_fts.py",
+      "line": 160,
+      "fingerprint": "cba326c89f3d8718",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `keyword_corpus.*_PENDING_EXISTS_SQL` to stałe literały."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/conversation_facts_backfill.py",
+      "line": 112,
+      "fingerprint": "e313a23f48f03968",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `_rows` dostaje stałe `SHEETS_SQL`/`INSIGHTS_SQL`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/eval_application_screening.py",
+      "line": 77,
+      "fingerprint": "0e20ee41db51c185",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `_SAMPLE_SQL[group]` — słownik literałów, `group` z jego kluczy; limit przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1809,12 +2738,44 @@
       "reason": "Skrypt operatora: wstawiane tylko placeholdery z kodu (to_tsquery('simple', :q{i}), cast(:v{i} as tsquery), i z enumerate); tsquery z must_skills z bazy idzie przez bind."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/eval_manual_search_order.py",
+      "line": 362,
+      "fingerprint": "c8bb839a89a398a5",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/eval_manual_search_order.py",
       "line": 442,
       "fingerprint": "7b882c05f90f92fc",
       "status": "zweryfikowane",
       "reason": "Skrypt operatora: ta sama lista placeholderów parts (:q{i}, :v{i}) złączona ' || '; wartości z bazy przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/eval_manual_search_order.py",
+      "line": 442,
+      "fingerprint": "a0af8d0f197806ca",
+      "status": "zweryfikowane",
+      "reason": "To samo wywołanie co wpis `avoid-sqlalchemy-text` w tym pliku (przegląd 13.11 i 28.11.2026): wklejane są tylko stałe, białe listy i placeholdery, wartości przez bind."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/import_dr_manual_fill.py",
+      "line": 368,
+      "fingerprint": "2c7682639e724b02",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `_rows` dostaje literały SQL z tego pliku; wartości przez `params`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/load_dynareporter_history.py",
+      "line": 187,
+      "fingerprint": "fc2c49869dcaea15",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `_scalar` dostaje literały `SELECT count(*) …`."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1825,12 +2786,44 @@
       "reason": "Skrypt operatora: tabela z information_schema.columns (filtrowana _IDENT_RE), trigger z dict-stałej _APPEND_ONLY_TRIGGERS; brak wartości w SQL."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/merge_duplicate_candidates.py",
+      "line": 133,
+      "fingerprint": "0cb7ca85913c5fa1",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI admina: tabela i kolumna z katalogu FK bazy (`_fk_tables`), nie z argumentów; id przez tabelę `merge_pairs`."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/merge_duplicate_candidates.py",
       "line": 134,
       "fingerprint": "9118ed90d3d9d970",
       "status": "zweryfikowane",
       "reason": "Skrypt operatora: jak wyżej — tabela z katalogu (information_schema, _IDENT_RE), trigger ze stałej _APPEND_ONLY_TRIGGERS."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/merge_duplicate_candidates.py",
+      "line": 227,
+      "fingerprint": "a4b2edf74a089b69",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI admina: tabela i kolumna z katalogu FK bazy (`_fk_tables`), nie z argumentów; id przez tabelę `merge_pairs`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/merge_duplicate_candidates.py",
+      "line": 317,
+      "fingerprint": "0cb7ca85913c5fa1",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI admina: tabela i kolumna z katalogu FK bazy (`_fk_tables`), nie z argumentów; id przez tabelę `merge_pairs`."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/merge_duplicate_candidates.py",
+      "line": 327,
+      "fingerprint": "9db80c56f3b8b6e6",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI admina: tabela i kolumna z katalogu FK bazy (`_fk_tables`), nie z argumentów; id przez tabelę `merge_pairs`."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1857,6 +2850,54 @@
       "reason": "Skrypt operatora: nazwy tabel z krotki stałej _HR_DATA_TABLES (8 literałów); id osoby przez bind (:uid)."
     },
     {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/repairs/run_repair_billing_hours_168.py",
+      "line": 27,
+      "fingerprint": "a5f63926998c4a91",
+      "status": "zweryfikowane",
+      "reason": "Jednorazowa naprawa: stała SQL importowana z modułu w `app/services/` (jedno źródło z migracją); bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/repairs/run_repair_ended_tab_contracts.py",
+      "line": 20,
+      "fingerprint": "96966bbdac1303a6",
+      "status": "zweryfikowane",
+      "reason": "Jednorazowa naprawa: stała SQL importowana z modułu w `app/services/` (jedno źródło z migracją); bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/repairs/run_repair_kpi_catalog_unification.py",
+      "line": 21,
+      "fingerprint": "17d6c59bf58561aa",
+      "status": "zweryfikowane",
+      "reason": "Jednorazowa naprawa: stała SQL importowana z modułu w `app/services/` (jedno źródło z migracją); bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/repairs/run_repair_md_periodic_orders.py",
+      "line": 22,
+      "fingerprint": "5e2b9eeaa0032656",
+      "status": "zweryfikowane",
+      "reason": "Jednorazowa naprawa: stała SQL importowana z modułu w `app/services/` (jedno źródło z migracją); bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/repairs/run_repair_pfron_split.py",
+      "line": 32,
+      "fingerprint": "c71d1a400b775ab9",
+      "status": "zweryfikowane",
+      "reason": "Jednorazowa naprawa: stała SQL importowana z modułu w `app/services/` (jedno źródło z migracją); bez wejścia z zewnątrz."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/repairs/settings_test_data_cleanup.py",
+      "line": 87,
+      "fingerprint": "f4981be1b5bfcaf6",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: tabele z krotek literałów w pliku; id przez bind."
+    },
+    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/settings_test_data_cleanup.py",
       "line": 106,
@@ -1879,6 +2920,14 @@
       "fingerprint": "8e9e28482704f4c5",
       "status": "zweryfikowane",
       "reason": "Skrypt operatora: table z literałowej krotki (rejection_reasons, pipeline_stage_defs); id szablonu z PROD_PLAN przez bind (:id)."
+    },
+    {
+      "rule": "semgrep.nexus-sqlalchemy-text-built-elsewhere",
+      "path": "backend/scripts/search_quality_study.py",
+      "line": 194,
+      "fingerprint": "bdd9cc19c417544f",
+      "status": "zweryfikowane",
+      "reason": "Skrypt CLI: `keyword_corpus.NOTES_WRAPPED_COUNT_SQL` to stała literał."
     },
     {
       "rule": "typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml",
