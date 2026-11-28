@@ -3,6 +3,7 @@
 
     zizmor_ratchet.py compare --results zizmor.json [--baseline .github/zizmor-baseline.json]
     zizmor_ratchet.py update  --results zizmor.json --reason "…" [--status zweryfikowane]
+    zizmor_ratchet.py dojo    --results zizmor.json --sarif zizmor.sarif --output zizmor-dojo.sarif
 
 zizmor (linter bezpieczeństwa GitHub Actions) skanuje zawsze całe repo
 (workflowy, `dependabot.yml`), więc wynik jest pełny i wpis, którego skan już
@@ -14,6 +15,11 @@ dopasowany fragment (białe znaki zwinięte). Numer linii i pozycja kroku mogą
 się przesuwać; każda zmiana samego dopasowania (np. nowe `${{ }}` w tym samym
 `run:`) daje nowy odcisk i wymaga ponownego przeglądu. Status, powód
 i porównanie wspólne z zapadką Semgrepa.
+
+`dojo` zapisuje SARIF z tego samego biegu (`run_zizmor.sh` daje oba formaty)
+bez znalezisk pokrytych wpisem `zweryfikowane` — jak `semgrep_ratchet.py
+dojo`. SARIF i JSON łączy reguła + plik + linia; wynik SARIF bez pary w JSON-ie
+to błąd (różne biegi), a nie cicha wysyłka.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import argparse
 import importlib.util
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 DEFAULT_BASELINE = ".github/zizmor-baseline.json"
@@ -177,6 +184,44 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sarif_key(result: dict) -> tuple[str, str, int]:
+    rule = str(result.get("ruleId", ""))
+    rule = rule.removeprefix("zizmor/")
+    physical = (result.get("locations") or [{}])[0].get("physicalLocation", {})
+    uri = physical.get("artifactLocation", {}).get("uri", "")
+    uri = uri.removeprefix("./")
+    return rule, uri, int(physical.get("region", {}).get("startLine", 0))
+
+
+def cmd_dojo(args: argparse.Namespace) -> int:
+    findings = load_findings(Path(args.results))
+    baseline = _SR.load_baseline(Path(args.baseline))
+    _, covered, _ = _split(findings, baseline)
+    every = Counter((f["rule"], f["path"], f["line"]) for f in findings)
+    verified = Counter(
+        (f["rule"], f["path"], f["line"]) for f, entry in covered if entry.get("status") == "zweryfikowane"
+    )
+    sarif = json.loads(Path(args.sarif).read_text(encoding="utf-8"))
+    skipped = 0
+    for run in sarif.get("runs", []):
+        kept = []
+        for result in run.get("results", []):
+            key = _sarif_key(result)
+            if every[key] <= 0:
+                raise ValueError(f"wynik SARIF {key} bez pary w JSON-ie — raporty z różnych biegów")
+            every[key] -= 1
+            if verified[key] > 0:
+                verified[key] -= 1
+                skipped += 1
+                continue
+            kept.append(result)
+        run["results"] = kept
+    Path(args.output).write_text(json.dumps(sarif, ensure_ascii=False), encoding="utf-8")
+    left = sum(len(run.get("results", [])) for run in sarif.get("runs", []))
+    print(f"Raport do DefectDojo: {left} znalezisk (pominięte jako zweryfikowane: {skipped}).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -188,6 +233,12 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--reason", default="")
             p.add_argument("--status", choices=STATUSES, default="do-przegladu")
         p.set_defaults(func=func)
+    dojo = sub.add_parser("dojo")
+    dojo.add_argument("--results", required=True)
+    dojo.add_argument("--sarif", required=True)
+    dojo.add_argument("--baseline", default=DEFAULT_BASELINE)
+    dojo.add_argument("--output", required=True)
+    dojo.set_defaults(func=cmd_dojo)
     args = parser.parse_args(argv)
     try:
         return args.func(args)

@@ -446,3 +446,156 @@ def test_choosing_a_buyer_in_a_draft_applies_from_its_month_only() -> None:
         {"code": "b1", "from": "2026-01"},
         {"code": "b2", "from": "2026-08"},
     ]
+
+
+# ── Numer umowy per zamówienie albo grupa (BNP, decyzja Artura 28.11.2026) ───
+
+_BY_ORDER = {
+    "number": "UR/2020/77",
+    "date": "2020-03-02",
+    "by_order": "ZAM/7_2026=UR/2015/5; zam/8_2026 = UR/2015/6 z 2015-06-01",
+}
+
+
+def test_contract_map_gives_the_order_its_contract_and_others_the_default() -> None:
+    found = req.from_rules(_rules(**{"cl.ksef_contract": dict(_BY_ORDER)}), "2026-11")
+    assert found.contract_for("ZAM/7_2026") == ("UR/2015/5", None)
+    # Wielkość liter i spacje w numerze zamówienia się nie liczą.
+    assert found.contract_for(" ZAM/8_2026 ") == ("UR/2015/6", date(2015, 6, 1))
+    assert found.contract_for("ZAM/9_2026") == ("UR/2020/77", date(2020, 3, 2))
+    assert found.contract_for(None) == ("UR/2020/77", date(2020, 3, 2))
+
+    mapped = req.with_contract(found, ["ZAM/7_2026"])
+    assert (mapped.contract_number, mapped.contract_date) == ("UR/2015/5", None)
+    assert req.summary(mapped, ["ZAM/7_2026"])[0] == {
+        "label": "Numer umowy (KSeF)",
+        "value": "UR/2015/5",
+    }
+    other = req.with_contract(found, ["ZAM/9_2026"])
+    assert (other.contract_number, other.contract_date) == (
+        "UR/2020/77",
+        date(2020, 3, 2),
+    )
+    assert other.contract_conflict == ()
+
+
+def test_invoice_with_orders_of_two_contracts_has_no_contract_and_a_conflict() -> None:
+    found = req.from_rules(_rules(**{"cl.ksef_contract": dict(_BY_ORDER)}), "2026-11")
+    mixed = req.with_contract(found, ["ZAM/7_2026", "ZAM/9_2026"])
+    assert mixed.contract_number is None and mixed.contract_date is None
+    assert mixed.contract_conflict == ("UR/2015/5", "UR/2020/77")
+
+
+def test_contract_typed_in_the_draft_wins_over_the_rules() -> None:
+    found = req.from_rules(_rules(**{"cl.ksef_contract": dict(_BY_ORDER)}), "2026-11")
+    typed = req.with_contract(
+        found, ["ZAM/7_2026", "ZAM/9_2026"], override=("UR/2016/9", None)
+    )
+    assert (typed.contract_number, typed.contract_date) == ("UR/2016/9", None)
+    assert typed.contract_conflict == ()
+    # Bez reguły klienta numer ze szkicu też trafia do KSeF.
+    bare = req.with_contract(
+        req.Requirements(), [], override=("UR/2016/9", date(2016, 1, 4))
+    )
+    assert (bare.contract_number, bare.contract_date) == (
+        "UR/2016/9",
+        date(2016, 1, 4),
+    )
+
+
+def test_contract_map_without_default_number_leaves_other_orders_without() -> None:
+    found = req.from_rules(
+        _rules(**{"cl.ksef_contract": {"by_order": "ZAM/7_2026=UR/2015/5"}}),
+        "2026-11",
+    )
+    assert found.contract_number is None
+    assert req.with_contract(found, ["ZAM/9_2026"]).contract_number is None
+    assert req.with_contract(found, ["ZAM/7_2026"]).contract_number == "UR/2015/5"
+
+
+def test_unreadable_contract_map_is_refused_when_rules_are_saved() -> None:
+    def save(by_order: str) -> dict:
+        return catalog.clean_for_save(
+            [
+                {
+                    "key": "cl.ksef_contract",
+                    "level": "block",
+                    "params": {"number": "UR/1", "by_order": by_order},
+                }
+            ]
+        )
+
+    for bad in ("ZAM/7_2026 UR/2015/5", "=UR/2015/5", "ZAM/7_2026=", "A=B z 2.03.2015"):
+        with pytest.raises(catalog.RulesError, match="ZAM_1=UM/2015/1"):
+            save(bad)
+    saved = save("ZAM/7_2026=UR/2015/5;\nZAM/8_2026=UR/2015/6 z 2015-06-01;")
+    assert saved["cl.ksef_contract"]["params"]["by_order"].startswith("ZAM/7_2026=")
+
+
+def test_contract_override_lives_in_the_draft_and_survives_a_buyer_edit() -> None:
+    invoice = _merged_invoice(
+        lines=[{"name": "A", "order_key": "g1", "order_number": "ZAM/7_2026"}],
+        client_order_number="ZAM/7_2026",
+    )
+    found = req.from_rules(_rules(**{"cl.ksef_contract": dict(_BY_ORDER)}), "2026-11")
+    assert issue.resolve_contract(found, invoice).contract_number == "UR/2015/5"
+    issue.set_contract(invoice, "  UR/2016/9 ", "2016-01-04")
+    assert issue.contract_override(invoice) == ("UR/2016/9", date(2016, 1, 4))
+    assert issue.resolve_contract(found, invoice).contract_number == "UR/2016/9"
+    assert (
+        issue.resolve_contract(found, invoice, override=False).contract_number
+        == "UR/2015/5"
+    )
+    # Front odsyła nabywcę bez pól umowy — numer ze szkicu zostaje.
+    invoice.buyer = issue.keep_contract(
+        issue.clean_buyer({"name": "Bank 2"}, invoice.buyer), invoice.buyer
+    )
+    assert invoice.buyer["name"] == "Bank 2"
+    assert issue.contract_override(invoice) == ("UR/2016/9", date(2016, 1, 4))
+    issue.set_contract(invoice, "", None)
+    assert issue.contract_override(invoice) is None
+    assert "contract_number" not in invoice.buyer
+    with pytest.raises(issue.IssueError, match="numeru umowy"):
+        issue.set_contract(invoice, "", "2016-01-04")
+
+
+def test_orders_together_split_by_contract() -> None:
+    def row(group_id: int, number: str) -> billing.BillingRow:
+        return billing.BillingRow(
+            client_id=16,
+            kind="md",
+            group_id=group_id,
+            order_id=None,
+            order_number=number,
+            currency="PLN",
+            lines=(
+                billing.BillingLine(
+                    order_id=None,
+                    consultant=f"Osoba {group_id}",
+                    basis="md",
+                    quantity=None,
+                    unit_price=None,
+                    net=None,
+                    currency="PLN",
+                ),
+            ),
+        )
+
+    rows = {r.key: r for r in (row(1, "ZAM/1"), row(2, "ZAM/7_2026"), row(3, "ZAM/2"))}
+    found = req.from_rules(
+        _rules(**{"cl.ksef_contract": dict(_BY_ORDER), "cl.orders_together": {}}),
+        "2026-11",
+    )
+    units = issue._units(  # noqa: SLF001
+        list(rows),
+        rows,
+        split="order",
+        settings=issue_settings.normalize({}),
+        reqs={16: found},
+        infos={},
+        period="2026-11",
+    )
+    assert [[r.order_number for r in unit.rows] for unit in units] == [
+        ["ZAM/1", "ZAM/2"],
+        ["ZAM/7_2026"],
+    ]

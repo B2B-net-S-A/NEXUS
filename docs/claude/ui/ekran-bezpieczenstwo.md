@@ -102,6 +102,11 @@ koncie go nie zwalnia.
   na serwerze bezpieczeństwa co 30 min wypycha aktywne znaleziska
   (`source: "defectdojo"`, `scanner: "defectdojo"`, `run_id`, paczki po 200).
   Każda paczka, także pusta, odświeża stan źródła (`security_source_states`).
+  CI wysyła do DefectDojo raporty po zapadkach (bez przejrzanych wyjątków
+  z repo, od 28.11.2026), więc „czeka na reakcję” z DefectDojo to nowe
+  znaleziska i wyjątki po terminie. Fałszywy alarm wycisza się w pliku
+  zapadki (`skanery-bezpieczenstwa.md`), nie wyjątkiem na ekranie: wyjątek
+  na ekranie jest dla realnego problemu, który świadomie czeka.
 
 NEXUS czyta sam tylko GitHub Actions (pętla `security_sync`, co 30 min, na
 stagingu zatrzymana): biegi `SECURITY_GITHUB_WORKFLOW` z `SECURITY_GITHUB_REPO`

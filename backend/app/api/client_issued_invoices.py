@@ -283,6 +283,9 @@ class InvoiceIn(BaseModel):
     due_date: Optional[date] = None
     client_order_number: Optional[str] = Field(None, max_length=256)
     notes: Optional[str] = Field(None, max_length=1000)
+    #: Umowa do KSeF (``NrUmowy``) wpisana w szkicu; pusta = z reguł klienta.
+    contract_number: Optional[str] = Field(None, max_length=256)
+    contract_date: Optional[date] = None
     correction_reason: Optional[str] = Field(None, max_length=256)
     currency: Optional[Literal["PLN", "EUR", "USD"]] = None
     series_code: Optional[Literal["PL", "UE", "BEN"]] = None

@@ -193,14 +193,6 @@
       "reason": "scope to literał 'AND id = ANY(:ids)' albo pusty; ids, after i size przez bind. Skrypt CLI, bez wejścia HTTP."
     },
     {
-      "rule": "python.flask.security.audit.directly-returned-format-string.directly-returned-format-string",
-      "path": "backend/app/core/rate_limit.py",
-      "line": 89,
-      "fingerprint": "72a322ec279d8203",
-      "status": "zweryfikowane",
-      "reason": "Klucz limitera żądań (user:<sub>), nie odpowiedź HTTP."
-    },
-    {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/models/equipment.py",
       "line": 55,

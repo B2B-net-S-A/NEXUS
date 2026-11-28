@@ -46,6 +46,13 @@ describe("buildCsp", () => {
     expect(policy).toMatch(/connect-src [^;]*https:\/\/cloudflareinsights\.com/);
   });
 
+  it("PostHog EU tylko w connect-src, nigdy jako źródło skryptów", () => {
+    const policy = buildCsp("abc", PROD);
+    expect(policy).toMatch(/connect-src [^;]*https:\/\/eu\.i\.posthog\.com/);
+    expect(policy).not.toMatch(/script-src [^;]*posthog/);
+    expect(policy).not.toContain("eu-assets.i.posthog.com");
+  });
+
   it("brak env nie wywraca polityki", () => {
     expect(buildCsp("abc", {})).not.toContain("report-uri");
     expect(sentryCspReportUri("nie-url")).toBeNull();

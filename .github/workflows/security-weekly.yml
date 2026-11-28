@@ -13,6 +13,10 @@ name: Security weekly
 #     oraz obrazy z `docker-compose.yml` i Traefik Coolify — podatności w
 #     systemie i paczkach obrazu, których skan Dockerfile'a na PR-ze nie widzi
 #     (27.11.2026).
+# Do DefectDojo idą raporty PO zapadkach (28.11.2026): Semgrep i zizmor bez
+# wpisów `zweryfikowane` z baseline (`… dojo`), Trivy z `.trivyignore-images`.
+# DefectDojo i ekran Ustawienia → Bezpieczeństwo pokazują to, na co trzeba
+# zareagować; przejrzane wyjątki z powodem i terminem są w repo.
 # Każdy job wysyła swój raport do DefectDojo (`defectdojo_import.sh`, krok
 # z `continue-on-error`, bez sekretów kończy się notką) przez tunel WireGuard
 # do serwera bezpieczeństwa — wprost z joba, bez artefaktu, bo artefakty
@@ -79,6 +83,12 @@ jobs:
           exit 1
       - name: Zapadka Semgrepa (baseline)
         run: python3 .github/scripts/semgrep_ratchet.py compare --results semgrep.json
+      # Do DefectDojo (i na ekran Bezpieczeństwo) bez przejrzanych wyjątków
+      # z baseline — inaczej każdy bieg wystawia je od nowa jako „czeka na
+      # reakcję” (28.11.2026: 237 pozycji). Powód wyjątku jest w baseline.
+      - name: Raport do DefectDojo (bez zweryfikowanych)
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/semgrep_ratchet.py dojo --results semgrep.json --output semgrep-dojo.json
       - name: Import do DefectDojo
         if: ${{ !cancelled() }}
         continue-on-error: true
@@ -86,7 +96,7 @@ jobs:
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
           DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_SEMGREP }}
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
-        run: bash .github/scripts/defectdojo_import.sh "Semgrep JSON Report" "Semgrep" semgrep.json
+        run: bash .github/scripts/defectdojo_import.sh "Semgrep JSON Report" "Semgrep" semgrep-dojo.json
 
   deps-audit:
     name: Audyt zależności (całość)
@@ -115,7 +125,8 @@ jobs:
           pip install pip-audit==2.9.0
           pip-audit -r backend/requirements.txt --progress-spinner off -f json -o pip-audit.json \
             || echo "pip-audit: kod $? — wynik oceni zapadka"
-          python3 .github/scripts/dependency_audit.py python --report pip-audit.json
+          python3 .github/scripts/dependency_audit.py python --report pip-audit.json \
+            --dojo-output pip-audit-dojo.json
       - name: npm audit (frontend, bez dev)
         id: npm
         continue-on-error: true
@@ -123,7 +134,8 @@ jobs:
           set -uo pipefail
           (cd frontend && npm audit --omit=dev --audit-level=high --json > ../npm-audit.json) \
             || echo "npm audit: kod $? — wynik oceni zapadka"
-          python3 .github/scripts/dependency_audit.py npm --report npm-audit.json --min-severity high
+          python3 .github/scripts/dependency_audit.py npm --report npm-audit.json --min-severity high \
+            --dojo-output npm-audit-dojo.json
       - name: Import do DefectDojo
         if: ${{ !cancelled() }}
         continue-on-error: true
@@ -133,8 +145,8 @@ jobs:
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
         run: |
           bash .github/scripts/defectdojo_import.sh \
-            "pip-audit Scan" "pip-audit" pip-audit.json \
-            "NPM Audit v7+ Scan" "npm audit" npm-audit.json
+            "pip-audit Scan" "pip-audit" pip-audit-dojo.json \
+            "NPM Audit v7+ Scan" "npm audit" npm-audit-dojo.json
       - name: Wynik
         env:
           PIP: ${{ steps.pip.outcome }}
@@ -166,6 +178,11 @@ jobs:
         run: bash .github/scripts/run_zizmor.sh zizmor.json zizmor.sarif
       - name: Zapadka zizmora (baseline)
         run: python3 .github/scripts/zizmor_ratchet.py compare --results zizmor.json
+      - name: Raport do DefectDojo (bez zweryfikowanych)
+        if: ${{ !cancelled() }}
+        run: |
+          python3 .github/scripts/zizmor_ratchet.py dojo --results zizmor.json \
+            --sarif zizmor.sarif --output zizmor-dojo.sarif
       - name: Import do DefectDojo
         if: ${{ !cancelled() }}
         continue-on-error: true
@@ -173,7 +190,7 @@ jobs:
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
           DEFECTDOJO_WG_CONF: ${{ secrets.DEFECTDOJO_WG_CONF_ZIZMOR }}
           DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
-        run: bash .github/scripts/defectdojo_import.sh "SARIF" "zizmor" zizmor.sarif
+        run: bash .github/scripts/defectdojo_import.sh "SARIF" "zizmor" zizmor-dojo.sarif
 
   trivy-images:
     # Obrazy, które biegną na produkcji. Coolify buduje backend i front na

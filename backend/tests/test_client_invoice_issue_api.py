@@ -16,6 +16,7 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Optional
 
 import httpx
 import pytest
@@ -1598,6 +1599,123 @@ async def test_orders_stay_separate_without_the_rule(client, seed, rules):
     assert len(response.json()["created"]) == 2
 
 
+def _contract_of(xml: bytes) -> tuple[Optional[str], Optional[str]]:
+    terms = etree.fromstring(xml).find("{*}Fa/{*}WarunkiTransakcji")
+    if terms is None:
+        return None, None
+    return (
+        terms.findtext("{*}Umowy/{*}NrUmowy"),
+        terms.findtext("{*}Umowy/{*}DataUmowy"),
+    )
+
+
+async def test_contract_number_per_order_group_with_client_default(client, seed, rules):
+    # BNP (28.11.2026): dwie grupy MD idą na inną umowę niż reszta zamówień.
+    await rules(
+        {
+            "cl.ksef_contract": {
+                "level": "block",
+                "params": {
+                    "number": "UR/2020/77",
+                    "date": "2020-03-02",
+                    "by_order": "ZAM/2026/124=UR/2015/5",
+                },
+            },
+        }
+    )
+    await _settings(client, seed)
+    default_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    mapped_id = await _draft(client, seed, f"g{seed.groups['124']}")
+    cards = {
+        invoice_id: (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+        for invoice_id in (default_id, mapped_id)
+    }
+    labels = {
+        invoice_id: {item["label"]: item["value"] for item in card["requirements"]}
+        for invoice_id, card in cards.items()
+    }
+    assert labels[default_id]["Numer umowy (KSeF)"] == "UR/2020/77 z 02.03.2020"
+    assert labels[mapped_id]["Numer umowy (KSeF)"] == "UR/2015/5"
+    assert cards[mapped_id]["contract_rule"] == {"number": "UR/2015/5", "date": None}
+    assert cards[mapped_id]["contract_number"] is None
+
+    await _send(client, seed, default_id)
+    await _send(client, seed, mapped_id)
+    default_xml, mapped_xml = seed.fake.received
+    assert _contract_of(default_xml) == ("UR/2020/77", "2020-03-02")
+    assert _contract_of(mapped_xml) == ("UR/2015/5", None)
+
+
+async def test_orders_together_split_into_invoices_per_contract(client, seed, rules):
+    await rules(
+        {
+            "cl.orders_together": {"level": "block", "params": {}},
+            "cl.ksef_contract": {
+                "level": "block",
+                "params": {
+                    "number": "UR/2020/77",
+                    "by_order": "ZAM/2026/124=UR/2015/5",
+                },
+            },
+        }
+    )
+    await _settings(client, seed)
+    keys = [f"g{seed.groups['118']}", f"g{seed.groups['124']}"]
+    response = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": keys}, headers=_h(seed)
+    )
+    assert response.status_code == 201, response.text
+    numbers = []
+    for invoice_id in response.json()["created"]:
+        card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+        numbers.append(card["order_numbers"])
+    assert numbers == [["ZAM/2026/118"], ["ZAM/2026/124"]]
+
+
+async def test_finance_corrects_the_contract_number_in_a_draft(client, seed, rules):
+    await rules(
+        {
+            "cl.ksef_contract": {
+                "level": "block",
+                "params": {"number": "UR/2020/77", "date": "2020-03-02"},
+            },
+        }
+    )
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    changed = await client.put(
+        f"{BASE}/{invoice_id}",
+        json={"contract_number": " UR/2016/9 ", "contract_date": "2016-01-04"},
+        headers=_h(seed),
+    )
+    assert changed.status_code == 200, changed.text
+    card = changed.json()
+    assert (card["contract_number"], card["contract_date"]) == (
+        "UR/2016/9",
+        "2016-01-04",
+    )
+    assert card["contract_rule"] == {"number": "UR/2020/77", "date": "2020-03-02"}
+    labels = {item["label"]: item["value"] for item in card["requirements"]}
+    assert labels["Numer umowy (KSeF)"] == "UR/2016/9 z 04.01.2016"
+
+    # Zapis nabywcy z formularza (bez pól umowy) nie gubi numeru ze szkicu.
+    kept = await client.put(
+        f"{BASE}/{invoice_id}", json={"buyer": BUYER}, headers=_h(seed)
+    )
+    assert kept.json()["contract_number"] == "UR/2016/9"
+    refused = await client.put(
+        f"{BASE}/{invoice_id}",
+        json={"contract_number": None, "contract_date": "2016-01-04"},
+        headers=_h(seed),
+    )
+    assert refused.status_code == 422, refused.text
+    assert "numeru umowy" in refused.json()["detail"]
+
+    await _send(client, seed, invoice_id)
+    (xml,) = seed.fake.received
+    assert _contract_of(xml) == ("UR/2016/9", "2016-01-04")
+
+
 async def test_buyer_per_contract_is_chosen_once_and_remembered(client, seed, rules):
     buyers = [
         {
@@ -1719,6 +1837,129 @@ async def test_signed_protocol_rule_blocks_the_draft(client, seed, rules):
         f"{BASE}/drafts", json={**OCTOBER, "keys": [key]}, headers=_h(seed)
     )
     assert blocked.status_code == 409
+
+
+# ── Dokument klienta z godzinami: KEŚU i akceptacja KCP (28.11.2026) ────────
+
+SIGNED_SHEET_RULES = {
+    "cl.after_signed_document": {"level": "block", "params": {}},
+    # Jak u banku z KEŚU na kopii produkcji: dokument „na podpisującego”.
+    "cl.client_document": {
+        "level": "block",
+        "params": {"kind": "arkusz", "per": "podpisujący", "from": "", "header": ""},
+    },
+}
+KCP_RULES = {
+    "cl.after_signed_document": {"level": "block", "params": {}},
+    "cl.client_acceptance": {
+        "level": "block",
+        "params": {"email": "body@bank-testowy.example", "subject": ""},
+    },
+}
+
+
+async def _settled_order(client_id: int, person: tuple[str, str], meta: dict) -> str:
+    """Zamówienie okresowe z przyjętym rozliczeniem X 2026 i stanem dokumentu w ``meta``."""
+
+    from app.models.client_order import ClientOrder
+    from app.models.client_settlement import ClientSettlement
+
+    async with AsyncSessionLocal() as db:
+        order_id = await fx.periodic_order(
+            db,
+            client_id,
+            f"ZAM/2026/{person[1].upper()}",
+            rate="1000",
+            unit=RateUnit.daily,
+            person=person,
+        )
+        contract_id = (await db.get(ClientOrder, order_id)).contract_id
+        db.add(
+            ClientSettlement(
+                contract_id=contract_id,
+                client_id=client_id,
+                period_month="2026-10",
+                kind="actual",
+                status="accepted",
+                order_id=order_id,
+                md_regular=Decimal("21"),
+                md_charged=Decimal("21"),
+                lines=[],
+                checks=[{"remaining_after": None, **meta}],
+            )
+        )
+        await db.commit()
+    return f"o{order_id}"
+
+
+async def test_unsigned_kesu_blocks_the_draft_and_signed_lets_it_go(
+    client, seed, rules
+):
+    await rules(SIGNED_SHEET_RULES)
+    await _settings(client, seed)
+    waiting = await _settled_order(
+        seed.client_id, ("Ola", "Keśuowa"), {"kesu": {"state": "awaiting_client"}}
+    )
+    signed = await _settled_order(
+        seed.client_id, ("Piotr", "Podpisany"), {"kesu": {"state": "signed"}}
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, waiting)["blocked"] == (
+        "Pozycje czekają na rozliczenie: Ola Keśuowa (czeka na podpisane KEŚU)."
+    )
+    # Podpisane KEŚU to podpisany dokument klienta: arkusza zbiorczego nie ma.
+    assert _row(listing, seed.client_id, signed)["blocked"] is None
+    blocked = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [waiting]}, headers=_h(seed)
+    )
+    assert blocked.status_code == 409
+    assert "czeka na podpisane KEŚU" in blocked.json()["detail"]
+    await _draft(client, seed, signed)
+
+
+async def test_kcp_without_client_acceptance_blocks_the_draft(client, seed, rules):
+    await rules(KCP_RULES)
+    await _settings(client, seed)
+    sent = {"client_acceptance": {"sent_at": "2026-11-03T10:00:00+00:00"}}
+    waiting = await _settled_order(seed.client_id, ("Ewa", "Wysłana"), sent)
+    accepted = await _settled_order(
+        seed.client_id,
+        ("Adam", "Zaakceptowany"),
+        {
+            "client_acceptance": {
+                **sent["client_acceptance"],
+                "accepted_at": "2026-11-04T09:00:00+00:00",
+            }
+        },
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, waiting)["blocked"] == (
+        "Pozycje czekają na rozliczenie: Ewa Wysłana (czeka na akceptację KCP klienta)."
+    )
+    assert _row(listing, seed.client_id, accepted)["blocked"] is None
+    blocked = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [waiting]}, headers=_h(seed)
+    )
+    assert blocked.status_code == 409
+    assert "czeka na akceptację KCP klienta" in blocked.json()["detail"]
+    await _draft(client, seed, accepted)
+
+
+async def test_document_state_without_the_rules_changes_nothing(client, seed, rules):
+    await rules({})
+    await _settings(client, seed)
+    kesu_key = await _settled_order(
+        seed.client_id, ("Ola", "Keśuowa"), {"kesu": {"state": "awaiting_client"}}
+    )
+    kcp_key = await _settled_order(
+        seed.client_id,
+        ("Ewa", "Wysłana"),
+        {"client_acceptance": {"sent_at": "2026-11-03T10:00:00+00:00"}},
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, kesu_key)["blocked"] is None
+    assert _row(listing, seed.client_id, kcp_key)["blocked"] is None
+    await _draft(client, seed, kesu_key)
 
 
 # ── Zlecenie B-ZONE i protokół odbioru od klienta (24.11.2026) ───────────────

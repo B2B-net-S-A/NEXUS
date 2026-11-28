@@ -390,13 +390,24 @@ async def save(
     return value
 
 
+#: Stawki krajowe: nie trafiają na fakturę do nabywcy z UE (usługa B2B w UE =
+#: odwrotne obciążenie, „np II”). Ekran ustawień przy dodaniu klienta zapisuje
+#: mu stawkę domyślną (23), więc bez tego drugi nabywca klienta z UE (Bosch
+#: GmbH obok spółki polskiej, 28.11.2026) dostałby 23% zamiast „np II”.
+DOMESTIC_VAT = frozenset({"23", "8", "5", "0 KR"})
+
+
 def client_vat(data: dict[str, Any], client_id: int, *, eu_buyer: bool) -> str:
-    """Stawka dla nowej pozycji: nadpisanie przy kliencie, nabywca z UE, domyślna."""
+    """Stawka dla nowej pozycji: nadpisanie przy kliencie, nabywca z UE, domyślna.
+
+    Nadpisanie krajowe nie dotyczy nabywcy z UE, a „np II” nabywcy krajowego."""
 
     override = data["clients"].get(str(client_id), {}).get("vat_rate")
-    if override:
+    if eu_buyer:
+        return override if override and override not in DOMESTIC_VAT else "np II"
+    if override and override != "np II":
         return override
-    return "np II" if eu_buyer else data["default_vat"]
+    return data["default_vat"]
 
 
 def account_for(

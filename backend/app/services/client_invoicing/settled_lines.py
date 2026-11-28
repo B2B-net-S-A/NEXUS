@@ -21,6 +21,13 @@ linii okresowej.
   Bez tego warunku każda osoba z kontraktem u takiego klienta czekałaby na
   RCP, którego nie będzie (CI 27.11.2026). Zestaw reguł klienta tego nie
   rozstrzyga: trzyma też same reguły faktury (``cl.*``).
+* Dokument klienta z godzinami (decyzja Artura z 28.11.2026): przy
+  ``cl.after_signed_document`` wiersz z KEŚU bez podpisu klienta
+  (``awaiting_signature``) i wiersz z KCP bez akceptacji klienta mailem
+  (``cl.client_acceptance``, ``awaiting_client``) czeka tak samo jak bez RCP.
+  Ten sam ``awaiting_signature`` przy wstrzymaniu na protokół albo arkusze
+  miesiąca (``signature_hold`` widoku) nie czeka tutaj: podpis każdej osoby
+  sprawdza ``issue._signature_block``, który przy KEŚU arkusza nie szuka.
 """
 
 from __future__ import annotations
@@ -39,7 +46,11 @@ logger = logging.getLogger(__name__)
 AWAITING = {
     "waiting": "czeka na przyjęte rozliczenie (RCP)",
     "awaiting_t4t": "czeka na godziny zatwierdzone w T4T",
+    "awaiting_signature": "czeka na podpisane KEŚU",
+    "awaiting_client": "czeka na akceptację KCP klienta",
 }
+#: Stan wiersza przy wstrzymaniu klienta na protokół albo arkusze miesiąca.
+_DOCUMENT_HOLD = "awaiting_signature"
 _UNITS = {
     "md": "md",
     "godz.": "hours",
@@ -67,9 +78,13 @@ class Settled:
 
     state: str
     positions: tuple[SettledPosition, ...]
+    #: Klient czeka na protokół albo arkusze miesiąca, nie na KEŚU tej osoby.
+    document_hold: bool = False
 
     @property
     def awaiting(self) -> Optional[str]:
+        if self.document_hold and self.state == _DOCUMENT_HOLD and self.positions:
+            return None
         if self.state in AWAITING:
             return AWAITING[self.state]
         if not self.positions:
@@ -104,9 +119,11 @@ def position_from(item: dict[str, Any]) -> Optional[SettledPosition]:
 
 
 def settled_from_rows(
-    rows: Iterable[dict[str, Any]],
+    rows: Iterable[dict[str, Any]], *, document_hold: bool = False
 ) -> dict[tuple[int, Optional[int]], Settled]:
-    """Klucz (kontrakt, linia zamówienia wiersza albo ``None``) → stan i pozycje."""
+    """Klucz (kontrakt, linia zamówienia wiersza albo ``None``) → stan i pozycje.
+
+    ``document_hold`` — widok klienta ma ``signature_hold`` (protokół, arkusze)."""
 
     out: dict[tuple[int, Optional[int]], Settled] = {}
     for row in rows:
@@ -119,7 +136,9 @@ def settled_from_rows(
             if p is not None
         )
         out[(int(contract_id), row.get("order_id"))] = Settled(
-            state=str(row.get("state") or "waiting"), positions=items
+            state=str(row.get("state") or "waiting"),
+            positions=items,
+            document_hold=document_hold,
         )
     return out
 
@@ -183,5 +202,35 @@ async def for_clients(
                 period,
             )
             continue
-        out.update(settled_from_rows(view.get("rows") or []))
+        out.update(
+            settled_from_rows(
+                view.get("rows") or [],
+                document_hold=view.get("signature_hold") is not None,
+            )
+        )
     return out
+
+
+async def with_kesu(
+    db: AsyncSession, contract_ids: Iterable[int], period: str
+) -> set[int]:
+    """Kontrakty z KEŚU w przyjętym rozliczeniu miesiąca (plan albo faktyczne).
+
+    Ich dokumentem klienta jest KEŚU (stan w ``AWAITING``), nie arkusz ani
+    protokół z ``cl.client_document`` — tak jak w „Do faktury dla klienta”,
+    gdzie KEŚU zdejmuje wstrzymanie na arkusze (``client_invoice.invoice_month``)."""
+
+    from app.models.client_settlement import ClientSettlement
+    from app.services.client_settlements import service
+
+    ids = {int(i) for i in contract_ids if i is not None}
+    if not ids:
+        return set()
+    found = await db.scalars(
+        select(ClientSettlement).where(
+            ClientSettlement.contract_id.in_(ids),
+            ClientSettlement.period_month == period,
+            ClientSettlement.status == "accepted",
+        )
+    )
+    return {s.contract_id for s in found.all() if service.kesu_state(s) is not None}

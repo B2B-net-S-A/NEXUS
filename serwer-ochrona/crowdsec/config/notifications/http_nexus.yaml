@@ -1,15 +1,18 @@
-# Powiadomienia CrowdSec -> ekran Ustawienia -> Bezpieczenstwo w NEXUSIE (kontrakt ingest v1, 27.11.2026).
-# Nieaktywne, dopoki nie ma klucza konta serwisowego `crowdsec-nexus` (scope security:ingest; konto pisze
-# tylko do zrodla `crowdsec`). Wlaczenie: plik do /opt/crowdsec/config/notifications/ (chmod 600), w miejsce
-# __NEXUS_KEY__ klucz, profile jak w profiles-nexus.yaml obok, `docker restart crowdsec`.
+# Powiadomienia CrowdSec -> ekran Ustawienia -> Bezpieczenstwo w NEXUSIE (kontrakt ingest v1, wlaczone 28.11.2026).
+# Konto serwisowe `crowdsec-nexus` (tylko scope security:ingest, zrodlo `crowdsec` na wylacznosc).
+# Klucz lezy tylko na serwerze w /opt/crowdsec/nexus_ingest.key (600). Wdrozenie: ten plik jako szablon,
+# skrypt wstawia klucz w miejsce __NEXUS_KEY__ i zapisuje /opt/crowdsec/config/notifications/http_nexus.yaml (600),
+# profile jak w profiles-nexus.yaml obok, potem `docker restart crowdsec` (nigdy coolify-proxy).
 # Bez adresow IP w summary (repo i ekran ich nie trzymaja); count=1 na alert.
+# ref: skrot sha256 ze scenariusza, czasow i wartosci, bo ID alertu przed zapisem do bazy bywa 0,
+# a ten sam (source, ref) NEXUS pomija.
 type: http
 name: http_nexus
 log_level: info
 group_wait: 30s
 group_threshold: 50
 format: |
-  {"source":"crowdsec","events":[{{range $i, $a := .}}{{if $i}},{{end}}{"occurred_at":"{{$a.StopAt}}","kind":"{{if hasPrefix "nexus/" $a.Scenario}}alert{{else if hasPrefix "crowdsecurity/appsec" $a.Scenario}}appsec_block{{else}}ban{{end}}","severity":"{{if eq $a.Scenario "nexus/large-export"}}high{{else if hasPrefix "nexus/" $a.Scenario}}medium{{else}}info{{end}}","summary":"{{if hasPrefix "nexus/" $a.Scenario}}Alarm{{else}}Ban 4 h{{end}}: {{$a.Scenario}}","count":1,"ref":"crowdsec:alert:{{$a.ID}}"}{{end}}]}
+  {"source":"crowdsec","events":[{{range $i, $a := .}}{{if $i}},{{end}}{{$sc := $a.GetScenario}}{"occurred_at":"{{$a.StopAt}}","kind":"{{if hasPrefix "nexus/" $sc}}alert{{else if hasPrefix "crowdsecurity/appsec" $sc}}appsec_block{{else}}ban{{end}}","severity":"{{if eq $sc "nexus/large-export"}}high{{else if hasPrefix "nexus/" $sc}}medium{{else if hasPrefix "crowdsecurity/appsec" $sc}}low{{else}}info{{end}}","summary":{{printf "%s: %s%s" (ternary "Alarm" "Ban 4 h" (hasPrefix "nexus/" $sc)) $sc (ternary " (symulacja)" "" (eq (toJson $a.Simulated) "true")) | trunc 300 | toJson}},"count":1,"ref":"crowdsec:{{printf "%s|%s|%s|%s" $sc (trim $a.StartAt) (trim $a.StopAt) $a.GetValue | sha256sum | trunc 40}}"}{{end}}]}
 url: https://api.nexus.dynaminds.pl/api/security/ingest
 method: POST
 headers:

@@ -29,7 +29,14 @@ let probing: Promise<void> | undefined
 // przy nasyconym backendzie 151 sond na 10 minut zamiast 7–14.
 const RETRY_AFTER_FAILURE_MS = 60_000
 let nextProbeAt = 0
+// Klucz projektu PostHog z API (`usageAnalytics`), tylko przy włączonej fladze.
+// Bez pamięci w przeglądarce: wyłączenie flagi kończy pomiar od następnego wczytania.
+// `docs/claude/podstawy/analityka-uzycia-posthog.md`.
+const POSTHOG_PROJECT_KEY = /^phc_[A-Za-z0-9]{20,64}$/
+let usageAnalyticsKey: string | null = null
 export function apiSupportsCorrelation(): boolean { return compatible }
+/** Publiczny klucz PostHog, gdy API włączyło analitykę użycia; inaczej `null`. */
+export function apiUsageAnalyticsKey(): string | null { return usageAnalyticsKey }
 /** Licznik użycia obszarów włączony na API: wtedy (i tylko wtedy) wolno wysłać `X-Nexus-Screen`. */
 export function apiWantsUsageScreen(): boolean {
   if (usageCounter !== undefined) return usageCounter
@@ -55,7 +62,11 @@ export function probeTelemetryCapability(): Promise<void> {
         credentials: 'omit', signal: AbortSignal.timeout(5000),
       })
       compatible = response.ok && /^[a-f0-9-]{36}$/i.test(response.headers.get('x-request-id') ?? '')
-      rememberUsageCounter(compatible && (await response.json()).usageCounter === true)
+      const body: unknown = compatible ? await response.json() : null
+      const fields = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+      rememberUsageCounter(fields.usageCounter === true)
+      const key = fields.usageAnalytics
+      usageAnalyticsKey = typeof key === 'string' && POSTHOG_PROJECT_KEY.test(key) ? key : null
     } catch { /* Errors and traces still report; `X-Operation-Id` waits for a compatible API. */ }
     finally {
       if (!compatible) nextProbeAt = Date.now() + RETRY_AFTER_FAILURE_MS
