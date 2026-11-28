@@ -125,6 +125,43 @@ def test_other_mail_on_support_address_stays_a_case(addresses, senders):
     )
 
 
+def test_redirect_from_coordinator_mailbox_goes_to_settlements(addresses, monkeypatch):
+    """Reguła Exchange w skrzynce koordynatorki (Redirect na wsparcie@, 25.11.2026)
+    zostawia oryginalne nagłówki: odpowiedź Cost Control na „Lista kontraktorów” ma
+    koordynatorkę w „Do” i Nordeę w „DW”, bez adresu rozliczeń i bez „T4T” w temacie.
+    Raport rozpoznaje tylko domyślny nadawca z ``config.py``."""
+
+    from app.core.config import Settings
+
+    monkeypatch.setattr(
+        settings,
+        "CONSULTANT_PORTAL_TIME_REPORT_SENDERS",
+        Settings.model_fields["CONSULTANT_PORTAL_TIME_REPORT_SENDERS"].default,
+    )
+    msg = {
+        "hasAttachments": True,
+        "subject": "RE: Lista kontraktorów - listopad 2026",
+        "from": {"emailAddress": {"address": "costcontrol.psnoc@nordea.com"}},
+        "toRecipients": [
+            {"emailAddress": {"address": "koordynatorka.rozliczen@firma.example"}}
+        ],
+        "ccRecipients": [{"emailAddress": {"address": "kierownik@nordea.com"}}],
+    }
+    assert not route.recipients(msg) & route.settlements_addresses()
+    assert route.is_time_report_mail(msg)
+    assert route.is_settlements_mail(msg, route.settlements_addresses())
+    # Ta sama odpowiedź bez arkusza (pytanie Cost Control) zostaje sprawą.
+    assert not route.is_settlements_mail(
+        {**msg, "hasAttachments": False}, route.settlements_addresses()
+    )
+    # Koordynatorka sama przekierowuje coś innego: bez nadawcy z Nordei to sprawa.
+    other = {
+        **msg,
+        "from": {"emailAddress": {"address": "koordynatorka@firma.example"}},
+    }
+    assert not route.is_settlements_mail(other, route.settlements_addresses())
+
+
 def _acceptance(sender: str, *, to=("rozliczenia@example.com",)) -> dict:
     return {
         **_msg(to=to, attachments=False),
