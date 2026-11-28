@@ -31,6 +31,8 @@
   "back_office"
  ],
  "routes": {
-  "POST /api/public/website-applications": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "POST /api/public/website-applications": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/website-referrals": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/website-trainer-applications": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

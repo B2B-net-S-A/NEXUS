@@ -201,6 +201,22 @@
         "Kandydat",
         "Rekruter"
       ]
+    },
+    "trener-i-polecenie-ze-strony": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/trener-i-polecenie-ze-strony.md",
+      "sciezki": [
+        "backend/app/services/website_trainer_applications.py",
+        "backend/app/services/website_referrals.py",
+        "backend/app/api/candidate_referrals.py",
+        "frontend/src/components/referrals/**",
+        "frontend/src/components/trainings/MarketTrainerCandidates.tsx",
+        "frontend/src/components/trainings/market-trainer-model.ts"
+      ],
+      "role": [
+        "TCM",
+        "Rekruter",
+        "Finanse"
+      ]
     }
   }
 }

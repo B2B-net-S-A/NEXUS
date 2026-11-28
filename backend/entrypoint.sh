@@ -1443,6 +1443,16 @@ except Exception as _altcha_schema_err:  # noqa: BLE001
     print(f"altcha DDL unavailable: {_altcha_schema_err!r}")
     _ALTCHA_DDL = []
 
+# Zgłoszenia trenera i polecenia ze strony WWW (migracja 0806) — JEDNO źródło
+# z migracją (`app/services/website_intake_schema.py`).
+try:
+    from app.services import website_intake_schema as _website_intake_schema
+
+    _WEBSITE_INTAKE_DDL = list(_website_intake_schema.ALL_DDL)
+except Exception as _website_intake_err:  # noqa: BLE001
+    print(f"website intake DDL unavailable: {_website_intake_err!r}")
+    _WEBSITE_INTAKE_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1800,6 +1810,7 @@ _COLUMN_STATEMENTS = [
     *_CV_GENERATOR_FEEDBACK_DDL,
     *_DEPARTURE_CARE_DDL,
     *_ALTCHA_DDL,
+    *_WEBSITE_INTAKE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
