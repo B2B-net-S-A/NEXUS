@@ -19,7 +19,7 @@ Reguły obowiązują wg **miesiąca usługi** faktury, nie daty wysyłki.
 | `cl.item_name` | wzór opisu pozycji, wspólny z „Do faktury” w rozliczeniach: `{zamowienie}`, `{osoba}`, `{rola}` (tytuł pozycji zamówienia), `{usluga}`, `{miesiac}`; pole bez wartości znika z separatorem | BIK: rola z zamówienia w opisie |
 | `cl.item_must_contain` | każda pozycja szkicu ma zawierać tekst; poziom „blokuje” wstrzymuje wysyłkę, „ostrzega” tylko pokazuje uwagę | BIK: numery JIRA (wpisuje je osoba w opisie pozycji) |
 | `cl.invoice_mail` | karta podaje adres, gotowy temat (`{numer}`, `{ksef}`, `{m}`, `{mm}`, `{rrrr}`, `{zamowienie}`) i co załączyć; seria UE/KORUE bierze adres i temat UE, gdy są | Bosch: dwa adresy e-invoice (PL i UE) z tematem per seria; BNP: TS z numerem KSeF w temacie; BIK: PDF obok KSeF |
-| `cl.after_signed_document` (istniała) | od teraz także „Wystaw za miesiąc”: wiersz zamówienia z osobą bez kompletu podpisów dokumentu z `cl.client_document` za ten miesiąc jest zablokowany z nazwiskiem, szkic = 409 | Pekao: faktura po protokole podpisanym obustronnie |
+| `cl.after_signed_document` (istniała) | od teraz także „Wystaw za miesiąc”: wiersz zamówienia z osobą bez kompletu podpisów dokumentu z `cl.client_document` za ten miesiąc jest zablokowany z nazwiskiem, szkic = 409; od 28.11 także bez podpisanego KEŚU i bez akceptacji KCP (sekcja niżej) | Pekao: faktura po protokole podpisanym obustronnie |
 
 - **Maila NEXUS nie wysyła** (wysyłka faktur mailem to następny etap). `{ksef}` przed przyjęciem daje
   „(numer KSeF po przyjęciu)”, `{numer}` przed wysyłką — „(numer faktury po wysyłce)”.
@@ -58,6 +58,37 @@ Obie reguły są przełącznikami w „Reguły klienta”, domyślnie wyłączon
   przekazanego maila (`_thread_client_address`); ten sam plik przysłany ponownie w wątku z klientem uzupełnia
   nadawcę. PDF z adresu firmy bez klienta w wątku i mail koordynatorki z godzinami się nie liczą.
   Dokumenty zapisane przed tą zmianą mają nadawcę firmy, więc miesiące do X 2026 dostaną ostrzeżenie.
+
+## Dokument klienta z godzinami: KEŚU i akceptacja KCP (28.11.2026)
+
+Decyzja Artura z 28.11.2026: „Wystaw za miesiąc” czeka na dokument klienta, który potwierdza godziny.
+U Aliora to KEŚU podpisane przez klienta, u Banku Pocztowego akceptacja paczki KCP mailem od klienta.
+„Do faktury dla klienta” w Rozliczeniach już to liczyło (stany wiersza `awaiting_signature`
+i `awaiting_client`), ale `settled_lines.AWAITING` znało tylko „czeka na RCP” i „czeka na T4T”.
+Szkic wychodził więc bez tego dokumentu.
+
+- **Która reguła.** Tak jak w katalogu i w Rozliczeniach: wstrzymanie włącza `cl.after_signed_document`.
+  KEŚU czeka, gdy rozliczenie osoby ma KEŚU (`service.kesu_state`) w stanie innym niż „podpisane przez
+  spółkę i klienta” (`service.waits_for_signature`). KCP czeka, gdy dodatkowo włączona jest
+  `cl.client_acceptance`, a osoba nie ma akceptacji klienta (`client_acceptance.waiting`). Stan leży
+  w danych przy kontrolach rozliczenia (`client_settlements.checks`, element z `remaining_after`: klucz
+  `kesu.state` i `client_acceptance.accepted_at`), nie w `cp_documents`. Bez `cl.after_signed_document`
+  (albo dla KCP bez `cl.client_acceptance`) nic się nie zmienia.
+- **Komunikat** jak przy RCP, z nazwiskiem: „Pozycje czekają na rozliczenie: Osoba (czeka na podpisane
+  KEŚU)” albo „(czeka na akceptację KCP klienta)”. Szkic = 409, kwota wiersza zostaje podglądem
+  z zamówienia.
+- **KEŚU zamiast arkusza.** Przy `cl.client_document` „na podpisującego” `_signature_block` szukał
+  podpisanego arkusza zbiorczego także u osób z KEŚU. Arkusza tam nie ma, więc każdy szkic Aliora czekał
+  bez względu na KEŚU. Teraz osoba z KEŚU w przyjętym rozliczeniu (`settled_lines.with_kesu`) nie jest
+  sprawdzana na arkusz, tak jak w Rozliczeniach, gdzie KEŚU zdejmuje wstrzymanie na arkusze. Osoba bez
+  KEŚU dalej czeka na arkusz.
+- **Protokół i arkusze miesiąca** (`signature_hold` w widoku, PKO, Velo) dają ten sam stan
+  `awaiting_signature` w każdym wierszu. Tego `settled_lines` nie traktuje jako KEŚU. Osoby sprawdza
+  dalej `_signature_block` po kolei, z komunikatem o protokole albo arkuszu.
+- **Pomiar na kopii z nocy 28.11.2026** (ta sama kopia, `main` i gałąź): bez zmian. Alior X i XI:
+  wszystkie wiersze czekają na RCP, bo rozliczeń przyjętych nie ma. Bank Pocztowy 12/12 bez blokady:
+  `cl.client_acceptance` i `cl.after_signed_document` są tam wyłączone. Żeby szkic Banku Pocztowego
+  czekał na akceptację KCP, Finanse włączają obie reguły.
 
 ## Faktura z kilku zamówień
 
@@ -107,6 +138,9 @@ Obie reguły są przełącznikami w „Reguły klienta”, domyślnie wyłączon
   sekcja „Zlecenie B-ZONE…” w `test_client_invoice_issue_api.py` (tam też inne imię w protokole: umowa tylko
   tej osoby bez ostrzeżenia, druga osoba na umowie z ostrzeżeniem) i nadawca protokołu
   w `test_consultant_portal_protocol_mail_db.py`.
+- KEŚU i KCP: bez bazy `tests/test_client_invoicing_settled_lines.py`, z bazą sekcja „Dokument klienta
+  z godzinami” w `test_client_invoice_issue_api.py` (KEŚU bez podpisu i podpisane przy regule „na
+  podpisującego”, KCP wysłane i zaakceptowane, oba bez reguł).
 - Reguły bez bazy: `tests/test_client_invoice_requirements.py`; ścieżka z bazą (szkic z dwóch zamówień, `NrUmowy`,
   `OSOBA`, nabywca per kontrakt z `AdresKoresp`, tekst wymagany w pozycji, blokada bez protokołu):
   `tests/test_client_invoice_issue_api.py`.

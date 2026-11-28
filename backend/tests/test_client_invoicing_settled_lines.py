@@ -97,6 +97,29 @@ def test_hours_not_approved_in_t4t_wait_too():
     assert lines[0].awaiting == "czeka na godziny zatwierdzone w T4T"
 
 
+def test_unsigned_kesu_waits_like_a_missing_report():
+    # Decyzja Artura z 28.11.2026: faktura po dokumencie klienta z godzinami.
+    settled = settled_lines.settled_from_rows([_row("awaiting_signature", [BASE])])
+    lines = billing.with_settlement(_order_line(), settled_lines.find(settled, 3, 7))
+    assert lines[0].awaiting == "czeka na podpisane KEŚU"
+
+
+def test_kcp_not_accepted_by_the_client_waits():
+    settled = settled_lines.settled_from_rows([_row("awaiting_client", [BASE])])
+    lines = billing.with_settlement(_order_line(), settled_lines.find(settled, 3, 7))
+    assert lines[0].awaiting == "czeka na akceptację KCP klienta"
+
+
+def test_protocol_or_sheet_hold_is_left_to_the_signature_check():
+    # Ten sam stan przy wstrzymaniu na protokół/arkusze miesiąca: osoby sprawdza
+    # ``issue._signature_block`` po kolei, więc wiersz rozliczenia nie czeka.
+    settled = settled_lines.settled_from_rows(
+        [_row("awaiting_signature", [BASE])], document_hold=True
+    )
+    lines = billing.with_settlement(_order_line(), settled_lines.find(settled, 3, 7))
+    assert lines[0].awaiting is None and lines[0].source == "settlement"
+
+
 def test_contract_outside_settlements_keeps_the_order_line():
     settled = settled_lines.settled_from_rows([_row("ready", [BASE], contract_id=99)])
     line = _order_line()
