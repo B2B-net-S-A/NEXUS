@@ -514,7 +514,7 @@ SECTIONS: tuple[Section, ...] = (
                     ParamField(
                         "by_order",
                         "inna umowa dla zamówień",
-                        "zamówienie=umowa; …, np. 1127_2026=1980.2015",
+                        "np. 1127_2026=1980.2015; …",
                     ),
                 ),
                 "Trafia do warunków transakcji każdej faktury z NEXUSA. Zamówienie "
